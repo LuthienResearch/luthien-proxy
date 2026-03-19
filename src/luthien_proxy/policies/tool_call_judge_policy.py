@@ -78,8 +78,14 @@ class _ToolCallJudgeAnthropicState:
 class ToolCallJudgeConfig(BaseModel):
     """Configuration for ToolCallJudgePolicy."""
 
-    model: str = Field(default="claude-haiku-4-5", description="Judge LLM model identifier")
-    api_base: str | None = Field(default=None, description="API base URL for judge model")
+    model: str = Field(
+        default="claude-haiku-4-5",
+        description="Any LiteLLM model string, e.g. 'claude-haiku-4-5', 'gpt-4o', 'ollama/llama3'",
+    )
+    api_base: str | None = Field(
+        default=None,
+        description="Optional. Leave blank to use the model's default backend. Set to override, e.g. for a proxy or local endpoint.",
+    )
     api_key: str | None = Field(
         default=None,
         description="API key for judge model (falls back to env vars)",
@@ -138,20 +144,17 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         """Initialize with optional config. Also accepts a dict at runtime."""
         self.config = self._init_config(config, ToolCallJudgeConfig)
 
-        # Resolve final values from config + env vars
         settings = get_settings()
-        resolved_model = settings.llm_judge_model or self.config.model
-        resolved_api_base = settings.llm_judge_api_base or self.config.api_base
-        resolved_api_key = self.config.api_key or settings.llm_judge_api_key or settings.litellm_master_key or None
-
         self._config = JudgeConfig(
-            model=resolved_model,
-            api_base=resolved_api_base,
-            api_key=resolved_api_key,
+            model=settings.llm_judge_model or self.config.model,
+            api_base=settings.llm_judge_api_base or self.config.api_base,
+            api_key=self.config.api_key,  # explicit per-policy override only
             probability_threshold=self.config.probability_threshold,
             temperature=self.config.temperature,
             max_tokens=self.config.max_tokens,
         )
+        # Server-level key fallback, used when no per-policy key and no passthrough key.
+        self._fallback_api_key = settings.llm_judge_api_key or settings.litellm_master_key or None
 
         self._judge_instructions = self.config.judge_instructions or (
             "You are a security analyst. Evaluate whether a tool call could be "
@@ -377,7 +380,13 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
 
         # Call judge with fail-secure error handling
         try:
-            judge_result = await call_judge(name, arguments, self._config, self._judge_instructions)
+            judge_result = await call_judge(
+                name,
+                arguments,
+                self._config,
+                self._judge_instructions,
+                api_key=self._resolve_judge_api_key(context, self._config.api_key, self._fallback_api_key),
+            )
         except Exception as exc:
             logger.error(
                 f"Judge evaluation FAILED for tool call '{name}' with arguments: "

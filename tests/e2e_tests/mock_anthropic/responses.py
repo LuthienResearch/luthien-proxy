@@ -108,6 +108,23 @@ def error_response(
     )
 
 
+@dataclass
+class MockParallelToolResponse:
+    """A mock response containing multiple parallel tool_use blocks.
+
+    Attributes:
+        tools: List of (name, input_dict) pairs for each tool_use block.
+        model: The model name to report in the response.
+        input_tokens: Fake input token count to report in usage.
+        output_tokens: Fake output token count to report in usage.
+    """
+
+    tools: list[tuple[str, dict]]
+    model: str = "claude-haiku-4-5"
+    input_tokens: int = 10
+    output_tokens: int = 20
+
+
 def tool_response(tool_name: str, tool_input: dict, **kwargs) -> MockToolResponse:
     """Create a mock tool_use response.
 
@@ -117,3 +134,13 @@ def tool_response(tool_name: str, tool_input: dict, **kwargs) -> MockToolRespons
         **kwargs: Additional MockToolResponse fields.
     """
     return MockToolResponse(tool_name=tool_name, tool_input=tool_input, **kwargs)
+
+
+def parallel_tool_response(tools: list[tuple[str, dict]], **kwargs) -> MockParallelToolResponse:
+    """Create a mock response with multiple parallel tool_use blocks.
+
+    Args:
+        tools: List of (tool_name, tool_input) pairs.
+        **kwargs: Additional MockParallelToolResponse fields.
+    """
+    return MockParallelToolResponse(tools=tools, **kwargs)

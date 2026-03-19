@@ -17,11 +17,16 @@ from fastapi import Depends, FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.testclient import TestClient
 
-from luthien_proxy.auth import check_auth_or_redirect, verify_admin_token
+from luthien_proxy.auth import (
+    check_auth_or_redirect,
+    is_localhost_request,
+    verify_admin_token,
+)
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.observability.emitter import NullEventEmitter
 from luthien_proxy.policies.noop_policy import NoOpPolicy
 from luthien_proxy.policy_manager import PolicyManager
+from luthien_proxy.settings import clear_settings_cache
 
 
 @pytest.fixture
@@ -266,3 +271,133 @@ class TestCheckAuthOrRedirectFallthrough:
         location = dict(result.headers)["location"]
         assert "/login" in location
         assert "next=" in location
+
+
+# --- Localhost bypass tests ---
+
+
+def _make_localhost_request(
+    host: str = "127.0.0.1",
+    path: str = "/activity/monitor",
+    headers: dict[str, str] | None = None,
+) -> MagicMock:
+    """Build a mock Request that appears to come from a given IP."""
+    request = MagicMock()
+    request.headers = headers or {}
+    request.cookies = {}
+    request.url.path = path
+    request.client.host = host
+    return request
+
+
+class TestIsLocalhostRequest:
+    """Test the is_localhost_request helper."""
+
+    def test_ipv4_loopback(self):
+        request = _make_localhost_request(host="127.0.0.1")
+        assert is_localhost_request(request) is True
+
+    def test_ipv6_loopback(self):
+        request = _make_localhost_request(host="::1")
+        assert is_localhost_request(request) is True
+
+    def test_ipv4_mapped_ipv6(self):
+        request = _make_localhost_request(host="::ffff:127.0.0.1")
+        assert is_localhost_request(request) is True
+
+    def test_remote_ip(self):
+        request = _make_localhost_request(host="192.168.1.50")
+        assert is_localhost_request(request) is False
+
+    def test_no_client(self):
+        request = MagicMock()
+        request.client = None
+        assert is_localhost_request(request) is False
+
+
+class TestLocalhostBypassCheckAuthOrRedirect:
+    """Localhost bypass for the redirect-based auth used by UI pages."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_settings(self):
+        clear_settings_cache()
+        yield
+        clear_settings_cache()
+
+    def test_localhost_bypasses_auth(self, monkeypatch):
+        monkeypatch.setenv("LOCALHOST_AUTH_BYPASS", "true")
+        request = _make_localhost_request(path="/activity/monitor")
+        result = check_auth_or_redirect(request, admin_key="secret123")
+        assert result is None
+
+    def test_remote_ip_still_requires_auth(self, monkeypatch):
+        monkeypatch.setenv("LOCALHOST_AUTH_BYPASS", "true")
+        request = _make_localhost_request(host="10.0.0.5", path="/activity/monitor")
+        result = check_auth_or_redirect(request, admin_key="secret123")
+        assert isinstance(result, RedirectResponse)
+
+    def test_bypass_disabled_requires_auth(self, monkeypatch):
+        monkeypatch.setenv("LOCALHOST_AUTH_BYPASS", "false")
+        request = _make_localhost_request(path="/activity/monitor")
+        result = check_auth_or_redirect(request, admin_key="secret123")
+        assert isinstance(result, RedirectResponse)
+
+    def test_admin_path_never_bypassed(self, monkeypatch):
+        monkeypatch.setenv("LOCALHOST_AUTH_BYPASS", "true")
+        request = _make_localhost_request(path="/api/admin/policy")
+        result = check_auth_or_redirect(request, admin_key="secret123")
+        assert isinstance(result, RedirectResponse)
+
+
+class TestLocalhostBypassVerifyAdminToken:
+    """Localhost bypass for the dependency-injected auth used by API endpoints."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_settings(self):
+        clear_settings_cache()
+        yield
+        clear_settings_cache()
+
+    @pytest.fixture
+    def app_localhost_bypass(self, monkeypatch):
+        """App with admin key and localhost bypass enabled."""
+        monkeypatch.setenv("LOCALHOST_AUTH_BYPASS", "true")
+        clear_settings_cache()
+
+        app = FastAPI()
+        mock_policy_manager = MagicMock(spec=PolicyManager)
+        mock_policy_manager.current_policy = NoOpPolicy()
+
+        deps = Dependencies(
+            db_pool=None,
+            redis_client=None,
+            llm_client=MockLLMClient(),
+            policy_manager=mock_policy_manager,
+            emitter=NullEventEmitter(),
+            api_key="test-api-key",
+            admin_key="test-admin-key",
+        )
+        app.state.dependencies = deps
+
+        @app.get("/ui-endpoint")
+        async def ui_endpoint(token: str = Depends(verify_admin_token)):
+            return {"token": token}
+
+        @app.get("/api/admin/policy")
+        async def admin_endpoint(token: str = Depends(verify_admin_token)):
+            return {"token": token}
+
+        return app
+
+    def test_localhost_bypasses_ui_endpoint(self, app_localhost_bypass, monkeypatch):
+        monkeypatch.setattr("luthien_proxy.auth.is_localhost_request", lambda r: True)
+        with TestClient(app_localhost_bypass) as client:
+            response = client.get("/ui-endpoint")
+            assert response.status_code == 200
+            assert response.json()["token"] == "localhost-bypass"
+
+    def test_localhost_does_not_bypass_admin_endpoint(self, app_localhost_bypass, monkeypatch):
+        monkeypatch.setattr("luthien_proxy.auth.is_localhost_request", lambda r: True)
+        with TestClient(app_localhost_bypass) as client:
+            response = client.get("/api/admin/policy")
+            assert response.status_code == 403

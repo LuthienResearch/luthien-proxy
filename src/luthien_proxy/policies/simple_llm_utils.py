@@ -7,6 +7,7 @@ response blocks.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any, cast
@@ -23,8 +24,14 @@ logger = logging.getLogger(__name__)
 class SimpleLLMJudgeConfig(BaseModel):
     """Configuration for SimpleLLMPolicy judge."""
 
-    model: str = Field(default="claude-haiku-4-5", description="Judge model identifier")
-    api_base: str | None = Field(default=None, description="API base URL")
+    model: str = Field(
+        default="claude-haiku-4-5",
+        description="Any LiteLLM model string, e.g. 'claude-haiku-4-5', 'gpt-4o', 'ollama/llama3'",
+    )
+    api_base: str | None = Field(
+        default=None,
+        description="Optional. Leave blank to use the model's default backend. Set to override, e.g. for a proxy or local endpoint.",
+    )
     api_key: str | None = Field(
         default=None,
         description="API key for authentication",
@@ -42,6 +49,18 @@ class SimpleLLMJudgeConfig(BaseModel):
             "'block' is fail-secure: content is rejected when the judge cannot "
             "evaluate it."
         ),
+    )
+    max_retries: int = Field(
+        default=2,
+        ge=0,
+        le=10,
+        description="Max retry attempts on transient judge failures (0 = no retries).",
+    )
+    retry_delay: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=30.0,
+        description="Seconds to wait between retries.",
     )
 
     model_config = {"frozen": True}
@@ -171,15 +190,21 @@ async def call_simple_llm_judge(
     config: SimpleLLMJudgeConfig,
     current_block: BlockDescriptor,
     previous_blocks: tuple[BlockDescriptor, ...],
+    api_key: str | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> JudgeAction:
     """Call the judge LLM and return its decision.
 
-    The caller (SimpleLLMPolicy) resolves API keys at init time and passes
-    them via config. This function uses config values directly.
-    Exceptions propagate to the caller, which applies the on_error policy.
+    api_key overrides config.api_key (used for passthrough auth). extra_headers
+    is used for OAuth tokens (anthropic-beta header). If neither is set, LiteLLM
+    falls back to its own env-var resolution.
+
+    Retries up to config.max_retries times with config.retry_delay between
+    attempts. Exceptions propagate to the caller on final failure.
     """
     prompt = build_judge_prompt(config.instructions, current_block, previous_blocks)
 
+    resolved_key = api_key or config.api_key
     kwargs: dict[str, Any] = {
         "model": config.model,
         "messages": prompt,
@@ -189,18 +214,45 @@ async def call_simple_llm_judge(
     }
     if config.api_base:
         kwargs["api_base"] = config.api_base
-    if config.api_key:
-        kwargs["api_key"] = config.api_key
+    if resolved_key:
+        kwargs["api_key"] = resolved_key
+    if extra_headers:
+        kwargs["extra_headers"] = extra_headers
 
-    response = await acompletion(**kwargs)
-    response = cast(ModelResponse, response)
+    max_attempts = 1 + config.max_retries
+    last_exc: Exception | None = None
 
-    first_choice: Choices = cast(Choices, response.choices[0])
-    message: Message = first_choice.message
-    if message.content is None:
-        raise ValueError("Judge response content is None")
+    for attempt in range(max_attempts):
+        try:
+            response = await acompletion(**kwargs)
+            response = cast(ModelResponse, response)
 
-    return parse_judge_action(message.content)
+            first_choice: Choices = cast(Choices, response.choices[0])
+            message: Message = first_choice.message
+            if message.content is None:
+                raise ValueError("Judge response content is None")
+
+            return parse_judge_action(message.content)
+        except Exception as exc:  # noqa: BLE001
+            # Retry all errors, not just network/API errors. Parse failures
+            # (malformed JSON, missing fields) can also succeed on a fresh
+            # LLM call since the model may produce valid output next time.
+            last_exc = exc
+            is_last_attempt = attempt == max_attempts - 1
+            if is_last_attempt:
+                break
+            logger.warning(
+                "SimpleLLM judge attempt %d/%d failed: %r — retrying in %.1fs",
+                attempt + 1,
+                max_attempts,
+                exc,
+                config.retry_delay,
+            )
+            if config.retry_delay > 0:
+                await asyncio.sleep(config.retry_delay)
+
+    assert last_exc is not None  # loop always runs at least once
+    raise last_exc
 
 
 __all__ = [

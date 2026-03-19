@@ -2,38 +2,70 @@
 
 ## Unreleased | TBA
 
-- **SQLite support** (sqlite-support): Run the gateway without Docker using a local SQLite file
-  - `DatabasePool` auto-detects SQLite vs PostgreSQL from `DATABASE_URL` prefix (`sqlite:///`)
-  - SQLite adapter translates asyncpg-style SQL: `$N` → `?`, strips `::type` casts, rewrites `to_timestamp()`, `NOW()`, `ILIKE`, `LEAST()`
-  - `check_migrations` applies a single `migrations/sqlite_schema.sql` snapshot instead of running Docker migration scripts; generates a real UUID `deployment_id` on first apply
-  - `DatabaseWriteError` in `utils/db.py`: DB-agnostic exception wrapping any driver error (asyncpg, aiosqlite) with the original `cause` preserved — callers no longer import driver-specific error types
-  - Request log recorder refactored: `_insert_log_row()` raises `DatabaseWriteError` on any failure; fixed duplicate-parameter SQL bug (`CASE WHEN $12 ... to_timestamp($12)`) that broke SQLite's positional `?` placeholders
-  - Request log service: `_parse_ts()` handles both `datetime` objects (asyncpg) and strings (aiosqlite) for timestamp columns
-  - SQLite e2e test suite (`tests/e2e_tests/sqlite/`): 39 tests imported from the mock e2e suite and re-run against an in-process SQLite gateway; no Docker required (`uv run pytest tests/e2e_tests/sqlite/ -m sqlite_e2e`)
-  - Unit tests: 14 SQLite-specific history service tests + 5 `_insert_log_row` exception-path tests covering asyncpg, aiosqlite, and generic errors
+### Features
 
-- **Auth mode nudge** (auth-mode-nudge): Interactive 60s countdown dialogue in `quick_start.sh` and `launch_claude_code.sh` nudging `proxy_key` users toward `both`/`passthrough` mode; updates `.env` and admin API on change
+- **Silence OTel errors** (silence-otel): Gracefully handle missing OTel/Tempo infrastructure
+  - Default `OTEL_ENABLED` to `false` (opt-in instead of opt-out)
+  - Silence gRPC and OTel exporter loggers that spam ERROR on connection failure
+  - Docker Compose explicitly enables OTel when running the full stack
+  - Log "OTel disabled" at DEBUG instead of INFO
+- **CLI progress indicators** (cli-progress): Add spinners to long-running CLI operations so users know the tool isn't hung
+  - `luthien onboard`: spinners during image pull, container stop/start, and health check
+  - `luthien up` / `luthien down`: spinners during container start/stop and health check
+  - `repo.py`: spinners during artifact download and update checks
 
-- **Billing mode visibility** (billing-mode-visibility): Surface upstream auth mode accurately in the UI and health endpoint
-  - `/health` now returns `auth_mode` (from credential manager) and `last_credential_type` / `last_credential_at` (Redis-tracked per-request)
-  - Activity monitor badge reflects actual credential used (OAuth vs API key) not just static config
-  - Launch script detects auth mode from gateway and warns only in `proxy_key` mode
-  - Fix OAuth passthrough: Anthropic SDK was sending server API key alongside bearer token; resolved by clearing `api_key` and using per-call `extra_headers` instead of `with_options`
-  - Fix OAuth credential pre-validation: `count_tokens` endpoint rejects claude.ai OAuth tokens; inconclusive results now pass through to let the real messages endpoint decide
+- **SQLite support** for Docker-free installs (#344)
+- **`luthien onboard`** interactive setup command — prompts for policy description, generates keys, starts stack (#317)
+- **Auto-fetch proxy artifacts on onboard** — `luthien onboard` downloads Docker artifacts from GitHub, no repo checkout needed (#345)
+- **Mock e2e testing framework** — real HTTP requests against a fake Anthropic backend, no API calls or cost (#307)
+- **Surface upstream billing mode** to prevent unexpected API charges (#311)
 
-- Add automated Docker image publishing to GHCR (gateway, migrations, sandbox)
-  - Multi-platform builds (linux/amd64, linux/arm64)
-  - PR builds validate Dockerfiles without pushing
-- **Policy authoring DX overhaul**: Simpler interfaces for writing policies
-  - `OpenAIPolicyInterface` streaming hooks now have sensible defaults — policies only override hooks they use
-  - `AnthropicHookPolicy` base class with `on_anthropic_stream_complete` lifecycle hook — eliminates copy-pasted `run_anthropic` boilerplate
-  - `TextModifierPolicy` base class — implement `modify_text()` and/or `extra_text()`, get all 4 code paths (OpenAI/Anthropic × streaming/non-streaming) handled automatically
-  - Cleaned up all existing policies (~400 lines of duplicated boilerplate removed)
+### Fixes
 
-- **SimpleLLMPolicy**: New policy that applies plain-English instructions to LLM response blocks using a configurable judge LLM. Supports pass-through, text/tool replacement, and cross-type replacement (tool_use → text, text → tool_use). Works with both OpenAI and Anthropic APIs in streaming and non-streaming modes. Configurable error handling (fail-open/fail-secure) and automatic stop_reason correction.
+- Fix worktree dev instances sharing `COMPOSE_PROJECT_NAME` — auto-derive from directory name (#348)
+- Make gateway API key optional for `luthien claude` — OAuth passthrough by default (#346)
+- Fix onboard port conflicts and add API key warning (#341)
+- Return Anthropic-format errors for `/v1/messages` HTTPExceptions (#315)
+- Explicit backend timeout (`ANTHROPIC_BACKEND_TIMEOUT_SECONDS = 600`) and safe policy error handling (#310)
+- Stop setting `ANTHROPIC_API_KEY` in launch scripts — let Claude Code use its own credentials (#318)
+- Inject warning on SimpleLLMPolicy judge failure instead of silent pass-through (#329)
+- Fix silent policy class errors in `_load_from_db()` — no longer silently downgrades to YAML config (#327)
+- Narrow broad except in file-fallback-db policy init to `FileNotFoundError` (#328)
+- Narrow bare except to `ValueError` in admin JSON parsing (#326)
+- Narrow DB exception handling and add drop counters (#330)
+- Add logging to 12 silent exception handlers across codebase (#338)
+- Fix test-chat Docker selfcall, nullable param example, pair input UI (#306)
+- Show Deactivate button instead of Reactivate for active policy on `/policy-config` (#333)
+- Clear nav billing badge polling interval on Alpine destroy (#323)
+- Fix mock e2e tests on Linux with correct Docker networking and auth (#331)
+- Fix `quick_start.sh` health check reliability (#289)
+- Add `--build` to `quick_start.sh` to prevent stale Docker images (#299)
+- Sanitize sensitive headers in DebugLoggingPolicy (#301)
+- Fix MultiParallelPolicy deepcopy crash and MultiSerialPolicy response ordering (#305)
+- Fix overseer test harness usability improvements (#294)
+- Fix hardcoded database name in migration 008 (#281, #282)
+- Add dirty-tree warning to `dev_checks.sh` (#324)
 
-- Add opt-out anonymous usage telemetry (aggregate request/token counts, no PII)
-  - Disable with `USAGE_TELEMETRY=false` or admin API (`GET/PUT /api/admin/telemetry`)
+### Refactors
+
+- Move luthien-cli into `src/` for consistent project layout (#321)
+- Encapsulate credential type tracking in CredentialManager (#325)
+
+### Chores & Docs
+
+- Add shellcheck to `dev_checks.sh` and fix all 22 warnings across 9 scripts (#332)
+- Update README to match landing page v10.7 (#319)
+- Add ARCHITECTURE.md codebase map (#293)
+- Document bash 3.2+ requirement on all shell scripts (#320)
+- Bump luthien-cli to 0.1.7 (#342)
+- Update claude-code-action to v1 (#283)
+- Remove `dev/TODO.md`, track TODOs on Trello (#300)
+- Remove dead persistence pipeline (`storage/persistence.py`) (#285)
+- Define `DEFAULT_TEST_MODEL` constant (#288)
+- Add `.claude/worktrees/` to `.gitignore` (#279)
+- Update Railway deployment config (#334)
+
+### Previously logged (pre-#306)
 
 - Remove dead Anthropic compatibility handlers (`_handle_streaming`, `_handle_non_streaming`) from `anthropic_processor.py`
   - Update unit/regression tests to exercise `process_anthropic_request()` instead of deleted internal wrappers

@@ -1,0 +1,20 @@
+# docker-compose override for mock-based e2e testing using bridge networking.
+#
+# Unlike docker-compose.mock.yaml (which uses network_mode: host), this variant
+# keeps the gateway on a bridge network so its port is accessible via Docker's
+# normal port-mapping from the host/test runner.
+#
+# The mock server running on the host at port 18888 is reached via
+# host.docker.internal instead of 127.0.0.1.
+#
+# Usage:
+#   docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
+#   uv run pytest -m mock_e2e tests/e2e_tests/test_mock_*.py -v
+
+services:
+  gateway:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - ANTHROPIC_BASE_URL=http://host.docker.internal:18888
+      - ANTHROPIC_API_KEY=mock-key

@@ -148,14 +148,12 @@ Common commands:
 
 - Inspect the dev Postgres quickly with `uv run python scripts/query_debug_logs.py`. The helper loads `.env`, connects to `DATABASE_URL`, and prints recent conversation events and debug logs.
 
-
 ## Coding Style & Naming Conventions
 
 - Python 3.13; annotate public APIs and important internals. Pyright is the single static checker.
 - Formatting via Ruff: double quotes, spaces for indent (see `pyproject.toml`).
 - Naming: modules `snake_case`, classes `PascalCase`, functions and vars `snake_case`.
 - Docstrings: Google style for public modules/classes/functions; focus on WHY and non-trivial behavior.
-- Optional runtime type checking (`beartype`) for critical sections
 - String formatting: prefer f-strings over `.format()` or `%` formatting for readability and performance
 
 ## Testing Guidelines

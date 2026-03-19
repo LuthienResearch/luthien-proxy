@@ -98,7 +98,6 @@ async def resolve_anthropic_client(
     token = bearer_token or api_key_header
     if not token:
         raise HTTPException(status_code=401, detail="Missing API key")
-    is_bearer = bearer_token is not None
 
     auth_mode = credential_manager.config.auth_mode if credential_manager else AuthMode.PROXY_KEY
     base_url = base_client._base_url if base_client else None
@@ -128,11 +127,12 @@ async def resolve_anthropic_client(
     matches_proxy_key = secrets.compare_digest(token, api_key)
     use_passthrough = not matches_proxy_key or auth_mode == AuthMode.PASSTHROUGH
     if use_passthrough:
-        if is_bearer and not is_anthropic_api_key(token):
-            await _record_credential_type("oauth")
-            return AnthropicClient(auth_token=token, base_url=base_url)
-        await _record_credential_type("client_api_key")
-        return AnthropicClient(api_key=token, base_url=base_url)
+        if is_anthropic_api_key(token):
+            await _record_credential_type("client_api_key")
+            return AnthropicClient(api_key=token, base_url=base_url)
+        # Non-API-key tokens are treated as OAuth credentials
+        await _record_credential_type("oauth")
+        return AnthropicClient(auth_token=token, base_url=base_url)
 
     # Proxy key fallback: use the server's configured client
     if base_client is None:

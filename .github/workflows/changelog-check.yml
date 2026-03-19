@@ -1,0 +1,44 @@
+name: CHANGELOG Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+jobs:
+  changelog-check:
+    runs-on: ubuntu-latest
+    # Skip for PRs labeled skip-changelog or chore
+    if: >-
+      !contains(github.event.pull_request.labels.*.name, 'skip-changelog') &&
+      !contains(github.event.pull_request.labels.*.name, 'chore')
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Check for CHANGELOG update
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          CHANGED=$(gh pr diff "$PR_NUMBER" --repo "$REPO" --name-only | grep -c '^CHANGELOG.md$' || true)
+
+          if [ "$CHANGED" -eq 0 ]; then
+            # Check if we already posted a reminder (avoid duplicate comments)
+            EXISTING=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json comments \
+              --jq '[.comments[] | select(.body | contains("CHANGELOG reminder"))] | length')
+
+            if [ "$EXISTING" -eq 0 ]; then
+              gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$(cat <<'COMMENT'
+**CHANGELOG reminder** — This PR does not update `CHANGELOG.md`.
+
+If this PR includes user-facing changes, please add an entry under `## Unreleased`.
+If this is a chore/infra-only change, add the `skip-changelog` or `chore` label to suppress this reminder.
+COMMENT
+              )"
+            fi
+
+            echo "::warning::CHANGELOG.md was not modified in this PR"
+          else
+            echo "CHANGELOG.md updated — looks good."
+          fi

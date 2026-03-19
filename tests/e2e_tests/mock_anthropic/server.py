@@ -32,6 +32,7 @@ import uuid
 from aiohttp import web
 from tests.e2e_tests.mock_anthropic.responses import (
     MockErrorResponse,
+    MockParallelToolResponse,
     MockResponse,
     MockToolResponse,
     text_response,
@@ -42,7 +43,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_MOCK_PORT = 18888
 
 # Union of all response types the queue can hold.
-AnyMockResponse = MockResponse | MockErrorResponse | MockToolResponse
+AnyMockResponse = MockResponse | MockErrorResponse | MockToolResponse | MockParallelToolResponse
 
 
 class MockAnthropicServer:
@@ -71,6 +72,7 @@ class MockAnthropicServer:
         self._ready = threading.Event()
         self._stop_event: asyncio.Event | None = None
         self._received_requests: list[dict] = []
+        self._received_headers: list[dict[str, str]] = []
         self._requests_lock = threading.Lock()
 
     # ------------------------------------------------------------------
@@ -103,10 +105,21 @@ class MockAnthropicServer:
         with self._requests_lock:
             return list(self._received_requests)
 
+    def last_request_headers(self) -> dict[str, str] | None:
+        """Return headers of the most recently received request, or None."""
+        with self._requests_lock:
+            return self._received_headers[-1] if self._received_headers else None
+
+    def received_request_headers(self) -> list[dict[str, str]]:
+        """Return headers of all received requests in order."""
+        with self._requests_lock:
+            return list(self._received_headers)
+
     def clear_requests(self) -> None:
         """Clear the recorded request history."""
         with self._requests_lock:
             self._received_requests.clear()
+            self._received_headers.clear()
 
     def drain_queue(self) -> None:
         """Drain all pending items from the response queue (for test isolation)."""
@@ -160,10 +173,11 @@ class MockAnthropicServer:
         await self._stop_event.wait()
         await self._runner.cleanup()
 
-    def _record_request(self, body: dict) -> None:
-        """Thread-safely append a parsed request body to the history."""
+    def _record_request(self, body: dict, headers: dict[str, str] | None = None) -> None:
+        """Thread-safely append a parsed request body and headers to the history."""
         with self._requests_lock:
             self._received_requests.append(body)
+            self._received_headers.append(headers or {})
 
     def _next_mock(self) -> AnyMockResponse:
         """Dequeue the next mock response, falling back to the default."""
@@ -178,7 +192,7 @@ class MockAnthropicServer:
 
     async def _handle_messages(self, request: web.Request) -> web.StreamResponse | web.Response:
         body = await request.json()
-        self._record_request(body)
+        self._record_request(body, dict(request.headers))
 
         mock = self._next_mock()
 
@@ -188,6 +202,11 @@ class MockAnthropicServer:
                 body=json.dumps({"type": "error", "error": {"type": mock.error_type, "message": mock.error_message}}),
                 content_type="application/json",
             )
+
+        if isinstance(mock, MockParallelToolResponse):
+            if body.get("stream", False):
+                return await self._stream_parallel_tool_response(mock, request, body)
+            return self._json_parallel_tool_response(mock, body)
 
         if isinstance(mock, MockToolResponse):
             if body.get("stream", False):
@@ -385,13 +404,121 @@ class MockAnthropicServer:
         await response.write_eof()
         return response
 
+    def _json_parallel_tool_response(self, mock: MockParallelToolResponse, body: dict) -> web.Response:
+        content = []
+        for i, (name, tool_input) in enumerate(mock.tools):
+            content.append(
+                {
+                    "type": "tool_use",
+                    "id": f"toolu_{uuid.uuid4().hex[:24]}",
+                    "name": name,
+                    "input": tool_input,
+                }
+            )
+        data = {
+            "id": f"msg_{uuid.uuid4().hex[:24]}",
+            "type": "message",
+            "role": "assistant",
+            "content": content,
+            "model": body.get("model", mock.model),
+            "stop_reason": "tool_use",
+            "stop_sequence": None,
+            "usage": {
+                "input_tokens": mock.input_tokens,
+                "output_tokens": mock.output_tokens,
+            },
+        }
+        return web.Response(body=json.dumps(data), content_type="application/json")
+
+    async def _stream_parallel_tool_response(
+        self,
+        mock: MockParallelToolResponse,
+        request: web.Request,
+        body: dict,
+    ) -> web.StreamResponse:
+        msg_id = f"msg_{uuid.uuid4().hex[:24]}"
+        model = body.get("model", mock.model)
+
+        response = web.StreamResponse(
+            headers={
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            }
+        )
+        await response.prepare(request)
+
+        async def emit(event_type: str, data: dict) -> None:
+            line = f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+            await response.write(line.encode())
+
+        await emit(
+            "message_start",
+            {
+                "type": "message_start",
+                "message": {
+                    "id": msg_id,
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": model,
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": mock.input_tokens, "output_tokens": 1},
+                },
+            },
+        )
+
+        for i, (name, tool_input) in enumerate(mock.tools):
+            tool_id = f"toolu_{uuid.uuid4().hex[:24]}"
+            await emit(
+                "content_block_start",
+                {
+                    "type": "content_block_start",
+                    "index": i,
+                    "content_block": {
+                        "type": "tool_use",
+                        "id": tool_id,
+                        "name": name,
+                        "input": {},
+                    },
+                },
+            )
+
+            input_json = json.dumps(tool_input)
+            chunk_size = 10
+            for j in range(0, len(input_json), chunk_size):
+                await emit(
+                    "content_block_delta",
+                    {
+                        "type": "content_block_delta",
+                        "index": i,
+                        "delta": {"type": "input_json_delta", "partial_json": input_json[j : j + chunk_size]},
+                    },
+                )
+
+            await emit("content_block_stop", {"type": "content_block_stop", "index": i})
+
+        await emit(
+            "message_delta",
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "tool_use", "stop_sequence": None},
+                "usage": {"output_tokens": mock.output_tokens},
+            },
+        )
+        await emit("message_stop", {"type": "message_stop"})
+
+        await response.write_eof()
+        return response
+
     # ------------------------------------------------------------------
     # OpenAI /v1/chat/completions
     # ------------------------------------------------------------------
 
     async def _handle_chat_completions(self, request: web.Request) -> web.StreamResponse | web.Response:
         body = await request.json()
-        self._record_request(body)
+        self._record_request(body, dict(request.headers))
 
         mock = self._next_mock()
 
