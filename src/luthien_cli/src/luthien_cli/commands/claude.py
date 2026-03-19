@@ -47,6 +47,8 @@ def claude(claude_args: tuple[str, ...], api_key: str | None):
     else:
         console.print(f"[blue]Routing through {config.gateway_url} (OAuth passthrough)[/blue]")
 
-    console.print("[dim]Tip: run luthien commands with ! such as !luthien status, !luthien logs, !luthien up, and !luthien down[/dim]")
+    console.print(
+        "[dim]Tip: run luthien commands with ! such as !luthien status, !luthien logs, !luthien up, and !luthien down[/dim]"
+    )
 
     os.execvpe("claude", ["claude", *claude_args], env)
