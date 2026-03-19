@@ -241,7 +241,7 @@ async def run_claude_code(
     )
 
 
-# Fixtures claude_available, codex_available, gateway_healthy, http_client
+# Fixtures claude_available, gateway_healthy, http_client
 # are provided by conftest.py and auto-discovered by pytest
 
 
