@@ -99,11 +99,9 @@ async function apiCall(endpoint, options = {}) {
 }
 
 // Shared HTML escaper — also used by FormRenderer
+// Uses esc() to ensure quotes are escaped (safe for attribute contexts)
 window.escapeHtml = function(text) {
-    if (typeof text !== 'string') return String(text ?? '');
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    return esc(text);
 };
 
 function esc(s) {
@@ -456,6 +454,7 @@ function renderProposed() {
 
 function moveChain(i, dir) {
     const j = i + dir;
+    if (j < 0 || j >= state.chain.length) return;
     [state.chain[i], state.chain[j]] = [state.chain[j], state.chain[i]];
     renderProposed();
 }
@@ -949,10 +948,16 @@ async function handleActivateChain() {
     if (state.chain.length === 0) return;
     // Chain activation activates the first policy for now
     // (full chain support requires backend CompositePolicy API)
+    const savedMode = state.mode;
     state.selectedClassRef = state.chain[0].classRef;
     state.configValues = state.chain[0].config;
-    state.mode = 'single';
     await handleActivate();
+    // Only switch to single mode if activation succeeded
+    if (state.currentPolicy && state.currentPolicy.class_ref === state.chain[0].classRef) {
+        state.mode = 'single';
+    } else {
+        state.mode = savedMode;
+    }
 }
 
 async function handleDeactivate() {

@@ -479,6 +479,22 @@ class TestSendChatRoute:
 
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.get_settings")
+    async def test_mock_mode_works_without_any_api_key(self, mock_get_settings):
+        """Mock mode bypasses API key validation entirely."""
+        mock_settings = MagicMock()
+        mock_settings.proxy_api_key = None
+        mock_settings.gateway_port = 8000
+        mock_get_settings.return_value = mock_settings
+
+        request = ChatRequest(model="claude-3-haiku-20240307", message="test echo", use_mock=True)
+
+        result = await send_chat(body=request, _=AUTH_TOKEN)
+
+        assert result.success is True
+        assert result.content == "test echo"
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_settings")
     @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
     async def test_custom_api_key_overrides_proxy_key(self, mock_client_class, mock_get_settings):
         """When api_key is provided, it's used instead of the server's proxy key."""

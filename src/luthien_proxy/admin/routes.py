@@ -293,10 +293,10 @@ async def send_chat(
 ):
     """Send a test message through the proxy with the active policy.
 
-    This endpoint acts as an injection point, forwarding the request to
-    /v1/messages with the server's PROXY_API_KEY. This ensures
-    the test goes through the full policy pipeline (on_request, LLM call,
-    on_response) exactly as real client requests do.
+    Forwards the request to the gateway's /v1/messages endpoint using either
+    the server's PROXY_API_KEY or a custom API key. In mock mode, returns the
+    user's message as an echo without calling the LLM or running the policy
+    pipeline (useful for quick checks without API credits).
 
     Requires admin authentication.
     """
