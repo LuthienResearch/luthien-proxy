@@ -993,6 +993,135 @@
         [x-cloak] {
             display: none !important;
         }
+
+        /* Settings Gear Icon */
+        .settings-gear {
+            position: relative;
+        }
+
+        .settings-gear-btn {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+        }
+
+        .settings-gear-btn:hover {
+            border-color: #555;
+            background: #222;
+        }
+
+        .settings-gear-btn:hover svg path {
+            fill: #e5e5e5;
+        }
+
+        .settings-dropdown {
+            display: none;
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            background: #141414;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 16px;
+            width: 380px;
+            z-index: 50;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        }
+
+        .settings-dropdown.visible {
+            display: block;
+        }
+
+        .settings-dropdown-header {
+            font-size: 13px;
+            font-weight: 600;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #262626;
+        }
+
+        .settings-dropdown-item {
+            margin-bottom: 16px;
+        }
+
+        .settings-dropdown-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .settings-explanation {
+            font-size: 12px;
+            color: #666;
+            line-height: 1.6;
+            margin-top: 6px;
+            padding-left: 24px;
+        }
+
+        .settings-explanation code {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 11px;
+            color: #f87171;
+        }
+
+        /* Policy list section toggle */
+        .policy-list-divider {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 12px 0 8px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .policy-list-divider:hover .divider-text {
+            color: #e5e5e5;
+        }
+
+        .divider-line {
+            flex: 1;
+            height: 1px;
+            background: #262626;
+        }
+
+        .divider-text {
+            font-size: 12px;
+            color: #666;
+            white-space: nowrap;
+            transition: color 0.15s;
+        }
+
+        .divider-arrow {
+            font-size: 10px;
+            color: #666;
+            transition: transform 0.2s;
+            display: inline-block;
+        }
+
+        .divider-arrow.open {
+            transform: rotate(90deg);
+        }
+
+        .policy-list-advanced {
+            display: none;
+        }
+
+        .policy-list-advanced.visible {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
     </style>
 </head>
 <body>
@@ -1013,6 +1142,41 @@
                 <h1>Policy Configuration</h1>
                 <p class="subtitle">Configure and activate gateway policies</p>
             </div>
+            <!-- Gateway Settings Gear Icon -->
+            <div class="settings-gear" id="settings-gear">
+                <button class="settings-gear-btn" id="settings-gear-btn" title="Gateway Settings">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M8.325 2.317a1.25 1.25 0 0 1 1.224-1.003h.902a1.25 1.25 0 0 1 1.224 1.003l.215 1.074a6.25 6.25 0 0 1 1.36.786l1.028-.35a1.25 1.25 0 0 1 1.476.535l.451.78a1.25 1.25 0 0 1-.252 1.538l-.813.724a6.3 6.3 0 0 1 0 1.192l.813.724a1.25 1.25 0 0 1 .252 1.538l-.451.78a1.25 1.25 0 0 1-1.476.535l-1.028-.35a6.25 6.25 0 0 1-1.36.786l-.215 1.074a1.25 1.25 0 0 1-1.224 1.003h-.902a1.25 1.25 0 0 1-1.224-1.003l-.215-1.074a6.25 6.25 0 0 1-1.36-.786l-1.028.35a1.25 1.25 0 0 1-1.476-.535l-.451-.78a1.25 1.25 0 0 1 .252-1.538l.813-.724a6.3 6.3 0 0 1 0-1.192l-.813-.724a1.25 1.25 0 0 1-.252-1.538l.451-.78a1.25 1.25 0 0 1 1.476-.535l1.028.35a6.25 6.25 0 0 1 1.36-.786l.215-1.074ZM10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" fill="#888"/>
+                    </svg>
+                </button>
+                <div class="settings-dropdown" id="settings-dropdown">
+                    <div class="settings-dropdown-header">Gateway Settings</div>
+                    <div class="settings-dropdown-item">
+                        <div class="checkbox-wrapper">
+                            <input type="checkbox" class="config-checkbox" id="inject-policy-context" checked>
+                            <label for="inject-policy-context" style="font-size: 13px; color: #ccc;">Inject policy context into LLM requests</label>
+                        </div>
+                        <div class="settings-explanation">
+                            Adds information about active policies to each LLM request so the model
+                            knows it's being monitored. Turning this off makes Luthien invisible to the LLM,
+                            which is useful for unbiased testing but means the model can't cooperate with policies.
+                        </div>
+                    </div>
+                    <div class="settings-dropdown-item">
+                        <div class="checkbox-wrapper">
+                            <input type="checkbox" class="config-checkbox" id="dogfood-mode">
+                            <label for="dogfood-mode" style="font-size: 13px; color: #ccc;">Dogfood mode</label>
+                        </div>
+                        <div class="settings-explanation">
+                            Automatically adds DogfoodSafetyPolicy to protect the proxy from being
+                            killed by AI agents running through it. Blocks commands like
+                            <code>docker compose down</code> and <code>rm -rf</code> that would stop
+                            the proxy itself. Enable this when using Luthien to monitor agents that
+                            have access to the machine Luthien runs on.
+                        </div>
+                    </div>
+                </div>
+            </div>
         </header>
 
         <!-- Current Policy Banner -->
@@ -1025,21 +1189,6 @@
                 <div class="current-policy-config" id="current-policy-config" style="display: none;"></div>
             </div>
             <div class="current-policy-meta" id="current-policy-meta"></div>
-        </div>
-
-        <!-- Gateway Settings -->
-        <div class="current-policy-banner" style="margin-bottom: 16px;">
-            <div style="display: flex; align-items: center; gap: 24px; flex-wrap: wrap;">
-                <span class="current-policy-label" style="margin-right: 8px;">Gateway Settings</span>
-                <div class="checkbox-wrapper">
-                    <input type="checkbox" class="config-checkbox" id="inject-policy-context" checked>
-                    <label for="inject-policy-context" style="font-size: 13px; color: #ccc;">Inject policy context into LLM requests</label>
-                </div>
-                <div class="checkbox-wrapper">
-                    <input type="checkbox" class="config-checkbox" id="dogfood-mode">
-                    <label for="dogfood-mode" style="font-size: 13px; color: #ccc;">Dogfood mode</label>
-                </div>
-            </div>
         </div>
 
         <!-- Test Panel (tests against active policy) -->

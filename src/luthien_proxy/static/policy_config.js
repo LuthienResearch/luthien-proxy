@@ -216,54 +216,117 @@ function renderCurrentPolicyBanner() {
     }
 }
 
+// Policies to show at the top, in this order.
+// Everything else goes behind "See more advanced policies".
+const PROMOTED_POLICIES = [
+    'AllCapsPolicy',
+    'StringReplacementPolicy',
+    'SimpleLLMPolicy',
+    'ToolCallJudgePolicy',
+];
+
+function renderPolicyCard(policy, container) {
+    const isActive = state.currentPolicy && state.currentPolicy.class_ref === policy.class_ref;
+    const isSelected = state.selectedPolicy && state.selectedPolicy.class_ref === policy.class_ref;
+
+    const item = document.createElement('div');
+    item.className = 'policy-item';
+    if (isActive) item.classList.add('active');
+    if (isSelected) item.classList.add('selected');
+    item.dataset.classRef = policy.class_ref;
+
+    const header = document.createElement('div');
+    header.className = 'policy-item-header';
+
+    const name = document.createElement('div');
+    name.className = 'policy-item-name';
+    name.textContent = policy.name;
+
+    header.appendChild(name);
+
+    if (isActive) {
+        const badge = document.createElement('span');
+        badge.className = 'policy-item-badge active';
+        badge.textContent = 'Active';
+        header.appendChild(badge);
+    }
+
+    const desc = document.createElement('div');
+    desc.className = 'policy-item-description';
+    desc.textContent = policy.description;
+
+    item.appendChild(header);
+    item.appendChild(desc);
+
+    const configKeys = Object.keys(policy.config_schema || {});
+    if (configKeys.length > 0) {
+        const configInfo = document.createElement('div');
+        configInfo.className = 'policy-item-config';
+        configInfo.textContent = `Config: ${configKeys.join(', ')}`;
+        item.appendChild(configInfo);
+    }
+
+    item.addEventListener('click', () => selectPolicy(policy));
+    container.appendChild(item);
+}
+
 function renderPolicyList() {
     const container = document.getElementById('policy-list');
     container.innerHTML = '';
 
-    state.availablePolicies.forEach(policy => {
-        const isActive = state.currentPolicy && state.currentPolicy.class_ref === policy.class_ref;
-        const isSelected = state.selectedPolicy && state.selectedPolicy.class_ref === policy.class_ref;
+    // Split policies into promoted (top) and advanced (hidden)
+    const promoted = [];
+    const advanced = [];
 
-        const item = document.createElement('div');
-        item.className = 'policy-item';
-        if (isActive) item.classList.add('active');
-        if (isSelected) item.classList.add('selected');
-        item.dataset.classRef = policy.class_ref;
-
-        const header = document.createElement('div');
-        header.className = 'policy-item-header';
-
-        const name = document.createElement('div');
-        name.className = 'policy-item-name';
-        name.textContent = policy.name;
-
-        header.appendChild(name);
-
-        if (isActive) {
-            const badge = document.createElement('span');
-            badge.className = 'policy-item-badge active';
-            badge.textContent = 'Active';
-            header.appendChild(badge);
+    for (const policy of state.availablePolicies) {
+        if (PROMOTED_POLICIES.includes(policy.name)) {
+            promoted.push(policy);
+        } else {
+            advanced.push(policy);
         }
+    }
 
-        const desc = document.createElement('div');
-        desc.className = 'policy-item-description';
-        desc.textContent = policy.description;
-
-        item.appendChild(header);
-        item.appendChild(desc);
-
-        const configKeys = Object.keys(policy.config_schema || {});
-        if (configKeys.length > 0) {
-            const configInfo = document.createElement('div');
-            configInfo.className = 'policy-item-config';
-            configInfo.textContent = `Config: ${configKeys.join(', ')}`;
-            item.appendChild(configInfo);
-        }
-
-        item.addEventListener('click', () => selectPolicy(policy));
-        container.appendChild(item);
+    // Sort promoted policies in the specified order
+    promoted.sort((a, b) => {
+        return PROMOTED_POLICIES.indexOf(a.name) - PROMOTED_POLICIES.indexOf(b.name);
     });
+
+    // Render promoted policies
+    for (const policy of promoted) {
+        renderPolicyCard(policy, container);
+    }
+
+    // Add "See more advanced policies" divider if there are advanced policies
+    if (advanced.length > 0) {
+        const divider = document.createElement('div');
+        divider.className = 'policy-list-divider';
+        divider.onclick = function() {
+            const advSection = document.getElementById('policy-list-advanced');
+            const arrow = document.getElementById('divider-arrow');
+            const isVisible = advSection.classList.toggle('visible');
+            arrow.classList.toggle('open', isVisible);
+        };
+        divider.innerHTML = `
+            <span class="divider-line"></span>
+            <span class="divider-text">
+                <span class="divider-arrow" id="divider-arrow">&#9654;</span>
+                ${advanced.length} more policies
+            </span>
+            <span class="divider-line"></span>
+        `;
+        container.appendChild(divider);
+
+        // Container for advanced policies
+        const advSection = document.createElement('div');
+        advSection.className = 'policy-list-advanced';
+        advSection.id = 'policy-list-advanced';
+
+        for (const policy of advanced) {
+            renderPolicyCard(policy, advSection);
+        }
+
+        container.appendChild(advSection);
+    }
 }
 
 function selectPolicy(policy) {
@@ -979,7 +1042,7 @@ async function saveGatewaySetting(field, value) {
     }
 }
 
-// Wire up gateway settings checkboxes
+// Wire up gateway settings checkboxes and gear icon
 document.addEventListener('DOMContentLoaded', () => {
     loadGatewaySettings();
 
@@ -990,4 +1053,21 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('dogfood-mode').addEventListener('change', (e) => {
         saveGatewaySetting('dogfood_mode', e.target.checked);
     });
+
+    // Gear icon toggle
+    const gearBtn = document.getElementById('settings-gear-btn');
+    const gearDropdown = document.getElementById('settings-dropdown');
+    if (gearBtn && gearDropdown) {
+        gearBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            gearDropdown.classList.toggle('visible');
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.settings-gear')) {
+                gearDropdown.classList.remove('visible');
+            }
+        });
+    }
 });
