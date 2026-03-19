@@ -7,18 +7,6 @@ export PATH="$HOME/.local/bin:$PATH"
 
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
-# --- Docker -----------------------------------------------------------
-if ! command_exists docker; then
-    echo "Error: Docker is required but not installed."
-    echo "Install it from https://www.docker.com/products/docker-desktop/"
-    exit 1
-fi
-
-if ! docker info >/dev/null 2>&1; then
-    echo "Error: Docker is not running. Please start Docker and try again."
-    exit 1
-fi
-
 # --- uv ---------------------------------------------------------------
 if ! command_exists uv; then
     echo "Installing uv..."

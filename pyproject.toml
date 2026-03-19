@@ -94,6 +94,7 @@ timeout_func_only = false
 pythonVersion = "3.13"
 typeCheckingMode = "basic"
 include = ["src", "saas_infra"]
+exclude = ["src/luthien_cli"]
 reportMissingTypeStubs = "none"
 useLibraryCodeForTypes = true
 venvPath = "."

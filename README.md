@@ -101,41 +101,29 @@ Luthien sits in line as a transparent proxy. Every request and response flows th
 
 ## Quick Start
 
-Requires [Docker](https://www.docker.com/products/docker-desktop/):
-
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LuthienResearch/luthien-proxy/main/scripts/install.sh | bash
 ```
 
-This installs [`uv`](https://docs.astral.sh/uv/) (if needed) and the Luthien CLI, downloads the proxy, walks you through configuration, starts the stack, and launches Claude Code through Luthien. Works with both API keys and Claude Pro/Max subscriptions.
+No Docker required. This installs [`uv`](https://docs.astral.sh/uv/) (if needed) and the Luthien CLI, sets up the gateway with SQLite, walks you through configuration, and starts the proxy. Works with both API keys and Claude Pro/Max subscriptions.
 
 After setup, use the CLI to manage the proxy:
 
 ```bash
 luthien claude          # launch Claude Code through the proxy
 luthien status          # check gateway health
-luthien up / luthien down  # start/stop the stack
+luthien up / luthien down  # start/stop the gateway
+luthien logs            # view gateway logs
 ```
 
-### Quick Start (no Docker)
-
-If you don't want Docker, you can run the gateway directly with SQLite:
-
-```bash
-git clone https://github.com/LuthienResearch/luthien-proxy.git
-cd luthien-proxy
-uv sync
-uv run python -m luthien_proxy.main --local
-```
-
-The `--local` flag auto-configures SQLite, skips Redis, and generates ephemeral API keys (printed at startup). No `.env` editing required.
+> **Docker mode**: If you prefer PostgreSQL + Redis, run `luthien onboard --docker` instead. Requires [Docker](https://www.docker.com/products/docker-desktop/).
 
 ---
 
 ## What You Get
 
 - **Gateway** (Anthropic-compatible) at <http://localhost:8000>
-- **PostgreSQL** and **Redis** fully configured
+- **SQLite** storage (zero setup) — or PostgreSQL + Redis with `--docker`
 - **Real-time monitoring** at <http://localhost:8000/activity/monitor>
 - **Policy management UI** at <http://localhost:8000/policy-config>
 

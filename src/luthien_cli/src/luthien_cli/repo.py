@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import click
@@ -12,6 +14,7 @@ from rich.console import Console
 GITHUB_RAW_BASE = "https://raw.githubusercontent.com/LuthienResearch/luthien-proxy/main/"
 GITHUB_SHA_URL = "https://api.github.com/repos/LuthienResearch/luthien-proxy/commits/main"
 MANAGED_REPO_DIR = Path.home() / ".luthien" / "luthien-proxy"
+MANAGED_VENV_DIR = Path.home() / ".luthien" / "venv"
 
 FILES_TO_DOWNLOAD = ("docker-compose.yaml", ".env.example")
 
@@ -122,3 +125,56 @@ def ensure_repo() -> str:
     console.print("[blue]Downloading luthien-proxy files...[/blue]")
     _download_files(dest)
     return str(dest)
+
+
+def _run_uv(*args: str, console: Console) -> None:
+    """Run a uv command, raising SystemExit on failure."""
+    uv = shutil.which("uv")
+    if not uv:
+        console.print("[red]uv is required but not found. Install from https://docs.astral.sh/uv/[/red]")
+        raise SystemExit(1)
+
+    result = subprocess.run(
+        [uv, *args],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        console.print(f"[red]uv {' '.join(args)} failed:[/red]\n{result.stderr}")
+        raise SystemExit(1)
+
+
+def ensure_gateway_venv() -> str:
+    """Create a managed venv and install luthien-proxy. Returns repo path.
+
+    Creates ~/.luthien/venv/ with luthien-proxy installed, and ensures
+    the ~/.luthien/luthien-proxy/ directory exists for config/data files.
+    """
+    console = Console(stderr=True)
+    venv_dir = MANAGED_VENV_DIR
+    repo_dir = MANAGED_REPO_DIR
+
+    repo_dir.mkdir(parents=True, exist_ok=True)
+    (repo_dir / "config").mkdir(exist_ok=True)
+
+    venv_python = venv_dir / "bin" / "python"
+    needs_install = not venv_python.exists()
+
+    if needs_install:
+        console.print("[blue]Creating gateway environment...[/blue]")
+        with console.status("Setting up Python environment..."):
+            _run_uv("venv", str(venv_dir), "--python", "3.13", console=console)
+
+    with console.status("Installing luthien-proxy..."):
+        _run_uv(
+            "pip",
+            "install",
+            "--python",
+            str(venv_python),
+            "luthien-proxy",
+            "--upgrade",
+            console=console,
+        )
+
+    console.print("[green]Gateway package installed.[/green]")
+    return str(repo_dir)
