@@ -14,7 +14,7 @@
 services:
   gateway:
     extra_hosts:
-      - "host.docker.internal:172.23.0.1"
+      - "host.docker.internal:host-gateway"
     environment:
       - ANTHROPIC_BASE_URL=http://host.docker.internal:18888
       - ANTHROPIC_API_KEY=mock-key
