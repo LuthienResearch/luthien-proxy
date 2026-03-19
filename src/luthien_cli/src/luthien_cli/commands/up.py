@@ -1,23 +1,22 @@
-"""luthien up/down -- manage local docker-compose stack."""
+"""luthien up/down -- manage gateway lifecycle (local process or Docker)."""
 
 from __future__ import annotations
 
 import subprocess
 import time
+from urllib.parse import urlparse
 
 import click
 import httpx
 from rich.console import Console
 
 from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config, save_config
-from luthien_cli.repo import ensure_repo
+from luthien_cli.local_process import gateway_log_path, is_gateway_running, start_gateway, stop_gateway
+from luthien_cli.repo import ensure_gateway_venv, ensure_repo
 
 
 def wait_for_healthy(url: str, timeout: int = 60, console: Console | None = None) -> bool:
-    """Poll gateway /health until it responds or timeout.
-
-    Shows a spinner when a console is provided.
-    """
+    """Poll gateway /health until it responds or timeout."""
     deadline = time.time() + timeout
 
     def _poll() -> bool:
@@ -37,46 +36,80 @@ def wait_for_healthy(url: str, timeout: int = 60, console: Console | None = None
     return _poll()
 
 
+def _port_from_url(url: str) -> int:
+    """Extract port from a gateway URL, defaulting to 8000."""
+    parsed = urlparse(url)
+    return parsed.port or 8000
+
+
 @click.command()
 @click.option("--follow", "-f", is_flag=True, help="Tail gateway logs after startup")
 def up(follow: bool):
-    """Start the local luthien-proxy stack (db, redis, gateway)."""
+    """Start the gateway (auto-detects local or Docker mode)."""
     console = Console()
     config = load_config(DEFAULT_CONFIG_PATH)
 
-    if not config.repo_path:
-        config.repo_path = ensure_repo()
-        save_config(config, DEFAULT_CONFIG_PATH)
+    if config.mode == "local":
+        if not config.repo_path:
+            config.repo_path = ensure_gateway_venv()
+            save_config(config, DEFAULT_CONFIG_PATH)
 
-    console.print(f"[blue]Starting stack in {config.repo_path}[/blue]")
+        console.print("[blue]Starting gateway (local mode)...[/blue]")
 
-    with console.status("Starting containers..."):
-        result = subprocess.run(
-            ["docker", "compose", "up", "-d"],
-            cwd=config.repo_path,
-            capture_output=True,
-            text=True,
-        )
-    if result.returncode != 0:
-        console.print(f"[red]docker compose up failed:[/red]\n{result.stderr}")
-        raise SystemExit(1)
+        existing = is_gateway_running(config.repo_path)
+        if existing:
+            console.print(f"[yellow]Gateway already running (PID {existing})[/yellow]")
+        else:
+            port = _port_from_url(config.gateway_url)
+            pid = start_gateway(config.repo_path, port=port, console=console)
+            console.print(f"[dim]Gateway started (PID {pid})[/dim]")
 
-    if wait_for_healthy(config.gateway_url, console=console):
-        console.print(f"[green]Gateway is healthy at {config.gateway_url}[/green]")
+        if wait_for_healthy(config.gateway_url, console=console):
+            console.print(f"[green]Gateway is healthy at {config.gateway_url}[/green]")
+        else:
+            console.print("[red]Gateway did not become healthy within 60s[/red]")
+            console.print("[dim]Check logs: luthien logs[/dim]")
+            raise SystemExit(1)
+
+        if follow:
+            log_path = gateway_log_path(config.repo_path)
+            if log_path.exists():
+                subprocess.run(["tail", "-f", str(log_path)])
+
     else:
-        console.print("[red]Gateway did not become healthy within 60s[/red]")
-        raise SystemExit(1)
+        if not config.repo_path:
+            config.repo_path = ensure_repo()
+            save_config(config, DEFAULT_CONFIG_PATH)
 
-    if follow:
-        subprocess.run(
-            ["docker", "compose", "logs", "-f", "gateway"],
-            cwd=config.repo_path,
-        )
+        console.print(f"[blue]Starting stack in {config.repo_path}[/blue]")
+
+        with console.status("Starting containers..."):
+            result = subprocess.run(
+                ["docker", "compose", "up", "-d"],
+                cwd=config.repo_path,
+                capture_output=True,
+                text=True,
+            )
+        if result.returncode != 0:
+            console.print(f"[red]docker compose up failed:[/red]\n{result.stderr}")
+            raise SystemExit(1)
+
+        if wait_for_healthy(config.gateway_url, console=console):
+            console.print(f"[green]Gateway is healthy at {config.gateway_url}[/green]")
+        else:
+            console.print("[red]Gateway did not become healthy within 60s[/red]")
+            raise SystemExit(1)
+
+        if follow:
+            subprocess.run(
+                ["docker", "compose", "logs", "-f", "gateway"],
+                cwd=config.repo_path,
+            )
 
 
 @click.command()
 def down():
-    """Stop the local luthien-proxy stack."""
+    """Stop the gateway (auto-detects local or Docker mode)."""
     console = Console()
     config = load_config(DEFAULT_CONFIG_PATH)
 
@@ -84,17 +117,20 @@ def down():
         console.print("[red]No repo_path configured. Nothing to stop.[/red]")
         raise SystemExit(1)
 
-    console.print(f"[blue]Stopping stack in {config.repo_path}[/blue]")
+    if config.mode == "local":
+        stop_gateway(config.repo_path, console=console)
+    else:
+        console.print(f"[blue]Stopping stack in {config.repo_path}[/blue]")
 
-    with console.status("Stopping containers..."):
-        result = subprocess.run(
-            ["docker", "compose", "down"],
-            cwd=config.repo_path,
-            capture_output=True,
-            text=True,
-        )
-    if result.returncode != 0:
-        console.print(f"[red]docker compose down failed:[/red]\n{result.stderr}")
-        raise SystemExit(1)
+        with console.status("Stopping containers..."):
+            result = subprocess.run(
+                ["docker", "compose", "down"],
+                cwd=config.repo_path,
+                capture_output=True,
+                text=True,
+            )
+        if result.returncode != 0:
+            console.print(f"[red]docker compose down failed:[/red]\n{result.stderr}")
+            raise SystemExit(1)
 
-    console.print("[green]Stack stopped.[/green]")
+        console.print("[green]Stack stopped.[/green]")

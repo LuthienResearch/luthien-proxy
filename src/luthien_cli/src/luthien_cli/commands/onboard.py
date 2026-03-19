@@ -8,6 +8,7 @@ import secrets
 import socket
 import subprocess
 import textwrap
+from pathlib import Path
 
 import click
 from rich.console import Console
@@ -15,7 +16,8 @@ from rich.panel import Panel
 
 from luthien_cli.commands.up import wait_for_healthy
 from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config, save_config
-from luthien_cli.repo import ensure_repo
+from luthien_cli.local_process import start_gateway, stop_gateway
+from luthien_cli.repo import ensure_gateway_venv, ensure_repo
 
 POLICY_TEMPLATE = """\
 policy:
@@ -28,13 +30,6 @@ policy:
     max_tokens: 4096
     on_error: "pass"
 """
-
-
-_PORT_DEFAULTS = {
-    "POSTGRES_PORT": 5433,
-    "REDIS_PORT": 6379,
-    "GATEWAY_PORT": 8000,
-}
 
 
 def _is_port_free(port: int) -> bool:
@@ -50,31 +45,12 @@ def _is_port_free(port: int) -> bool:
 
 
 def _find_free_port(start: int) -> int:
-    """Find the next free port starting from the given default.
-
-    Note: inherent TOCTOU race between checking and Docker binding.
-    Acceptable for dev tooling — collisions are rare and resolved by retry.
-    """
+    """Find the next free port starting from the given default."""
     for offset in range(100):
         port = start + offset
         if _is_port_free(port):
             return port
     raise RuntimeError(f"Could not find a free port starting from {start}")
-
-
-def _find_free_ports() -> dict[str, str]:
-    """Auto-select free ports for docker compose services.
-
-    Respects ports already set in the environment. Returns a dict
-    of env vars to pass to docker compose.
-    """
-    port_env: dict[str, str] = {}
-    for var, default in _PORT_DEFAULTS.items():
-        if os.environ.get(var):
-            continue
-        port = _find_free_port(default)
-        port_env[var] = str(port)
-    return port_env
 
 
 def _generate_key(prefix: str) -> str:
@@ -88,8 +64,30 @@ def _indent_instructions(text: str, indent: int = 6) -> str:
     return "\n".join(f"{prefix}{line}" for line in lines)
 
 
-def _ensure_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
-    """Create or update .env with onboard settings."""
+def _write_local_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
+    """Write .env for local mode (SQLite, no Redis)."""
+    db_path = str(Path(repo_path) / "luthien.db")
+    policy_path = str(Path(repo_path) / "config" / "policy_config.yaml")
+
+    env_content = (
+        f"DATABASE_URL=sqlite:///{db_path}\n"
+        f"PROXY_API_KEY={proxy_key}\n"
+        f"ADMIN_API_KEY={admin_key}\n"
+        f"POLICY_SOURCE=file\n"
+        f"POLICY_CONFIG={policy_path}\n"
+        f"AUTH_MODE=both\n"
+        f"OTEL_ENABLED=false\n"
+        f"USAGE_TELEMETRY=true\n"
+    )
+
+    env_path = f"{repo_path}/.env"
+    with open(env_path, "w") as f:
+        f.write(env_content)
+    os.chmod(env_path, 0o600)
+
+
+def _ensure_docker_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
+    """Create or update .env with Docker onboard settings."""
     env_path = f"{repo_path}/.env"
     env_example = f"{repo_path}/.env.example"
 
@@ -119,8 +117,6 @@ def _ensure_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
         else:
             env_content = env_content.rstrip() + f"\n{replacement}\n"
 
-    # Comment out COMPOSE_PROJECT_NAME — it defeats worktree isolation.
-    # The name is auto-derived from the directory by quick_start.sh instead.
     env_content = re.sub(
         r"^COMPOSE_PROJECT_NAME=",
         "# COMPOSE_PROJECT_NAME=",
@@ -130,6 +126,7 @@ def _ensure_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
 
     with open(env_path, "w") as f:
         f.write(env_content)
+    os.chmod(env_path, 0o600)
 
 
 def _write_policy(repo_path: str, instructions: str) -> None:
@@ -145,30 +142,8 @@ def _write_policy(repo_path: str, instructions: str) -> None:
         f.write(policy_yaml)
 
 
-@click.command()
-def onboard():
-    """Interactive setup: configure a policy and start the gateway."""
-    console = Console()
-    config = load_config(DEFAULT_CONFIG_PATH)
-
-    console.print(
-        Panel(
-            "This will set up a local Luthien gateway with a policy you describe,\n"
-            "then show you how to route Claude Code through it.",
-            title="Luthien Onboard",
-            border_style="blue",
-        )
-    )
-
-    # 1. Ensure proxy files are available
-    if not config.repo_path:
-        config.repo_path = ensure_repo()
-
-    # 2. Generate keys
-    proxy_key = _generate_key("sk-luthien")
-    admin_key = _generate_key("admin")
-
-    # 3. Prompt for policy description
+def _prompt_for_policy(console: Console) -> str:
+    """Prompt user for policy instructions."""
     console.print("\n[bold]Describe the policy you'd like applied to LLM responses.[/bold]")
     console.print(
         "[dim]Examples:\n"
@@ -176,18 +151,121 @@ def onboard():
         '  "Ensure responses are professional and appropriate for a workplace"\n'
         '  "Redact any internal hostnames or IP addresses"[/dim]\n'
     )
-    instructions = click.prompt("Policy instructions")
+    return click.prompt("Policy instructions")
 
-    # 4. Write config files
+
+def _show_results(
+    console: Console,
+    gateway_url: str,
+    proxy_key: str,
+    instructions: str,
+    mode: str,
+) -> None:
+    """Show the final success panel."""
+    console.print()
+    console.print(
+        Panel(
+            textwrap.dedent(f"""\
+                [green bold]Gateway is running![/green bold]
+
+                [bold]Gateway URL:[/bold]  {gateway_url}
+                [bold]Policy:[/bold]       SimpleLLMPolicy
+                [bold]Auth mode:[/bold]    both (proxy key or Anthropic key)
+                [bold]Mode:[/bold]         {mode}
+
+                [bold]Policy instructions:[/bold]
+                [dim]{instructions}[/dim]
+
+                [bold yellow]Launch Claude Code through the gateway:[/bold yellow]
+                  luthien claude
+
+                [bold]Or manually:[/bold]
+                  ANTHROPIC_BASE_URL={gateway_url}/ ANTHROPIC_API_KEY={proxy_key} claude
+
+                [bold red]Important:[/bold red] If Claude Code asks about a detected API key,
+                select [bold]"Yes"[/bold]. Selecting "No" bypasses the proxy.
+
+                [bold]Manage the gateway:[/bold]
+                  luthien status     # check health
+                  luthien logs       # view logs
+                  luthien down       # stop the gateway
+                  luthien up         # start again
+
+                [dim]Luthien sends anonymous usage data to help development.
+                To disable, set USAGE_TELEMETRY=false in .env and restart.[/dim]"""),
+            title="Ready",
+            border_style="green",
+        )
+    )
+
+
+def _onboard_local(console: Console, config, proxy_key: str, admin_key: str, instructions: str) -> None:
+    """Onboard in local mode: SQLite + in-process event publisher, no Docker."""
+    # 1. Install gateway package
+    config.repo_path = ensure_gateway_venv()
+
+    # 2. Write config files
     console.print("\n[blue]Configuring gateway...[/blue]")
     _write_policy(config.repo_path, instructions)
-    _ensure_env(config.repo_path, proxy_key, admin_key)
+    _write_local_env(config.repo_path, proxy_key, admin_key)
 
-    # 5. Save CLI config (gateway_url updated after port selection below)
+    # 3. Stop any existing gateway
+    stop_gateway(config.repo_path)
+
+    # 4. Find a free port and start the gateway
+    gateway_port = _find_free_port(8000)
+    console.print(f"\n[blue]Starting gateway on port {gateway_port}...[/blue]")
+    pid = start_gateway(config.repo_path, port=gateway_port, console=console)
+    console.print(f"[dim]Gateway started (PID {pid})[/dim]")
+
+    # 5. Save config
+    actual_gateway_url = f"http://localhost:{gateway_port}"
+    config.gateway_url = actual_gateway_url
     config.api_key = proxy_key
     config.admin_key = admin_key
+    config.mode = "local"
+    save_config(config, DEFAULT_CONFIG_PATH)
+    console.print("[green]CLI config saved to ~/.luthien/config.toml[/green]")
 
-    # 6. Start the stack (stop existing containers first to avoid port conflicts)
+    # 6. Wait for health
+    if not wait_for_healthy(actual_gateway_url, console=console):
+        console.print("[red]Gateway did not become healthy within 60s[/red]")
+        console.print("[dim]Check logs: luthien logs[/dim]")
+        raise SystemExit(1)
+
+    _show_results(console, actual_gateway_url.rstrip("/"), proxy_key, instructions, "local")
+
+
+_DOCKER_PORT_DEFAULTS = {
+    "POSTGRES_PORT": 5433,
+    "REDIS_PORT": 6379,
+    "GATEWAY_PORT": 8000,
+}
+
+
+def _find_docker_ports() -> dict[str, str]:
+    """Auto-select free ports for docker compose services."""
+    port_env: dict[str, str] = {}
+    for var, default in _DOCKER_PORT_DEFAULTS.items():
+        if os.environ.get(var):
+            continue
+        port = _find_free_port(default)
+        port_env[var] = str(port)
+    return port_env
+
+
+def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str, instructions: str) -> None:
+    """Onboard in Docker mode: PostgreSQL + Redis via docker compose."""
+    # 1. Ensure proxy files
+    if not config.repo_path:
+        config.repo_path = ensure_repo()
+
+    # 2. Write config files
+    console.print("\n[blue]Configuring gateway...[/blue]")
+    _write_policy(config.repo_path, instructions)
+    _ensure_docker_env(config.repo_path, proxy_key, admin_key)
+
+    # 3. Start Docker stack
     console.print("\n[blue]Starting gateway...[/blue]")
     with console.status("Pulling latest images..."):
         pull_result = subprocess.run(
@@ -210,8 +288,7 @@ def onboard():
     if down_result.returncode == 0 and "Removed" in (down_result.stderr or ""):
         console.print("[dim]Stopped existing luthien containers.[/dim]")
 
-    # Auto-select free ports (same logic as quick_start.sh)
-    port_env = _find_free_ports()
+    port_env = _find_docker_ports()
     if port_env:
         selected = ", ".join(f"{k}={v}" for k, v in port_env.items())
         console.print(f"[dim]Auto-selected ports: {selected}[/dim]")
@@ -228,12 +305,13 @@ def onboard():
         console.print(f"[red]docker compose up failed:[/red]\n{result.stderr}")
         raise SystemExit(1)
 
-    # Use the actual gateway port (may differ from default if auto-selected)
     gateway_port = port_env.get("GATEWAY_PORT", os.environ.get("GATEWAY_PORT", "8000"))
     actual_gateway_url = f"http://localhost:{gateway_port}"
 
-    # Save CLI config with the actual gateway URL so subsequent commands use the right port
     config.gateway_url = actual_gateway_url
+    config.api_key = proxy_key
+    config.admin_key = admin_key
+    config.mode = "docker"
     save_config(config, DEFAULT_CONFIG_PATH)
     console.print("[green]CLI config saved to ~/.luthien/config.toml[/green]")
 
@@ -242,33 +320,32 @@ def onboard():
         console.print(f"[dim]Check logs: docker compose -f {config.repo_path}/docker-compose.yaml logs gateway[/dim]")
         raise SystemExit(1)
 
-    # 7. Show results
-    gateway_url = actual_gateway_url.rstrip("/")
-    console.print()
+    _show_results(console, actual_gateway_url.rstrip("/"), proxy_key, instructions, "docker")
+
+
+@click.command()
+@click.option("--docker", "use_docker", is_flag=True, help="Use Docker (PostgreSQL + Redis) instead of local mode")
+def onboard(use_docker: bool):
+    """Interactive setup: configure a policy and start the gateway."""
+    console = Console()
+    config = load_config(DEFAULT_CONFIG_PATH)
+
+    mode_label = "Docker (PostgreSQL + Redis)" if use_docker else "local (SQLite, no Docker required)"
     console.print(
         Panel(
-            textwrap.dedent(f"""\
-                [green bold]Gateway is running![/green bold]
-
-                [bold]Gateway URL:[/bold]  {gateway_url}
-                [bold]Policy:[/bold]       SimpleLLMPolicy
-                [bold]Auth mode:[/bold]    both (proxy key or Anthropic key)
-
-                [bold]Policy instructions:[/bold]
-                [dim]{instructions}[/dim]
-
-                [bold yellow]Launch Claude Code through the gateway:[/bold yellow]
-                  luthien claude
-
-                [bold]Or manually:[/bold]
-                  ANTHROPIC_BASE_URL={gateway_url}/ ANTHROPIC_API_KEY={proxy_key} claude
-
-                [bold red]Important:[/bold red] If Claude Code asks about a detected API key,
-                select [bold]"Yes"[/bold]. Selecting "No" bypasses the proxy.
-
-                [dim]Luthien sends anonymous usage data to help development.
-                To disable, set USAGE_TELEMETRY=false in .env and restart.[/dim]"""),
-            title="Ready",
-            border_style="green",
+            f"This will set up a local Luthien gateway with a policy you describe,\n"
+            f"then show you how to route Claude Code through it.\n\n"
+            f"[bold]Mode:[/bold] {mode_label}",
+            title="Luthien Onboard",
+            border_style="blue",
         )
     )
+
+    proxy_key = _generate_key("sk-luthien")
+    admin_key = _generate_key("admin")
+    instructions = _prompt_for_policy(console)
+
+    if use_docker:
+        _onboard_docker(console, config, proxy_key, admin_key, instructions)
+    else:
+        _onboard_local(console, config, proxy_key, admin_key, instructions)
