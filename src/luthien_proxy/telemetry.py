@@ -110,10 +110,6 @@ def configure_tracing() -> trace.Tracer:
         _silence_otel_loggers()
         return trace.get_tracer(__name__)
 
-    # Silence noisy loggers even when enabled — connection blips shouldn't
-    # pollute logs with ERROR-level stack traces
-    _silence_otel_loggers()
-
     # Define resource attributes
     resource = Resource.create(
         {

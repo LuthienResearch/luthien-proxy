@@ -49,11 +49,11 @@ class TestConfigureTracing:
 
     @patch("luthien_proxy.telemetry._get_otel_config")
     @patch("luthien_proxy.telemetry._silence_otel_loggers")
-    def test_enabled_also_silences_loggers(self, mock_silence, mock_config):
-        """Even when OTel is enabled, noisy loggers are silenced to avoid connection error spam."""
+    def test_enabled_does_not_silence_loggers(self, mock_silence, mock_config):
+        """When OTel is enabled, loggers are NOT silenced — connection errors should be visible."""
         mock_config.return_value = (True, "http://localhost:4317", "svc", "1.0", "dev")
         telemetry.configure_tracing()
-        mock_silence.assert_called_once()
+        mock_silence.assert_not_called()
 
     @patch("luthien_proxy.telemetry._get_otel_config")
     def test_disabled_logs_at_debug_not_info(self, mock_config):
