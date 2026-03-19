@@ -35,7 +35,7 @@ from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.request_log import router as request_log_router
 from luthien_proxy.session import login_page_router
 from luthien_proxy.session import router as session_router
-from luthien_proxy.settings import Settings, get_settings
+from luthien_proxy.settings import Settings, clear_settings_cache, get_settings
 from luthien_proxy.telemetry import (
     configure_logging,
     configure_tracing,
@@ -459,7 +459,36 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
     }
 
 
-__all__ = ["create_app", "load_config_from_env", "connect_db", "connect_redis"]
+def configure_local_mode() -> dict[str, str]:
+    """Set env var defaults for dockerless local mode.
+
+    Uses setdefault so existing env vars are never overwritten.
+    Generates ephemeral API keys if not already set.
+
+    Returns:
+        Dict with proxy_api_key and admin_api_key (whether generated or existing).
+    """
+    import secrets
+
+    os.environ.setdefault("DATABASE_URL", "sqlite:///luthien_local.db")
+    os.environ.setdefault("REDIS_URL", "")
+    os.environ.setdefault("POLICY_CONFIG", "config/policy_config.yaml")
+    os.environ.setdefault("POLICY_SOURCE", "file")
+
+    if not os.environ.get("PROXY_API_KEY"):
+        key = f"sk-local-{secrets.token_urlsafe(16)}"
+        os.environ["PROXY_API_KEY"] = key
+        os.environ.setdefault("ADMIN_API_KEY", key)
+
+    os.environ.setdefault("ADMIN_API_KEY", os.environ["PROXY_API_KEY"])
+
+    return {
+        "proxy_api_key": os.environ["PROXY_API_KEY"],
+        "admin_api_key": os.environ["ADMIN_API_KEY"],
+    }
+
+
+__all__ = ["create_app", "load_config_from_env", "connect_db", "connect_redis", "configure_local_mode"]
 
 
 if __name__ == "__main__":
@@ -467,6 +496,23 @@ if __name__ == "__main__":
 
     async def main():
         """Production entry point with proper resource lifecycle."""
+        import argparse
+
+        parser = argparse.ArgumentParser(description="Luthien Gateway")
+        parser.add_argument(
+            "--local",
+            action="store_true",
+            help="Run with SQLite + in-process Redis, no Docker needed",
+        )
+        args = parser.parse_args()
+
+        if args.local:
+            keys = configure_local_mode()
+            clear_settings_cache()
+            print(f"[local mode] DATABASE_URL={os.environ['DATABASE_URL']}")
+            print(f"[local mode] PROXY_API_KEY={keys['proxy_api_key']}")
+            print(f"[local mode] ADMIN_API_KEY={keys['admin_api_key']}")
+
         config = load_config_from_env()
 
         startup_path = config.get("startup_policy_path")
