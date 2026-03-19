@@ -174,6 +174,28 @@ class TestProcessRequest:
         assert session_id == "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
     @pytest.mark.asyncio
+    async def test_extracts_session_id_from_header_fallback(self, mock_request, mock_emitter, mock_span):
+        anthropic_body = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+        }
+        mock_request.json = AsyncMock(return_value=anthropic_body)
+        mock_request.headers = {"x-session-id": "oauth-session-abc123"}
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            _anthropic_request, _raw_http_request, session_id = await _process_request(
+                request=mock_request,
+                call_id="test-call-id",
+                emitter=mock_emitter,
+            )
+
+        assert session_id == "oauth-session-abc123"
+
+    @pytest.mark.asyncio
     async def test_request_size_limit_exceeded(self, mock_request, mock_emitter, mock_span):
         """Test that oversized requests raise HTTPException."""
         mock_request.headers = {"content-length": "999999999"}
