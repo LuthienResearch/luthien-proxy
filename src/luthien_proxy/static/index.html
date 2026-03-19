@@ -16,9 +16,9 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-            background: #0a0a0a;
-            color: #e5e5e5;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: #09090b;
+            color: #e4e4e7;
             line-height: 1.6;
         }
 
@@ -35,51 +35,169 @@
         h1 {
             font-size: 24px;
             font-weight: 600;
-            color: #fff;
+            color: #fafafa;
             margin-bottom: 4px;
+            letter-spacing: -0.02em;
         }
 
         .version {
-            color: #666;
+            color: #71717a;
             font-size: 14px;
         }
 
         h2 {
             font-size: 16px;
             font-weight: 600;
-            color: #e5e5e5;
+            color: #fafafa;
             margin-bottom: 16px;
+            letter-spacing: -0.02em;
         }
 
         .section {
-            background: #141414;
-            border: 1px solid #262626;
+            background: #18181b;
+            border: 1px solid #27272a;
             border-radius: 8px;
             padding: 20px;
             margin-bottom: 20px;
+            transition: border-color 0.2s;
+        }
+
+        .section:hover {
+            border-color: #3f3f46;
+        }
+
+        .page-card {
+            display: block;
+            margin: 12px 0;
+            padding: 12px 16px;
+            background: #09090b;
+            border: 1px solid #27272a;
+            border-radius: 8px;
+            text-decoration: none;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+        }
+
+        .page-card:hover {
+            border-color: #3f3f46;
+            background: #111113;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .page-card:focus-visible {
+            outline: 2px solid #6b9fff;
+            outline-offset: 2px;
+        }
+
+        .page-card .page-name {
+            color: #6b9fff;
+            font-weight: 500;
+            font-size: 14px;
+            transition: color 0.2s;
+        }
+
+        .page-card:hover .page-name {
+            color: #93b4ff;
+        }
+
+        .page-card .page-path {
+            color: #52525b;
+            font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+            font-size: 11px;
+            margin-left: 8px;
+        }
+
+        .page-card .page-desc {
+            color: #71717a;
+            margin-top: 4px;
+            font-size: 13px;
+        }
+
+        details.section {
+            cursor: default;
+        }
+
+        details.section summary {
+            cursor: pointer;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 0;
+            border-radius: 4px;
+        }
+
+        details.section summary:focus-visible {
+            outline: 2px solid #6b9fff;
+            outline-offset: 2px;
+        }
+
+        details.section summary::-webkit-details-marker {
+            display: none;
+        }
+
+        details.section summary::before {
+            content: '';
+            display: inline-block;
+            width: 0;
+            height: 0;
+            border-left: 5px solid #71717a;
+            border-top: 4px solid transparent;
+            border-bottom: 4px solid transparent;
+            transition: transform 0.2s;
+            flex-shrink: 0;
+        }
+
+        details.section summary:hover::before {
+            border-left-color: #a1a1aa;
+        }
+
+        details.section[open] summary::before {
+            transform: rotate(90deg);
+        }
+
+        details.section summary h2 {
+            margin-bottom: 0;
+        }
+
+        details.section summary:hover h2 {
+            color: #a1a1aa;
+        }
+
+        details.section .details-content {
+            margin-top: 16px;
+            border-top: 1px solid #27272a;
+            padding-top: 16px;
         }
 
         .endpoint {
             margin: 12px 0;
             padding: 12px 16px;
-            background: #1a1a1a;
-            border-left: 3px solid #4ade80;
-            border-radius: 4px;
+            background: #09090b;
+            border: 1px solid #27272a;
+            border-radius: 8px;
         }
 
         .endpoint a {
-            color: #4ade80;
+            color: #6b9fff;
             text-decoration: none;
-            font-weight: 600;
+            font-weight: 500;
             font-size: 14px;
+            transition: color 0.2s;
         }
 
         .endpoint a:hover {
             text-decoration: underline;
         }
 
+        .endpoint a:focus-visible {
+            outline: 2px solid #6b9fff;
+            outline-offset: 2px;
+            border-radius: 2px;
+        }
+
         .endpoint .description {
-            color: #888;
+            color: #71717a;
             margin-top: 4px;
             font-size: 13px;
         }
@@ -92,6 +210,7 @@
             border-radius: 3px;
             font-size: 11px;
             font-weight: bold;
+            font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
             margin-right: 8px;
         }
 
@@ -103,8 +222,8 @@
         .badge {
             display: inline-block;
             padding: 2px 8px;
-            background: #262626;
-            color: #888;
+            background: #27272a;
+            color: #71717a;
             border-radius: 3px;
             font-size: 11px;
             margin-left: 8px;
@@ -121,53 +240,83 @@
         }
 
         code {
-            background: #1a1a1a;
+            background: #27272a;
             padding: 2px 6px;
             border-radius: 3px;
             font-size: 13px;
+            font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
             color: #f59e0b;
         }
 
-        .quickstart {
-            border-left: 3px solid #4ade80;
-        }
-
-        .quickstart p {
-            margin: 8px 0;
-            font-size: 14px;
-            color: #888;
-        }
-
-        .quickstart a {
-            color: #4ade80;
-            text-decoration: none;
-        }
-
-        .quickstart a:hover {
-            text-decoration: underline;
-        }
-
-        .quickstart strong {
-            color: #e5e5e5;
-        }
-
         .endpoint span:not(.method):not(.badge):not(.description) {
-            color: #888;
+            color: #71717a;
             font-size: 14px;
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+        }
+
+        .dev-subsection {
+            margin-bottom: 16px;
+        }
+
+        .dev-subsection:last-child {
+            margin-bottom: 0;
+        }
+
+        .dev-subsection h3 {
+            font-size: 14px;
+            font-weight: 500;
+            color: #a1a1aa;
+            margin-bottom: 8px;
+            letter-spacing: -0.02em;
+        }
+
+        .dev-subsection p {
+            color: #71717a;
+            font-size: 13px;
+            margin-bottom: 12px;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                transition-duration: 0.01ms !important;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 16px;
+            }
+
+            h1 {
+                font-size: 20px;
+            }
+
+            .section {
+                padding: 16px;
+            }
+
+            .page-card {
+                padding: 12px;
+            }
+
+            .page-card .page-path {
+                display: block;
+                margin-left: 0;
+                margin-top: 2px;
+            }
         }
     </style>
 </head>
 <body>
     <nav x-data="luthienNav" class="luthien-nav">
         <a href="/" class="nav-brand">Luthien</a>
-            <div class="nav-right">
-        <template x-for="link in links" :key="link.href">
-            <a :href="link.href" class="nav-link" :class="{ active: isActive(link.href) }" x-text="link.label"></a>
-        </template>
-        <template x-if="isAuthenticated()">
-            <a href="/auth/logout" class="nav-signout">Sign Out</a>
-        </template>
+        <div class="nav-right">
+            <template x-for="link in links" :key="link.href">
+                <a :href="link.href" class="nav-link" :class="{ active: isActive(link.href) }" x-text="link.label"></a>
+            </template>
+            <template x-if="isAuthenticated()">
+                <a href="/auth/logout" class="nav-signout">Sign Out</a>
+            </template>
         </div>
     </nav>
     <div class="container">
@@ -175,108 +324,109 @@
             <h1>Luthien Proxy Gateway <span class="version">v0.1.0</span></h1>
         </header>
 
-        <div class="section quickstart">
-            <h2>Quick Start</h2>
-            <p><strong>New here?</strong> <a href="/client-setup">Client Setup</a> — connect Claude Code to this proxy</p>
-            <p><strong>Real-time activity:</strong> <a href="/activity/monitor">Activity Monitor</a></p>
-            <p><strong>Conversation history:</strong> <a href="/history">History</a></p>
-            <p><strong>Policy diffs:</strong> <a href="/diffs">Diff Viewer</a></p>
-        </div>
-
         <div class="section">
-            <h2>Monitoring UIs</h2>
+            <h2>Pages</h2>
 
-            <div class="endpoint">
-                <span class="method">GET</span>
-                <a href="/activity/monitor">/activity/monitor</a>
-                <span class="badge ui">UI</span>
-                <div class="description">Real-time activity monitor — view all gateway requests, policy events, and responses</div>
-            </div>
+            <a href="/activity/monitor" class="page-card">
+                <span class="page-name">Activity</span>
+                <span class="page-path">/activity/monitor</span>
+                <div class="page-desc">Real-time activity monitor — view all gateway requests, policy events, and responses</div>
+            </a>
 
-            <div class="endpoint">
-                <span class="method">GET</span>
-                <a href="/policy-config">/policy-config</a>
-                <span class="badge ui">UI</span>
-                <div class="description">Activate, configure and test policies</div>
-            </div>
+            <a href="/history" class="page-card">
+                <span class="page-name">History</span>
+                <span class="page-path">/history</span>
+                <div class="page-desc">Browse past sessions with full message transcripts</div>
+            </a>
 
-            <div class="endpoint">
-                <span class="method">GET</span>
-                <a href="/credentials">/credentials</a>
-                <span class="badge ui">UI</span>
-                <div class="description">Manage authentication modes and cached credentials</div>
-            </div>
+            <a href="/policy-config" class="page-card">
+                <span class="page-name">Policies</span>
+                <span class="page-path">/policy-config</span>
+                <div class="page-desc">Activate, configure, and test policies</div>
+            </a>
 
-            <div class="endpoint">
-                <span class="method">GET</span>
-                <a href="/diffs">/diffs</a>
-                <span class="badge ui">UI</span>
-                <div class="description">Policy diff viewer — compare original vs modified requests/responses</div>
-            </div>
+            <a href="/diffs" class="page-card">
+                <span class="page-name">Diffs</span>
+                <span class="page-path">/diffs</span>
+                <div class="page-desc">Policy diff viewer — compare original vs modified requests and responses</div>
+            </a>
 
-            <div class="endpoint">
-                <span class="method">GET</span>
-                <a href="/history">/history</a>
-                <span class="badge ui">UI</span>
-                <div class="description">Conversation history — browse past sessions with full message transcripts</div>
-            </div>
+            <a href="/credentials" class="page-card">
+                <span class="page-name">Credentials</span>
+                <span class="page-path">/credentials</span>
+                <div class="page-desc">Manage authentication modes and cached credentials</div>
+            </a>
 
+            <a href="/client-setup" class="page-card">
+                <span class="page-name">Client Setup</span>
+                <span class="page-path">/client-setup</span>
+                <div class="page-desc">Connect Claude Code to this proxy</div>
+            </a>
         </div>
 
-        <div class="section">
-            <h2>API Endpoints</h2>
-            <p style="color: #666; font-size: 13px; margin-bottom: 12px;">All API endpoints require admin authentication (ADMIN_API_KEY)</p>
+        <details class="section">
+            <summary><h2>Developer Reference</h2></summary>
+            <div class="details-content">
+                <div class="dev-subsection">
+                    <h3>API Endpoints</h3>
+                    <p>All API endpoints require admin authentication (ADMIN_API_KEY)</p>
 
-            <div class="endpoint">
-                <span class="method">GET</span>
-                <span>/api/debug/calls</span>
-                <span class="badge api">API</span>
-                <div class="description">List recent calls with event counts (supports <code>?limit=N</code>)</div>
+                    <div class="endpoint">
+                        <span class="method">GET</span>
+                        <span>/api/debug/calls</span>
+                        <span class="badge api">API</span>
+                        <div class="description">List recent calls with event counts (supports <code>?limit=N</code>)</div>
+                    </div>
+
+                    <div class="endpoint">
+                        <span class="method">GET</span>
+                        <span>/api/debug/calls/{call_id}/diff</span>
+                        <span class="badge api">API</span>
+                        <div class="description">JSON diff showing what the policy changed</div>
+                    </div>
+
+                    <div class="endpoint">
+                        <span class="method">GET</span>
+                        <span>/api/activity/stream</span>
+                        <span class="badge api">SSE</span>
+                        <div class="description">Server-Sent Events stream of all gateway activity</div>
+                    </div>
+                </div>
+
+                <div class="dev-subsection">
+                    <h3>LLM Gateway</h3>
+
+                    <div class="endpoint">
+                        <span class="method post">POST</span>
+                        <span>/v1/messages</span>
+                        <div class="description">Anthropic Messages API endpoint</div>
+                    </div>
+                </div>
+
+                <div class="dev-subsection">
+                    <h3>Utility</h3>
+
+                    <div class="endpoint">
+                        <span class="method">GET</span>
+                        <a href="/health">/health</a>
+                        <span class="badge">Public</span>
+                        <div class="description">Health check endpoint</div>
+                    </div>
+                </div>
+
+                <div class="dev-subsection">
+                    <h3>Request Logs</h3>
+
+                    <div class="endpoint">
+                        <span class="method">GET</span>
+                        <a href="/request-logs/viewer" target="_blank">/request-logs/viewer</a>
+                        <span class="badge ui">UI</span>
+                        <span class="badge">Auth Required</span>
+                        <div class="description">HTTP-level request/response log viewer — inspect raw inbound and outbound traffic</div>
+                    </div>
+                </div>
             </div>
-
-            <div class="endpoint">
-                <span class="method">GET</span>
-                <span>/api/debug/calls/{call_id}/diff</span>
-                <span class="badge api">API</span>
-                <div class="description">JSON diff showing what the policy changed</div>
-            </div>
-
-            <div class="endpoint">
-                <span class="method">GET</span>
-                <span>/api/activity/stream</span>
-                <span class="badge api">SSE</span>
-                <div class="description">Server-Sent Events stream of all gateway activity</div>
-            </div>
-        </div>
-
-        <div class="section">
-            <h2>LLM Gateway</h2>
-
-            <div class="endpoint">
-                <span class="method post">POST</span>
-                <span>/v1/messages</span>
-                <div class="description">Anthropic Messages API endpoint</div>
-            </div>
-        </div>
-
-        <div class="section">
-            <h2>Utility</h2>
-
-            <div class="endpoint">
-                <span class="method">GET</span>
-                <a href="/health">/health</a>
-                <span class="badge">Public</span>
-                <div class="description">Health check endpoint</div>
-            </div>
-        </div>
-
-        <div class="endpoint">
-            <span class="method">GET</span>
-            <a href="/request-logs/viewer" target="_blank">/request-logs/viewer</a>
-            <span class="badge ui">UI</span>
-            <span class="badge">Auth Required</span>
-            <div class="description">HTTP-level request/response log viewer - inspect raw inbound and outbound traffic</div>
-        </div>
+        </details>
     </div>
 
     <script defer src="/static/vendor/alpine.min.js"></script>
