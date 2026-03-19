@@ -953,3 +953,41 @@ window.escapeHtml = function(text) {
     div.textContent = text;
     return div.innerHTML;
 };
+
+// === Gateway Settings ===
+
+async function loadGatewaySettings() {
+    try {
+        const data = await apiCall('/api/admin/gateway/settings');
+        document.getElementById('inject-policy-context').checked = data.inject_policy_context;
+        document.getElementById('dogfood-mode').checked = data.dogfood_mode;
+    } catch (e) {
+        console.warn('Failed to load gateway settings:', e);
+    }
+}
+
+async function saveGatewaySetting(field, value) {
+    try {
+        await apiCall('/api/admin/gateway/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ [field]: value })
+        });
+    } catch (e) {
+        console.error('Failed to save gateway setting:', e);
+        // Revert checkbox on failure
+        document.getElementById(field === 'inject_policy_context' ? 'inject-policy-context' : 'dogfood-mode').checked = !value;
+    }
+}
+
+// Wire up gateway settings checkboxes
+document.addEventListener('DOMContentLoaded', () => {
+    loadGatewaySettings();
+
+    document.getElementById('inject-policy-context').addEventListener('change', (e) => {
+        saveGatewaySetting('inject_policy_context', e.target.checked);
+    });
+
+    document.getElementById('dogfood-mode').addEventListener('change', (e) => {
+        saveGatewaySetting('dogfood_mode', e.target.checked);
+    });
+});

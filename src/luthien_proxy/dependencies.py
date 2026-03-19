@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from fastapi import Depends, HTTPException, Request
 from redis.asyncio import Redis
@@ -10,6 +11,7 @@ from redis.asyncio import Redis
 from luthien_proxy.credential_manager import CredentialManager
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.observability.emitter import EventEmitterProtocol
+from luthien_proxy.observability.event_publisher import EventPublisherProtocol
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
 )
@@ -34,9 +36,11 @@ class Dependencies:
     api_key: str
     admin_key: str | None
     anthropic_client: AnthropicClient | None = field(default=None)
+    event_publisher: EventPublisherProtocol | None = field(default=None)
     credential_manager: CredentialManager | None = field(default=None)
     enable_request_logging: bool = field(default=False)
     usage_collector: UsageCollector | None = field(default=None)
+    last_credential_info: dict[str, Any] = field(default_factory=dict)
 
     def get_anthropic_policy(self) -> AnthropicExecutionInterface:
         """Get the current Anthropic policy.

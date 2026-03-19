@@ -91,7 +91,7 @@ docker compose up -d gateway
 
 All shared fixtures and helpers are in `tests/e2e_tests/conftest.py`:
 
-- **Fixtures**: `claude_available`, `gateway_healthy`, `http_client`
+- **Fixtures**: `claude_available`, `codex_available`, `gateway_healthy`, `http_client`
 - **Configuration**: `GATEWAY_URL`, `API_KEY`, `ADMIN_API_KEY`
 - **Helpers**: `set_policy()`, `get_current_policy()`, `policy_context()`
 
@@ -140,6 +140,7 @@ response = await client.post(
 - `mock_e2e` tests use `pytestmark = pytest.mark.mock_e2e` at module level
 - `e2e` tests use `@pytest.mark.e2e` on individual test functions
 - `sqlite_e2e` tests use `pytestmark = pytest.mark.sqlite_e2e` at module level
+- Use fixtures like `gateway_healthy`, `claude_available`, `codex_available` for prerequisite checks
 - Tests that fail prerequisites are skipped, not failed
 
 ## CLI Testing
@@ -152,5 +153,16 @@ async def run_claude_code(prompt: str, timeout_seconds: int = 60):
     env = os.environ.copy()
     env["ANTHROPIC_BASE_URL"] = GATEWAY_URL
     env["ANTHROPIC_API_KEY"] = API_KEY
+    # ...
+```
+
+### Codex
+
+```python
+async def run_codex(prompt: str, timeout_seconds: int = 60):
+    cmd = ["codex", "exec", "--json", "-s", "read-only", "--skip-git-repo-check", prompt]
+    env = os.environ.copy()
+    env["OPENAI_BASE_URL"] = f"{GATEWAY_URL}/v1"
+    env["OPENAI_API_KEY"] = API_KEY
     # ...
 ```

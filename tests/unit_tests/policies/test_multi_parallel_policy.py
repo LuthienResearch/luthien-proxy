@@ -312,7 +312,7 @@ class TestPolicyContextDeepCopy:
 
         from luthien_proxy.observability.emitter import EventEmitter
 
-        emitter = EventEmitter(db_pool=None, redis_publisher=None)
+        emitter = EventEmitter(db_pool=None, event_publisher=None)
         ctx = PolicyContext(transaction_id="test-txn", emitter=emitter)
         ctx._scratchpad["key"] = "value"
 

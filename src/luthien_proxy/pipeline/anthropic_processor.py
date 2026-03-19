@@ -45,14 +45,17 @@ from luthien_proxy.llm.types.anthropic import (
 )
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.pipeline.client_format import ClientFormat
+from luthien_proxy.pipeline.policy_context_injection import inject_policy_awareness_anthropic
 from luthien_proxy.pipeline.session import extract_session_id_from_anthropic_body
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
     AnthropicPolicyEmission,
     AnthropicPolicyIOProtocol,
 )
+from luthien_proxy.policy_core.base_policy import BasePolicy
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.request_log.recorder import RequestLogRecorder, create_recorder
+from luthien_proxy.settings import get_settings
 from luthien_proxy.telemetry import restore_context
 from luthien_proxy.types import RawHttpRequest
 from luthien_proxy.usage_telemetry.collector import UsageCollector
@@ -339,6 +342,9 @@ async def process_anthropic_request(
             call_id=call_id,
             emitter=emitter,
         )
+
+        if get_settings().inject_policy_context and isinstance(policy, BasePolicy):
+            anthropic_request = inject_policy_awareness_anthropic(anthropic_request, policy.active_policy_names())
 
         is_streaming = anthropic_request.get("stream", False)
         model = anthropic_request["model"]

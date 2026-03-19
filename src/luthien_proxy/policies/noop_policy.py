@@ -23,5 +23,4 @@ class NoOpPolicy(BasePolicy, AnthropicHookPolicy):
         """Return 'NoOp'."""
         return "NoOp"
 
-
 __all__ = ["NoOpPolicy"]

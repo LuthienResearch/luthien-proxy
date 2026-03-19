@@ -4,6 +4,7 @@
 
 - Core goal: implement AI Control for LLMs with integrated gateway architecture.
 - Architecture: FastAPI gateway with integrated control plane and LiteLLM, using event-driven policies.
+- **Read `ARCHITECTURE.md` first** when you need to understand how modules connect, how requests flow, or where to make changes. It covers the request lifecycle, module map, key abstractions, and data model.
 - Select a policy via `POLICY_CONFIG` that points to a YAML file (defaults to `config/policy_config.yaml`).
   - Example: `export POLICY_CONFIG=./config/policy_config.yaml`
 
@@ -45,7 +46,7 @@ Proactively update files in `dev/context/` as you learn about the codebase:
 
 These files persist across sessions and help build institutional knowledge. Update them during development, not just at the end. Include timestamps (YYYY-MM-DD) when adding entries to detect when knowledge may be stale.
 
-Note that Claude Code agents work in this repo and may read from and write to context.
+Note that both Claude Code and Codex agents work in this repo and may read from and write to context.
 
 ### Objective Workflow
 
@@ -147,6 +148,10 @@ Common commands:
 ## Tooling
 
 - Inspect the dev Postgres quickly with `uv run python scripts/query_debug_logs.py`. The helper loads `.env`, connects to `DATABASE_URL`, and prints recent conversation events and debug logs.
+<<<<<<< HEAD
+=======
+- Quick Codex feedback: run `codex e "question or idea"` for a fast suggestion without starting an interactive session. Note that subsequent invocations won't persist context - pass in existing context or refer to relevant files to persist some context between calls.
+>>>>>>> parent of 1d912751 (chore: remove Codex support)
 
 ## Coding Style & Naming Conventions
 
