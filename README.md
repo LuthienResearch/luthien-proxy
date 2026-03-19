@@ -286,7 +286,29 @@ policy:
     max_tokens: 256
 ```
 
-Available policies in `src/luthien_proxy/policies/`:
+### Built-in Presets
+
+Ready-to-use policies in `src/luthien_proxy/policies/presets/` — no configuration needed:
+
+- `BlockDangerousCommandsPolicy` - Blocks destructive shell commands (rm -rf, chmod 777, mkfs, dd, etc.)
+- `BlockSensitiveFileWritesPolicy` - Blocks writes to sensitive paths (/etc, ~/.ssh, ~/.gnupg, etc.)
+- `BlockWebRequestsPolicy` - Blocks outbound network requests (curl, wget, fetch, etc.) to prevent data exfiltration
+- `NoApologiesPolicy` - Removes apologetic filler ("I apologize", "I'm sorry") from responses
+- `NoYappingPolicy` - Enforces concise responses by cutting filler, hedging, and unnecessary preamble
+- `PlainDashesPolicy` - Replaces em-dashes and en-dashes with plain hyphens (useful for terminals)
+- `PreferUvPolicy` - Replaces pip commands with uv equivalents in responses
+
+Example preset config:
+
+```yaml
+policy:
+  class: "luthien_proxy.policies.presets.no_yapping:NoYappingPolicy"
+  config: {}
+```
+
+### Core Policies
+
+Base classes and building blocks in `src/luthien_proxy/policies/`:
 
 - `noop_policy.py` - Pass-through (no filtering, default)
 - `simple_policy.py` - Base class for custom request/response policies
