@@ -22,7 +22,7 @@
 4. Commit the changes, push to origin, and open a draft PR (to `main`)
 5. Implement the OBJECTIVE. Add any items that should be done but are out of scope for the current OBJECTIVE to the [Trello board](https://trello.com/b/ehoxykPf/luthien?filter=label:luthien-proxy%20TODO) (e.g. noticing an implementation bug, incorrect documentation, or code that should be refactored).
 6. Regularly run `scripts/dev_checks.sh`, then commit and push any formatting/lint fixes along with your changes to origin (on the feature branch).
-7. When the OBJECTIVE is complete, update `CHANGELOG.md`
+7. When the OBJECTIVE is complete, add a changelog fragment to `changelog.d/` (see `changelog.d/README.md`)
 8. Clear `dev/OBJECTIVE.md` and `dev/NOTES.md`
 9. Mark the PR as ready.
 10. Mark the Trello ticket as done.
@@ -83,7 +83,7 @@ Note that Claude Code agents work in this repo and may read from and write to co
    git status
    ```
 
-   - Update `CHANGELOG.md` with a bullet referencing the objective handle.
+   - Add a changelog fragment to `changelog.d/<short-handle>.md` (see `changelog.d/README.md` for format).
    - Clear `dev/NOTES.md` and `dev/OBJECTIVE.md`.
 
    ```bash
