@@ -186,18 +186,17 @@ async def test_set_policy_single_call(http_client, admin_headers, proxy_headers,
 
     # Test policy works
     gateway_response = await http_client.post(
-        f"{GATEWAY_URL}/v1/chat/completions",
+        f"{GATEWAY_URL}/v1/messages",
         headers=proxy_headers,
         json={
-            "model": "gpt-3.5-turbo",
+            "model": "claude-haiku-4-5",
             "messages": [{"role": "user", "content": "say hello"}],
             "max_tokens": 10,
-            "stream": False,
         },
     )
 
     assert gateway_response.status_code == 200
-    response_text = gateway_response.json()["choices"][0]["message"]["content"]
+    response_text = gateway_response.json()["content"][0]["text"]
     assert response_text.isupper(), f"Expected uppercase, got: {response_text}"
 
     print(f"Policy working! Response: {response_text}")

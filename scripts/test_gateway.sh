@@ -1,7 +1,7 @@
 #!/bin/bash
 # Requires: bash 3.2+
 # ABOUTME: Automated test script for gateway health and API compatibility
-# ABOUTME: Tests OpenAI and Anthropic APIs with streaming and non-streaming modes
+# ABOUTME: Tests Anthropic API with streaming and non-streaming modes
 
 set -e
 
@@ -73,23 +73,6 @@ test_endpoint() {
 
 # Helper functions below are invoked indirectly via eval in test_endpoint()
 # shellcheck disable=SC2317,SC2329
-extract_content() {
-    jq -r '.choices[0].message.content // empty'
-}
-
-# shellcheck disable=SC2317,SC2329
-validate_greeting() {
-    grep -iq "hello\|hi\|hey\|greetings"
-}
-
-# shellcheck disable=SC2317,SC2329
-validate_streaming() {
-    local content
-    content="$(cat)"
-    echo "$content" | grep -q "^data: {" && echo "$content" | grep -q "delta"
-}
-
-# shellcheck disable=SC2317,SC2329
 validate_anthropic() {
     jq -e '.content[0].text | length > 0' > /dev/null
 }
@@ -107,34 +90,6 @@ test_endpoint "Health endpoint" \
     "jq -e '.status == \"healthy\"'"
 echo ""
 
-echo "=== OpenAI Chat Completions API ==="
-
-# Test gpt-4o-mini non-streaming
-test_endpoint "gpt-4o-mini (non-streaming)" \
-    "curl -sf $GATEWAY_URL/v1/chat/completions -H 'Content-Type: application/json' -H 'Authorization: Bearer $API_KEY' -d '{\"model\":\"gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hello in 2 words\"}],\"stream\":false,\"max_tokens\":20}'" \
-    "jq -e '.choices[0].message.content | length > 0'"
-
-# Test gpt-4o-mini streaming
-test_endpoint "gpt-4o-mini (streaming)" \
-    "curl -sf $GATEWAY_URL/v1/chat/completions -H 'Content-Type: application/json' -H 'Authorization: Bearer $API_KEY' -d '{\"model\":\"gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"Count to 3\"}],\"stream\":true,\"max_tokens\":50}' | head -5" \
-    "validate_streaming"
-
-# Test gpt-5 non-streaming
-test_endpoint "gpt-5 (non-streaming)" \
-    "curl -sf $GATEWAY_URL/v1/chat/completions -H 'Content-Type: application/json' -H 'Authorization: Bearer $API_KEY' -d '{\"model\":\"gpt-5\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hello in 2 words\"}],\"stream\":false,\"max_tokens\":100,\"verbosity\":\"low\"}'" \
-    "jq -e '.id | length > 0'"
-
-# Test claude-sonnet-4-5 via OpenAI API non-streaming
-test_endpoint "claude-sonnet-4-5 via OpenAI API (non-streaming)" \
-    "curl -sf $GATEWAY_URL/v1/chat/completions -H 'Content-Type: application/json' -H 'Authorization: Bearer $API_KEY' -d '{\"model\":\"claude-sonnet-4-5\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hello in 2 words\"}],\"stream\":false,\"max_tokens\":20}'" \
-    "jq -e '.choices[0].message.content | length > 0'"
-
-# Test claude-sonnet-4-5 via OpenAI API streaming
-test_endpoint "claude-sonnet-4-5 via OpenAI API (streaming)" \
-    "curl -sf $GATEWAY_URL/v1/chat/completions -H 'Content-Type: application/json' -H 'Authorization: Bearer $API_KEY' -d '{\"model\":\"claude-sonnet-4-5\",\"messages\":[{\"role\":\"user\",\"content\":\"Count to 3\"}],\"stream\":true,\"max_tokens\":50}' | head -5" \
-    "validate_streaming"
-
-echo ""
 echo "=== Anthropic Messages API ==="
 
 # Test claude-sonnet-4-5 non-streaming
@@ -152,12 +107,12 @@ echo "=== Error Handling ==="
 
 # Test missing messages field
 test_endpoint "Missing messages field (should fail)" \
-    "curl -s $GATEWAY_URL/v1/chat/completions -H 'Content-Type: application/json' -H 'Authorization: Bearer $API_KEY' -d '{\"model\":\"gpt-4o-mini\",\"stream\":false,\"max_tokens\":20}' -w '%{http_code}' -o /dev/null" \
+    "curl -s $GATEWAY_URL/v1/messages -H 'Content-Type: application/json' -H 'Authorization: Bearer $API_KEY' -H 'anthropic-version: 2023-06-01' -d '{\"model\":\"claude-sonnet-4-5\",\"max_tokens\":20}' -w '%{http_code}' -o /dev/null" \
     "grep -qE '^(4[0-9][0-9]|500)$'"
 
 # Test invalid API key
 test_endpoint "Invalid API key (should fail)" \
-    "curl -s $GATEWAY_URL/v1/chat/completions -H 'Content-Type: application/json' -H 'Authorization: Bearer invalid-key' -d '{\"model\":\"gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"test\"}],\"stream\":false,\"max_tokens\":20}' -w '%{http_code}' -o /dev/null" \
+    "curl -s $GATEWAY_URL/v1/messages -H 'Content-Type: application/json' -H 'Authorization: Bearer invalid-key' -H 'anthropic-version: 2023-06-01' -d '{\"model\":\"claude-sonnet-4-5\",\"messages\":[{\"role\":\"user\",\"content\":\"test\"}],\"max_tokens\":20}' -w '%{http_code}' -o /dev/null" \
     "grep -q '^40[13]$'"
 
 echo ""

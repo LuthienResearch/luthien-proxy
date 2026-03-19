@@ -122,17 +122,17 @@ async def dogfood_active(http_client):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_dogfood_blocks_dangerous_openai_tool_call(http_client, proxy_headers, gateway_healthy, dogfood_active):
+async def test_dogfood_blocks_dangerous_tool_call(http_client, proxy_headers, gateway_healthy, dogfood_active):
     """A tool call with 'docker compose down' should be blocked by DogfoodSafetyPolicy.
 
-    We send a chat completion request with a tool_call that contains a dangerous
+    We send a messages request with a tool_use that contains a dangerous
     command and verify the response is modified to contain a blocked message.
     """
     response = await http_client.post(
-        f"{GATEWAY_URL}/v1/chat/completions",
+        f"{GATEWAY_URL}/v1/messages",
         headers=proxy_headers,
         json={
-            "model": "gpt-4o-mini",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [
                 {
                     "role": "user",
@@ -140,22 +140,24 @@ async def test_dogfood_blocks_dangerous_openai_tool_call(http_client, proxy_head
                 },
                 {
                     "role": "assistant",
-                    "content": None,
-                    "tool_calls": [
+                    "content": [
                         {
-                            "id": "call_test_123",
-                            "type": "function",
-                            "function": {
-                                "name": "Bash",
-                                "arguments": json.dumps({"command": "docker compose down"}),
-                            },
+                            "type": "tool_use",
+                            "id": "toolu_test_123",
+                            "name": "Bash",
+                            "input": {"command": "docker compose down"},
                         }
                     ],
                 },
                 {
-                    "role": "tool",
-                    "tool_call_id": "call_test_123",
-                    "content": "Command executed successfully",
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_test_123",
+                            "content": "Command executed successfully",
+                        }
+                    ],
                 },
                 {
                     "role": "user",
@@ -164,54 +166,43 @@ async def test_dogfood_blocks_dangerous_openai_tool_call(http_client, proxy_head
             ],
             "tools": [
                 {
-                    "type": "function",
-                    "function": {
-                        "name": "Bash",
-                        "description": "Execute a bash command",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "command": {
-                                    "type": "string",
-                                    "description": "The command to execute",
-                                }
-                            },
-                            "required": ["command"],
+                    "name": "Bash",
+                    "description": "Execute a bash command",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "command": {
+                                "type": "string",
+                                "description": "The command to execute",
+                            }
                         },
+                        "required": ["command"],
                     },
                 }
             ],
             "max_tokens": 100,
-            "stream": False,
         },
     )
 
     assert response.status_code == 200
     data = response.json()
-    choices = data.get("choices", [])
-    assert len(choices) > 0
+    content_blocks = data.get("content", [])
+    assert len(content_blocks) > 0
 
-    choice = choices[0]
-    message = choice.get("message", {})
-
-    # If the model responds with a tool_call containing "docker compose down",
+    # If the model responds with a tool_use containing "docker compose down",
     # dogfood should block it and replace with a text message.
     # If the model doesn't produce a dangerous tool call, the test passes trivially.
-    tool_calls = message.get("tool_calls")
-    if tool_calls:
-        for tc in tool_calls:
-            func = tc.get("function", {})
-            args = func.get("arguments", "{}")
-            try:
-                parsed = json.loads(args)
-                command = parsed.get("command", "")
-            except (json.JSONDecodeError, TypeError):
-                command = args
+    for block in content_blocks:
+        if block.get("type") == "tool_use":
+            tool_input = block.get("input", {})
+            command = tool_input.get("command", "")
             assert "docker compose down" not in command.lower(), f"Dangerous command was NOT blocked: {command}"
 
-    content = message.get("content", "")
-    if content and "BLOCKED" in content:
-        assert "DogfoodSafetyPolicy" in content
+    text_blocks = [b for b in content_blocks if b.get("type") == "text"]
+    for block in text_blocks:
+        text = block.get("text", "")
+        if "BLOCKED" in text:
+            assert "DogfoodSafetyPolicy" in text
 
 
 @pytest.mark.e2e
@@ -219,23 +210,22 @@ async def test_dogfood_blocks_dangerous_openai_tool_call(http_client, proxy_head
 async def test_dogfood_passes_safe_request(http_client, proxy_headers, gateway_healthy, dogfood_active):
     """A normal chat request with no dangerous commands passes through unmodified."""
     response = await http_client.post(
-        f"{GATEWAY_URL}/v1/chat/completions",
+        f"{GATEWAY_URL}/v1/messages",
         headers=proxy_headers,
         json={
-            "model": "gpt-4o-mini",
+            "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say 'hello' and nothing else."}],
             "max_tokens": 10,
-            "stream": False,
         },
     )
 
     assert response.status_code == 200
     data = response.json()
-    choices = data.get("choices", [])
-    assert len(choices) > 0
+    content_blocks = data.get("content", [])
+    assert len(content_blocks) > 0
 
-    content = choices[0].get("message", {}).get("content", "")
-    assert "BLOCKED" not in content, f"Safe request was incorrectly blocked: {content}"
+    text = content_blocks[0].get("text", "")
+    assert "BLOCKED" not in text, f"Safe request was incorrectly blocked: {text}"
 
 
 @pytest.mark.e2e

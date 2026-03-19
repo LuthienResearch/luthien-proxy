@@ -53,12 +53,12 @@ async def _make_proxy_request(
     *,
     stream: bool = False,
 ) -> httpx.Response:
-    """Send a minimal chat completion through the proxy."""
+    """Send a minimal messages request through the proxy."""
     return await client.post(
-        f"{GATEWAY_URL}/v1/chat/completions",
+        f"{GATEWAY_URL}/v1/messages",
         headers=proxy_headers,
         json={
-            "model": "gpt-4o-mini",
+            "model": "claude-haiku-4-5",
             "messages": [{"role": "user", "content": "say hi"}],
             "max_tokens": 5,
             "stream": stream,
@@ -291,10 +291,10 @@ async def test_filter_by_endpoint(http_client, gateway_healthy, admin_headers, p
         http_client,
         admin_headers,
         min_total=1,
-        endpoint="/v1/chat/completions",
+        endpoint="/v1/messages",
     )
     for log in data["logs"]:
-        assert log["endpoint"] == "/v1/chat/completions"
+        assert log["endpoint"] == "/v1/messages"
 
 
 @pytest.mark.e2e

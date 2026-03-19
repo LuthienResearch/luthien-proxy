@@ -2,7 +2,6 @@
 
 Implements the subset of the Anthropic Messages API needed by luthien-proxy:
   POST /v1/messages         →  JSON response or SSE stream (Anthropic format)
-  POST /v1/chat/completions →  JSON response or SSE stream (OpenAI format)
 
 The server runs in a dedicated background thread with its own event loop so it
 remains responsive regardless of what the pytest event loop is doing. This avoids
@@ -163,7 +162,6 @@ class MockAnthropicServer:
         self._stop_event = asyncio.Event()
         app = web.Application()
         app.router.add_post("/v1/messages", self._handle_messages)
-        app.router.add_post("/v1/chat/completions", self._handle_chat_completions)
         self._runner = web.AppRunner(app, access_log=None)
         await self._runner.setup()
         site = web.TCPSite(self._runner, "0.0.0.0", self._port)
@@ -508,112 +506,6 @@ class MockAnthropicServer:
             },
         )
         await emit("message_stop", {"type": "message_stop"})
-
-        await response.write_eof()
-        return response
-
-    # ------------------------------------------------------------------
-    # OpenAI /v1/chat/completions
-    # ------------------------------------------------------------------
-
-    async def _handle_chat_completions(self, request: web.Request) -> web.StreamResponse | web.Response:
-        body = await request.json()
-        self._record_request(body, dict(request.headers))
-
-        mock = self._next_mock()
-
-        if isinstance(mock, MockErrorResponse):
-            return web.Response(
-                status=mock.status_code,
-                body=json.dumps({"type": "error", "error": {"type": mock.error_type, "message": mock.error_message}}),
-                content_type="application/json",
-            )
-
-        # For tool responses used against the OpenAI endpoint, treat content as the
-        # serialized tool input string (best-effort compatibility).
-        if isinstance(mock, MockToolResponse):
-            text = json.dumps(mock.tool_input)
-            input_tokens = mock.input_tokens
-            output_tokens = mock.output_tokens
-            model_name = body.get("model", mock.model)
-        else:
-            text = mock.text
-            input_tokens = mock.input_tokens
-            output_tokens = mock.output_tokens
-            model_name = body.get("model", mock.model)
-
-        if body.get("stream", False):
-            return await self._stream_chat_response(text, model_name, input_tokens, output_tokens, request)
-        return self._json_chat_response(text, model_name, input_tokens, output_tokens)
-
-    def _json_chat_response(
-        self,
-        text: str,
-        model: str,
-        input_tokens: int,
-        output_tokens: int,
-    ) -> web.Response:
-        data = {
-            "id": f"chatcmpl-{uuid.uuid4().hex[:24]}",
-            "object": "chat.completion",
-            "model": model,
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": text},
-                    "finish_reason": "stop",
-                }
-            ],
-            "usage": {
-                "prompt_tokens": input_tokens,
-                "completion_tokens": output_tokens,
-                "total_tokens": input_tokens + output_tokens,
-            },
-        }
-        return web.Response(body=json.dumps(data), content_type="application/json")
-
-    async def _stream_chat_response(
-        self,
-        text: str,
-        model: str,
-        input_tokens: int,
-        output_tokens: int,
-        request: web.Request,
-    ) -> web.StreamResponse:
-        cmpl_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
-
-        response = web.StreamResponse(
-            headers={
-                "Content-Type": "text/event-stream",
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-            }
-        )
-        await response.prepare(request)
-
-        async def emit_chunk(delta: dict, finish_reason: str | None) -> None:
-            chunk = {
-                "id": cmpl_id,
-                "object": "chat.completion.chunk",
-                "model": model,
-                "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}],
-            }
-            await response.write(f"data: {json.dumps(chunk)}\n\n".encode())
-
-        # Role chunk
-        await emit_chunk({"role": "assistant", "content": ""}, None)
-
-        # Content chunks — split by word
-        words = text.split(" ")
-        word_chunks = [w + (" " if i < len(words) - 1 else "") for i, w in enumerate(words)]
-        for chunk_text in word_chunks:
-            await emit_chunk({"content": chunk_text}, None)
-
-        # Final chunk
-        await emit_chunk({}, "stop")
-
-        # Done marker
-        await response.write(b"data: [DONE]\n\n")
 
         await response.write_eof()
         return response

@@ -121,7 +121,7 @@ luthien up / luthien down  # start/stop the stack
 
 ## What You Get
 
-- **Gateway** (OpenAI/Anthropic-compatible) at <http://localhost:8000>
+- **Gateway** (Anthropic-compatible) at <http://localhost:8000>
 - **PostgreSQL** and **Redis** fully configured
 - **Real-time monitoring** at <http://localhost:8000/activity/monitor>
 - **Policy management UI** at <http://localhost:8000/policy-config>
@@ -323,7 +323,6 @@ Releases are automated via GitHub Actions. The workflow:
 The gateway integrates everything into a single FastAPI application:
 
 - **Gateway** (`src/luthien_proxy/`): Unified FastAPI + LiteLLM integration
-  - OpenAI Chat Completions API compatibility
   - Anthropic Messages API compatibility
   - Event-driven policy system with streaming support
   - OpenTelemetry instrumentation for observability
@@ -344,7 +343,7 @@ The gateway integrates everything into a single FastAPI application:
 
 - **Streaming** (`src/luthien_proxy/streaming/`): Streaming support
   - Policy executor for stream processing
-  - Client formatters for OpenAI/Anthropic formats
+  - Client formatters for Anthropic format
 
 - **UI** (`src/luthien_proxy/ui/`): Real-time monitoring and debugging
   - `/activity/monitor` - Live activity feed
@@ -367,7 +366,6 @@ The gateway integrates everything into a single FastAPI application:
 
 **API Endpoints:**
 
-- `POST /v1/chat/completions` -OpenAI Chat Completions API (streaming and non-streaming)
 - `POST /v1/messages` -Anthropic Messages API (streaming and non-streaming)
 - `GET /health` -Health check
 

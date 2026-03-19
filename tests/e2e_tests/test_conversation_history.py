@@ -28,10 +28,10 @@ async def make_chat_request(
     client: httpx.AsyncClient,
     messages: list[dict],
     session_id: str,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     tools: list[dict] | None = None,
 ) -> dict:
-    """Make a chat completion request through the gateway.
+    """Make a messages request through the gateway.
 
     Args:
         client: HTTP client
@@ -47,13 +47,12 @@ async def make_chat_request(
         "model": model,
         "messages": messages,
         "max_tokens": 100,
-        "stream": False,
     }
     if tools:
         payload["tools"] = tools
 
     response = await client.post(
-        f"{GATEWAY_URL}/v1/chat/completions",
+        f"{GATEWAY_URL}/v1/messages",
         json=payload,
         headers={
             "Authorization": f"Bearer {API_KEY}",
