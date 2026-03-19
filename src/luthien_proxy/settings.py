@@ -77,9 +77,9 @@ class Settings(BaseSettings):
     # from killing the proxy they communicate through
     dogfood_mode: bool = False
 
-    # Sentry error tracking (opt-out: set SENTRY_ENABLED=false to disable)
+    # Sentry error tracking (opt-in: set SENTRY_ENABLED=true to enable)
     sentry_enabled: bool = False
-    sentry_dsn: str = "https://178c87f543acaf02b3f154ee329679fa@o4511061292089344.ingest.us.sentry.io/4511061302575104"
+    sentry_dsn: str = ""
     sentry_traces_sample_rate: float = 0.0
     sentry_server_name: str = ""
 
