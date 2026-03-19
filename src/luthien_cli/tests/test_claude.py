@@ -78,6 +78,24 @@ def test_claude_api_key_from_env(tmp_path, monkeypatch):
         assert "proxy api key" in result.output.lower()
 
 
+def test_claude_oauth_strips_inherited_api_key(tmp_path, monkeypatch):
+    """In OAuth mode, an inherited ANTHROPIC_API_KEY must be removed to avoid
+    Claude Code's 'both token and API key set' conflict warning."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-inherited-from-shell")
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('[gateway]\nurl = "http://localhost:9000"\n')
+    with (
+        patch("luthien_cli.commands.claude.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.claude.shutil.which", return_value="/usr/bin/claude"),
+        patch("os.execvpe") as mock_exec,
+    ):
+        runner.invoke(cli, ["claude"], catch_exceptions=False)
+        mock_exec.assert_called_once()
+        env = mock_exec.call_args[0][2]
+        assert "ANTHROPIC_API_KEY" not in env
+
+
 def test_claude_fails_when_not_installed(tmp_path):
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
