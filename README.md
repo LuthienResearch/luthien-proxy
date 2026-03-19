@@ -116,6 +116,8 @@ luthien up / luthien down  # start/stop the gateway
 luthien logs            # view gateway logs
 ```
 
+> Run luthien commands in Claude Code with `!` such as `!luthien status`, `!luthien logs`, etc.
+
 > **Docker mode**: If you prefer PostgreSQL + Redis, run `luthien onboard --docker` instead. Requires [Docker](https://www.docker.com/products/docker-desktop/).
 
 ---
