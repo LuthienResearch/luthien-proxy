@@ -155,7 +155,9 @@ if [ "${USE_OAUTH}" = false ]; then
       ANTHROPIC_API_KEY="${PROXY_KEY}" \
       claude "$@"
 else
-    env \
+    # Unset ANTHROPIC_API_KEY to avoid Claude Code's "both token and API key set" conflict warning.
+    # In OAuth/both mode the proxy handles credential selection server-side; the key is not needed client-side.
+    env -u ANTHROPIC_API_KEY \
       ANTHROPIC_BASE_URL="${GATEWAY_URL}" \
       claude "$@"
 fi
