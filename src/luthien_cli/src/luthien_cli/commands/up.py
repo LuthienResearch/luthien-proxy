@@ -90,28 +90,41 @@ def up(follow: bool):
 
         console.print(f"[blue]Starting stack in {config.repo_path}[/blue]")
 
-        port_env = find_docker_ports()
-        if port_env:
-            selected = ", ".join(f"{k}={v}" for k, v in port_env.items())
-            console.print(f"[dim]Auto-selected ports: {selected}[/dim]")
+        port_env: dict[str, str] = {}
+        already_running = subprocess.run(
+            ["docker", "compose", "ps", "--services", "--filter", "status=running"],
+            cwd=config.repo_path,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
 
-        with console.status("Starting containers..."):
-            result = subprocess.run(
-                ["docker", "compose", "up", "-d"],
-                cwd=config.repo_path,
-                capture_output=True,
-                text=True,
-                env={**os.environ, **port_env},
+        if already_running:
+            console.print("[yellow]Stack already running.[/yellow]")
+        else:
+            port_env = find_docker_ports()
+            if port_env:
+                selected = ", ".join(f"{k}={v}" for k, v in port_env.items())
+                console.print(f"[dim]Auto-selected ports: {selected}[/dim]")
+
+            with console.status("Starting containers..."):
+                result = subprocess.run(
+                    ["docker", "compose", "up", "-d"],
+                    cwd=config.repo_path,
+                    capture_output=True,
+                    text=True,
+                    env={**os.environ, **port_env},
+                )
+            if result.returncode != 0:
+                console.print(f"[red]docker compose up failed:[/red]\n{result.stderr}")
+                raise SystemExit(1)
+
+            new_gateway_port = port_env.get(
+                "GATEWAY_PORT", os.environ.get("GATEWAY_PORT", str(_port_from_url(config.gateway_url)))
             )
-        if result.returncode != 0:
-            console.print(f"[red]docker compose up failed:[/red]\n{result.stderr}")
-            raise SystemExit(1)
-
-        gateway_port = port_env.get(
-            "GATEWAY_PORT", os.environ.get("GATEWAY_PORT", str(_port_from_url(config.gateway_url)))
-        )
-        config.gateway_url = f"http://localhost:{gateway_port}"
-        save_config(config, DEFAULT_CONFIG_PATH)
+            new_gateway_url = f"http://localhost:{new_gateway_port}"
+            if new_gateway_url != config.gateway_url:
+                config.gateway_url = new_gateway_url
+                save_config(config, DEFAULT_CONFIG_PATH)
 
         if wait_for_healthy(config.gateway_url, console=console):
             console.print(f"[green]Gateway is healthy at {config.gateway_url}[/green]")

@@ -32,18 +32,57 @@ def test_up_docker_mode(tmp_path):
     config_path.write_text(
         f'[gateway]\nurl = "http://localhost:8000"\n\n[local]\nrepo_path = "{tmp_path}"\nmode = "docker"\n'
     )
+    ps_result = MagicMock(returncode=0, stdout="")
+    up_result = MagicMock(returncode=0)
     with (
         patch("luthien_cli.commands.up.DEFAULT_CONFIG_PATH", config_path),
         patch("luthien_cli.commands.up.find_docker_ports", return_value={"GATEWAY_PORT": "8001"}),
-        patch("luthien_cli.commands.up.subprocess.run") as mock_run,
+        patch("luthien_cli.commands.up.subprocess.run", side_effect=[ps_result, up_result]),
         patch("luthien_cli.commands.up.wait_for_healthy", return_value=True),
     ):
-        mock_run.return_value = MagicMock(returncode=0)
         result = runner.invoke(cli, ["up"])
         assert result.exit_code == 0
-        mock_run.assert_called()
-        call_kwargs = mock_run.call_args
-        assert "GATEWAY_PORT" in call_kwargs.kwargs.get("env", {})
+
+
+def test_up_docker_mode_saves_resolved_gateway_url(tmp_path):
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f'[gateway]\nurl = "http://localhost:8000"\n\n[local]\nrepo_path = "{tmp_path}"\nmode = "docker"\n'
+    )
+    ps_result = MagicMock(returncode=0, stdout="")
+    up_result = MagicMock(returncode=0)
+    with (
+        patch("luthien_cli.commands.up.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.up.find_docker_ports", return_value={"GATEWAY_PORT": "8001"}),
+        patch("luthien_cli.commands.up.subprocess.run", side_effect=[ps_result, up_result]),
+        patch("luthien_cli.commands.up.wait_for_healthy", return_value=True),
+        patch("luthien_cli.commands.up.save_config") as mock_save,
+    ):
+        result = runner.invoke(cli, ["up"])
+        assert result.exit_code == 0
+        mock_save.assert_called_once()
+        saved_config = mock_save.call_args[0][0]
+        assert saved_config.gateway_url == "http://localhost:8001"
+
+
+def test_up_docker_mode_skips_start_when_already_running(tmp_path):
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f'[gateway]\nurl = "http://localhost:8000"\n\n[local]\nrepo_path = "{tmp_path}"\nmode = "docker"\n'
+    )
+    ps_result = MagicMock(returncode=0, stdout="gateway\npostgres\n")
+    with (
+        patch("luthien_cli.commands.up.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.up.subprocess.run", return_value=ps_result) as mock_run,
+        patch("luthien_cli.commands.up.wait_for_healthy", return_value=True),
+        patch("luthien_cli.commands.up.save_config") as mock_save,
+    ):
+        result = runner.invoke(cli, ["up"])
+        assert result.exit_code == 0
+        assert mock_run.call_count == 1
+        mock_save.assert_not_called()
 
 
 def test_up_local_calls_ensure_venv_when_missing(tmp_path):

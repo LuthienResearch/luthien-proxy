@@ -183,11 +183,11 @@ def is_port_free(port: int) -> bool:
             return False
 
 
-def find_free_port(start: int) -> int:
+def find_free_port(start: int, exclude: set[int] | None = None) -> int:
     """Find the next free port starting from the given default."""
     for offset in range(100):
         port = start + offset
-        if is_port_free(port):
+        if is_port_free(port) and port not in (exclude or set()):
             return port
     raise RuntimeError(f"Could not find a free port starting from {start}")
 
@@ -195,9 +195,11 @@ def find_free_port(start: int) -> int:
 def find_docker_ports() -> dict[str, str]:
     """Auto-select free ports for docker compose services."""
     port_env: dict[str, str] = {}
+    assigned: set[int] = set()
     for var, default in _DOCKER_PORT_DEFAULTS.items():
         if os.environ.get(var):
             continue
-        port = find_free_port(default)
+        port = find_free_port(default, exclude=assigned)
+        assigned.add(port)
         port_env[var] = str(port)
     return port_env
