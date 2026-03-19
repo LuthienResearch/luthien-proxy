@@ -126,6 +126,7 @@ def _ensure_docker_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
 
     with open(env_path, "w") as f:
         f.write(env_content)
+    os.chmod(env_path, 0o600)
 
 
 def _write_policy(repo_path: str, instructions: str) -> None:

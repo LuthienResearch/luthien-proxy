@@ -1,6 +1,6 @@
 ---
 category: Features
-pr: 373
+pr: 370
 ---
 
-**Dockerless local startup**: Run `uv run python -m luthien_proxy.main --local` to start the gateway with SQLite, no Redis, and auto-generated API keys — no `.env` editing or Docker required.
+**Docker-free local mode**: `luthien onboard` now defaults to local mode — SQLite database, in-process event publisher, no Docker required. Use `--docker` for the previous PostgreSQL + Redis setup.
