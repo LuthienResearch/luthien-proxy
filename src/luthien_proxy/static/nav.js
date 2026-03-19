@@ -10,8 +10,8 @@ document.addEventListener('alpine:init', () => {
         links: [
             { href: '/activity/monitor', label: 'Activity' },
             { href: '/history', label: 'History' },
-            { href: '/diffs', label: 'Diffs' },
             { href: '/policy-config', label: 'Policies' },
+            { href: '/diffs', label: 'Diffs' },
             { href: '/credentials', label: 'Credentials' },
             { href: '/client-setup', label: 'Client Setup' },
         ],
@@ -39,8 +39,8 @@ document.addEventListener('alpine:init', () => {
                         badge.className = 'nav-billing-badge';
                         badge.textContent = '⚠ API billing';
                         badge.title = badgeTitle;
-                        const spacer = navEl.querySelector('.nav-spacer');
-                        if (spacer) spacer.before(badge);
+                        const navRight = navEl.querySelector('.nav-right');
+                        if (navRight) navRight.prepend(badge);
                     } else if (badgeTitle && existing) {
                         existing.title = badgeTitle;
                     } else if (!badgeTitle && existing) {
