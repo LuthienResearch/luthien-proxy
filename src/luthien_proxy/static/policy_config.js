@@ -510,7 +510,9 @@ function renderWithAlpine(container, schema, initialData) {
     state.configValues = formData;
 
     const formHtml = window.FormRenderer.generateForm(schema);
-    const escapedFormData = JSON.stringify(formData).replace(/"/g, '&quot;');
+    const escapedFormData = JSON.stringify(formData)
+        .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
     container.innerHTML = `
         <div class="config-form" x-data="{ formData: ${escapedFormData} }"

@@ -301,18 +301,24 @@ async def send_chat(
     Requires admin authentication.
     """
     settings = get_settings()
-    if not settings.proxy_api_key:
-        return ChatResponse(
-            success=False,
-            error="PROXY_API_KEY not configured on server",
-            model=body.model,
-        )
 
     # When mock mode is enabled, return a synthetic response without calling the gateway
     if body.use_mock:
         return ChatResponse(
             success=True,
             content="[Mock response] Hello! I am a simulated response for policy testing.",
+            model=body.model,
+        )
+
+    # Determine which API key to use: custom key takes precedence over server proxy key
+    test_api_key = settings.proxy_api_key
+    if body.api_key is not None and body.api_key.strip():
+        test_api_key = body.api_key.strip()
+
+    if not test_api_key:
+        return ChatResponse(
+            success=False,
+            error="No API key available — set PROXY_API_KEY on the server or provide a custom key",
             model=body.model,
         )
 
@@ -327,11 +333,6 @@ async def send_chat(
         "max_tokens": 1024,
         "stream": False,
     }
-
-    # Use custom API key if provided, otherwise fall back to server proxy key
-    test_api_key = settings.proxy_api_key
-    if body.api_key is not None and body.api_key.strip():
-        test_api_key = body.api_key.strip()
 
     try:
         async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
