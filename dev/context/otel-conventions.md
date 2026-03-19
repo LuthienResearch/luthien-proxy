@@ -61,7 +61,7 @@ All spans should include these when relevant:
 | Attribute | Type | Description | Example |
 |-----------|------|-------------|---------|
 | `luthien.call_id` | string | Unique request identifier | `"abc123def456"` |
-| `luthien.endpoint` | string | API endpoint path | `"/v1/chat/completions"` |
+| `luthien.endpoint` | string | API endpoint path | `"/v1/messages"` |
 | `luthien.model` | string | LLM model name | `"claude-opus-4"` |
 | `luthien.stream` | boolean | Is streaming enabled | `true` |
 
@@ -465,7 +465,7 @@ from luthien_proxy.telemetry import tracer
 
 with tracer.start_as_current_span("gateway.chat_completions") as span:
     span.set_attribute("luthien.call_id", call_id)
-    span.set_attribute("luthien.endpoint", "/v1/chat/completions")
+    span.set_attribute("luthien.endpoint", "/v1/messages")
     span.set_attribute("luthien.model", "claude-opus-4")
     span.set_attribute("luthien.stream", True)
 

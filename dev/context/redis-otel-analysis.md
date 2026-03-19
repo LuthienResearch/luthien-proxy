@@ -437,7 +437,7 @@ await emit_event(
     event_type="gateway.request_received",
     summary=f"Request received: {data.get('model')} (stream={data.get('stream')})",
     data={
-        "endpoint": "/v1/chat/completions",
+        "endpoint": "/v1/messages",
         "model": data.get("model", "unknown"),
         "stream": data.get("stream", False),
     },
