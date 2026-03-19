@@ -782,7 +782,7 @@ function renderTestSection(side) {
         <label class="test-mock-label">
             <input type="checkbox" id="test-mock-${side}" class="test-mock-checkbox">
             <span>Mock</span>
-            <span class="test-mock-info" title="Skip the real LLM call. The server echoes your message back as if the LLM responded with it, then runs the active policy on that response. Useful for testing how a policy transforms text without spending API credits.">&#9432;</span>
+            <span class="test-mock-info" title="Skip the real LLM call. The server echoes your message back as the response (no API credits used). Note: the policy pipeline does not currently run on mock responses — this shows the raw echo only.">&#9432;</span>
         </label>
     </div>
     <div class="test-input-row">
