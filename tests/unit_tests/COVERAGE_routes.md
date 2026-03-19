@@ -19,7 +19,7 @@ This module is primarily covered by integration tests rather than unit tests.
 See: [tests/integration_tests/v2/test_routes.py](../../integration_tests/v2/test_routes.py)
 
 Integration tests cover:
-- OpenAI `/v2/chat/completions` endpoint (streaming and non-streaming)
+- Anthropic `/v1/messages` endpoint (streaming and non-streaming)
 - Anthropic `/v2/messages` endpoint (streaming and non-streaming)
 - Health check endpoint
 - Error handling

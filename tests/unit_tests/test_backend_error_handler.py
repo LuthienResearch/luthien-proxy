@@ -215,7 +215,7 @@ class TestHTTPExceptionAnthropicFormat:
         async def anthropic_count_tokens():
             raise HTTPException(status_code=400, detail="Invalid request")
 
-        @app.post("/v1/chat/completions")
+        @app.post("/v1/messages")
         async def openai_endpoint():
             raise HTTPException(status_code=401, detail="Missing API key")
 
@@ -246,7 +246,7 @@ class TestHTTPExceptionAnthropicFormat:
         assert data["error"]["message"] == "Invalid request"
 
     def test_openai_path_returns_default_format(self, client):
-        response = client.post("/v1/chat/completions")
+        response = client.post("/v1/messages")
         assert response.status_code == 401
         data = response.json()
         assert data == {"detail": "Missing API key"}
@@ -321,7 +321,7 @@ class TestRequestValidationErrorHandler:
             model: str
             messages: list
 
-        @app.post("/v1/chat/completions")
+        @app.post("/v1/messages")
         async def openai_endpoint(body: CompletionBody):
             return {"ok": True}
 
@@ -342,8 +342,8 @@ class TestRequestValidationErrorHandler:
         assert len(data["error"]["message"]) > 0
 
     def test_openai_path_returns_default_format_on_validation_error(self, client):
-        """Malformed body on /v1/chat/completions returns FastAPI default 422 format."""
-        response = client.post("/v1/chat/completions", json={"bad": "data"})
+        """Malformed body on /v1/messages returns FastAPI default 422 format."""
+        response = client.post("/v1/messages", json={"bad": "data"})
         assert response.status_code == 422
         data = response.json()
         # Default FastAPI format has "detail" as a list of validation errors
