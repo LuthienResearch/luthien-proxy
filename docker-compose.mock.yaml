@@ -19,6 +19,7 @@ services:
       - ANTHROPIC_API_KEY=mock-key
       - LLM_JUDGE_API_BASE=http://127.0.0.1:18888
       - LLM_JUDGE_API_KEY=mock-key
-      - DATABASE_URL=postgresql://luthien:luthien_dev_password@127.0.0.1:5433/luthien_control
-      - REDIS_URL=redis://127.0.0.1:6379
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-luthien}:${POSTGRES_PASSWORD:-luthien_dev_password}@127.0.0.1:${POSTGRES_PORT:-5433}/${POSTGRES_DB:-luthien_control}
+      - REDIS_URL=redis://127.0.0.1:${REDIS_PORT:-6379}
+      - GATEWAY_PORT=${GATEWAY_PORT:-8000}
     network_mode: host
