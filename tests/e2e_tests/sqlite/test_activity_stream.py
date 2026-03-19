@@ -7,10 +7,6 @@ Boots a SQLite-backed gateway with redis_client=None and verifies that:
 Run:  uv run pytest tests/e2e_tests/sqlite/test_activity_stream.py -v --timeout=30
 """
 
-import pytest
-
-pytestmark = pytest.mark.sqlite_e2e
-
 import asyncio
 import json
 import os
@@ -28,6 +24,8 @@ from tests.e2e_tests.mock_anthropic.server import MockAnthropicServer
 from luthien_proxy.main import create_app
 from luthien_proxy.utils.db import DatabasePool
 from luthien_proxy.utils.migration_check import check_migrations
+
+pytestmark = pytest.mark.sqlite_e2e
 
 _API_KEY = "test-activity-key"
 _ADMIN_KEY = "test-activity-admin-key"
