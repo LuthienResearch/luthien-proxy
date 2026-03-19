@@ -1039,21 +1039,22 @@ function renderSubPolicyCardHtml(path, index, subPolicy) {
         }
     }
 
+    const safePath = esc(path);
     return `
-        <div class="sub-policy-card" data-path="${path}" data-index="${index}">
+        <div class="sub-policy-card" data-path="${safePath}" data-index="${index}">
             <div class="sub-policy-card-header">
                 <select class="sub-policy-select"
                         x-model="formData.${path}[${index}].class"
-                        @change="window.onSubPolicyClassChange('${path}', ${index}, $event.target.value)">
+                        @change="window.onSubPolicyClassChange('${safePath}', ${index}, $event.target.value)">
                     ${options}
                 </select>
                 <div class="sub-policy-card-actions">
-                    <button type="button" class="btn-move" onclick="window.moveSubPolicy('${path}', ${index}, -1)" title="Move up">&uarr;</button>
-                    <button type="button" class="btn-move" onclick="window.moveSubPolicy('${path}', ${index}, 1)" title="Move down">&darr;</button>
-                    <button type="button" class="btn-remove-sub" onclick="window.removeSubPolicy('${path}', ${index})" title="Remove">&times;</button>
+                    <button type="button" class="btn-move" onclick="window.moveSubPolicy('${safePath}', ${index}, -1)" title="Move up">&uarr;</button>
+                    <button type="button" class="btn-move" onclick="window.moveSubPolicy('${safePath}', ${index}, 1)" title="Move down">&darr;</button>
+                    <button type="button" class="btn-remove-sub" onclick="window.removeSubPolicy('${safePath}', ${index})" title="Remove">&times;</button>
                 </div>
             </div>
-            <div class="sub-policy-config" id="sub-policy-config-${path}-${index}">
+            <div class="sub-policy-config" id="sub-policy-config-${safePath}-${index}">
                 ${configHtml}
             </div>
         </div>
