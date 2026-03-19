@@ -74,9 +74,24 @@ const state = {
     isActivating: false,
     cachedCredentials: [],
     credentialSource: 'server',
-    apiKey: '',
     currentFormData: null,
 };
+
+// Order-insensitive deep equality for config objects
+function configEqual(a, b) {
+    if (a === b) return true;
+    if (a == null || b == null) return a == b;
+    if (typeof a !== typeof b) return false;
+    if (typeof a !== 'object') return a === b;
+    if (Array.isArray(a) !== Array.isArray(b)) return false;
+    if (Array.isArray(a)) {
+        if (a.length !== b.length) return false;
+        return a.every((v, i) => configEqual(v, b[i]));
+    }
+    const keysA = Object.keys(a), keysB = Object.keys(b);
+    if (keysA.length !== keysB.length) return false;
+    return keysA.every(k => Object.hasOwn(b, k) && configEqual(a[k], b[k]));
+}
 
 // Preserve test results across re-renders
 const testState = { proposed: {}, active: {} };
@@ -248,28 +263,10 @@ function initFilterInput() {
 }
 
 function initModeToggle() {
-    document.getElementById('mode-toggle').addEventListener('click', e => {
-        if (!e.target.classList.contains('mode-btn')) return;
-        const newMode = e.target.dataset.mode;
-        if (newMode === state.mode) return;
-        state.mode = newMode;
-        document.querySelectorAll('#mode-toggle .mode-btn').forEach(b =>
-            b.classList.toggle('active', b.dataset.mode === newMode)
-        );
-        if (newMode === 'single') {
-            if (state.chain.length > 0) {
-                state.selectedClassRef = state.chain[0].classRef;
-                state.configValues = state.chain[0].config;
-            }
-        } else {
-            if (state.selectedClassRef) {
-                state.chain = [{ classRef: state.selectedClassRef, config: { ...state.configValues } }];
-                state.selectedClassRef = null;
-            }
-        }
-        testState.proposed = {};
-        renderAll();
-    });
+    // Chain mode is disabled until the backend CompositePolicy API is implemented.
+    // The toggle is hidden via CSS; this handler is kept for when it's re-enabled.
+    const toggle = document.getElementById('mode-toggle');
+    if (toggle) toggle.style.display = 'none';
 }
 
 // ============================================================
@@ -356,6 +353,8 @@ function renderAvailable() {
 function renderPolicyCard(p, container) {
     const div = document.createElement('div');
     div.className = 'policy-card';
+    div.setAttribute('role', 'button');
+    div.setAttribute('tabindex', '0');
     if (state.mode === 'single' && state.selectedClassRef === p.class_ref) div.className += ' selected';
     if (isCurrentActive(p.class_ref)) div.className += ' is-active';
 
@@ -368,6 +367,7 @@ function renderPolicyCard(p, container) {
 
     div.innerHTML = `<div class="p-name">${dot}${esc(p.name)}</div><div class="p-desc">${esc(firstLine)}.${configHint}</div>${exampleHtml}`;
     div.onclick = () => selectPolicy(p.class_ref);
+    div.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectPolicy(p.class_ref); } };
     container.appendChild(div);
 }
 
@@ -402,7 +402,7 @@ function renderProposed() {
         html += `<div id="proposed-status"></div>`;
 
         const matchesActive = isCurrentActive(p.class_ref) &&
-            JSON.stringify(state.currentPolicy.config || {}) === JSON.stringify(state.configValues);
+            configEqual(state.currentPolicy.config || {}, state.configValues);
         html += `<button class="btn-activate" id="btn-activate" ${matchesActive ? 'disabled' : ''} onclick="handleActivate()">${matchesActive ? 'Already Active' : 'Activate'}</button>`;
         html += renderTestSection('proposed');
         content.innerHTML = html;
@@ -640,7 +640,7 @@ function updateActivateButton() {
 
     if (state.mode === 'single' && state.selectedClassRef) {
         const matchesActive = isCurrentActive(state.selectedClassRef) &&
-            JSON.stringify(state.currentPolicy.config || {}) === JSON.stringify(state.configValues);
+            configEqual(state.currentPolicy.config || {}, state.configValues);
         btn.disabled = matchesActive || state.isActivating;
         btn.textContent = state.isActivating ? 'Activating...' : (matchesActive ? 'Already Active' : 'Activate');
     } else {
@@ -689,6 +689,7 @@ function renderActive() {
     if (cp.class_ref !== NOOP_CLASS_REF) {
         html += `<button class="deactivate-link" onclick="handleDeactivate()">Deactivate</button>`;
     }
+    html += `<div id="active-status"></div>`;
 
     html += renderTestSection('active');
     body.innerHTML = html;
@@ -732,7 +733,6 @@ function timeSince(timestamp) {
 
 function onCredSourceChange(side, value) {
     state.credentialSource = value;
-    if (value !== 'custom') state.apiKey = '';
     // Sync both selects
     ['proposed', 'active'].forEach(s => {
         const sel = document.getElementById(`cred-select-${s}`);
@@ -745,7 +745,7 @@ function onCredSourceChange(side, value) {
 // Test section
 // ============================================================
 function renderTestSection(side) {
-    const hasAnyCreds = state.cachedCredentials.length > 0 || state.apiKey;
+    const hasAnyCreds = state.cachedCredentials.length > 0 || state.credentialSource === 'custom';
     let html = '<div class="test-section">';
     html += '<div class="test-section-title">Test This Policy</div>';
 
@@ -763,8 +763,7 @@ function renderTestSection(side) {
     if (state.credentialSource === 'custom') {
         html += `<div class="test-cred-custom">
             <input type="password" class="credential-input" id="cred-input-${side}"
-                placeholder="sk-ant-... or OAuth token" value="${esc(state.apiKey)}"
-                oninput="state.apiKey = this.value.trim()">
+                placeholder="sk-ant-... or OAuth token">
         </div>`;
     }
 
@@ -945,19 +944,8 @@ async function handleActivate() {
 }
 
 async function handleActivateChain() {
-    if (state.chain.length === 0) return;
-    // Chain activation activates the first policy for now
-    // (full chain support requires backend CompositePolicy API)
-    const savedMode = state.mode;
-    state.selectedClassRef = state.chain[0].classRef;
-    state.configValues = state.chain[0].config;
-    await handleActivate();
-    // Only switch to single mode if activation succeeded
-    if (state.currentPolicy && state.currentPolicy.class_ref === state.chain[0].classRef) {
-        state.mode = 'single';
-    } else {
-        state.mode = savedMode;
-    }
+    // Chain mode is disabled until the backend CompositePolicy API is implemented.
+    showStatus('proposed-status', 'error', 'Chain activation is not yet supported — use single policy mode');
 }
 
 async function handleDeactivate() {
@@ -975,9 +963,11 @@ async function handleDeactivate() {
             await loadCurrentPolicy();
             testState.active = {};
             renderAll();
+        } else {
+            showStatus('active-status', 'error', result.error || 'Deactivation failed');
         }
     } catch (err) {
-        console.error('Deactivation failed:', err);
+        showStatus('active-status', 'error', `Deactivation failed: ${err.message}`);
     } finally {
         state.isActivating = false;
     }
