@@ -109,7 +109,7 @@ async def policy_config(
     redirect = check_auth_or_redirect(request, admin_key)
     if redirect:
         return redirect
-    return FileResponse(os.path.join(STATIC_DIR, "policy_config.html"))
+    return FileResponse(os.path.join(STATIC_DIR, "policy_config_v2.html"))
 
 
 @router.get("/credentials")

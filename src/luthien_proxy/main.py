@@ -333,10 +333,13 @@ def create_app(
             last_credential_type = deps.last_credential_info.get("type")
             last_credential_at = deps.last_credential_info.get("timestamp")
 
+        has_anthropic_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
+
         return {
             "status": "healthy",
             "version": "2.0.0",
             "auth_mode": auth_mode,
+            "has_anthropic_key": has_anthropic_key,
             "last_credential_type": last_credential_type,
             "last_credential_at": last_credential_at,
         }
@@ -380,7 +383,7 @@ async def connect_db(database_url: str) -> db.DatabasePool:
     """Create and initialize database connection pool.
 
     Args:
-        database_url: PostgreSQL connection URL
+        database_url: PostgreSQL or SQLite connection URL
 
     Returns:
         Initialized DatabasePool

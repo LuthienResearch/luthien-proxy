@@ -1,0 +1,1328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Policy Configuration - Luthien Proxy</title>
+<link rel="stylesheet" href="/static/nav.css">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0a0a0a; color: #e5e5e5; line-height: 1.5;
+    min-height: 100vh; display: flex; flex-direction: column;
+  }
+
+  /* Settings button in nav */
+  .settings-btn {
+    background: #1a1a1a; border: 1px solid #333; color: #aaa;
+    font-size: 13px; cursor: pointer; padding: 4px 12px; border-radius: 4px;
+    transition: color 0.15s, background 0.15s, border-color 0.15s;
+    margin-right: 12px; white-space: nowrap;
+  }
+  .settings-btn:hover { color: #e5e5e5; background: #2a2a2a; border-color: #444; }
+  .settings-wrap { position: relative; }
+  .settings-popover {
+    display: none; position: absolute; top: 100%; right: 0; margin-top: 6px;
+    background: #1a1a1a; border: 1px solid #333; border-radius: 6px;
+    padding: 12px 16px; min-width: 320px; z-index: 200;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  }
+  .settings-popover.open { display: block; }
+  .settings-popover-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: #666; margin-bottom: 8px;
+  }
+  .setting-group { padding: 6px 0; }
+  .setting-group + .setting-group { border-top: 1px solid #2a2a2a; }
+  .setting-row {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: #ccc;
+  }
+  .setting-row input[type="checkbox"] { accent-color: #3b82f6; }
+  .setting-row label { cursor: pointer; }
+  .setting-desc {
+    font-size: 11px; color: #555; margin-top: 2px; margin-left: 22px; line-height: 1.4;
+  }
+
+  /* Three-column grid */
+  .columns {
+    display: grid;
+    grid-template-columns: 0.85fr 1.15fr 1.15fr;
+    gap: 12px;
+    padding: 12px 16px;
+    flex: 1;
+    min-height: 0;
+  }
+  .column {
+    background: #141414; border: 1px solid #222; border-radius: 8px;
+    display: flex; flex-direction: column;
+    min-height: calc(100vh - 80px);
+    overflow: hidden;
+  }
+  .col-header {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+    color: #666; padding: 12px 16px 8px; flex-shrink: 0;
+  }
+  .col-body {
+    flex: 1; overflow-y: auto; padding: 0 16px 16px;
+  }
+  .col-body::-webkit-scrollbar { width: 4px; }
+  .col-body::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+
+  /* Column accents */
+  .col-active { border-top: 2px solid #4ade80; }
+  .col-proposed.has-content { border-top: 2px solid #3b82f6; }
+
+  /* Available column — card-based items */
+  .policy-card {
+    padding: 10px 12px; border-radius: 6px; cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    margin-bottom: 8px;
+    border: 1px solid #333; background: #1a1a1a;
+  }
+  .policy-card:hover { background: #222; border-color: #444; }
+  .policy-card.selected { background: #1e293b; border-color: #3b82f6; }
+  .policy-card.is-active { border-left: 3px solid #4ade80; }
+  .policy-card .p-name {
+    font-weight: 600; font-size: 14px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .policy-card .p-desc { font-size: 12px; color: #888; margin-top: 2px; }
+  .policy-card .p-config-hint { font-size: 11px; color: #666; }
+  .active-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #4ade80; display: inline-block; flex-shrink: 0;
+    box-shadow: 0 0 4px #4ade8066;
+  }
+
+  /* Example blocks in cards */
+  .example-block {
+    margin-top: 6px; padding-left: 8px;
+    border-left: 2px solid #2a2a2a;
+    font-family: 'SF Mono', Monaco, 'Fira Code', monospace;
+    font-size: 11px; color: #666; line-height: 1.5;
+  }
+  .example-config-desc {
+    font-family: 'SF Mono', Monaco, 'Fira Code', monospace;
+    font-size: 11px; color: #666; margin-bottom: 2px;
+  }
+  .example-io .ex-label { color: #888; }
+
+  /* Proposed column example (slightly larger) */
+  .example-block-proposed {
+    margin-top: 6px; margin-bottom: 10px; padding-left: 10px;
+    border-left: 2px solid #2a2a2a;
+    font-family: 'SF Mono', Monaco, 'Fira Code', monospace;
+    font-size: 12px; color: #666; line-height: 1.5;
+  }
+  .example-block-proposed .example-config-desc { font-size: 12px; }
+  .example-block-proposed .example-io .ex-label { color: #888; }
+
+  .filter-input {
+    width: 100%; background: #1a1a1a; border: 1px solid #333; color: #e5e5e5;
+    border-radius: 4px; padding: 6px 10px; font-size: 13px;
+    margin-top: 8px; flex-shrink: 0;
+  }
+  .filter-input::placeholder { color: #555; }
+  .filter-input:focus { outline: none; border-color: #3b82f6; }
+  .filter-wrap { padding: 0 16px 12px; flex-shrink: 0; }
+
+  /* Proposed column */
+  .empty-state {
+    color: #555; font-size: 14px; text-align: center;
+    padding: 40px 20px;
+  }
+  .proposed-name { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+  .proposed-desc { font-size: 13px; color: #aaa; margin-bottom: 12px; }
+
+  /* Mode toggle */
+  .mode-toggle {
+    display: flex; gap: 0;
+    border: 1px solid #333; border-radius: 4px; overflow: hidden;
+  }
+  .mode-btn {
+    flex: 1; padding: 4px 10px; font-size: 12px; text-align: center;
+    background: transparent; color: #888; border: none; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .mode-btn.active { background: #333; color: #e5e5e5; }
+
+  /* Config form */
+  .config-form label {
+    display: block; font-size: 12px; color: #888; margin-bottom: 3px; margin-top: 10px;
+  }
+  .config-form input[type="text"],
+  .config-form input[type="number"],
+  .config-form input[type="password"],
+  .config-form textarea {
+    width: 100%; background: #1a1a1a; border: 1px solid #333; color: #e5e5e5;
+    border-radius: 4px; padding: 6px 8px; font-size: 13px;
+    font-family: 'SF Mono', Monaco, 'Fira Code', monospace;
+  }
+  .config-form textarea { resize: vertical; min-height: 70px; }
+  .config-form input:focus, .config-form textarea:focus {
+    outline: none; border-color: #3b82f6;
+  }
+  .config-form .checkbox-row {
+    display: flex; align-items: center; gap: 6px; margin-top: 10px;
+    font-size: 13px; color: #ccc;
+  }
+  .config-form .checkbox-row input[type="checkbox"] { accent-color: #3b82f6; }
+  .config-hint {
+    display: block; font-size: 11px; color: #555; margin-top: 2px;
+  }
+  .config-form input.invalid, .config-form textarea.invalid {
+    border-color: #f87171; background: #1a0a0a;
+  }
+  .config-error-msg {
+    font-size: 11px; color: #fca5a5; margin-top: 3px; display: none;
+  }
+  .config-error-msg.visible { display: block; }
+  .no-config { color: #555; font-style: italic; font-size: 13px; margin: 8px 0; }
+
+  /* Buttons */
+  .btn-activate {
+    width: 100%; padding: 10px; border: none; border-radius: 6px;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    background: #3b82f6; color: #fff; margin-top: 16px;
+    transition: background 0.15s;
+  }
+  .btn-activate:hover { background: #2563eb; }
+  .btn-activate:disabled { background: #333; color: #666; cursor: default; }
+  .btn-activate.error-state { background: #3d0a0a; border: 1px solid #f87171; color: #fca5a5; cursor: not-allowed; }
+
+  .status-msg {
+    padding: 10px 12px; border-radius: 6px; font-size: 13px; margin-top: 10px;
+  }
+  .status-msg.success { background: #0a3d0a; border: 1px solid #4ade80; color: #4ade80; }
+  .status-msg.error { background: #3d0a0a; border: 1px solid #f87171; color: #fca5a5; }
+  .status-msg.info { background: #1e3a5f; border: 1px solid #2563eb; color: #60a5fa; }
+
+  /* Chain mode */
+  .chain-list { list-style: none; }
+  .chain-item {
+    background: #1a1a1a; border: 1px solid #333; border-radius: 6px;
+    padding: 10px 12px; margin-bottom: 6px;
+  }
+  .chain-item-header {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .chain-num {
+    font-size: 11px; color: #555; font-weight: 700;
+    width: 18px; text-align: center; flex-shrink: 0;
+  }
+  .chain-item-name { font-weight: 600; font-size: 14px; flex: 1; }
+  .chain-item-desc { font-size: 11px; color: #666; margin-top: 2px; }
+  .chain-actions { display: flex; gap: 2px; }
+  .chain-btn {
+    background: none; border: none; color: #555; cursor: pointer;
+    font-size: 14px; padding: 2px 4px; border-radius: 3px;
+  }
+  .chain-btn:hover { color: #e5e5e5; background: #333; }
+  .chain-item .config-form { margin-top: 8px; padding-top: 8px; border-top: 1px solid #333; }
+  .chain-divider { text-align: center; color: #444; font-size: 11px; padding: 2px 0; }
+
+  /* Active column */
+  .active-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+  .active-name { font-size: 20px; font-weight: 700; color: #4ade80; margin-bottom: 4px; }
+  .active-desc { font-size: 13px; color: #aaa; margin-bottom: 12px; }
+  .active-config {
+    font-family: 'SF Mono', Monaco, monospace; font-size: 12px;
+    background: #0d150d; border-radius: 4px; padding: 10px 12px;
+  }
+  .cfg-row { display: flex; gap: 8px; padding: 3px 0; }
+  .cfg-key { color: #60a5fa; min-width: 120px; flex-shrink: 0; }
+  .cfg-val { color: #e5e5e5; word-break: break-all; }
+  .cfg-val-string { color: #4ade80; }
+  .cfg-val-number { color: #fbbf24; }
+  .cfg-val-bool { color: #c084fc; }
+  .active-meta { font-size: 12px; color: #666; margin-top: 8px; font-family: 'SF Mono', Monaco, monospace; }
+  .deactivate-link {
+    font-size: 12px; color: #f87171; cursor: pointer; margin-top: 12px;
+    display: inline-block; background: none; border: none;
+  }
+  .deactivate-link:hover { text-decoration: underline; }
+
+  /* Active chain list */
+  .active-chain-item {
+    background: #0d150d; border: 1px solid #1a3a1a; border-radius: 6px;
+    padding: 10px 12px; margin-bottom: 6px;
+  }
+
+  /* Test section */
+  .test-section {
+    border-top: 2px solid #2a2a2a; margin-top: 20px; padding-top: 16px;
+    background: #111; margin-left: -16px; margin-right: -16px;
+    padding-left: 16px; padding-right: 16px; padding-bottom: 4px;
+    border-radius: 0 0 8px 8px;
+  }
+  .col-active .test-section { border-top-color: #1a3a1a; background: #0a120a; }
+  .test-section-title {
+    font-size: 13px; font-weight: 600; color: #888; margin-bottom: 10px;
+  }
+  .test-model-row {
+    display: flex; gap: 8px; margin-bottom: 8px; align-items: center;
+  }
+  .test-model-input {
+    flex: 1; background: #1a1a1a; border: 1px solid #333; color: #e5e5e5;
+    border-radius: 4px; padding: 5px 8px; font-size: 12px;
+  }
+  .test-model-input:focus { outline: none; border-color: #555; }
+  .col-active .test-model-input { background: #0d150d; border-color: #1a3a1a; }
+  .col-active .test-model-input:focus { border-color: #4ade8066; }
+  .test-input-row {
+    display: flex; gap: 6px; align-items: flex-start;
+  }
+  .test-textarea {
+    flex: 1; background: #1a1a1a; border: 1px solid #333; color: #e5e5e5;
+    border-radius: 4px; padding: 6px 8px; font-size: 13px;
+    font-family: 'SF Mono', Monaco, 'Fira Code', monospace;
+    resize: vertical; min-height: 44px; max-height: 120px;
+  }
+  .test-textarea::placeholder { color: #555; }
+  .test-textarea:focus { outline: none; border-color: #555; }
+  .col-active .test-textarea { background: #0d150d; border-color: #1a3a1a; }
+  .col-active .test-textarea:focus { border-color: #4ade8066; }
+  .test-run-btn {
+    padding: 6px 14px; background: #2a2a2a; border: 1px solid #333;
+    color: #aaa; border-radius: 4px; font-size: 12px; cursor: pointer;
+    white-space: nowrap; transition: all 0.15s; margin-top: 1px;
+  }
+  .test-run-btn:hover { background: #333; color: #e5e5e5; }
+  .test-run-btn:disabled { opacity: 0.5; cursor: default; }
+  .test-results {
+    display: none; margin-top: 8px; gap: 6px;
+  }
+  .test-results.visible {
+    display: grid; grid-template-columns: 1fr 1fr;
+  }
+  .test-box {
+    border-radius: 4px; padding: 8px 10px;
+    font-family: 'SF Mono', Monaco, monospace; font-size: 12px;
+    min-height: 32px; white-space: pre-wrap; word-break: break-word;
+  }
+  .test-box-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: #555; margin-bottom: 3px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .test-box-input { background: #1a1a1a; border: 1px solid #2a2a2a; color: #888; }
+  .test-box-output { background: #1a1a1a; border: 1px solid #2a2a2a; color: #e5e5e5; }
+  .col-active .test-box-input { background: #0d150d; border-color: #1a3a1a; }
+  .col-active .test-box-output { background: #0d150d; border-color: #1a3a1a; }
+  .test-meta { font-size: 11px; color: #555; margin-top: 4px; }
+
+  /* Credential prompt */
+  .test-cred-row {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+  }
+  .test-cred-label {
+    font-size: 12px; color: #888; white-space: nowrap;
+  }
+  .test-cred-select {
+    flex: 1; background: #1a1a1a; border: 1px solid #333; color: #e5e5e5;
+    border-radius: 4px; padding: 5px 8px; font-size: 12px; cursor: pointer;
+  }
+  .test-cred-select:focus { outline: none; border-color: #3b82f6; }
+  .col-active .test-cred-select { background: #0d150d; border-color: #1a3a1a; }
+  .test-cred-custom {
+    margin-bottom: 10px;
+  }
+  .credential-prompt {
+    border: 1px solid #fbbf24; background: #1a1a0a; padding: 12px;
+    border-radius: 6px; margin-bottom: 10px;
+  }
+  .credential-prompt-title {
+    font-size: 13px; font-weight: 600; color: #fbbf24; margin-bottom: 4px;
+  }
+  .credential-prompt-desc {
+    font-size: 12px; color: #aaa; margin-bottom: 8px;
+  }
+  .credential-input {
+    width: 100%; background: #1a1a1a; border: 1px solid #333; color: #e5e5e5;
+    border-radius: 4px; padding: 6px 8px; font-size: 13px;
+    font-family: 'SF Mono', Monaco, 'Fira Code', monospace;
+    margin-bottom: 6px;
+  }
+  .credential-input:focus { outline: none; border-color: #fbbf24; }
+  .credential-save-btn {
+    padding: 6px 14px; background: #fbbf24; border: none;
+    color: #1a1a0a; border-radius: 4px; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: background 0.15s;
+  }
+  .credential-save-btn:hover { background: #f59e0b; }
+  .test-greyed { opacity: 0.5; pointer-events: none; }
+
+  /* Loading & spinner */
+  .loading-text { color: #666; text-align: center; padding: 30px; font-size: 14px; }
+  @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  .spinner { display: inline-block; animation: spin 1s linear infinite; }
+
+  /* Responsive */
+  @media (max-width: 1000px) {
+    .columns { grid-template-columns: 1fr; gap: 8px; }
+    .column { min-height: 350px; }
+    .test-results.visible { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<nav x-data="luthienNav" class="luthien-nav">
+  <a href="/" class="nav-brand">Luthien</a>
+  <template x-for="link in links" :key="link.href">
+    <a :href="link.href" class="nav-link" :class="{ active: isActive(link.href) }" x-text="link.label"></a>
+  </template>
+  <div class="nav-spacer"></div>
+  <div class="settings-wrap" id="settings-wrap">
+    <button class="settings-btn" id="settings-btn">&#9881; Settings</button>
+    <div class="settings-popover" id="settings-popover">
+      <div class="settings-popover-title">Gateway Settings</div>
+      <div class="setting-group">
+        <div class="setting-row">
+          <input type="checkbox" id="set-inject">
+          <label for="set-inject">Inject policy context into requests</label>
+        </div>
+        <div class="setting-desc">When enabled, the gateway includes policy metadata in the system prompt sent to the LLM, letting the model know it's being monitored.</div>
+      </div>
+      <div class="setting-group">
+        <div class="setting-row">
+          <input type="checkbox" id="set-dogfood">
+          <label for="set-dogfood">Dogfood mode</label>
+        </div>
+        <div class="setting-desc">Enables additional safety constraints for internal use. Blocks potentially dangerous tool calls and operations.</div>
+      </div>
+    </div>
+  </div>
+  <template x-if="isAuthenticated()">
+    <a href="/auth/logout" class="nav-signout">Sign Out</a>
+  </template>
+</nav>
+
+<div class="columns">
+  <!-- Available -->
+  <div class="column" id="col-available">
+    <div class="col-header">Available</div>
+    <div class="col-body" id="available-list">
+      <div class="loading-text"><span class="spinner">&#9203;</span> Loading policies...</div>
+    </div>
+    <div class="filter-wrap">
+      <input class="filter-input" id="filter-input" type="text" placeholder="Filter policies...">
+    </div>
+  </div>
+
+  <!-- Proposed -->
+  <div class="column" id="col-proposed">
+    <div class="col-header" style="display:flex;align-items:center;justify-content:space-between;">
+      <span>Proposed</span>
+      <div class="mode-toggle" id="mode-toggle">
+        <button class="mode-btn active" data-mode="single">Single</button>
+        <button class="mode-btn" data-mode="chain">Chain</button>
+      </div>
+    </div>
+    <div class="col-body" id="proposed-body">
+      <div class="empty-state" id="proposed-empty">&larr; Select a policy to configure</div>
+      <div id="proposed-content" style="display:none;"></div>
+    </div>
+  </div>
+
+  <!-- Active -->
+  <div class="column col-active" id="col-active">
+    <div class="col-header">Active</div>
+    <div class="col-body" id="active-body">
+      <div class="loading-text"><span class="spinner">&#9203;</span> Loading...</div>
+    </div>
+  </div>
+</div>
+
+<script defer src="/static/vendor/alpine.min.js"></script>
+<script src="/static/nav.js"></script>
+<script>
+// ============================================================
+// State
+// ============================================================
+const NOOP_CLASS_REF = 'luthien_proxy.policies.noop_policy:NoOpPolicy';
+const DEFAULT_MODEL = 'claude-haiku-4-5-20241022';
+
+const EXAMPLES = {
+  'luthien_proxy.policies.noop_policy:NoOpPolicy': {
+    desc: null,
+    input: 'Hello, how are you?',
+    output: 'Hello, how are you?',
+  },
+  'luthien_proxy.policies.all_caps_policy:AllCapsPolicy': {
+    desc: null,
+    input: 'Hello, how are you?',
+    output: 'HELLO, HOW ARE YOU?',
+  },
+  'luthien_proxy.policies.debug_logging_policy:DebugLoggingPolicy': {
+    desc: null,
+    input: 'Hello, how are you?',
+    output: 'Hello, how are you?  (request & response logged)',
+  },
+  'luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy': {
+    desc: 'Config: replacements = [["quick", "fast"], ["fox", "cat"]]',
+    input: 'The quick brown fox jumps',
+    output: 'The fast brown cat jumps',
+  },
+  'luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy': {
+    desc: 'Config: model = "gpt-4o-mini", threshold = 0.01',
+    input: 'Tool call: run_shell("rm -rf /")',
+    output: '\u26d4 Tool \'run_shell\' blocked: Destructive filesystem operation',
+  },
+  'luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy': {
+    desc: 'Config: model, instructions for the policy LLM',
+    input: 'User request to write code',
+    output: '[Policy LLM evaluates request against instructions]',
+  },
+  'luthien_proxy.policies.dogfood_safety_policy:DogfoodSafetyPolicy': {
+    desc: null,
+    input: 'Delete all user data from the database',
+    output: '\u26d4 Blocked: Safety constraint violation',
+  },
+  'luthien_proxy.policies.simple_policy:SimplePolicy': {
+    desc: null,
+    input: 'Hello!',
+    output: 'Hello!  (non-streaming)',
+  },
+};
+
+const state = {
+  policies: [],
+  currentPolicy: null,
+  selectedClassRef: null,
+  configValues: {},
+  invalidFields: new Set(),
+  mode: 'single',
+  chain: [],
+  availableModels: [],
+  selectedModel: DEFAULT_MODEL,
+  isActivating: false,
+  hasCredentials: true,
+  hasAnthropicKey: false,
+  cachedCredentials: [],
+  credentialSource: 'server', // 'server' | 'custom' | hash string
+  apiKey: '',
+};
+
+// Preserve test results across re-renders
+const testState = { proposed: {}, active: {} };
+
+// ============================================================
+// API helpers
+// ============================================================
+async function apiCall(endpoint, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...options.headers };
+  const response = await fetch(endpoint, { ...options, headers, credentials: 'same-origin' });
+  if (response.status === 403) {
+    window.location.href = '/login?error=required&next=' + encodeURIComponent(window.location.pathname);
+    throw new Error('Session expired');
+  }
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+    throw new Error(error.detail || 'Request failed');
+  }
+  return response.json();
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+// ============================================================
+// Bootstrap
+// ============================================================
+document.addEventListener('DOMContentLoaded', async () => {
+  initSettingsPopover();
+  initFilterInput();
+  initModeToggle();
+  await Promise.all([loadPolicies(), loadCurrentPolicy(), loadModels(), loadGatewaySettings(), checkCredentials()]);
+  renderAll();
+});
+
+async function loadPolicies() {
+  try {
+    const data = await apiCall('/api/admin/policy/list');
+    state.policies = data.policies || [];
+  } catch (err) {
+    console.error('Failed to load policies:', err);
+    document.getElementById('available-list').innerHTML =
+      `<div class="status-msg error">Failed to load policies: ${esc(err.message)}</div>`;
+  }
+}
+
+async function loadCurrentPolicy() {
+  try {
+    state.currentPolicy = await apiCall('/api/admin/policy/current');
+  } catch (err) {
+    console.error('Failed to load current policy:', err);
+  }
+}
+
+async function loadModels() {
+  try {
+    const data = await apiCall('/api/admin/models');
+    state.availableModels = data.models || [];
+    state.selectedModel = state.availableModels.find(m => m.includes('haiku'))
+      || state.availableModels[0] || DEFAULT_MODEL;
+  } catch (err) {
+    state.availableModels = [];
+  }
+}
+
+async function loadGatewaySettings() {
+  try {
+    const data = await apiCall('/api/admin/gateway/settings');
+    document.getElementById('set-inject').checked = data.inject_policy_context;
+    document.getElementById('set-dogfood').checked = data.dogfood_mode;
+  } catch (e) {
+    console.warn('Failed to load gateway settings:', e);
+  }
+}
+
+async function checkCredentials() {
+  try {
+    const data = await fetch('/health').then(r => r.json());
+    state.hasAnthropicKey = !!data.has_anthropic_key;
+    state.hasCredentials = state.hasAnthropicKey || data.auth_mode === 'passthrough';
+  } catch {
+    state.hasCredentials = false;
+    state.hasAnthropicKey = false;
+  }
+  // Also load cached client credentials
+  try {
+    const data = await apiCall('/api/admin/auth/credentials');
+    state.cachedCredentials = (data.credentials || []).filter(c => c.valid);
+  } catch {
+    state.cachedCredentials = [];
+  }
+}
+
+// ============================================================
+// Lookup helpers
+// ============================================================
+function getPolicy(classRef) {
+  return state.policies.find(p => p.class_ref === classRef);
+}
+
+function policyName(classRef) {
+  const p = getPolicy(classRef);
+  return p ? p.name : classRef;
+}
+
+function configParamCount(policy) {
+  if (!policy || !policy.config_schema) return 0;
+  return Object.keys(policy.config_schema).length;
+}
+
+function isCurrentActive(classRef) {
+  return state.currentPolicy && state.currentPolicy.class_ref === classRef;
+}
+
+function defaultConfigFor(policy) {
+  return { ...(policy.example_config || {}) };
+}
+
+// ============================================================
+// Settings popover
+// ============================================================
+function initSettingsPopover() {
+  const btn = document.getElementById('settings-btn');
+  const popover = document.getElementById('settings-popover');
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    popover.classList.toggle('open');
+  });
+  document.addEventListener('click', e => {
+    if (popover.classList.contains('open') && !e.target.closest('#settings-wrap')) {
+      popover.classList.remove('open');
+    }
+  });
+
+  document.getElementById('set-inject').addEventListener('change', e => {
+    saveGatewaySetting('inject_policy_context', e.target.checked);
+  });
+  document.getElementById('set-dogfood').addEventListener('change', e => {
+    saveGatewaySetting('dogfood_mode', e.target.checked);
+  });
+}
+
+async function saveGatewaySetting(field, value) {
+  try {
+    await apiCall('/api/admin/gateway/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ [field]: value })
+    });
+  } catch (e) {
+    console.error('Failed to save gateway setting:', e);
+    const elId = field === 'inject_policy_context' ? 'set-inject' : 'set-dogfood';
+    document.getElementById(elId).checked = !value;
+  }
+}
+
+// ============================================================
+// Filter & mode toggle
+// ============================================================
+function initFilterInput() {
+  document.getElementById('filter-input').addEventListener('input', renderAvailable);
+}
+
+function initModeToggle() {
+  document.getElementById('mode-toggle').addEventListener('click', e => {
+    if (!e.target.classList.contains('mode-btn')) return;
+    const newMode = e.target.dataset.mode;
+    if (newMode === state.mode) return;
+    state.mode = newMode;
+    document.querySelectorAll('#mode-toggle .mode-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.mode === newMode)
+    );
+    if (newMode === 'single') {
+      if (state.chain.length > 0) {
+        state.selectedClassRef = state.chain[0].classRef;
+        state.configValues = state.chain[0].config;
+      }
+    } else {
+      if (state.selectedClassRef) {
+        state.chain = [{ classRef: state.selectedClassRef, config: { ...state.configValues } }];
+        state.selectedClassRef = null;
+      }
+    }
+    testState.proposed = {};
+    renderAll();
+  });
+}
+
+// ============================================================
+// Select policy
+// ============================================================
+function selectPolicy(classRef) {
+  const p = getPolicy(classRef);
+  if (!p) return;
+  if (state.mode === 'single') {
+    state.selectedClassRef = classRef;
+    state.invalidFields.clear();
+    const isActivePolicy = isCurrentActive(classRef);
+    state.configValues = isActivePolicy && state.currentPolicy.config
+      ? { ...state.currentPolicy.config }
+      : defaultConfigFor(p);
+  } else {
+    state.chain.push({ classRef, config: defaultConfigFor(p) });
+  }
+  renderAll();
+}
+
+// ============================================================
+// Example block rendering
+// ============================================================
+function renderExampleBlock(classRef, large) {
+  const ex = EXAMPLES[classRef];
+  if (!ex) return '';
+  const cls = large ? 'example-block-proposed' : 'example-block';
+  let html = `<div class="${cls}">`;
+  if (ex.desc) {
+    html += `<div class="example-config-desc">${esc(ex.desc)}</div>`;
+  }
+  html += `<div class="example-io"><span class="ex-label">In:</span> "${esc(ex.input)}"</div>`;
+  html += `<div class="example-io"><span class="ex-label">Out:</span> "${esc(ex.output)}"</div>`;
+  html += '</div>';
+  return html;
+}
+
+// ============================================================
+// Render: Available column
+// ============================================================
+function renderAvailable() {
+  const filter = document.getElementById('filter-input').value.toLowerCase();
+  const list = document.getElementById('available-list');
+  list.innerHTML = '';
+
+  for (const p of state.policies) {
+    if (filter && !p.name.toLowerCase().includes(filter) && !(p.description || '').toLowerCase().includes(filter)) continue;
+
+    const div = document.createElement('div');
+    div.className = 'policy-card';
+    if (state.mode === 'single' && state.selectedClassRef === p.class_ref) div.className += ' selected';
+    if (isCurrentActive(p.class_ref)) div.className += ' is-active';
+
+    const cc = configParamCount(p);
+    const configHint = cc > 0 ? ` <span class="p-config-hint">(${cc} setting${cc > 1 ? 's' : ''})</span>` : '';
+    const dot = isCurrentActive(p.class_ref) ? '<span class="active-dot" title="Currently active"></span>' : '';
+
+    let descLine = esc(p.description || '');
+    const firstLine = descLine.split('.')[0];
+
+    const exampleHtml = renderExampleBlock(p.class_ref, false);
+
+    div.innerHTML = `<div class="p-name">${dot}${esc(p.name)}</div><div class="p-desc">${firstLine}.${configHint}</div>${exampleHtml}`;
+    div.onclick = () => selectPolicy(p.class_ref);
+    list.appendChild(div);
+  }
+
+  if (list.children.length === 0 && state.policies.length > 0) {
+    list.innerHTML = '<div class="empty-state">No policies match filter</div>';
+  }
+}
+
+// ============================================================
+// Render: Proposed column
+// ============================================================
+function renderProposed() {
+  const col = document.getElementById('col-proposed');
+  const hasContent = (state.mode === 'single' && state.selectedClassRef) ||
+                     (state.mode === 'chain' && state.chain.length > 0);
+  col.className = 'column' + (hasContent ? ' col-proposed has-content' : '');
+
+  const empty = document.getElementById('proposed-empty');
+  const content = document.getElementById('proposed-content');
+
+  if (state.mode === 'single') {
+    if (!state.selectedClassRef) {
+      empty.innerHTML = '&larr; Select a policy to configure';
+      empty.style.display = ''; content.style.display = 'none';
+      return;
+    }
+    empty.style.display = 'none'; content.style.display = '';
+    const p = getPolicy(state.selectedClassRef);
+    if (!p) return;
+
+    let html = `<div class="proposed-name">${esc(p.name)}</div>`;
+    html += `<div class="proposed-desc">${esc(p.description || '')}</div>`;
+    html += renderExampleBlock(p.class_ref, true);
+    html += renderConfigForm(p, state.configValues, 'single');
+    html += `<div id="proposed-status"></div>`;
+
+    const matchesActive = isCurrentActive(p.class_ref) &&
+      JSON.stringify(state.currentPolicy.config || {}) === JSON.stringify(state.configValues);
+    html += `<button class="btn-activate" id="btn-activate" ${matchesActive ? 'disabled' : ''} onclick="handleActivate()">${matchesActive ? 'Already Active' : 'Activate'}</button>`;
+    html += renderTestSection('proposed');
+    content.innerHTML = html;
+    bindConfigInputs('single');
+    bindTestSection('proposed');
+  } else {
+    if (state.chain.length === 0) {
+      empty.innerHTML = '&larr; Click policies to build a chain';
+      empty.style.display = ''; content.style.display = 'none';
+      return;
+    }
+    empty.style.display = 'none'; content.style.display = '';
+    let html = `<div style="font-size:13px;color:#888;margin-bottom:8px;">Policy Chain (${state.chain.length})</div>`;
+    html += '<ul class="chain-list">';
+    for (let i = 0; i < state.chain.length; i++) {
+      const item = state.chain[i];
+      const p = getPolicy(item.classRef);
+      if (!p) continue;
+      html += '<li class="chain-item">';
+      html += '<div class="chain-item-header">';
+      html += `<span class="chain-num">${i + 1}</span>`;
+      html += `<span class="chain-item-name">${esc(p.name)}</span>`;
+      html += '<span class="chain-actions">';
+      if (i > 0) html += `<button class="chain-btn" onclick="event.stopPropagation();moveChain(${i},-1)" title="Move up">&uarr;</button>`;
+      if (i < state.chain.length - 1) html += `<button class="chain-btn" onclick="event.stopPropagation();moveChain(${i},1)" title="Move down">&darr;</button>`;
+      html += `<button class="chain-btn" onclick="event.stopPropagation();removeChain(${i})" title="Remove">&times;</button>`;
+      html += '</span></div>';
+      html += `<div class="chain-item-desc">${esc((p.description || '').split('.')[0])}</div>`;
+      if (configParamCount(p) > 0) {
+        html += `<div class="config-form">${renderConfigFormInner(p, item.config, 'chain-' + i)}</div>`;
+      }
+      html += '</li>';
+      if (i < state.chain.length - 1) html += '<div class="chain-divider">&darr;</div>';
+    }
+    html += '</ul>';
+    html += `<div id="proposed-status"></div>`;
+    html += `<button class="btn-activate" id="btn-activate" onclick="handleActivateChain()">Activate Chain</button>`;
+    html += renderTestSection('proposed');
+    content.innerHTML = html;
+    for (let i = 0; i < state.chain.length; i++) bindConfigInputs('chain-' + i);
+    bindTestSection('proposed');
+  }
+}
+
+function moveChain(i, dir) {
+  const j = i + dir;
+  [state.chain[i], state.chain[j]] = [state.chain[j], state.chain[i]];
+  renderProposed();
+}
+
+function removeChain(i) {
+  state.chain.splice(i, 1);
+  renderAll();
+}
+
+// ============================================================
+// Config form rendering (schema-driven)
+// ============================================================
+function renderConfigForm(policy, config, prefix) {
+  const cc = configParamCount(policy);
+  if (cc === 0) return '<div class="no-config">No configuration needed</div>';
+  return `<div class="config-form">${renderConfigFormInner(policy, config, prefix)}</div>`;
+}
+
+function renderConfigFormInner(policy, config, prefix) {
+  const schema = policy.config_schema || {};
+  const keys = Object.keys(schema);
+  if (keys.length === 0) return '';
+
+  let html = '';
+  for (const key of keys) {
+    const ps = schema[key];
+    const val = config[key] ?? ps.default ?? '';
+    const isComplex = ps.type === 'object' || ps.type === 'array';
+    const isPassword = ps.type === 'string' && key.toLowerCase().includes('key');
+
+    if (ps.type === 'boolean') {
+      const checked = (config[key] ?? ps.default ?? false) ? 'checked' : '';
+      html += `<div class="checkbox-row">
+        <input type="checkbox" data-prefix="${prefix}" data-key="${key}" ${checked}>
+        <label>${esc(key)}</label>
+      </div>`;
+    } else if (ps.type === 'number' || ps.type === 'integer') {
+      const step = ps.type === 'number' ? ' step="any"' : '';
+      html += `<label>${esc(key)}</label>`;
+      html += `<input type="number"${step} data-prefix="${prefix}" data-key="${key}" value="${esc(val)}">`;
+      if (ps.nullable) html += `<span class="config-hint">${esc(ps.type)} (optional)</span>`;
+    } else if (isComplex) {
+      html += `<label>${esc(key)}</label>`;
+      const jsonVal = JSON.stringify(config[key] ?? ps.default ?? null, null, 2);
+      html += `<textarea data-prefix="${prefix}" data-key="${key}" data-json="true">${esc(jsonVal)}</textarea>`;
+      html += `<div class="config-error-msg" data-error-for="${prefix}-${key}">Invalid JSON</div>`;
+      html += `<span class="config-hint">${esc(ps.type)}</span>`;
+    } else {
+      html += `<label>${esc(key)}</label>`;
+      const inputType = isPassword ? 'password' : 'text';
+      const placeholder = ps.nullable ? '(optional)' : '';
+      html += `<input type="${inputType}" data-prefix="${prefix}" data-key="${key}" value="${esc(val)}" placeholder="${placeholder}">`;
+      if (ps.nullable) html += `<span class="config-hint">${esc(ps.type)} (optional)</span>`;
+    }
+  }
+  return html;
+}
+
+function bindConfigInputs(prefix) {
+  document.querySelectorAll(`[data-prefix="${prefix}"][data-key]`).forEach(el => {
+    el.addEventListener('input', () => {
+      const key = el.dataset.key;
+      const isJson = el.dataset.json === 'true';
+      const isCheckbox = el.type === 'checkbox';
+      const isNumber = el.type === 'number';
+      const fieldId = `${prefix}-${key}`;
+
+      let val;
+      if (isCheckbox) {
+        val = el.checked;
+      } else if (isJson) {
+        try {
+          val = JSON.parse(el.value);
+          el.classList.remove('invalid');
+          const errEl = document.querySelector(`[data-error-for="${fieldId}"]`);
+          if (errEl) errEl.classList.remove('visible');
+          state.invalidFields.delete(fieldId);
+        } catch {
+          el.classList.add('invalid');
+          const errEl = document.querySelector(`[data-error-for="${fieldId}"]`);
+          if (errEl) errEl.classList.add('visible');
+          state.invalidFields.add(fieldId);
+          updateActivateButton();
+          return;
+        }
+      } else if (isNumber) {
+        val = el.value === '' ? null : Number(el.value);
+      } else {
+        val = el.value;
+      }
+
+      if (prefix === 'single') {
+        state.configValues[key] = val;
+      } else if (prefix.startsWith('chain-')) {
+        const idx = parseInt(prefix.split('-')[1]);
+        state.chain[idx].config[key] = val;
+      }
+      updateActivateButton();
+    });
+
+    if (el.type === 'checkbox') {
+      el.addEventListener('change', () => el.dispatchEvent(new Event('input')));
+    }
+  });
+}
+
+function updateActivateButton() {
+  const btn = document.getElementById('btn-activate');
+  if (!btn) return;
+
+  const hasErrors = state.invalidFields.size > 0;
+  if (hasErrors) {
+    btn.disabled = true;
+    btn.textContent = 'Fix errors to activate';
+    btn.classList.add('error-state');
+    return;
+  }
+  btn.classList.remove('error-state');
+
+  if (state.mode === 'single' && state.selectedClassRef) {
+    const matchesActive = isCurrentActive(state.selectedClassRef) &&
+      JSON.stringify(state.currentPolicy.config || {}) === JSON.stringify(state.configValues);
+    btn.disabled = matchesActive || state.isActivating;
+    btn.textContent = state.isActivating ? 'Activating...' : (matchesActive ? 'Already Active' : 'Activate');
+  } else {
+    btn.disabled = state.isActivating;
+    btn.textContent = state.isActivating ? 'Activating...' : 'Activate Chain';
+  }
+}
+
+// ============================================================
+// Render: Active column
+// ============================================================
+function renderActive() {
+  const body = document.getElementById('active-body');
+  if (!state.currentPolicy) {
+    body.innerHTML = '<div class="empty-state">No active policy</div>';
+    return;
+  }
+
+  const cp = state.currentPolicy;
+  const p = getPolicy(cp.class_ref);
+  const name = p ? p.name : cp.policy;
+  const desc = p ? p.description : '';
+
+  let html = '<div class="active-label">Currently Running</div>';
+  html += `<div class="active-name">${esc(name)}</div>`;
+  html += `<div class="active-desc">${esc(desc)}</div>`;
+
+  const config = cp.config || {};
+  const configKeys = Object.keys(config);
+  if (configKeys.length > 0) {
+    html += '<div class="active-config">';
+    html += formatConfigHtml(config);
+    html += '</div>';
+  }
+
+  // Meta info
+  const parts = [];
+  if (cp.enabled_by) parts.push(`by ${esc(cp.enabled_by)}`);
+  if (cp.enabled_at) {
+    const d = new Date(cp.enabled_at);
+    parts.push(d.toLocaleString());
+  }
+  if (parts.length > 0) {
+    html += `<div class="active-meta">${parts.join(' &middot; ')}</div>`;
+  }
+
+  if (cp.class_ref !== NOOP_CLASS_REF) {
+    html += `<button class="deactivate-link" onclick="handleDeactivate()">Deactivate</button>`;
+  }
+
+  html += renderTestSection('active');
+  body.innerHTML = html;
+  bindTestSection('active');
+}
+
+function formatConfigHtml(config, indent) {
+  indent = indent || 0;
+  const entries = Object.entries(config);
+  if (entries.length === 0) return '';
+
+  let html = '';
+  for (const [key, val] of entries) {
+    html += `<div class="cfg-row"><span class="cfg-key">${esc(key)}:</span>`;
+    html += `<span class="cfg-val">${formatValue(val)}</span></div>`;
+  }
+  return html;
+}
+
+function formatValue(val) {
+  if (val === null || val === undefined) return 'null';
+  if (typeof val === 'boolean') return `<span class="cfg-val-bool">${val}</span>`;
+  if (typeof val === 'number') return `<span class="cfg-val-number">${val}</span>`;
+  if (typeof val === 'string') {
+    const display = val.length > 60 ? val.slice(0, 60) + '...' : val;
+    return `<span class="cfg-val-string">"${esc(display)}"</span>`;
+  }
+  if (Array.isArray(val)) return esc(JSON.stringify(val));
+  if (typeof val === 'object') return esc(JSON.stringify(val));
+  return esc(String(val));
+}
+
+// ============================================================
+// Credential management
+// ============================================================
+// saveCredential is now handled inline via onchange on the credential input
+
+// ============================================================
+// Test section
+// ============================================================
+function renderTestSection(side) {
+  let html = '<div class="test-section">';
+  html += '<div class="test-section-title">Test This Policy</div>';
+
+  // Credential source selector
+  const canTest = state.hasCredentials || state.apiKey;
+  html += '<div class="test-cred-row">';
+  html += '<label class="test-cred-label">Credentials:</label>';
+  html += `<select class="test-cred-select" id="cred-select-${side}" onchange="onCredSourceChange('${side}', this.value)">`;
+  if (state.hasAnthropicKey) {
+    html += '<option value="server"' + (state.credentialSource === 'server' ? ' selected' : '') + '>Server API Key</option>';
+  }
+  for (const c of state.cachedCredentials) {
+    const shortHash = c.key_hash.slice(0, 8) + '...';
+    const selected = state.credentialSource === c.key_hash ? ' selected' : '';
+    const ago = timeSince(c.last_used_at);
+    html += `<option value="${esc(c.key_hash)}"${selected}>Cached: ${shortHash} (used ${ago})</option>`;
+  }
+  html += '<option value="custom"' + (state.credentialSource === 'custom' ? ' selected' : '') + '>Enter API key...</option>';
+  if (!state.hasAnthropicKey && state.cachedCredentials.length === 0 && !state.apiKey) {
+    html += '<option value="" disabled selected>No credentials available</option>';
+  }
+  html += '</select>';
+  html += '</div>';
+
+  // Custom API key input (shown when "Enter API key..." is selected)
+  if (state.credentialSource === 'custom') {
+    html += `<div class="test-cred-custom">
+      <input type="password" class="credential-input" id="cred-input-${side}"
+        placeholder="sk-ant-... or OAuth token" value="${esc(state.apiKey)}"
+        onchange="state.apiKey = this.value.trim()">
+    </div>`;
+  }
+
+  // Warning if no credentials at all
+  if (!canTest && state.credentialSource !== 'custom') {
+    html += `<div class="credential-prompt">
+      <div class="credential-prompt-title">No credentials available</div>
+      <div class="credential-prompt-desc">Select "Enter API key..." above and paste an Anthropic API key or OAuth token to test.</div>
+    </div>`;
+  }
+
+  const greyClass = (!canTest && state.credentialSource !== 'custom') ? ' test-greyed' : '';
+
+  html += `<div class="${greyClass.trim()}" id="test-inner-${side}">`;
+  html += `<div class="test-model-row">
+      <input type="text" class="test-model-input" id="test-model-${side}"
+        placeholder="Model..." value="${esc(state.selectedModel)}"
+        list="model-list-${side}">
+      <datalist id="model-list-${side}">
+        ${state.availableModels.map(m => `<option value="${esc(m)}">`).join('')}
+      </datalist>
+    </div>
+    <div class="test-input-row">
+      <textarea class="test-textarea" id="test-input-${side}" placeholder="Enter test message..." rows="2"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();runTest('${side}');}"></textarea>
+      <button class="test-run-btn" id="test-btn-${side}" onclick="runTest('${side}')">Send</button>
+    </div>
+    <div class="test-results" id="test-results-${side}">
+      <div>
+        <div class="test-box-label">Input</div>
+        <div class="test-box test-box-input" id="test-box-in-${side}"></div>
+      </div>
+      <div>
+        <div class="test-box-label">Output</div>
+        <div class="test-box test-box-output" id="test-box-out-${side}"></div>
+      </div>
+    </div>
+    <div class="test-meta" id="test-meta-${side}"></div>`;
+  html += '</div>';
+  html += '</div>';
+  return html;
+}
+
+function onCredSourceChange(side, value) {
+  state.credentialSource = value;
+  if (value !== 'custom') state.apiKey = '';
+  // Sync both selects
+  ['proposed', 'active'].forEach(s => {
+    const sel = document.getElementById(`cred-select-${s}`);
+    if (sel) sel.value = value;
+  });
+  renderAll();
+}
+
+function timeSince(timestamp) {
+  const seconds = Math.floor(Date.now() / 1000 - timestamp);
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+  if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
+  return Math.floor(seconds / 86400) + 'd ago';
+}
+
+function bindTestSection(side) {
+  const input = document.getElementById(`test-input-${side}`);
+  const results = document.getElementById(`test-results-${side}`);
+  const boxIn = document.getElementById(`test-box-in-${side}`);
+  const boxOut = document.getElementById(`test-box-out-${side}`);
+  if (testState[side] && testState[side].inputText) {
+    input.value = testState[side].inputText;
+  }
+  if (testState[side] && testState[side].ran) {
+    boxIn.textContent = testState[side].originalInput;
+    boxOut.innerHTML = testState[side].outputHtml;
+    results.classList.add('visible');
+    const meta = document.getElementById(`test-meta-${side}`);
+    if (meta && testState[side].metaText) meta.textContent = testState[side].metaText;
+  }
+}
+
+async function runTest(side) {
+  const input = document.getElementById(`test-input-${side}`);
+  const results = document.getElementById(`test-results-${side}`);
+  const boxIn = document.getElementById(`test-box-in-${side}`);
+  const boxOut = document.getElementById(`test-box-out-${side}`);
+  const meta = document.getElementById(`test-meta-${side}`);
+  const btn = document.getElementById(`test-btn-${side}`);
+  const modelInput = document.getElementById(`test-model-${side}`);
+  const msg = input.value.trim();
+  if (!msg) return;
+
+  const model = modelInput ? modelInput.value.trim() : state.selectedModel;
+
+  btn.disabled = true;
+  btn.textContent = '...';
+  boxIn.textContent = msg;
+  boxOut.textContent = 'Sending...';
+  results.classList.add('visible');
+  meta.textContent = '';
+
+  try {
+    const testPayload = {
+      model: model || state.selectedModel,
+      message: msg,
+      stream: false,
+      use_mock: false,
+    };
+    // Pass custom API key if user entered one
+    if (state.credentialSource === 'custom' && state.apiKey) {
+      testPayload.api_key = state.apiKey;
+    }
+    const result = await apiCall('/api/admin/test/chat', {
+      method: 'POST',
+      body: JSON.stringify(testPayload)
+    });
+
+    if (!result.success) throw new Error(result.error || 'Request failed');
+
+    const content = result.content || '(empty response)';
+    boxOut.textContent = content;
+
+    let metaText = `Model: ${result.model || model}`;
+    if (result.usage) {
+      metaText += ` | ${result.usage.prompt_tokens} in / ${result.usage.completion_tokens} out`;
+    }
+    meta.textContent = metaText;
+
+    testState[side] = {
+      inputText: input.value,
+      originalInput: msg,
+      outputHtml: esc(content),
+      metaText: metaText,
+      ran: true,
+    };
+  } catch (err) {
+    const errMsg = err.message || '';
+    const isCredentialError = /api.?key|authentication|401|credentials/i.test(errMsg);
+    if (isCredentialError) {
+      state.hasCredentials = false;
+      renderAll();
+    }
+
+    boxOut.textContent = `Error: ${errMsg}`;
+    boxOut.style.color = '#fca5a5';
+    testState[side] = {
+      inputText: input.value,
+      originalInput: msg,
+      outputHtml: `<span style="color:#fca5a5">${esc('Error: ' + errMsg)}</span>`,
+      metaText: '',
+      ran: true,
+    };
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Send';
+  }
+}
+
+// ============================================================
+// Activate / Deactivate
+// ============================================================
+async function handleActivate() {
+  if (state.isActivating || !state.selectedClassRef) return;
+  if (state.invalidFields.size > 0) {
+    showStatus('proposed-status', 'error', 'Fix JSON errors before activating');
+    return;
+  }
+
+  state.isActivating = true;
+  updateActivateButton();
+  showStatus('proposed-status', 'info', 'Activating...');
+
+  try {
+    const result = await apiCall('/api/admin/policy/set', {
+      method: 'POST',
+      body: JSON.stringify({
+        policy_class_ref: state.selectedClassRef,
+        config: state.configValues,
+        enabled_by: 'ui'
+      })
+    });
+
+    if (result.success) {
+      await loadCurrentPolicy();
+      state.selectedClassRef = null;
+      testState.proposed = {};
+      testState.active = {};
+      renderAll();
+    } else {
+      showStatus('proposed-status', 'error', result.error || 'Activation failed');
+    }
+  } catch (err) {
+    showStatus('proposed-status', 'error', err.message);
+  } finally {
+    state.isActivating = false;
+    updateActivateButton();
+  }
+}
+
+async function handleActivateChain() {
+  // Chain activation would need a different API; for now treat as single with first
+  if (state.chain.length === 0) return;
+  state.selectedClassRef = state.chain[0].classRef;
+  state.configValues = state.chain[0].config;
+  await handleActivate();
+}
+
+async function handleDeactivate() {
+  state.isActivating = true;
+  try {
+    const result = await apiCall('/api/admin/policy/set', {
+      method: 'POST',
+      body: JSON.stringify({
+        policy_class_ref: NOOP_CLASS_REF,
+        config: {},
+        enabled_by: 'ui'
+      })
+    });
+    if (result.success) {
+      await loadCurrentPolicy();
+      testState.active = {};
+      renderAll();
+    }
+  } catch (err) {
+    console.error('Deactivation failed:', err);
+  } finally {
+    state.isActivating = false;
+  }
+}
+
+function showStatus(containerId, type, message) {
+  const el = document.getElementById(containerId);
+  if (el) el.innerHTML = `<div class="status-msg ${type}">${esc(message)}</div>`;
+}
+
+// ============================================================
+// Render all
+// ============================================================
+function renderAll() {
+  renderAvailable();
+  renderProposed();
+  renderActive();
+}
+</script>
+</body>
+</html>
