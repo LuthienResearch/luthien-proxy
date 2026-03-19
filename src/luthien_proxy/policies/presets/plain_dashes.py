@@ -1,6 +1,6 @@
 """Policy that replaces em-dashes with regular dashes."""
 
-from luthien_proxy.policies.simple_llm_policy import SimpleLLMPolicy
+from luthien_proxy.policies.simple_llm_policy import SimpleLLMJudgeConfig, SimpleLLMPolicy
 
 
 class PlainDashesPolicy(SimpleLLMPolicy):
@@ -13,15 +13,15 @@ class PlainDashesPolicy(SimpleLLMPolicy):
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""
         super().__init__(
-            config={
-                "instructions": (
+            config=SimpleLLMJudgeConfig(
+                instructions=(
                     "Replace all em-dashes (\u2014) and en-dashes (\u2013) with regular "
                     "hyphens/dashes (-). Do not change any other content. If there are "
                     "no em-dashes or en-dashes, pass the block unchanged."
                 ),
-                "model": "claude-haiku-4-5",
-                "temperature": 0.0,
-                "max_tokens": 4096,
-                "on_error": "pass",
-            }
+                model="claude-haiku-4-5",
+                temperature=0.0,
+                max_tokens=4096,
+                on_error="pass",
+            )
         )

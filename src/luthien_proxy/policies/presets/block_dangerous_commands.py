@@ -1,6 +1,6 @@
 """Policy that blocks dangerous shell commands in tool calls."""
 
-from luthien_proxy.policies.simple_llm_policy import SimpleLLMPolicy
+from luthien_proxy.policies.simple_llm_policy import SimpleLLMJudgeConfig, SimpleLLMPolicy
 
 
 class BlockDangerousCommandsPolicy(SimpleLLMPolicy):
@@ -14,8 +14,8 @@ class BlockDangerousCommandsPolicy(SimpleLLMPolicy):
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""
         super().__init__(
-            config={
-                "instructions": (
+            config=SimpleLLMJudgeConfig(
+                instructions=(
                     "Examine tool calls for dangerous shell commands. Block any tool call "
                     "that contains: rm -rf, rm -r (on broad paths like / or ~), chmod 777, "
                     "chmod -R 777, mkfs, dd if=, fdisk, parted, shred, wipefs, "
@@ -27,9 +27,9 @@ class BlockDangerousCommandsPolicy(SimpleLLMPolicy):
                     "blocked by the safety policy.' "
                     "If the tool call is safe, pass it unchanged."
                 ),
-                "model": "claude-haiku-4-5",
-                "temperature": 0.0,
-                "max_tokens": 4096,
-                "on_error": "block",
-            }
+                model="claude-haiku-4-5",
+                temperature=0.0,
+                max_tokens=4096,
+                on_error="block",
+            )
         )
