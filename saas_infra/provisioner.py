@@ -95,6 +95,8 @@ class Provisioner:
                     "ADMIN_API_KEY": admin_api_key,
                     "PYTHONUNBUFFERED": "1",
                     "ENVIRONMENT": "railway",
+                    "SENTRY_ENABLED": "true",
+                    "SENTRY_DSN": "https://178c87f543acaf02b3f154ee329679fa@o4511061292089344.ingest.us.sentry.io/4511061302575104",
                     "SENTRY_SERVER_NAME": f"railway-{name}",
                 },
             )
