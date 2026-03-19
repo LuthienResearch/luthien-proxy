@@ -25,6 +25,7 @@ logs/
 .last_update
 scratch/
 _scratch/
+tmp/
 
 # Replay callback exports
 dev/replay_logs*.jsonl

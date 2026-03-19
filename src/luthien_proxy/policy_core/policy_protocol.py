@@ -27,6 +27,14 @@ class PolicyProtocol(Protocol):
         """Short human-readable name for the policy (e.g., 'NoOp', 'AllCaps', 'ToolJudge')."""
         ...
 
+    def active_policy_names(self) -> list[str]:
+        """Return the leaf policy names that actively modify requests/responses.
+
+        Leaf policies return their own name. Multi-policies recurse into
+        sub-policies. Policies that don't modify anything (e.g. NoOp) return [].
+        """
+        ...
+
     def get_config(self) -> dict[str, Any]:
         """Get the configuration for this policy instance."""
         ...

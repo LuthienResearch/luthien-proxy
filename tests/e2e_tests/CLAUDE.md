@@ -91,7 +91,7 @@ docker compose up -d gateway
 
 All shared fixtures and helpers are in `tests/e2e_tests/conftest.py`:
 
-- **Fixtures**: `claude_available`, `gateway_healthy`, `http_client`
+- **Fixtures**: `claude_available`, `codex_available`, `gateway_healthy`, `http_client`
 - **Configuration**: `GATEWAY_URL`, `API_KEY`, `ADMIN_API_KEY`
 - **Helpers**: `set_policy()`, `get_current_policy()`, `policy_context()`
 
