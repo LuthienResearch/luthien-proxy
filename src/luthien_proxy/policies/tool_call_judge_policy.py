@@ -461,9 +461,8 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
                 api_key=self._resolve_judge_api_key(policy_ctx, self._config.api_key, self._fallback_api_key),
             )
         except Exception as exc:
-            # LOUD ERROR LOGGING - judge failure is a security concern
             logger.error(
-                f"🚨 SECURITY: Judge evaluation FAILED for tool call '{name}' with arguments: {arguments[:TOOL_ARGS_TRUNCATION_LENGTH]}... "
+                f"SECURITY: Judge evaluation FAILED for tool call '{name}' with arguments: {arguments[:TOOL_ARGS_TRUNCATION_LENGTH]}... "
                 f"Error: {exc}. DEFAULTING TO BLOCK (fail-secure).",
                 exc_info=True,
             )
@@ -473,9 +472,8 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
 
     def _create_judge_failure_message(self, name: str, arguments: str) -> str:
         """Create user-facing message for judge failure (fail-secure block)."""
-        # Note: We don't include the full exception in user message for security
         return (
-            f"⚠️ SECURITY BLOCK: Tool call '{name}' could not be evaluated by the judge due to an error. "
+            f"SECURITY BLOCK: Tool call '{name}' could not be evaluated by the judge due to an error. "
             f"For security, this call has been blocked. "
             f"Tool arguments: {arguments[:TOOL_ARGS_TRUNCATION_LENGTH]}..."
         )

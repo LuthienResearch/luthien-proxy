@@ -19,6 +19,8 @@ services:
     environment:
       - ANTHROPIC_BASE_URL=http://127.0.0.1:18888
       - ANTHROPIC_API_KEY=mock-key
+      - LLM_JUDGE_API_BASE=http://127.0.0.1:18888
+      - LLM_JUDGE_API_KEY=mock-key
       - DATABASE_URL=postgresql://luthien:luthien_dev_password@127.0.0.1:5433/luthien_control
       - REDIS_URL=redis://127.0.0.1:6379
     network_mode: host
