@@ -265,7 +265,6 @@ async def test_claude_code_session_captured_by_debug_policy(claude_available, ga
         assert SESSION_UUID_PATTERN.match(session_id), f"Invalid session ID format: {session_id}"
 
 
-
 # === Server-side Session Verification Tests ===
 
 

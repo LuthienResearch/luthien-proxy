@@ -33,14 +33,6 @@ from tests.e2e_tests.test_mock_error_handling import (
     test_missing_messages_field_returns_400,
 )
 
-# --- OpenAI + tool use ---
-from tests.e2e_tests.test_mock_openai_and_tool_use import (
-    test_openai_non_streaming_response_structure,
-    test_openai_streaming_response_structure,
-    test_tool_use_non_streaming_response_structure,
-    test_tool_use_streaming_event_sequence,
-)
-
 # --- Policies ---
 from tests.e2e_tests.test_mock_policies import (
     test_all_caps_non_streaming,
