@@ -14,13 +14,13 @@ The proxy had zero error tracking (flagged as HIGH in the March 2026 audit). Err
 - Automatic error capture with stack traces across all deployments
 - Error grouping, deduplication, and alerting
 - Environment/release tagging to distinguish dev, test, Railway, and self-hosted instances
-- Error collection from alpha/beta users (opt-out, not opt-in) to catch issues we can't reproduce locally
+- Error collection from alpha/beta users (opt-in) to catch issues we can't reproduce locally
 
 ## Consent Model: Opt-In
 
 **Disabled by default** — set `SENTRY_ENABLED=true` to enable. The `luthien onboard` CLI prompts for this during setup.
 
-The DSN has a default in `settings.py` but can be overridden via `SENTRY_DSN` env var. A Sentry DSN is a write-only ingest key, not a secret. Anyone who extracts it can only submit error reports, not read data.
+The DSN defaults to empty in `settings.py` and must be set via `SENTRY_DSN` env var (or provided during `luthien onboard`). A Sentry DSN is a write-only ingest key, not a secret. Anyone who extracts it can only submit error reports, not read data.
 
 ## Two-Layer Data Scrubbing
 
@@ -85,7 +85,7 @@ final_response = <dict keys=['id', 'content']>  # shape only
 | Setting | Env Var | Default | Purpose |
 |---------|---------|---------|---------|
 | `sentry_enabled` | `SENTRY_ENABLED` | `False` | Master toggle — set `true` to opt in |
-| `sentry_dsn` | `SENTRY_DSN` | (hardcoded project DSN) | Override to send to a different Sentry project |
+| `sentry_dsn` | `SENTRY_DSN` | `""` (empty) | Must be set to enable Sentry — `luthien onboard` provides a default |
 | `sentry_traces_sample_rate` | `SENTRY_TRACES_SAMPLE_RATE` | `0.0` | Performance tracing (disabled — we use OTel) |
 | `sentry_server_name` | `SENTRY_SERVER_NAME` | `""` | Instance identifier in Sentry dashboard |
 
@@ -101,7 +101,8 @@ These settings are reused from the general config for Sentry tags:
 
 **Local development** (`.env`):
 ```bash
-# Sentry active by default, using hardcoded DSN
+SENTRY_ENABLED=true
+SENTRY_DSN=https://178c87f543acaf02b3f154ee329679fa@o4511061292089344.ingest.us.sentry.io/4511061302575104
 SENTRY_SERVER_NAME=local-dev
 # ENVIRONMENT defaults to "development"
 ```
@@ -245,4 +246,4 @@ SENTRY_DSN=https://your-key@your-org.ingest.sentry.io/your-project
 
 ### "Railway instance errors aren't showing up"
 
-Check that the Railway instance has `SENTRY_ENABLED` not set to `false`. The provisioner sets `ENVIRONMENT=railway` and `SENTRY_SERVER_NAME=railway-{name}` but relies on the hardcoded DSN default.
+Check that the Railway instance has `SENTRY_ENABLED=true` and `SENTRY_DSN` set. The provisioner sets `ENVIRONMENT=railway` and `SENTRY_SERVER_NAME=railway-{name}` but does not set `SENTRY_ENABLED` or `SENTRY_DSN` — these must be configured manually per instance.
