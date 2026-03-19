@@ -57,7 +57,6 @@ def _find_first_user_message_index(messages: list[Any]) -> int | None:
     return None
 
 
-
 def inject_policy_awareness_anthropic(request: AnthropicRequest, policy_names: list[str]) -> AnthropicRequest:
     """Inject policy awareness into the first user message of an Anthropic-format request.
 

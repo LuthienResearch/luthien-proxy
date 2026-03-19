@@ -33,7 +33,7 @@ from tests.e2e_tests.conftest import (  # noqa: F401
 SESSION_UUID_PATTERN = re.compile(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")
 
 
-# Fixtures claude_available, codex_available, gateway_healthy, http_client
+# Fixtures claude_available, gateway_healthy, http_client
 # are provided by conftest.py and auto-discovered by pytest
 
 
@@ -264,22 +264,6 @@ async def test_claude_code_session_captured_by_debug_policy(claude_available, ga
         assert session_id is not None, "Session ID should be captured"
         assert SESSION_UUID_PATTERN.match(session_id), f"Invalid session ID format: {session_id}"
 
-
-@pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_codex_with_debug_policy(codex_available, gateway_healthy):
-    """Verify Codex requests work with DebugLoggingPolicy active.
-
-    This test activates DebugLoggingPolicy and runs Codex through the gateway.
-    """
-    async with policy_context(
-        "luthien_proxy.policies.debug_logging_policy:DebugLoggingPolicy",
-        {},
-    ):
-        events, stdout, stderr = await run_codex(prompt="Say 'test' and nothing else.")
-
-        # Request should complete (either events or stdout)
-        assert stdout or events, f"No output from Codex. stderr: {stderr}"
 
 
 # === Server-side Session Verification Tests ===

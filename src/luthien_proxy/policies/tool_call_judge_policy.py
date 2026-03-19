@@ -479,6 +479,7 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
             f"For security, this call has been blocked. "
             f"Tool arguments: {arguments[:TOOL_ARGS_TRUNCATION_LENGTH]}..."
         )
+
     def _emit_evaluation_started(
         self,
         policy_ctx: "PolicyContext",
