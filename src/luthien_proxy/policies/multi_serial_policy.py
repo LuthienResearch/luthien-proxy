@@ -96,6 +96,13 @@ class MultiSerialPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInt
         names = [p.short_policy_name for p in self._sub_policies]
         return f"MultiSerial({', '.join(names)})"
 
+    def active_policy_names(self) -> list[str]:
+        """Recurse into sub-policies for leaf names."""
+        names: list[str] = []
+        for p in self._sub_policies:
+            names.extend(p.active_policy_names())
+        return names
+
     def _validate_interface(self, interface: type, interface_name: str) -> None:
         """Raise TypeError if any sub-policy doesn't implement the required interface."""
         validate_sub_policies_interface(self._sub_policies, interface, interface_name, "MultiSerialPolicy")

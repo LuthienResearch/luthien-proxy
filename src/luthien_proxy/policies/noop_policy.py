@@ -32,6 +32,10 @@ class NoOpPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
         """Return 'NoOp'."""
         return "NoOp"
 
+    def active_policy_names(self) -> list[str]:
+        """NoOp doesn't modify anything."""
+        return []
+
     async def on_openai_request(self, request: "Request", context: "PolicyContext") -> "Request":
         """Pass through unchanged."""
         return request
