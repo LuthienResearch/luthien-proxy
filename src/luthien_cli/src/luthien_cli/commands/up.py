@@ -12,7 +12,13 @@ import httpx
 from rich.console import Console
 
 from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config, save_config
-from luthien_cli.local_process import find_docker_ports, gateway_log_path, is_gateway_running, start_gateway, stop_gateway
+from luthien_cli.local_process import (
+    find_docker_ports,
+    gateway_log_path,
+    is_gateway_running,
+    start_gateway,
+    stop_gateway,
+)
 from luthien_cli.repo import ensure_gateway_venv, ensure_repo
 
 
@@ -101,7 +107,9 @@ def up(follow: bool):
             console.print(f"[red]docker compose up failed:[/red]\n{result.stderr}")
             raise SystemExit(1)
 
-        gateway_port = port_env.get("GATEWAY_PORT", os.environ.get("GATEWAY_PORT", str(_port_from_url(config.gateway_url))))
+        gateway_port = port_env.get(
+            "GATEWAY_PORT", os.environ.get("GATEWAY_PORT", str(_port_from_url(config.gateway_url)))
+        )
         config.gateway_url = f"http://localhost:{gateway_port}"
         save_config(config, DEFAULT_CONFIG_PATH)
 

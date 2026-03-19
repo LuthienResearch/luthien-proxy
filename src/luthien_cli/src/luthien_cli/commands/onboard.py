@@ -31,7 +31,6 @@ policy:
 """
 
 
-
 def _generate_key(prefix: str) -> str:
     return f"{prefix}-{secrets.token_urlsafe(24)}"
 
@@ -213,7 +212,6 @@ def _onboard_local(console: Console, config, proxy_key: str, admin_key: str, ins
         raise SystemExit(1)
 
     _show_results(console, actual_gateway_url.rstrip("/"), proxy_key, instructions, "local")
-
 
 
 def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str, instructions: str) -> None:
