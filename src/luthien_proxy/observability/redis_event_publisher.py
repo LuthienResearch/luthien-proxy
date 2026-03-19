@@ -96,19 +96,6 @@ class RedisEventPublisher:
             yield event
 
 
-async def create_event_publisher(redis_url: str) -> RedisEventPublisher:
-    """Create and return a RedisEventPublisher instance.
-
-    Args:
-        redis_url: Redis connection URL
-
-    Returns:
-        Configured RedisEventPublisher
-    """
-    redis_client = await redis.from_url(redis_url)
-    return RedisEventPublisher(redis_client)
-
-
 def _decode_payload(message: dict[str, Any]) -> str:
     payload = message["data"]
     return cast(bytes, payload).decode("utf-8")

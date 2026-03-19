@@ -345,16 +345,16 @@ class TestListCached:
     async def test_returns_cached_entries(self):
         now = time.time()
         entry = json.dumps({"valid": True, "validated_at": now, "last_used_at": now})
-        mock_redis = AsyncMock()
+        mock_cache = AsyncMock()
 
         async def fake_scan_iter(match=None):
-            yield b"luthien:auth:cred:abc123"
-            yield b"luthien:auth:cred:def456"
+            yield "luthien:auth:cred:abc123"
+            yield "luthien:auth:cred:def456"
 
-        mock_redis.scan_iter = fake_scan_iter
-        mock_redis.get = AsyncMock(return_value=entry.encode())
+        mock_cache.scan_iter = fake_scan_iter
+        mock_cache.get = AsyncMock(return_value=entry)
 
-        manager = CredentialManager(db_pool=None, cache=mock_redis)
+        manager = CredentialManager(db_pool=None, cache=mock_cache)
         result = await manager.list_cached()
         assert len(result) == 2
         assert result[0].key_hash == "abc123"
@@ -363,15 +363,15 @@ class TestListCached:
     @pytest.mark.asyncio
     async def test_skips_expired_keys(self):
         """Keys that expire between scan and get are skipped."""
-        mock_redis = AsyncMock()
+        mock_cache = AsyncMock()
 
         async def fake_scan_iter(match=None):
-            yield b"luthien:auth:cred:gone"
+            yield "luthien:auth:cred:gone"
 
-        mock_redis.scan_iter = fake_scan_iter
-        mock_redis.get = AsyncMock(return_value=None)
+        mock_cache.scan_iter = fake_scan_iter
+        mock_cache.get = AsyncMock(return_value=None)
 
-        manager = CredentialManager(db_pool=None, cache=mock_redis)
+        manager = CredentialManager(db_pool=None, cache=mock_cache)
         result = await manager.list_cached()
         assert result == []
 

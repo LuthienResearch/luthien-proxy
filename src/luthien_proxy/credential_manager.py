@@ -237,7 +237,7 @@ class CredentialManager:
             raw = await self._cache.get(key)
             if raw is None:
                 continue
-            key_str = key if isinstance(key, str) else key.decode()
+            key_str = key
             data = self._parse_cached_data(raw, key_str)
             if data is None:
                 continue
@@ -253,7 +253,7 @@ class CredentialManager:
 
     # --- Internal helpers ---
 
-    def _parse_cached_data(self, raw: str | bytes, context: str) -> dict | None:
+    def _parse_cached_data(self, raw: str, context: str) -> dict | None:
         try:
             return json.loads(raw)
         except json.JSONDecodeError:

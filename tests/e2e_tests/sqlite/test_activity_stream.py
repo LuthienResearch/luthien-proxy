@@ -18,12 +18,12 @@ import time
 import httpx
 import pytest
 import uvicorn
+from tests.e2e_tests.mock_anthropic.responses import text_response
+from tests.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
 from luthien_proxy.main import create_app
 from luthien_proxy.utils.db import DatabasePool
 from luthien_proxy.utils.migration_check import check_migrations
-from tests.e2e_tests.mock_anthropic.responses import text_response
-from tests.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
 _API_KEY = "test-activity-key"
 _ADMIN_KEY = "test-activity-admin-key"
@@ -128,7 +128,7 @@ async def test_activity_stream_receives_events(gateway_url, mock_server):
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
                         continue
-                    raw = line[len("data:"):].strip()
+                    raw = line[len("data:") :].strip()
                     try:
                         event = json.loads(raw)
                     except json.JSONDecodeError:

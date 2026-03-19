@@ -19,7 +19,6 @@ from luthien_proxy.observability.event_publisher import build_activity_event
 from luthien_proxy.observability.redis_event_publisher import (
     ACTIVITY_CHANNEL,
     RedisEventPublisher,
-    create_event_publisher,
     stream_activity_events,
 )
 
@@ -630,54 +629,3 @@ class TestRedisEventPublisher:
         # Verify each call was to the correct channel
         for call in mock_redis.publish.call_args_list:
             assert call[0][0] == ACTIVITY_CHANNEL
-
-
-class TestCreateEventPublisher:
-    """Test the create_event_publisher factory function."""
-
-    @pytest.mark.asyncio
-    async def test_create_event_publisher_returns_publisher(self) -> None:
-        """Test that create_event_publisher returns a RedisEventPublisher instance."""
-        mock_redis_client = AsyncMock()
-
-        with patch("redis.asyncio.from_url", new=AsyncMock(return_value=mock_redis_client)):
-            publisher = await create_event_publisher("redis://localhost:6379")
-
-            assert isinstance(publisher, RedisEventPublisher)
-            assert publisher.redis is mock_redis_client
-
-    @pytest.mark.asyncio
-    async def test_create_event_publisher_connects_to_redis(self) -> None:
-        """Test that create_event_publisher connects to the provided Redis URL."""
-        mock_redis_client = AsyncMock()
-        mock_from_url = AsyncMock(return_value=mock_redis_client)
-
-        with patch("redis.asyncio.from_url", new=mock_from_url):
-            await create_event_publisher("redis://test-host:1234/0")
-
-            # Verify from_url was called with the correct URL
-            mock_from_url.assert_called_once_with("redis://test-host:1234/0")
-
-    @pytest.mark.asyncio
-    async def test_create_event_publisher_with_auth(self) -> None:
-        """Test create_event_publisher with Redis URL containing auth."""
-        mock_redis_client = AsyncMock()
-        mock_from_url = AsyncMock(return_value=mock_redis_client)
-
-        with patch("redis.asyncio.from_url", new=mock_from_url):
-            redis_url = "redis://user:password@secure-host:6380/1"
-            publisher = await create_event_publisher(redis_url)
-
-            # Verify connection was attempted with auth URL
-            mock_from_url.assert_called_once_with(redis_url)
-            assert isinstance(publisher, RedisEventPublisher)
-
-    @pytest.mark.asyncio
-    async def test_create_event_publisher_channel_configured(self) -> None:
-        """Test that created publisher has the correct channel configured."""
-        mock_redis_client = AsyncMock()
-
-        with patch("redis.asyncio.from_url", new=AsyncMock(return_value=mock_redis_client)):
-            publisher = await create_event_publisher("redis://localhost:6379")
-
-            assert publisher.channel == ACTIVITY_CHANNEL

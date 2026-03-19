@@ -1,6 +1,6 @@
 """Event emitter for observability.
 
-Provides a simple interface for recording events to multiple sinks (stdout, db, redis).
+Provides a simple interface for recording events to multiple sinks (stdout, db, event publisher).
 Events are also added to the current OTel span as span events.
 
 The EventEmitter should be injected via PolicyContext or Dependencies, not accessed
