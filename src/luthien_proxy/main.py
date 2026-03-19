@@ -472,7 +472,10 @@ def configure_local_mode() -> dict[str, str]:
     Returns:
         Dict with proxy_api_key and admin_api_key (whether generated or existing).
     """
-    os.environ["DATABASE_URL"] = "sqlite:///luthien_local.db"
+    data_dir = os.path.join(os.path.expanduser("~"), ".luthien")
+    os.makedirs(data_dir, exist_ok=True)
+    db_path = os.path.join(data_dir, "local.db")
+    os.environ["DATABASE_URL"] = f"sqlite:///{db_path}"
     os.environ["REDIS_URL"] = ""
     os.environ["POLICY_CONFIG"] = "config/policy_config.yaml"
     os.environ["POLICY_SOURCE"] = "file"

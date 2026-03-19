@@ -14,7 +14,8 @@ class TestConfigureLocalMode:
     def test_sets_database_url_to_sqlite(self, monkeypatch):
         monkeypatch.delenv("DATABASE_URL", raising=False)
         configure_local_mode()
-        assert os.environ["DATABASE_URL"] == "sqlite:///luthien_local.db"
+        expected = f"sqlite:///{os.path.expanduser('~')}/.luthien/local.db"
+        assert os.environ["DATABASE_URL"] == expected
 
     def test_sets_redis_url_empty(self, monkeypatch):
         monkeypatch.delenv("REDIS_URL", raising=False)
@@ -49,7 +50,8 @@ class TestConfigureLocalMode:
         """Infrastructure vars are force-set because litellm's dotenv pollutes os.environ."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://custom:5432/db")
         configure_local_mode()
-        assert os.environ["DATABASE_URL"] == "sqlite:///luthien_local.db"
+        assert os.environ["DATABASE_URL"].startswith("sqlite:///")
+        assert os.environ["DATABASE_URL"].endswith("/.luthien/local.db")
 
     def test_does_not_override_existing_proxy_api_key(self, monkeypatch):
         monkeypatch.setenv("PROXY_API_KEY", "my-custom-key")

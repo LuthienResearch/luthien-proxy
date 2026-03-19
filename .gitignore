@@ -21,9 +21,6 @@ logs/
 !.env.example
 !.env.local.example
 
-# Local-mode SQLite database
-luthien_local.db
-
 # Development cache files
 .dev_deps_synced
 .last_update
