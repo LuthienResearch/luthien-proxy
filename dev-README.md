@@ -153,6 +153,21 @@ The gateway uses an event-driven policy architecture with streaming support.
 
 Subclass `SimplePolicy` for basic request/response transformations. See `src/luthien_proxy/policies/` for examples.
 
+## Troubleshooting
+
+### Tests failing
+
+```bash
+# Ensure services are running
+docker compose ps
+
+# Check service health
+curl http://localhost:8000/health
+
+# View detailed logs
+docker compose logs gateway | tail -50
+```
+
 ## Observability (Optional)
 
 The gateway supports **OpenTelemetry** for distributed tracing and log correlation.
