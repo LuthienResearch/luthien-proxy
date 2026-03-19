@@ -47,39 +47,21 @@ from luthien_proxy.policy_core import (
     AnthropicPolicyEmission,
     AnthropicPolicyIOProtocol,
     BasePolicy,
-    OpenAIPolicyInterface,
-    PolicyProtocol,
 )
 
 if TYPE_CHECKING:
     from typing import Any
 
-    from litellm.types.utils import ModelResponse
-
-    from luthien_proxy.llm.types import Request
     from luthien_proxy.llm.types.anthropic import (
         AnthropicRequest,
         AnthropicResponse,
     )
     from luthien_proxy.policy_core.policy_context import PolicyContext
-    from luthien_proxy.policy_core.streaming_policy_context import (
-        StreamingPolicyContext,
-    )
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 VALID_STRATEGIES = frozenset({"first_block", "most_restrictive", "unanimous_pass", "majority_pass", "designated"})
-
-
-def _response_content_length(response: "ModelResponse") -> int:
-    """Rough measure of response "size" for most_restrictive comparison."""
-    total = 0
-    for choice in response.choices:
-        msg = getattr(choice, "message", None)
-        if msg and isinstance(msg.content, str):
-            total += len(msg.content)
-    return total
 
 
 def _anthropic_response_content_length(response: "AnthropicResponse") -> int:
@@ -93,7 +75,7 @@ def _anthropic_response_content_length(response: "AnthropicResponse") -> int:
     return total
 
 
-class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterface):
+class MultiParallelPolicy(BasePolicy, AnthropicExecutionInterface):
     """Run multiple policies in parallel and consolidate their results.
 
     Each sub-policy receives an independent copy of the original input.
@@ -131,7 +113,7 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
                 f"Unknown consolidation_strategy '{consolidation_strategy}'. Valid options: {sorted(VALID_STRATEGIES)}"
             )
 
-        self._sub_policies: tuple[PolicyProtocol, ...] = tuple(load_sub_policy(cfg) for cfg in policies)
+        self._sub_policies: tuple[BasePolicy, ...] = tuple(load_sub_policy(cfg) for cfg in policies)
         if not self._sub_policies:
             # Warning (not error) because an empty list is a valid degenerate case:
             # the multi-policy becomes a no-op passthrough, which is safe and predictable.
@@ -173,46 +155,6 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
         """Raise TypeError if any sub-policy doesn't implement the required interface."""
         validate_sub_policies_interface(self._sub_policies, interface, interface_name, "MultiParallelPolicy")
 
-    # =========================================================================
-    # OpenAI Interface - Non-streaming
-    # =========================================================================
-
-    async def on_openai_request(self, request: "Request", context: "PolicyContext") -> "Request":
-        """Run all sub-policies on the request in parallel."""
-        self._validate_interface(OpenAIPolicyInterface, "OpenAIPolicyInterface")
-        if not self._sub_policies:
-            return request
-
-        request_copies = [request.model_copy(deep=True) for _ in self._sub_policies]
-        # Deep copying contexts is O(context size) per policy — may be expensive for
-        # large conversation histories. Necessary to guarantee context isolation.
-        context_copies = [copy.deepcopy(context) for _ in self._sub_policies]
-        results = await asyncio.gather(
-            *(
-                p.on_openai_request(req_copy, ctx_copy)  # type: ignore[union-attr]
-                for p, req_copy, ctx_copy in zip(self._sub_policies, request_copies, context_copies)
-            )
-        )
-        return self._consolidate(request, list(results), size_fn=lambda r: len(str(r.messages)))
-
-    async def on_openai_response(self, response: "ModelResponse", context: "PolicyContext") -> "ModelResponse":
-        """Run all sub-policies on the response in parallel."""
-        self._validate_interface(OpenAIPolicyInterface, "OpenAIPolicyInterface")
-        if not self._sub_policies:
-            return response
-
-        # Deep copying responses and contexts is O(size) per policy — may be expensive
-        # for large payloads. Necessary to guarantee each policy sees independent state.
-        response_copies = [copy.deepcopy(response) for _ in self._sub_policies]
-        context_copies = [copy.deepcopy(context) for _ in self._sub_policies]
-        results = await asyncio.gather(
-            *(
-                p.on_openai_response(resp_copy, ctx_copy)  # type: ignore[union-attr]
-                for p, resp_copy, ctx_copy in zip(self._sub_policies, response_copies, context_copies)
-            )
-        )
-        return self._consolidate(response, list(results), size_fn=_response_content_length)
-
     def _consolidate(
         self,
         original: T,
@@ -244,50 +186,6 @@ class MultiParallelPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionI
         # "first_block" emphasizes "use the first modification", while
         # "unanimous_pass" emphasizes "only pass if ALL agree to pass".
         return modified[0]
-
-    # =========================================================================
-    # OpenAI Interface - Streaming (not supported)
-    # =========================================================================
-
-    def _streaming_not_supported(self) -> None:
-        raise NotImplementedError(
-            "MultiParallelPolicy does not support streaming. "
-            "Parallel policies need to see the complete response to consolidate results. "
-            "Use non-streaming mode, or wrap MultiParallelPolicy inside a MultiSerialPolicy "
-            "with a buffering policy."
-        )
-
-    async def on_chunk_received(self, ctx: "StreamingPolicyContext") -> None:
-        """Not supported -- raises NotImplementedError."""
-        self._streaming_not_supported()
-
-    async def on_content_delta(self, ctx: "StreamingPolicyContext") -> None:
-        """Not supported -- raises NotImplementedError."""
-        self._streaming_not_supported()
-
-    async def on_content_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Not supported -- raises NotImplementedError."""
-        self._streaming_not_supported()
-
-    async def on_tool_call_delta(self, ctx: "StreamingPolicyContext") -> None:
-        """Not supported -- raises NotImplementedError."""
-        self._streaming_not_supported()
-
-    async def on_tool_call_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Not supported -- raises NotImplementedError."""
-        self._streaming_not_supported()
-
-    async def on_finish_reason(self, ctx: "StreamingPolicyContext") -> None:
-        """Not supported -- raises NotImplementedError."""
-        self._streaming_not_supported()
-
-    async def on_stream_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Not supported -- raises NotImplementedError."""
-        self._streaming_not_supported()
-
-    async def on_streaming_policy_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Not supported -- raises NotImplementedError."""
-        self._streaming_not_supported()
 
     # =========================================================================
     # Anthropic execution interface

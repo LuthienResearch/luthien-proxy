@@ -82,7 +82,7 @@ class TestRowToEntry:
             "duration_ms": 5000.0,
             "model": "gpt-4",
             "is_streaming": False,
-            "endpoint": "/chat/completions",
+            "endpoint": "/v1/messages",
             "error": None,
         }
         defaults.update(overrides)
@@ -110,7 +110,7 @@ class TestRowToEntry:
         assert entry.duration_ms == 5000.0
         assert entry.model == "gpt-4"
         assert entry.is_streaming is False
-        assert entry.endpoint == "/chat/completions"
+        assert entry.endpoint == "/v1/messages"
         assert entry.error is None
 
     def test_row_to_entry_none_optional_fields(self) -> None:
@@ -231,7 +231,7 @@ class TestListRequestLogs:
             "duration_ms": 5000.0,
             "model": "gpt-4",
             "is_streaming": False,
-            "endpoint": "/chat/completions",
+            "endpoint": "/v1/messages",
             "error": None,
         }
         defaults.update(overrides)
@@ -335,10 +335,10 @@ class TestListRequestLogs:
     @pytest.mark.asyncio
     async def test_list_request_logs_endpoint_filter(self) -> None:
         """Endpoint filter should be applied."""
-        rows = [self._make_row(endpoint="/chat/completions")]
+        rows = [self._make_row(endpoint="/v1/messages")]
         mock_pool = self._make_mock_pool(count_result={"cnt": 1}, fetch_results=rows)
 
-        result = await list_request_logs(mock_pool, endpoint="/chat/completions")
+        result = await list_request_logs(mock_pool, endpoint="/v1/messages")
 
         assert len(result.logs) == 1
 
@@ -378,7 +378,7 @@ class TestListRequestLogs:
         rows = [
             self._make_row(
                 direction="inbound",
-                endpoint="/chat/completions",
+                endpoint="/v1/messages",
                 session_id="sess-123",
             )
         ]
@@ -387,7 +387,7 @@ class TestListRequestLogs:
         result = await list_request_logs(
             mock_pool,
             direction="inbound",
-            endpoint="/chat/completions",
+            endpoint="/v1/messages",
             session_id="sess-123",
         )
 
@@ -427,7 +427,7 @@ class TestGetTransactionLogs:
             "duration_ms": None,
             "model": None,
             "is_streaming": False,
-            "endpoint": "/chat/completions",
+            "endpoint": "/v1/messages",
             "error": None,
         }
         defaults.update(overrides)

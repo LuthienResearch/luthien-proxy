@@ -25,6 +25,8 @@ from luthien_proxy.main import create_app
 from luthien_proxy.utils.db import DatabasePool
 from luthien_proxy.utils.migration_check import check_migrations
 
+pytestmark = pytest.mark.sqlite_e2e
+
 _API_KEY = "test-activity-key"
 _ADMIN_KEY = "test-activity-admin-key"
 

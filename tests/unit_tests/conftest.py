@@ -10,9 +10,6 @@ from pathlib import Path
 
 import pytest
 from litellm.types.utils import Choices, Message, ModelResponse
-from tests.unit_tests.helpers.litellm_test_utils import (
-    make_streaming_chunk as _make_streaming_chunk,
-)
 
 # Re-export DEFAULT_TEST_MODEL from the root tests/conftest.py so that
 # `from conftest import DEFAULT_TEST_MODEL` resolves correctly even when
@@ -115,15 +112,50 @@ def make_model_response():
     return _make
 
 
+class _StreamingChunk:
+    """Mock streaming chunk object for testing."""
+
+    def __init__(
+        self,
+        content: str | None = None,
+        id: str = "chatcmpl-123",
+        model: str = DEFAULT_TEST_MODEL,
+        finish_reason: str | None = None,
+    ):
+        self.id = id
+        self.model = model
+        self.content = content
+
+        class Delta:
+            def __init__(self, content):
+                self.content = content
+
+        class Choice:
+            def __init__(self, delta, finish_reason):
+                self.delta = delta
+                self.finish_reason = finish_reason
+
+        self.choices = [Choice(Delta(content), finish_reason)]
+
+
 @pytest.fixture
 def make_streaming_chunk():
-    """Factory fixture for creating streaming chunk ModelResponse objects.
+    """Factory fixture for creating streaming chunk objects.
 
-    Returns a function that creates fully-formed, normalized streaming chunks
-    as litellm_client.stream() would return them.
+    Returns a function that creates mock streaming chunks
+    for testing reconstruct_full_response_from_chunks.
 
     Usage:
-        chunk = make_streaming_chunk(content="Hello ")
-        chunk = make_streaming_chunk(content="world", finish_reason="stop")
+        chunk = make_streaming_chunk(content="Hello", id="msg-123", model="gpt-4")
     """
-    return _make_streaming_chunk
+
+    def _make(
+        content: str | None = None,
+        id: str = "chatcmpl-123",
+        model: str = DEFAULT_TEST_MODEL,
+        finish_reason: str | None = None,
+    ):
+        """Create a streaming chunk object."""
+        return _StreamingChunk(content=content, id=id, model=model, finish_reason=finish_reason)
+
+    return _make

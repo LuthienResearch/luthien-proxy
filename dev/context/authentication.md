@@ -32,7 +32,7 @@ Token is extracted from, in order:
    - Bearer + NOT an `sk-ant-*` API key → `AnthropicClient(auth_token=token)` (OAuth token)
    - `sk-ant-*` API key (any transport) → `AnthropicClient(api_key=token)`
 
-**For OpenAI (`/v1/chat/completions`)**: `verify_token()` validates but the token is NOT forwarded to LiteLLM — LiteLLM uses env vars (`ANTHROPIC_API_KEY`, etc.) or per-request `api_key` kwargs.
+**For Anthropic (`/v1/messages`)**: `verify_token()` validates but the token is NOT forwarded to LiteLLM — LiteLLM uses env vars (`ANTHROPIC_API_KEY`, etc.) or per-request `api_key` kwargs.
 
 ---
 

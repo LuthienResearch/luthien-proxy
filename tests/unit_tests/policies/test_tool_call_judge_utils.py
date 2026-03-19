@@ -3,7 +3,6 @@
 Tests for the utility functions used by ToolCallJudgePolicy:
 - Judge prompt building
 - Judge response parsing (JSON, fenced code blocks, error handling)
-- Blocked response creation with templates
 - Judge LLM calling with configuration
 """
 
@@ -16,10 +15,8 @@ from litellm.types.utils import ModelResponse
 
 from luthien_proxy.policies.tool_call_judge_utils import (
     JudgeConfig,
-    JudgeResult,
     build_judge_prompt,
     call_judge,
-    create_blocked_response,
     parse_judge_response,
 )
 
@@ -79,57 +76,6 @@ class TestParseJudgeResponse:
         """Test that non-dict JSON raises ValueError."""
         with pytest.raises(ValueError, match="must be a JSON object"):
             parse_judge_response("[1, 2, 3]")
-
-
-class TestCreateBlockedResponse:
-    """Test blocked response creation."""
-
-    def test_create_blocked_response(self):
-        """Test creating blocked response with template."""
-        tool_call = {
-            "name": "dangerous_tool",
-            "arguments": '{"action": "delete"}',
-        }
-
-        judge_result = JudgeResult(
-            probability=0.9,
-            explanation="very dangerous",
-            prompt=[],
-            response_text="",
-        )
-
-        template = "BLOCKED: {tool_name} - {explanation} (prob: {probability:.2f})"
-
-        response = create_blocked_response(tool_call, judge_result, template, model="test-model")
-
-        assert response.choices[0].message.content is not None
-        content = response.choices[0].message.content
-        assert "dangerous_tool" in content
-        assert "very dangerous" in content
-        assert "0.90" in content
-
-    def test_create_blocked_response_non_string_arguments(self):
-        """Test creating blocked response when arguments is a dict."""
-        tool_call = {
-            "name": "test_tool",
-            "arguments": {"key": "value"},  # Dict, not string
-        }
-
-        judge_result = JudgeResult(
-            probability=0.8,
-            explanation="test",
-            prompt=[],
-            response_text="",
-        )
-
-        template = "BLOCKED: {tool_name} - {tool_arguments}"
-
-        response = create_blocked_response(tool_call, judge_result, template, model="test-model")
-
-        content = response.choices[0].message.content
-        assert "test_tool" in content
-        # Arguments should be JSON-stringified
-        assert '"key"' in content or "key" in content
 
 
 class TestCallJudge:

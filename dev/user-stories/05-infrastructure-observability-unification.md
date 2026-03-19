@@ -6,7 +6,7 @@
 
 ## Context
 
-The current gateway has duplicated code between OpenAI and Anthropic endpoints, and lacks structured span hierarchy for observability. This makes debugging difficult and creates maintenance burden.
+The current gateway lacks structured span hierarchy for observability in the Anthropic endpoint processing. This makes debugging difficult and creates maintenance burden.
 
 ## Story
 
@@ -16,7 +16,7 @@ The current gateway has duplicated code between OpenAI and Anthropic endpoints, 
 
 ### Duplicated Code in `gateway_routes.py`
 
-The `/v1/chat/completions` and `/v1/messages` endpoints share ~80% of their logic:
+The `/v1/messages` endpoint processes requests with the following logic:
 
 ```
 Both endpoints:
@@ -44,7 +44,7 @@ Both endpoints:
 ### Current Span Structure
 
 ```
-HTTP POST /v1/chat/completions (FastAPI auto-instrumented)
+HTTP POST /v1/messages (FastAPI auto-instrumented)
 └── (all processing happens in this single span)
 ```
 
@@ -52,23 +52,14 @@ No visibility into pipeline phases.
 
 ## Target Architecture
 
-### Unified Pipeline
+### Pipeline
 
 ```python
-# gateway_routes.py - thin endpoint handlers
-@router.post("/v1/chat/completions")
-async def chat_completions(request: Request, ...):
-    return await process_llm_request(
-        request=request,
-        client_format=ClientFormat.OPENAI,
-        ...
-    )
-
+# gateway_routes.py - endpoint handler
 @router.post("/v1/messages")
 async def anthropic_messages(request: Request, ...):
-    return await process_llm_request(
+    return await process_anthropic_request(
         request=request,
-        client_format=ClientFormat.ANTHROPIC,
         ...
     )
 ```
@@ -150,7 +141,7 @@ transaction_processing (root)
 
 | Issue | Title | Status | Priority |
 |-------|-------|--------|----------|
-| `luthien-proxy-en1` | Unify OpenAI and Anthropic endpoint processing | open | P1 |
+| `luthien-proxy-en1` | Structured observability for Anthropic endpoint | open | P1 |
 | `luthien-proxy-a0r` | Structured span hierarchy for request processing | open | P1 |
 
 ### Related Existing Issues

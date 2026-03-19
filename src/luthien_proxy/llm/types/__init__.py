@@ -1,9 +1,7 @@
-"""LLM type definitions for OpenAI and Anthropic formats.
+"""LLM type definitions for Anthropic format.
 
 This package provides strict type definitions for:
-- OpenAI Chat Completion API message types
 - Anthropic Messages API content and message types
-- Request model for policy processing
 """
 
 from .anthropic import (
@@ -24,46 +22,8 @@ from .anthropic import (
     AnthropicUsage,
     AnthropicUserMessage,
 )
-from .openai import (
-    AssistantMessage,
-    ContentPart,
-    FunctionCall,
-    ImageContentPart,
-    ImageUrl,
-    Message,
-    MessageContent,
-    RedactedThinkingBlock,
-    Request,
-    SystemMessage,
-    TextContentPart,
-    ThinkingBlock,
-    ThinkingBlockType,
-    ToolCall,
-    ToolMessage,
-    UserMessage,
-)
 
 __all__ = [
-    # OpenAI content parts
-    "ImageUrl",
-    "TextContentPart",
-    "ImageContentPart",
-    "ContentPart",
-    "MessageContent",
-    # Thinking blocks (LiteLLM extension)
-    "ThinkingBlock",
-    "RedactedThinkingBlock",
-    "ThinkingBlockType",
-    # OpenAI messages
-    "SystemMessage",
-    "UserMessage",
-    "AssistantMessage",
-    "ToolMessage",
-    "FunctionCall",
-    "ToolCall",
-    "Message",
-    # Request model
-    "Request",
     # Anthropic content blocks
     "AnthropicTextBlock",
     "AnthropicImageSourceBase64",

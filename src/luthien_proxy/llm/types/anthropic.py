@@ -1,7 +1,7 @@
 """Anthropic message types.
 
 These types define the structure of messages in the Anthropic Messages API format.
-They are used for format conversion between OpenAI and Anthropic APIs.
+They are used throughout the proxy for request/response handling.
 """
 
 from __future__ import annotations

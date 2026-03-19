@@ -13,7 +13,6 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from luthien_proxy.llm.types import Request
     from luthien_proxy.llm.types.anthropic import (
         AnthropicRequest,
     )
@@ -58,38 +57,6 @@ def _find_first_user_message_index(messages: list[Any]) -> int | None:
     return None
 
 
-def inject_policy_awareness_openai(request: Request, policy_names: list[str]) -> Request:
-    """Inject policy awareness into the first user message of an OpenAI-format request.
-
-    Skips injection if policy_names is empty or the context tag is already present
-    in any message (meaning it was injected on a previous turn).
-    """
-    if not policy_names:
-        return request
-
-    messages = list(request.messages)
-    if _already_injected(messages):
-        return request
-
-    user_idx = _find_first_user_message_index(messages)
-    if user_idx is None:
-        return request
-
-    awareness_text = build_awareness_message(policy_names)
-    logger.debug(f"Injecting policy awareness for policies: {policy_names}")
-
-    user_msg = messages[user_idx]
-    content = user_msg.get("content", "")
-    if isinstance(content, list):
-        injected: str | list[Any] = [{"type": "text", "text": awareness_text}] + content
-    else:
-        text = content if isinstance(content, str) else ""
-        injected = awareness_text + "\n\n" + text
-    messages[user_idx] = {**user_msg, "content": injected}  # type: ignore[typeddict-item]
-
-    return request.model_copy(update={"messages": messages})
-
-
 def inject_policy_awareness_anthropic(request: AnthropicRequest, policy_names: list[str]) -> AnthropicRequest:
     """Inject policy awareness into the first user message of an Anthropic-format request.
 
@@ -123,7 +90,6 @@ def inject_policy_awareness_anthropic(request: AnthropicRequest, policy_names: l
 
 
 __all__ = [
-    "inject_policy_awareness_openai",
     "inject_policy_awareness_anthropic",
     "build_awareness_message",
 ]

@@ -53,16 +53,6 @@ def app_with_error_handler():
             provider="anthropic",
         )
 
-    @app.get("/trigger-openai-error")
-    async def trigger_openai_error():
-        raise BackendAPIError(
-            status_code=429,
-            message="Rate limit exceeded",
-            error_type="rate_limit_error",
-            client_format=ClientFormat.OPENAI,
-            provider="openai",
-        )
-
     @app.get("/trigger-500-error")
     async def trigger_500_error():
         raise BackendAPIError(
@@ -94,18 +84,6 @@ class TestBackendAPIErrorHandler:
         assert data["error"]["type"] == "authentication_error"
         assert data["error"]["message"] == "invalid x-api-key"
 
-    def test_openai_format_error_response(self, client):
-        """OpenAI format errors return correct structure."""
-        response = client.get("/trigger-openai-error")
-
-        assert response.status_code == 429
-        data = response.json()
-        assert "error" in data
-        assert data["error"]["message"] == "Rate limit exceeded"
-        assert data["error"]["type"] == "rate_limit_error"
-        assert data["error"]["param"] is None
-        assert data["error"]["code"] is None
-
     def test_500_error_returns_correct_status(self, client):
         """500 errors propagate the correct status code."""
         response = client.get("/trigger-500-error")
@@ -123,14 +101,6 @@ class TestBackendAPIErrorHandler:
         # Anthropic format should NOT have these OpenAI fields
         assert "param" not in data.get("error", {})
         assert "code" not in data.get("error", {})
-
-    def test_openai_format_has_no_anthropic_fields(self, client):
-        """OpenAI format doesn't include Anthropic-specific fields."""
-        response = client.get("/trigger-openai-error")
-        data = response.json()
-
-        # OpenAI format should NOT have "type": "error" at root level
-        assert data.get("type") != "error"
 
 
 class TestBackend401InvalidatesCredential:
@@ -200,7 +170,7 @@ class TestBackend401InvalidatesCredential:
                 status_code=429,
                 message="rate limit",
                 error_type="rate_limit_error",
-                client_format=ClientFormat.OPENAI,
+                client_format=ClientFormat.ANTHROPIC,
             )
 
         client = TestClient(app)
@@ -245,7 +215,7 @@ class TestHTTPExceptionAnthropicFormat:
         async def anthropic_count_tokens():
             raise HTTPException(status_code=400, detail="Invalid request")
 
-        @app.post("/v1/chat/completions")
+        @app.post("/v1/messages")
         async def openai_endpoint():
             raise HTTPException(status_code=401, detail="Missing API key")
 
@@ -274,13 +244,6 @@ class TestHTTPExceptionAnthropicFormat:
         assert data["type"] == "error"
         assert data["error"]["type"] == "invalid_request_error"
         assert data["error"]["message"] == "Invalid request"
-
-    def test_openai_path_returns_default_format(self, client):
-        response = client.post("/v1/chat/completions")
-        assert response.status_code == 401
-        data = response.json()
-        assert data == {"detail": "Missing API key"}
-        assert "type" not in data
 
     def test_non_api_path_returns_default_format(self, client):
         response = client.get("/health")
@@ -351,7 +314,7 @@ class TestRequestValidationErrorHandler:
             model: str
             messages: list
 
-        @app.post("/v1/chat/completions")
+        @app.post("/v1/messages")
         async def openai_endpoint(body: CompletionBody):
             return {"ok": True}
 
@@ -370,14 +333,6 @@ class TestRequestValidationErrorHandler:
         assert data["error"]["type"] == "invalid_request_error"
         assert isinstance(data["error"]["message"], str)
         assert len(data["error"]["message"]) > 0
-
-    def test_openai_path_returns_default_format_on_validation_error(self, client):
-        """Malformed body on /v1/chat/completions returns FastAPI default 422 format."""
-        response = client.post("/v1/chat/completions", json={"bad": "data"})
-        assert response.status_code == 422
-        data = response.json()
-        # Default FastAPI format has "detail" as a list of validation errors
-        assert "detail" in data
 
     def test_anthropic_subpath_returns_anthropic_format(self):
         """Validation errors on /v1/messages/* subpaths also get Anthropic format."""

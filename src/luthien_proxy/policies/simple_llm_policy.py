@@ -1,11 +1,11 @@
 """SimpleLLMPolicy - Apply plain-English instructions to LLM response blocks.
 
-This policy evaluates each content block (text or tool_use) in an LLM response
-against configurable instructions using a judge LLM. The judge can pass blocks
-through or replace them with different content, including cross-type replacement
-(e.g., replacing a tool_use with text).
+This policy evaluates each content block (text or tool_use) in an Anthropic LLM
+response against configurable instructions using a judge LLM. The judge can pass
+blocks through or replace them with different content, including cross-type
+replacement (e.g., replacing a tool_use with text).
 
-Supports both OpenAI and Anthropic API formats, streaming and non-streaming.
+Supports Anthropic API format, streaming and non-streaming.
 
 Example config:
     policy:
@@ -36,11 +36,6 @@ from anthropic.types import (
     TextDelta,
     ToolUseBlock,
 )
-from litellm.types.utils import (
-    ChatCompletionMessageToolCall,
-    Choices,
-    Function,
-)
 
 from luthien_proxy.policies.simple_llm_utils import (
     BlockDescriptor,
@@ -52,27 +47,14 @@ from luthien_proxy.policies.simple_llm_utils import (
 from luthien_proxy.policy_core import (
     AnthropicHookPolicy,
     BasePolicy,
-    OpenAIPolicyInterface,
-    create_finish_chunk,
-)
-from luthien_proxy.policy_core.streaming_utils import (
-    get_last_ingress_chunk,
-    send_chunk,
-    send_text,
-    send_tool_call,
 )
 from luthien_proxy.settings import get_settings
-from luthien_proxy.streaming.stream_blocks import ContentStreamBlock, ToolCallStreamBlock
 
 if TYPE_CHECKING:
-    from litellm.types.utils import ModelResponse
-
-    from luthien_proxy.llm.types import Request
     from luthien_proxy.llm.types.anthropic import (
         AnthropicResponse,
     )
     from luthien_proxy.policy_core.policy_context import PolicyContext
-    from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 
 logger = logging.getLogger(__name__)
 
@@ -98,15 +80,8 @@ class _SimpleLLMAnthropicState:
     judge_error_occurred: bool = False
 
 
-@dataclass
-class _SimpleLLMOpenAIState:
-    emitted_blocks: list[BlockDescriptor] = field(default_factory=list)
-    original_had_tool_use: bool = False
-    judge_error_occurred: bool = False
-
-
-class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
-    """Policy that applies plain-English instructions to LLM response blocks.
+class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
+    """Policy that applies plain-English instructions to Anthropic LLM response blocks.
 
     Each content block is evaluated by a judge LLM which can pass it through
     or replace it with different content. Supports cross-type replacement
@@ -156,9 +131,6 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
 
     def _anthropic_state(self, context: "PolicyContext") -> _SimpleLLMAnthropicState:
         return context.get_request_state(self, _SimpleLLMAnthropicState, _SimpleLLMAnthropicState)
-
-    def _openai_state(self, ctx: "StreamingPolicyContext") -> _SimpleLLMOpenAIState:
-        return ctx.policy_ctx.get_request_state(self, _SimpleLLMOpenAIState, _SimpleLLMOpenAIState)
 
     # ========================================================================
     # Shared helpers
@@ -233,214 +205,6 @@ class SimpleLLMPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicHookPolicy):
             response = dict(response)
             response["stop_reason"] = expected
         return response
-
-    def _correct_openai_finish_reason(self, choice: Choices, has_tool_calls: bool) -> None:
-        expected = "tool_calls" if has_tool_calls else "stop"
-        if choice.finish_reason != expected:
-            choice.finish_reason = expected
-
-    # ========================================================================
-    # OpenAI non-streaming
-    # ========================================================================
-
-    async def on_openai_request(self, request: "Request", context: "PolicyContext") -> "Request":
-        """Pass through request unchanged."""
-        return request
-
-    def _apply_openai_replacements(
-        self,
-        action: JudgeAction,
-        emitted_blocks: list[BlockDescriptor],
-        content_parts: list[str],
-        tool_calls: list[ChatCompletionMessageToolCall],
-    ) -> None:
-        """Apply replacement blocks to OpenAI content/tool_call accumulators."""
-        for rblock in action.blocks or ():
-            emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
-            if rblock.type == "text":
-                content_parts.append(rblock.text or "")
-            elif rblock.type == "tool_use":
-                tool_calls.append(
-                    ChatCompletionMessageToolCall(
-                        id=f"call_{uuid4().hex[:24]}",
-                        function=Function(
-                            name=rblock.name or "",
-                            arguments=json.dumps(rblock.input or {}),
-                        ),
-                    )
-                )
-
-    async def on_openai_response(self, response: "ModelResponse", context: "PolicyContext") -> "ModelResponse":
-        """Judge each content block and apply replacements."""
-        if not response.choices:
-            return response
-
-        for choice in response.choices:
-            if not isinstance(choice, Choices):
-                continue
-
-            emitted_blocks: list[BlockDescriptor] = []
-            content_parts: list[str] = []
-            new_tool_calls: list[ChatCompletionMessageToolCall] = []
-            judge_error_occurred = False
-
-            # Process text content
-            if isinstance(choice.message.content, str) and choice.message.content:
-                descriptor = self._block_descriptor_from_text(choice.message.content)
-                action = await self._judge_block(descriptor, emitted_blocks, context)
-                if action.judge_failed:
-                    judge_error_occurred = True
-
-                if action.action == "pass":
-                    content_parts.append(choice.message.content)
-                    emitted_blocks.append(descriptor)
-                elif action.action == "replace":
-                    self._apply_openai_replacements(action, emitted_blocks, content_parts, new_tool_calls)
-
-            # Process tool calls
-            if choice.message.tool_calls:
-                for tc in choice.message.tool_calls:
-                    descriptor = self._block_descriptor_from_tool(
-                        tc.function.name or "",
-                        tc.function.arguments,
-                    )
-                    action = await self._judge_block(descriptor, emitted_blocks, context)
-                    if action.judge_failed:
-                        judge_error_occurred = True
-
-                    if action.action == "pass":
-                        new_tool_calls.append(tc)
-                        emitted_blocks.append(descriptor)
-                    elif action.action == "replace":
-                        self._apply_openai_replacements(action, emitted_blocks, content_parts, new_tool_calls)
-
-            if judge_error_occurred and self._config.on_error == "pass":
-                content_parts.append(JUDGE_UNAVAILABLE_WARNING)
-
-            choice.message.content = "".join(content_parts) if content_parts else None
-            choice.message.tool_calls = new_tool_calls if new_tool_calls else None
-
-            has_tool_calls = bool(new_tool_calls)
-            self._correct_openai_finish_reason(choice, has_tool_calls)
-
-        return response
-
-    # ========================================================================
-    # OpenAI streaming
-    # ========================================================================
-
-    async def on_chunk_received(self, ctx: "StreamingPolicyContext") -> None:
-        """Suppress auto-forwarding; blocks are judged on completion."""
-        pass
-
-    async def on_content_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Judge completed content block and emit result."""
-        block = ctx.original_streaming_response_state.just_completed
-        if not isinstance(block, ContentStreamBlock):
-            return
-
-        state = self._openai_state(ctx)
-        descriptor = self._block_descriptor_from_text(block.content)
-        action = await self._judge_block(descriptor, state.emitted_blocks, ctx.policy_ctx)
-        if action.judge_failed:
-            state.judge_error_occurred = True
-
-        if action.action == "pass":
-            await send_text(ctx, block.content)
-            state.emitted_blocks.append(descriptor)
-        elif action.action == "replace":
-            await self._emit_openai_replacements(ctx, action, state)
-
-        if action.action != "block":
-            await self._emit_openai_content_finish(ctx)
-
-    async def on_tool_call_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Judge completed tool call and emit result."""
-        block = ctx.original_streaming_response_state.just_completed
-        if not isinstance(block, ToolCallStreamBlock):
-            return
-
-        state = self._openai_state(ctx)
-        state.original_had_tool_use = True
-        descriptor = self._block_descriptor_from_tool(block.name, block.arguments)
-        action = await self._judge_block(descriptor, state.emitted_blocks, ctx.policy_ctx)
-        if action.judge_failed:
-            state.judge_error_occurred = True
-
-        if action.action == "pass":
-            await send_tool_call(ctx, block.tool_call)
-            state.emitted_blocks.append(descriptor)
-        elif action.action == "replace":
-            await self._emit_openai_replacements(ctx, action, state)
-
-    async def on_stream_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Emit judge-unavailable warning and corrected finish_reason."""
-        state = self._openai_state(ctx)
-
-        if state.judge_error_occurred and self._config.on_error == "pass":
-            await send_text(ctx, JUDGE_UNAVAILABLE_WARNING)
-
-        finish_reason = ctx.original_streaming_response_state.finish_reason
-        if not finish_reason:
-            return
-
-        # Correct finish_reason if block types changed
-        has_emitted_tool = any(b.type == "tool_use" for b in state.emitted_blocks)
-        corrected_reason = "tool_calls" if has_emitted_tool else "stop"
-
-        # Only emit finish chunk for tool call responses
-        # (content responses get finish in on_content_complete)
-        if state.original_had_tool_use or has_emitted_tool:
-            last_chunk = get_last_ingress_chunk(ctx)
-            chunk_id = last_chunk.id if last_chunk else None
-            model = last_chunk.model if last_chunk else "luthien-policy"
-            finish_chunk = create_finish_chunk(
-                finish_reason=corrected_reason,
-                model=model,
-                chunk_id=chunk_id,
-            )
-            await send_chunk(ctx, finish_chunk)
-
-    async def on_streaming_policy_complete(self, ctx: "StreamingPolicyContext") -> None:
-        """Clean up per-request OpenAI state."""
-        ctx.policy_ctx.pop_request_state(self, _SimpleLLMOpenAIState)
-
-    async def _emit_openai_content_finish(self, ctx: "StreamingPolicyContext") -> None:
-        """Emit finish_reason chunk after content block."""
-        last_chunk = get_last_ingress_chunk(ctx)
-        if last_chunk and last_chunk.choices and last_chunk.choices[0].finish_reason:
-            state = self._openai_state(ctx)
-            has_tool = any(b.type == "tool_use" for b in state.emitted_blocks)
-            reason = "tool_calls" if has_tool else last_chunk.choices[0].finish_reason
-            finish_chunk = create_finish_chunk(
-                finish_reason=reason,
-                model=last_chunk.model,
-                chunk_id=last_chunk.id,
-            )
-            await send_chunk(ctx, finish_chunk)
-
-    async def _emit_openai_replacements(
-        self,
-        ctx: "StreamingPolicyContext",
-        action: JudgeAction,
-        state: _SimpleLLMOpenAIState,
-    ) -> None:
-        """Emit replacement blocks for OpenAI streaming."""
-        for rblock in action.blocks or ():
-            state.emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
-            if rblock.type == "text":
-                text = rblock.text or ""
-                if text:
-                    await send_text(ctx, text)
-            elif rblock.type == "tool_use":
-                tc = ChatCompletionMessageToolCall(
-                    id=f"call_{uuid4().hex[:24]}",
-                    function=Function(
-                        name=rblock.name or "",
-                        arguments=json.dumps(rblock.input or {}),
-                    ),
-                )
-                await send_tool_call(ctx, tc)
 
     # ========================================================================
     # Anthropic hooks (via AnthropicHookPolicy)

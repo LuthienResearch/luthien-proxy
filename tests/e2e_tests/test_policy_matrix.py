@@ -1,11 +1,11 @@
 # ABOUTME: Parameterized e2e tests that verify each policy works through the gateway
-# ABOUTME: Tests both OpenAI and Anthropic paths with standard configs for each policy
+# ABOUTME: Tests the Anthropic path with standard configs for each policy
 
 """E2E tests for all policy types.
 
 Runs a simple request through the gateway for each policy to verify:
 1. Policy can be activated via admin API
-2. Request/response flow works for both OpenAI and Anthropic clients
+2. Request/response flow works for Anthropic clients
 3. No crashes or unexpected errors
 """
 
@@ -46,58 +46,6 @@ POLICY_CONFIGS = [
         id="ToolCallJudgePolicy",
     ),
 ]
-
-
-@pytest.mark.e2e
-@pytest.mark.asyncio
-@pytest.mark.parametrize("policy_class_ref,config", POLICY_CONFIGS)
-async def test_policy_openai_non_streaming(policy_class_ref: str, config: dict, http_client):
-    """Test each policy works with OpenAI client, non-streaming."""
-
-    async with policy_context(policy_class_ref, config):
-        response = await http_client.post(
-            f"{GATEWAY_URL}/v1/chat/completions",
-            json={
-                "model": "gpt-4o-mini",
-                "messages": [{"role": "user", "content": "Say hello"}],
-                "max_tokens": 20,
-                "stream": False,
-            },
-            headers={"Authorization": f"Bearer {API_KEY}"},
-        )
-
-        assert response.status_code == 200, f"Policy {policy_class_ref} failed: {response.text}"
-        data = response.json()
-        assert "choices" in data
-        assert len(data["choices"]) > 0
-        assert "message" in data["choices"][0]
-
-
-@pytest.mark.e2e
-@pytest.mark.asyncio
-@pytest.mark.parametrize("policy_class_ref,config", POLICY_CONFIGS)
-async def test_policy_openai_streaming(policy_class_ref: str, config: dict, http_client):
-    """Test each policy works with OpenAI client, streaming."""
-    async with policy_context(policy_class_ref, config):
-        async with http_client.stream(
-            "POST",
-            f"{GATEWAY_URL}/v1/chat/completions",
-            json={
-                "model": "gpt-4o-mini",
-                "messages": [{"role": "user", "content": "Say hello"}],
-                "max_tokens": 20,
-                "stream": True,
-            },
-            headers={"Authorization": f"Bearer {API_KEY}"},
-        ) as response:
-            assert response.status_code == 200, f"Policy {policy_class_ref} failed: {response.status_code}"
-
-            chunks = []
-            async for line in response.aiter_lines():
-                if line.startswith("data: ") and line != "data: [DONE]":
-                    chunks.append(line)
-
-            assert len(chunks) > 0, f"No chunks received for {policy_class_ref}"
 
 
 @pytest.mark.e2e

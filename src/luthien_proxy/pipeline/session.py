@@ -9,8 +9,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-# Header name for OpenAI-format clients to provide session ID
-OPENAI_SESSION_HEADER = "x-session-id"
+# Header name for clients to provide session ID (used by Claude Code and other integrations)
+SESSION_ID_HEADER = "x-session-id"
 
 # Pattern to extract session UUID from Anthropic metadata.user_id
 # Format: user_<hash>_account__session_<uuid>
@@ -47,7 +47,8 @@ def extract_session_id_from_anthropic_body(body: dict[str, Any]) -> str | None:
 def extract_session_id_from_headers(headers: dict[str, str]) -> str | None:
     """Extract session ID from request headers.
 
-    OpenAI-format clients can provide session ID via x-session-id header.
+    Clients can provide session ID via x-session-id header (used by Claude Code
+    and other integrations).
 
     Args:
         headers: Request headers (keys should be lowercase)
@@ -55,13 +56,13 @@ def extract_session_id_from_headers(headers: dict[str, str]) -> str | None:
     Returns:
         Session ID if header present and non-empty, None otherwise
     """
-    value = headers.get(OPENAI_SESSION_HEADER)
+    value = headers.get(SESSION_ID_HEADER)
     # Normalize empty strings to None for consistent handling
     return value if value else None
 
 
 __all__ = [
-    "OPENAI_SESSION_HEADER",
+    "SESSION_ID_HEADER",
     "extract_session_id_from_anthropic_body",
     "extract_session_id_from_headers",
 ]

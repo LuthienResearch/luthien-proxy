@@ -22,7 +22,7 @@ from fastapi import HTTPException
 from redis.asyncio import Redis
 
 from luthien_proxy.config import _import_policy_class, _instantiate_policy, load_policy_from_yaml
-from luthien_proxy.policy_core.policy_protocol import PolicyProtocol
+from luthien_proxy.policy_core.base_policy import BasePolicy
 from luthien_proxy.utils import db
 from luthien_proxy.utils.constants import REDIS_LOCK_TIMEOUT_SECONDS
 
@@ -81,7 +81,7 @@ class PolicyManager:
         self.redis = redis_client
         self.startup_policy_path = startup_policy_path
         self.policy_source = policy_source
-        self._current_policy: PolicyProtocol | None = None
+        self._current_policy: BasePolicy | None = None
         self.lock_key = "luthien:policy:lock"
         self._local_lock = asyncio.Lock()
 
@@ -150,7 +150,7 @@ class PolicyManager:
             self._current_policy = policy
             logger.info("Loaded policy from database")
 
-    async def _load_from_db(self) -> PolicyProtocol | None:
+    async def _load_from_db(self) -> BasePolicy | None:
         """Load policy from database.
 
         Returns:
@@ -291,7 +291,7 @@ class PolicyManager:
         )
 
     @property
-    def current_policy(self) -> PolicyProtocol:
+    def current_policy(self) -> BasePolicy:
         """Access current policy instance.
 
         Returns:
@@ -343,7 +343,7 @@ class PolicyManager:
             except Exception as e:
                 logger.warning(f"Failed to release lock: {e}")
 
-    def _maybe_compose_dogfood(self, policy: PolicyProtocol) -> PolicyProtocol:
+    def _maybe_compose_dogfood(self, policy: BasePolicy) -> BasePolicy:
         """If DOGFOOD_MODE is set, compose DogfoodSafetyPolicy into the chain."""
         from luthien_proxy.settings import get_settings  # noqa: PLC0415
 

@@ -1,11 +1,11 @@
-"""Base class for policies that modify text content across all API formats.
+"""Base class for policies that modify text content in Anthropic responses.
 
 Subclasses override one or two methods:
 - modify_text(text) -> text: transform text content in-place
 - extra_text() -> str | None: append additional text after all content
 
-The base class handles all format-specific plumbing across 4 code paths:
-OpenAI non-streaming, OpenAI streaming, Anthropic non-streaming, Anthropic streaming.
+The base class handles all format-specific plumbing across 2 code paths:
+Anthropic non-streaming and Anthropic streaming.
 """
 
 from __future__ import annotations
@@ -22,24 +22,17 @@ from anthropic.types import (
     TextBlock,
     TextDelta,
 )
-from litellm.types.utils import Choices, StreamingChoices
 
 from luthien_proxy.policy_core import (
     AnthropicExecutionInterface,
     AnthropicPolicyEmission,
     AnthropicPolicyIOProtocol,
     BasePolicy,
-    OpenAIPolicyInterface,
 )
-from luthien_proxy.policy_core.chunk_builders import create_text_chunk
 
 if TYPE_CHECKING:
-    from litellm.types.utils import ModelResponse
-
-    from luthien_proxy.llm.types import Request
     from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
     from luthien_proxy.policy_core.policy_context import PolicyContext
-    from luthien_proxy.policy_core.streaming_policy_context import StreamingPolicyContext
 
 
 @dataclass
@@ -49,10 +42,10 @@ class _StreamState:
     max_index: int = field(default=-1)
 
 
-class TextModifierPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionInterface):
-    """Base class for policies that modify text content.
+class TextModifierPolicy(BasePolicy, AnthropicExecutionInterface):
+    """Base class for policies that modify text content in Anthropic responses.
 
-    Override modify_text() to transform text in-place across all code paths.
+    Override modify_text() to transform text in-place across streaming and non-streaming.
     Override extra_text() to append content after all response text.
     Both are optional — the base class passes through unchanged by default.
 
@@ -66,63 +59,6 @@ class TextModifierPolicy(BasePolicy, OpenAIPolicyInterface, AnthropicExecutionIn
     def extra_text(self) -> str | None:
         """Return text to append after all content, or None. Default: None."""
         return None
-
-    # -- OpenAI non-streaming --------------------------------------------------
-
-    async def on_openai_request(self, request: Request, context: PolicyContext) -> Request:
-        """Pass through request unchanged."""
-        return request
-
-    async def on_openai_response(self, response: ModelResponse, context: PolicyContext) -> ModelResponse:
-        """Apply modify_text and extra_text to OpenAI non-streaming responses."""
-        if not response.choices:
-            return response
-
-        for choice in response.choices:
-            if isinstance(choice, Choices) and isinstance(choice.message.content, str):
-                choice.message.content = self.modify_text(choice.message.content)
-                suffix = self.extra_text()
-                if suffix is not None:
-                    choice.message.content += suffix
-
-        return response
-
-    # -- OpenAI streaming ------------------------------------------------------
-
-    async def on_chunk_received(self, ctx: StreamingPolicyContext) -> None:
-        """Apply modify_text to streaming text chunks and forward them."""
-        chunk = ctx.last_chunk_received
-        if chunk.choices:
-            choice = cast(StreamingChoices, chunk.choices[0])
-            if hasattr(choice, "delta") and choice.delta and choice.delta.content is not None:
-                choice.delta.content = self.modify_text(choice.delta.content)
-        ctx.push_chunk(chunk)
-
-    async def on_content_delta(self, ctx: StreamingPolicyContext) -> None:
-        """No-op — text transformation handled in on_chunk_received."""
-
-    async def on_content_complete(self, ctx: StreamingPolicyContext) -> None:
-        """No-op — content completion needs no special handling."""
-
-    async def on_tool_call_delta(self, ctx: StreamingPolicyContext) -> None:
-        """No-op — tool calls pass through unchanged."""
-
-    async def on_tool_call_complete(self, ctx: StreamingPolicyContext) -> None:
-        """No-op — tool calls pass through unchanged."""
-
-    async def on_finish_reason(self, ctx: StreamingPolicyContext) -> None:
-        """No-op — finish reason passes through unchanged."""
-
-    async def on_stream_complete(self, ctx: StreamingPolicyContext) -> None:
-        """Emit extra_text as a final chunk if configured."""
-        suffix = self.extra_text()
-        if suffix is None:
-            return
-        model = ctx.request.model if ctx.request else "luthien-policy"
-        ctx.push_chunk(create_text_chunk(suffix, model=model))
-
-    async def on_streaming_policy_complete(self, ctx: StreamingPolicyContext) -> None:
-        """No-op — no per-request cleanup needed."""
 
     # -- Anthropic execution ---------------------------------------------------
 

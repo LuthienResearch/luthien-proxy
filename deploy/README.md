@@ -55,12 +55,13 @@ At least one LLM provider API key is needed to proxy requests:
 curl https://your-app.railway.app/health
 
 # Test API (replace with your PROXY_API_KEY)
-curl https://your-app.railway.app/v1/chat/completions \
+curl https://your-app.railway.app/v1/messages \
   -H "Authorization: Bearer your-proxy-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-4o-mini",
-    "messages": [{"role": "user", "content": "Hello!"}]
+    "model": "claude-opus-4-1",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "max_tokens": 100
   }'
 ```
 

@@ -53,7 +53,7 @@ The gateway is available at `http://localhost:8000`.
 ### Option A: Using curl (Non-streaming)
 
 ```bash
-curl -s "http://localhost:8000/v1/chat/completions" \
+curl -s "http://localhost:8000/v1/messages" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer sk-luthien-dev-key" \
   -d '{
@@ -75,7 +75,7 @@ The quick BROWN fox jumps OVER the lazy DOG.
 ### Option B: Using curl (Streaming)
 
 ```bash
-curl -N "http://localhost:8000/v1/chat/completions" \
+curl -N "http://localhost:8000/v1/messages" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer sk-luthien-dev-key" \
   -d '{
@@ -216,7 +216,7 @@ Let's trace a single request through the entire system:
 ### Very Short Response
 
 ```bash
-curl -s "http://localhost:8000/v1/chat/completions" \
+curl -s "http://localhost:8000/v1/messages" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -d '{
@@ -239,7 +239,7 @@ Open multiple terminal windows and send requests simultaneously:
 ```bash
 # Terminal 1
 for i in {1..5}; do
-  curl -s "http://localhost:8000/v1/chat/completions" \
+  curl -s "http://localhost:8000/v1/messages" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer YOUR_API_KEY" \
     -d "{\"model\":\"gpt-3.5-turbo\",\"messages\":[{\"role\":\"user\",\"content\":\"Count to $i\"}],\"max_tokens\":20}" &

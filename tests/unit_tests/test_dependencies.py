@@ -15,28 +15,13 @@ from luthien_proxy.dependencies import (
     get_api_key,
     get_db_pool,
     get_dependencies,
-    get_llm_client,
-    get_policy,
     get_policy_manager,
     get_redis_client,
 )
-from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.observability.emitter import NullEventEmitter
 from luthien_proxy.policies.noop_policy import NoOpPolicy
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.utils import db
-
-
-class MockLLMClient(LLMClient):
-    """Mock LLM client for testing."""
-
-    async def stream(self, request):
-        """Mock stream."""
-        yield MagicMock()
-
-    async def complete(self, request):
-        """Mock complete."""
-        return MagicMock()
 
 
 class TestDependenciesContainer:
@@ -46,7 +31,6 @@ class TestDependenciesContainer:
         """Test creating Dependencies container with all fields."""
         mock_db_pool = MagicMock(spec=db.DatabasePool)
         mock_redis = MagicMock(spec=Redis)
-        mock_llm = MockLLMClient()
         mock_policy_manager = MagicMock(spec=PolicyManager)
         mock_policy_manager.current_policy = NoOpPolicy()
         mock_emitter = NullEventEmitter()
@@ -54,7 +38,6 @@ class TestDependenciesContainer:
         deps = Dependencies(
             db_pool=mock_db_pool,
             redis_client=mock_redis,
-            llm_client=mock_llm,
             policy_manager=mock_policy_manager,
             emitter=mock_emitter,
             api_key="test-api-key",
@@ -63,7 +46,6 @@ class TestDependenciesContainer:
 
         assert deps.db_pool is mock_db_pool
         assert deps.redis_client is mock_redis
-        assert deps.llm_client is mock_llm
         assert deps.policy_manager is mock_policy_manager
         assert deps.emitter is mock_emitter
         assert deps.api_key == "test-api-key"
@@ -71,14 +53,12 @@ class TestDependenciesContainer:
 
     def test_dependencies_with_none_values(self):
         """Test creating Dependencies with None for optional fields."""
-        mock_llm = MockLLMClient()
         mock_policy_manager = MagicMock(spec=PolicyManager)
         mock_policy_manager.current_policy = NoOpPolicy()
 
         deps = Dependencies(
             db_pool=None,
             redis_client=None,
-            llm_client=mock_llm,
             policy_manager=mock_policy_manager,
             emitter=NullEventEmitter(),
             api_key="test-key",
@@ -88,25 +68,6 @@ class TestDependenciesContainer:
         assert deps.db_pool is None
         assert deps.redis_client is None
         assert deps.admin_key is None
-
-    def test_policy_property_returns_current_policy(self):
-        """Test that policy property returns current_policy from policy_manager."""
-        mock_llm = MockLLMClient()
-        mock_policy_manager = MagicMock(spec=PolicyManager)
-        expected_policy = NoOpPolicy()
-        mock_policy_manager.current_policy = expected_policy
-
-        deps = Dependencies(
-            db_pool=None,
-            redis_client=None,
-            llm_client=mock_llm,
-            policy_manager=mock_policy_manager,
-            emitter=NullEventEmitter(),
-            api_key="test-key",
-            admin_key=None,
-        )
-
-        assert deps.policy is expected_policy
 
 
 class TestFastAPIDependsFunctions:
@@ -119,14 +80,12 @@ class TestFastAPIDependsFunctions:
 
         mock_db_pool = MagicMock(spec=db.DatabasePool)
         mock_redis = MagicMock(spec=Redis)
-        mock_llm = MockLLMClient()
         mock_policy_manager = MagicMock(spec=PolicyManager)
         mock_policy_manager.current_policy = NoOpPolicy()
 
         deps = Dependencies(
             db_pool=mock_db_pool,
             redis_client=mock_redis,
-            llm_client=mock_llm,
             policy_manager=mock_policy_manager,
             emitter=NullEventEmitter(),
             api_key="test-api-key",
@@ -193,32 +152,6 @@ class TestFastAPIDependsFunctions:
             response = client.get("/test")
             assert response.status_code == 200
             assert response.json()["has_redis"] is True
-
-    def test_get_llm_client(self, app_with_dependencies):
-        """Test get_llm_client returns LLM client."""
-        app, deps = app_with_dependencies
-
-        @app.get("/test")
-        def test_endpoint(llm=Depends(get_llm_client)):
-            return {"has_llm": llm is not None}
-
-        with TestClient(app) as client:
-            response = client.get("/test")
-            assert response.status_code == 200
-            assert response.json()["has_llm"] is True
-
-    def test_get_policy(self, app_with_dependencies):
-        """Test get_policy returns current policy."""
-        app, deps = app_with_dependencies
-
-        @app.get("/test")
-        def test_endpoint(policy=Depends(get_policy)):
-            return {"policy_type": type(policy).__name__}
-
-        with TestClient(app) as client:
-            response = client.get("/test")
-            assert response.status_code == 200
-            assert response.json()["policy_type"] == "NoOpPolicy"
 
     def test_get_policy_manager(self, app_with_dependencies):
         """Test get_policy_manager returns policy manager."""
@@ -322,7 +255,6 @@ policy:
             deps = app.state.dependencies
             assert deps.db_pool is mock_db_pool
             assert deps.redis_client is mock_redis_client
-            assert deps.llm_client is not None
             assert deps.policy_manager is not None
             assert deps.api_key == "test-api-key"
             assert deps.admin_key == "test-admin-key"

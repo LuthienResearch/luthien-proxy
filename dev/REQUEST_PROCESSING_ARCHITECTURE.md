@@ -2,21 +2,17 @@
 
 **Last Updated**: 2026-02-27
 
-This document provides an overview of request flow through the current gateway (`src/luthien_proxy/`), including both OpenAI and Anthropic endpoints.
+This document provides an overview of request flow through the current gateway (`src/luthien_proxy/`), focusing on Anthropic endpoints.
 
 ---
 
 ## Conceptual Overview
 
-The gateway has two primary request-processing paths:
+The gateway processes requests via the Anthropic path:
 
-1. **OpenAI path** (`/v1/chat/completions`): `process_llm_request()` + streaming orchestration via `PolicyOrchestrator`.
-2. **Anthropic path** (`/v1/messages`): native Anthropic processing via `process_anthropic_request()` and `AnthropicExecutionInterface.run_anthropic()`.
+**Anthropic path** (`/v1/messages`): native Anthropic processing via `process_anthropic_request()` and `AnthropicExecutionInterface.run_anthropic()`.
 
-Both paths support streaming and non-streaming responses, but they use different policy runtimes:
-
-- **OpenAI**: event-driven hook interfaces.
-- **Anthropic**: execution-oriented runtime where policies emit final responses/events and may make zero or more backend calls.
+The path supports streaming and non-streaming responses using an execution-oriented runtime where policies emit final responses/events and may make zero or more backend calls.
 
 ---
 
@@ -26,7 +22,7 @@ Both paths support streaming and non-streaming responses, but they use different
 
 ### 1. Client sends request
 
-Request arrives at `/v1/chat/completions` (OpenAI format)
+Request arrives at `/v1/messages` (Anthropic format)
 
 ### 2. Gateway receives request
 

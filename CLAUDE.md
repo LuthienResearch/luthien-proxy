@@ -148,10 +148,6 @@ Common commands:
 ## Tooling
 
 - Inspect the dev Postgres quickly with `uv run python scripts/query_debug_logs.py`. The helper loads `.env`, connects to `DATABASE_URL`, and prints recent conversation events and debug logs.
-<<<<<<< HEAD
-=======
-- Quick Codex feedback: run `codex e "question or idea"` for a fast suggestion without starting an interactive session. Note that subsequent invocations won't persist context - pass in existing context or refer to relevant files to persist some context between calls.
->>>>>>> parent of 1d912751 (chore: remove Codex support)
 
 ## Coding Style & Naming Conventions
 

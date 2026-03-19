@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 class BackendAPIError(Exception):
     """Wraps backend LLM API errors with client format context.
 
-    When the backend LLM provider (Anthropic, OpenAI, etc.) returns an error,
+    When the backend LLM provider (Anthropic, etc.) returns an error,
     this exception captures the error details along with the client format
     so the exception handler can return a properly formatted response.
 
@@ -24,7 +24,7 @@ class BackendAPIError(Exception):
         status_code: HTTP status code to return to the client
         message: Error message from the backend
         error_type: Error type string (e.g., "authentication_error", "rate_limit_error")
-        client_format: The client's API format (ANTHROPIC or OPENAI)
+        client_format: The client's API format (ANTHROPIC)
         provider: The backend provider that raised the error (optional)
     """
 
@@ -75,7 +75,7 @@ def map_litellm_error_type(exception: Exception) -> str:
         exception: A LiteLLM exception instance
 
     Returns:
-        An error type string suitable for Anthropic/OpenAI error responses
+        An error type string suitable for Anthropic error responses
     """
     class_name = type(exception).__name__
     return _LITELLM_ERROR_TYPE_MAP.get(class_name, "api_error")

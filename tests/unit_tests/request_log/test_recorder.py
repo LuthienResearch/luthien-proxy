@@ -106,7 +106,7 @@ class TestNoOpRequestLogRecorder:
             session_id="sess-123",
             model="gpt-4",
             is_streaming=True,
-            endpoint="/v1/chat",
+            endpoint="/v1/messages",
         )
 
     def test_record_inbound_response_is_noop(self) -> None:
@@ -123,7 +123,7 @@ class TestNoOpRequestLogRecorder:
             body={"key": "value"},
             model="gpt-4",
             is_streaming=False,
-            endpoint="/v1/chat",
+            endpoint="/v1/messages",
         )
 
     def test_record_outbound_response_is_noop(self) -> None:
@@ -170,7 +170,7 @@ class TestRequestLogRecorder:
             session_id="sess-456",
             model="gpt-4-turbo",
             is_streaming=True,
-            endpoint="/v1/chat/completions",
+            endpoint="/v1/messages/completions",
         )
 
         assert recorder._inbound.http_method == "POST"
@@ -178,7 +178,7 @@ class TestRequestLogRecorder:
         assert recorder._inbound.session_id == "sess-456"
         assert recorder._inbound.model == "gpt-4-turbo"
         assert recorder._inbound.is_streaming is True
-        assert recorder._inbound.endpoint == "/v1/chat/completions"
+        assert recorder._inbound.endpoint == "/v1/messages/completions"
         assert recorder._inbound.request_body == body
 
     def test_record_inbound_request_sanitizes_headers(self) -> None:
@@ -684,12 +684,12 @@ class TestRecordOutboundRequestMethodUrl:
 
         recorder.record_outbound_request(
             method="POST",
-            url="/v1/chat/completions",
+            url="/v1/messages/completions",
             body={"model": "gpt-4"},
         )
 
         assert recorder._outbound.http_method == "POST"
-        assert recorder._outbound.url == "/v1/chat/completions"
+        assert recorder._outbound.url == "/v1/messages/completions"
 
     def test_outbound_request_method_defaults_to_post(self) -> None:
         """method defaults to POST when not specified."""

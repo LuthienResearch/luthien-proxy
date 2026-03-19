@@ -184,7 +184,6 @@ class TestCreateApp:
             assert deps.policy_manager is not None
             assert deps.db_pool == mock_db_pool
             assert deps.redis_client == mock_redis_client
-            assert deps.llm_client is not None
 
         # create_app does NOT close db_pool/redis_client - caller owns them
         mock_db_pool.close.assert_not_called()
@@ -206,8 +205,7 @@ class TestCreateApp:
         # Check for key routes
         assert "/health" in routes
         assert "/" in routes
-        # Gateway routes (from gateway_router)
-        assert "/v1/chat/completions" in routes or any("/v1/chat/completions" in str(r) for r in routes if r)
+        # Gateway routes (from gateway_router) - only /v1/messages
         assert "/v1/messages" in routes or any("/v1/messages" in str(r) for r in routes if r)
 
     def test_create_app_health_endpoint(self, policy_config_file, mock_db_pool, mock_redis_client):

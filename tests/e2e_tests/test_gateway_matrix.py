@@ -1,17 +1,15 @@
-# ABOUTME: Comprehensive E2E test matrix for gateway
-# ABOUTME: Tests all combinations of client API, backend LLM, and streaming mode
+# ABOUTME: E2E test matrix for gateway
+# ABOUTME: Tests Anthropic client API with streaming and non-streaming modes
 
-"""Comprehensive E2E tests for gateway covering all API/LLM/mode combinations.
+"""E2E tests for gateway Anthropic API combinations.
 
 Test Matrix:
-- Client API: OpenAI, Anthropic
-- Backend LLM: OpenAI (gpt-3.5-turbo), Anthropic (claude-haiku-4-5)
+- Client API: Anthropic
+- Backend LLM: Anthropic (claude-haiku-4-5)
 - Mode: Streaming, Non-streaming
 
-Total: 2 × 2 × 2 = 8 test combinations
-
-These tests make real HTTP requests to the running v2-gateway service.
-Run `docker compose up v2-gateway` before running these tests.
+These tests make real HTTP requests to the running gateway service.
+Run `docker compose up gateway` before running these tests.
 """
 
 import os
@@ -31,129 +29,6 @@ async def http_client():
     """Provide async HTTP client for e2e tests."""
     async with httpx.AsyncClient(timeout=30.0) as client:
         yield client
-
-
-# === OpenAI Client API Tests ===
-
-
-@pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_openai_client_openai_backend_streaming(http_client):
-    """E2E: OpenAI client → OpenAI backend (gpt-3.5-turbo), streaming."""
-    async with http_client.stream(
-        "POST",
-        f"{GATEWAY_URL}/v1/chat/completions",
-        json={
-            "model": "gpt-3.5-turbo",
-            "messages": [{"role": "user", "content": "Say hello"}],
-            "max_tokens": 20,
-            "stream": True,
-        },
-        headers={"Authorization": f"Bearer {API_KEY}"},
-    ) as response:
-        assert response.status_code == 200
-        assert "text/event-stream" in response.headers["content-type"]
-
-        # Collect SSE data chunks
-        data_lines = []
-        async for line in response.aiter_lines():
-            if line.startswith("data: "):
-                data_lines.append(line)
-
-        assert len(data_lines) > 0, "Should receive SSE data chunks"
-
-        # Verify we have actual content (not just [DONE])
-        content_chunks = [line for line in data_lines if line.strip() != "data: [DONE]"]
-        assert len(content_chunks) > 0, "Should have content chunks"
-
-
-@pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_openai_client_openai_backend_non_streaming(http_client):
-    """E2E: OpenAI client → OpenAI backend (gpt-3.5-turbo), non-streaming."""
-    response = await http_client.post(
-        f"{GATEWAY_URL}/v1/chat/completions",
-        json={
-            "model": "gpt-3.5-turbo",
-            "messages": [{"role": "user", "content": "Say hello"}],
-            "max_tokens": 20,
-            "stream": False,
-        },
-        headers={"Authorization": f"Bearer {API_KEY}"},
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-
-    # Verify OpenAI response structure
-    assert "id" in data
-    assert "object" in data
-    assert data["object"] == "chat.completion"
-    assert "choices" in data
-    assert len(data["choices"]) > 0
-    assert "message" in data["choices"][0]
-    assert "content" in data["choices"][0]["message"]
-    assert len(data["choices"][0]["message"]["content"]) > 0
-
-
-@pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_openai_client_anthropic_backend_streaming(http_client):
-    """E2E: OpenAI client → Anthropic backend (claude-haiku), streaming."""
-    async with http_client.stream(
-        "POST",
-        f"{GATEWAY_URL}/v1/chat/completions",
-        json={
-            "model": DEFAULT_TEST_MODEL,
-            "messages": [{"role": "user", "content": "Say hello"}],
-            "max_tokens": 20,
-            "stream": True,
-        },
-        headers={"Authorization": f"Bearer {API_KEY}"},
-    ) as response:
-        assert response.status_code == 200
-        assert "text/event-stream" in response.headers["content-type"]
-
-        # Collect SSE data chunks
-        data_lines = []
-        async for line in response.aiter_lines():
-            if line.startswith("data: "):
-                data_lines.append(line)
-
-        assert len(data_lines) > 0, "Should receive SSE data chunks"
-
-        # Verify OpenAI SSE format (not Anthropic events)
-        content_chunks = [line for line in data_lines if line.strip() != "data: [DONE]"]
-        assert len(content_chunks) > 0, "Should have content chunks"
-
-
-@pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_openai_client_anthropic_backend_non_streaming(http_client):
-    """E2E: OpenAI client → Anthropic backend (claude-haiku), non-streaming."""
-    response = await http_client.post(
-        f"{GATEWAY_URL}/v1/chat/completions",
-        json={
-            "model": DEFAULT_TEST_MODEL,
-            "messages": [{"role": "user", "content": "Say hello"}],
-            "max_tokens": 20,
-            "stream": False,
-        },
-        headers={"Authorization": f"Bearer {API_KEY}"},
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-
-    # Verify OpenAI response structure (not Anthropic format)
-    assert "id" in data
-    assert "object" in data
-    assert data["object"] == "chat.completion"
-    assert "choices" in data
-    assert len(data["choices"]) > 0
-    assert "message" in data["choices"][0]
-    assert "content" in data["choices"][0]["message"]
-    assert len(data["choices"][0]["message"]["content"]) > 0
 
 
 # === Anthropic Client API Tests ===
@@ -219,8 +94,3 @@ async def test_anthropic_client_anthropic_backend_non_streaming(http_client):
     # Content is array of content blocks in Anthropic format
     assert "text" in data["content"][0]
     assert len(data["content"][0]["text"]) > 0
-
-
-# NOTE: Cross-format tests removed - PR #169 uses endpoint-based routing.
-# /v1/messages always uses Anthropic backend regardless of model name.
-# Model-based routing is Phase 2 work.

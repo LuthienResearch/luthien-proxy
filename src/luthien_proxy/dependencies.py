@@ -10,13 +10,11 @@ from redis.asyncio import Redis
 
 from luthien_proxy.credential_manager import CredentialManager
 from luthien_proxy.llm.anthropic_client import AnthropicClient
-from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.observability.event_publisher import EventPublisherProtocol
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
 )
-from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.usage_telemetry.collector import UsageCollector
 from luthien_proxy.utils import db
@@ -33,7 +31,6 @@ class Dependencies:
 
     db_pool: db.DatabasePool | None
     redis_client: Redis | None
-    llm_client: LLMClient
     policy_manager: PolicyManager
     emitter: EventEmitterProtocol
     api_key: str
@@ -44,17 +41,6 @@ class Dependencies:
     enable_request_logging: bool = field(default=False)
     usage_collector: UsageCollector | None = field(default=None)
     last_credential_info: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def policy(self) -> OpenAIPolicyInterface:
-        """Get current active policy from policy manager."""
-        current = self.policy_manager.current_policy
-        if not isinstance(current, OpenAIPolicyInterface):
-            raise HTTPException(
-                status_code=500,
-                detail=f"Current policy {type(current).__name__} does not implement OpenAIPolicyInterface",
-            )
-        return current
 
     def get_anthropic_policy(self) -> AnthropicExecutionInterface:
         """Get the current Anthropic policy.
@@ -125,18 +111,6 @@ def get_event_publisher(request: Request) -> EventPublisherProtocol | None:
     return get_dependencies(request).event_publisher
 
 
-def get_llm_client(request: Request) -> LLMClient:
-    """Get LLM client from dependencies.
-
-    Args:
-        request: FastAPI request object
-
-    Returns:
-        LLM client instance
-    """
-    return get_dependencies(request).llm_client
-
-
 def get_emitter(request: Request) -> EventEmitterProtocol:
     """Get event emitter from dependencies.
 
@@ -147,18 +121,6 @@ def get_emitter(request: Request) -> EventEmitterProtocol:
         Event emitter instance (never None - uses NullEventEmitter if not configured)
     """
     return get_dependencies(request).emitter
-
-
-def get_policy(request: Request) -> OpenAIPolicyInterface:
-    """Get current policy from dependencies.
-
-    Args:
-        request: FastAPI request object
-
-    Returns:
-        Current active policy
-    """
-    return get_dependencies(request).policy
 
 
 def get_policy_manager(request: Request) -> PolicyManager:
@@ -242,9 +204,8 @@ __all__ = [
     "get_dependencies",
     "get_db_pool",
     "get_redis_client",
-    "get_llm_client",
+    "get_event_publisher",
     "get_emitter",
-    "get_policy",
     "get_policy_manager",
     "get_api_key",
     "get_admin_key",

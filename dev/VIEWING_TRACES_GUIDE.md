@@ -29,7 +29,7 @@ Generate some trace data by making requests to the **gateway** at port 8000:
 
 ```bash
 # Simple non-streaming request
-curl -s "http://localhost:8000/v1/chat/completions" \
+curl -s "http://localhost:8000/v1/messages" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer sk-luthien-dev-key" \
   -d '{
@@ -102,7 +102,7 @@ This shows live events from Redis pub/sub (separate from traces).
 **Check 1:** Are you making requests to the gateway at **port 8000**?
 
 ```bash
-curl -s "http://localhost:8000/v1/chat/completions" \
+curl -s "http://localhost:8000/v1/messages" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer sk-luthien-dev-key" \
   -d '{

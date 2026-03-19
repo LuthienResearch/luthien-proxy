@@ -22,41 +22,9 @@ from .types import (
     AnthropicToolUseBlock,
     AnthropicUsage,
     AnthropicUserMessage,
-    # OpenAI messages
-    AssistantMessage,
-    # OpenAI content parts
-    ContentPart,
-    FunctionCall,
-    ImageContentPart,
-    ImageUrl,
-    Message,
-    MessageContent,
-    # Request model
-    Request,
-    SystemMessage,
-    TextContentPart,
-    ToolCall,
-    ToolMessage,
-    UserMessage,
 )
 
 __all__ = [
-    # OpenAI content parts
-    "ImageUrl",
-    "TextContentPart",
-    "ImageContentPart",
-    "ContentPart",
-    "MessageContent",
-    # OpenAI messages
-    "SystemMessage",
-    "UserMessage",
-    "AssistantMessage",
-    "ToolMessage",
-    "FunctionCall",
-    "ToolCall",
-    "Message",
-    # Request model
-    "Request",
     # Anthropic content blocks
     "AnthropicTextBlock",
     "AnthropicImageSourceBase64",

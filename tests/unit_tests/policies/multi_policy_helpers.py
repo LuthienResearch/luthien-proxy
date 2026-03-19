@@ -12,46 +12,15 @@ from luthien_proxy.llm.types.anthropic import (
 from luthien_proxy.policy_core import (
     AnthropicExecutionInterface,
     BasePolicy,
-    OpenAIPolicyInterface,
 )
 
 
-class OpenAIOnlyPolicy(BasePolicy, OpenAIPolicyInterface):
-    """Stub policy implementing only OpenAIPolicyInterface (not Anthropic)."""
+class OpenAIOnlyPolicy(BasePolicy):
+    """Stub policy implementing neither OpenAIPolicyInterface nor AnthropicExecutionInterface."""
 
     @property
     def short_policy_name(self) -> str:
         return "OpenAIOnly"
-
-    async def on_openai_request(self, request, context):
-        return request
-
-    async def on_openai_response(self, response, context):
-        return response
-
-    async def on_chunk_received(self, ctx):
-        pass
-
-    async def on_content_delta(self, ctx):
-        pass
-
-    async def on_content_complete(self, ctx):
-        pass
-
-    async def on_tool_call_delta(self, ctx):
-        pass
-
-    async def on_tool_call_complete(self, ctx):
-        pass
-
-    async def on_finish_reason(self, ctx):
-        pass
-
-    async def on_stream_complete(self, ctx):
-        pass
-
-    async def on_streaming_policy_complete(self, ctx):
-        pass
 
 
 class AnthropicOnlyPolicy(BasePolicy, AnthropicExecutionInterface):

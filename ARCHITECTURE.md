@@ -19,13 +19,12 @@ Luthien Gateway (FastAPI)
 Client receives (possibly modified) response
 ```
 
-The gateway supports two API formats natively:
-- **OpenAI** (`/v1/chat/completions`) — via LiteLLM, supporting any LiteLLM-compatible provider
+The gateway supports the Anthropic API format natively:
 - **Anthropic** (`/v1/messages`) — native Anthropic SDK, preserving features like extended thinking and prompt caching
 
 ## Request Lifecycle
 
-A request flows through four phases. The entry points are `process_llm_request()` (OpenAI path) and `process_anthropic_request()` (Anthropic path) in `src/luthien_proxy/pipeline/`.
+A request flows through four phases. The entry point is `process_anthropic_request()` in `src/luthien_proxy/pipeline/`.
 
 ### 1. Ingest & Authenticate
 
@@ -37,13 +36,13 @@ A `PolicyContext` is created for this request (unique `transaction_id`, session 
 
 ### 3. Send to Backend
 
-The (possibly modified) request is forwarded to the backend LLM. For OpenAI format, this goes through `LiteLLMClient`. For Anthropic format, through `AnthropicClient`.
+The (possibly modified) request is forwarded to the backend LLM via `AnthropicClient`.
 
 ### 4. Policy on Response & Send to Client
 
 **Non-streaming:** The complete response passes through the policy's response hook, then is returned as JSON.
 
-**Streaming (OpenAI path):** A two-stage async pipeline connected by `asyncio.Queue`s:
+**Streaming:** A two-stage async pipeline connected by `asyncio.Queue`s:
 
 ```
 Backend stream (ModelResponse chunks)

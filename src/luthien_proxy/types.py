@@ -34,7 +34,7 @@ class RawHttpRequest:
     """HTTP method (typically POST for LLM API calls)."""
 
     path: str = ""
-    """Request path (e.g., '/v1/messages' or '/v1/chat/completions')."""
+    """Request path (e.g., '/v1/messages')."""
 
 
 __all__ = ["JSONValue", "JSONObject", "JSONArray", "RawHttpRequest"]

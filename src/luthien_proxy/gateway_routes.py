@@ -18,18 +18,14 @@ from luthien_proxy.dependencies import (
     get_db_pool,
     get_dependencies,
     get_emitter,
-    get_llm_client,
-    get_policy,
     get_usage_collector,
 )
 from luthien_proxy.llm.anthropic_client import AnthropicClient
-from luthien_proxy.llm.client import LLMClient
 from luthien_proxy.observability.emitter import EventEmitterProtocol
-from luthien_proxy.pipeline import process_anthropic_request, process_llm_request
+from luthien_proxy.pipeline import process_anthropic_request
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
 )
-from luthien_proxy.policy_core.openai_interface import OpenAIPolicyInterface
 from luthien_proxy.usage_telemetry.collector import UsageCollector
 from luthien_proxy.utils import db
 
@@ -138,29 +134,6 @@ async def resolve_anthropic_client(
 
 
 # === ROUTES ===
-
-
-@router.post("/v1/chat/completions")
-async def chat_completions(
-    request: Request,
-    _: str = Depends(verify_token),
-    policy: OpenAIPolicyInterface = Depends(get_policy),
-    llm_client: LLMClient = Depends(get_llm_client),
-    emitter: EventEmitterProtocol = Depends(get_emitter),
-    db_pool: db.DatabasePool | None = Depends(get_db_pool),
-    usage_collector: UsageCollector | None = Depends(get_usage_collector),
-):
-    """OpenAI-compatible chat completions endpoint."""
-    deps = get_dependencies(request)
-    return await process_llm_request(
-        request=request,
-        policy=policy,
-        llm_client=llm_client,
-        emitter=emitter,
-        db_pool=db_pool,
-        enable_request_logging=deps.enable_request_logging,
-        usage_collector=usage_collector,
-    )
 
 
 @router.post("/v1/messages")
