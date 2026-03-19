@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import secrets
 import time
@@ -33,11 +32,6 @@ from luthien_proxy.utils import db
 router = APIRouter(tags=["gateway"])
 security = HTTPBearer(auto_error=False)
 logger = logging.getLogger(__name__)
-
-# Redis key for tracking the most recently observed upstream credential type.
-# Read by /health to power the billing-mode badge in the UI.
-LAST_CRED_TYPE_KEY = "luthien:auth:last_credential_type"
-LAST_CRED_TYPE_TTL = 86400  # 24 hours
 
 
 # === AUTH ===
@@ -103,17 +97,12 @@ async def resolve_anthropic_client(
     base_url = base_client._base_url if base_client else None
 
     async def _record_credential_type(cred_type: str) -> None:
-        """Best-effort write of observed credential type to Redis for /health visibility."""
+        """Best-effort write of observed credential type for /health visibility."""
         if auth_mode == AuthMode.PROXY_KEY:
-            return  # proxy_key mode is surfaced statically via auth_mode; no need to record
-        redis = credential_manager._redis if credential_manager else None
-        if redis is None:
             return
-        try:
-            payload = json.dumps({"type": cred_type, "timestamp": time.time()})
-            await redis.setex(LAST_CRED_TYPE_KEY, LAST_CRED_TYPE_TTL, payload)
-        except Exception:
-            logger.warning("Failed to record credential type to Redis", exc_info=True)
+        deps = getattr(request.app.state, "dependencies", None)
+        if deps:
+            deps.last_credential_info = {"type": cred_type, "timestamp": time.time()}
 
     # Explicit x-anthropic-api-key overrides upstream credential
     explicit_key = request.headers.get("x-anthropic-api-key")
@@ -169,4 +158,4 @@ async def anthropic_messages(
     )
 
 
-__all__ = ["LAST_CRED_TYPE_KEY", "router"]
+__all__ = ["router"]

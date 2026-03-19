@@ -74,6 +74,14 @@ class BasePolicy:
         """
         return self.__class__.__name__
 
+    def active_policy_names(self) -> list[str]:
+        """Return this policy's name as an active leaf policy.
+
+        Multi-policies override this to recurse into sub-policies.
+        NoOpPolicy overrides to return [].
+        """
+        return [self.short_policy_name]
+
     def get_config(self) -> dict[str, Any]:
         """Get the configuration for this policy instance.
 

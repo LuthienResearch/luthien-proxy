@@ -1027,6 +1027,21 @@
             <div class="current-policy-meta" id="current-policy-meta"></div>
         </div>
 
+        <!-- Gateway Settings -->
+        <div class="current-policy-banner" style="margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; gap: 24px; flex-wrap: wrap;">
+                <span class="current-policy-label" style="margin-right: 8px;">Gateway Settings</span>
+                <div class="checkbox-wrapper">
+                    <input type="checkbox" class="config-checkbox" id="inject-policy-context" checked>
+                    <label for="inject-policy-context" style="font-size: 13px; color: #ccc;">Inject policy context into LLM requests</label>
+                </div>
+                <div class="checkbox-wrapper">
+                    <input type="checkbox" class="config-checkbox" id="dogfood-mode">
+                    <label for="dogfood-mode" style="font-size: 13px; color: #ccc;">Dogfood mode</label>
+                </div>
+            </div>
+        </div>
+
         <!-- Test Panel (tests against active policy) -->
         <div class="test-panel" id="test-panel">
             <div class="test-panel-header">

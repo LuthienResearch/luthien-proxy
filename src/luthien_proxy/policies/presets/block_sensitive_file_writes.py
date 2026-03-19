@@ -1,6 +1,6 @@
 """Policy that blocks file writes to sensitive system paths."""
 
-from luthien_proxy.policies.simple_llm_policy import SimpleLLMPolicy
+from luthien_proxy.policies.simple_llm_policy import SimpleLLMJudgeConfig, SimpleLLMPolicy
 
 
 class BlockSensitiveFileWritesPolicy(SimpleLLMPolicy):
@@ -13,8 +13,8 @@ class BlockSensitiveFileWritesPolicy(SimpleLLMPolicy):
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""
         super().__init__(
-            config={
-                "instructions": (
+            config=SimpleLLMJudgeConfig(
+                instructions=(
                     "Block tool calls that write to sensitive file paths. Block writes to: "
                     "/etc/, /usr/, /boot/, /sys/, /proc/, ~/.ssh/, ~/.gnupg/, ~/.aws/, "
                     "~/.config/gcloud/, ~/.kube/, ~/.docker/, /root/, "
@@ -27,9 +27,9 @@ class BlockSensitiveFileWritesPolicy(SimpleLLMPolicy):
                     "system and security files are blocked by the safety policy.' "
                     "Text blocks discussing these paths should pass unchanged."
                 ),
-                "model": "claude-haiku-4-5",
-                "temperature": 0.0,
-                "max_tokens": 4096,
-                "on_error": "block",
-            }
+                model="claude-haiku-4-5",
+                temperature=0.0,
+                max_tokens=4096,
+                on_error="block",
+            )
         )

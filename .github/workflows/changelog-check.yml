@@ -15,30 +15,33 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - name: Check for CHANGELOG update
+      - name: Check for changelog fragment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
-          CHANGED=$(gh pr diff "$PR_NUMBER" --repo "$REPO" --name-only | grep -c '^CHANGELOG.md$' || true)
+          # Accept either a changelog.d/ fragment or a direct CHANGELOG.md edit
+          CHANGED_FILES=$(gh pr diff "$PR_NUMBER" --repo "$REPO" --name-only)
+          HAS_FRAGMENT=$(echo "$CHANGED_FILES" | grep -c '^changelog.d/' || true)
+          HAS_CHANGELOG=$(echo "$CHANGED_FILES" | grep -c '^CHANGELOG.md$' || true)
 
-          if [ "$CHANGED" -eq 0 ]; then
+          if [ "$HAS_FRAGMENT" -eq 0 ] && [ "$HAS_CHANGELOG" -eq 0 ]; then
             # Check if we already posted a reminder (avoid duplicate comments)
             EXISTING=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json comments \
               --jq '[.comments[] | select(.body | contains("CHANGELOG reminder"))] | length')
 
             if [ "$EXISTING" -eq 0 ]; then
               gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$(cat <<'COMMENT'
-**CHANGELOG reminder** — This PR does not update `CHANGELOG.md`.
+          **CHANGELOG reminder** — This PR has no changelog fragment.
 
-If this PR includes user-facing changes, please add an entry under `## Unreleased`.
-If this is a chore/infra-only change, add the `skip-changelog` or `chore` label to suppress this reminder.
-COMMENT
+          Add a file to `changelog.d/` (see `changelog.d/README.md` for format).
+          If this is a chore/infra-only change, add the `skip-changelog` or `chore` label to suppress this reminder.
+          COMMENT
               )"
             fi
 
-            echo "::warning::CHANGELOG.md was not modified in this PR"
+            echo "::warning::No changelog fragment found in this PR"
           else
-            echo "CHANGELOG.md updated — looks good."
+            echo "Changelog entry found — looks good."
           fi

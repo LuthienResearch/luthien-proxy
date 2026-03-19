@@ -4,6 +4,7 @@
 
 - Core goal: implement AI Control for LLMs with integrated gateway architecture.
 - Architecture: FastAPI gateway with integrated control plane and LiteLLM, using event-driven policies.
+- **Read `ARCHITECTURE.md` first** when you need to understand how modules connect, how requests flow, or where to make changes. It covers the request lifecycle, module map, key abstractions, and data model.
 - Select a policy via `POLICY_CONFIG` that points to a YAML file (defaults to `config/policy_config.yaml`).
   - Example: `export POLICY_CONFIG=./config/policy_config.yaml`
 
@@ -22,7 +23,7 @@
 4. Commit the changes, push to origin, and open a draft PR (to `main`)
 5. Implement the OBJECTIVE. Add any items that should be done but are out of scope for the current OBJECTIVE to the [Trello board](https://trello.com/b/ehoxykPf/luthien?filter=label:luthien-proxy%20TODO) (e.g. noticing an implementation bug, incorrect documentation, or code that should be refactored).
 6. Regularly run `scripts/dev_checks.sh`, then commit and push any formatting/lint fixes along with your changes to origin (on the feature branch).
-7. When the OBJECTIVE is complete, update `CHANGELOG.md`
+7. When the OBJECTIVE is complete, add a changelog fragment to `changelog.d/` (see `changelog.d/README.md`)
 8. Clear `dev/OBJECTIVE.md` and `dev/NOTES.md`
 9. Mark the PR as ready.
 10. Mark the Trello ticket as done.
@@ -45,7 +46,7 @@ Proactively update files in `dev/context/` as you learn about the codebase:
 
 These files persist across sessions and help build institutional knowledge. Update them during development, not just at the end. Include timestamps (YYYY-MM-DD) when adding entries to detect when knowledge may be stale.
 
-Note that both Claude Code and Codex agents have worked in this repo and may read from and write to context.
+Note that both Claude Code and Codex agents work in this repo and may read from and write to context.
 
 ### Objective Workflow
 
@@ -83,7 +84,7 @@ Note that both Claude Code and Codex agents have worked in this repo and may rea
    git status
    ```
 
-   - Update `CHANGELOG.md` with a bullet referencing the objective handle.
+   - Add a changelog fragment to `changelog.d/<short-handle>.md` (see `changelog.d/README.md` for format).
    - Clear `dev/NOTES.md` and `dev/OBJECTIVE.md`.
 
    ```bash

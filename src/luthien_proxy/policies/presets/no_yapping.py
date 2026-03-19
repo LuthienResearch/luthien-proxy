@@ -1,6 +1,6 @@
 """Policy that enforces concise responses by cutting filler and hedging."""
 
-from luthien_proxy.policies.simple_llm_policy import SimpleLLMPolicy
+from luthien_proxy.policies.simple_llm_policy import SimpleLLMJudgeConfig, SimpleLLMPolicy
 
 
 class NoYappingPolicy(SimpleLLMPolicy):
@@ -13,8 +13,8 @@ class NoYappingPolicy(SimpleLLMPolicy):
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""
         super().__init__(
-            config={
-                "instructions": (
+            config=SimpleLLMJudgeConfig(
+                instructions=(
                     "Make the text more concise by removing filler and hedging. Remove: "
                     "- Opening pleasantries: 'Certainly!', 'Of course!', 'Great question!', "
                     "  'Sure thing!', 'Absolutely!', 'Happy to help!' "
@@ -27,9 +27,9 @@ class NoYappingPolicy(SimpleLLMPolicy):
                     "Preserve all substantive content. Do not change tool calls. "
                     "If the text is already concise, pass unchanged."
                 ),
-                "model": "claude-haiku-4-5",
-                "temperature": 0.0,
-                "max_tokens": 4096,
-                "on_error": "pass",
-            }
+                model="claude-haiku-4-5",
+                temperature=0.0,
+                max_tokens=4096,
+                on_error="pass",
+            )
         )

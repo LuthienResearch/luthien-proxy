@@ -1,6 +1,6 @@
 """Policy that blocks network/web request tool calls."""
 
-from luthien_proxy.policies.simple_llm_policy import SimpleLLMPolicy
+from luthien_proxy.policies.simple_llm_policy import SimpleLLMJudgeConfig, SimpleLLMPolicy
 
 
 class BlockWebRequestsPolicy(SimpleLLMPolicy):
@@ -13,8 +13,8 @@ class BlockWebRequestsPolicy(SimpleLLMPolicy):
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""
         super().__init__(
-            config={
-                "instructions": (
+            config=SimpleLLMJudgeConfig(
+                instructions=(
                     "Block tool calls that make outbound network requests. This includes "
                     "commands containing: curl, wget, fetch, httpie (http/https commands), "
                     "nc (netcat), ncat, socat, telnet, ssh, scp, rsync (to remote hosts), "
@@ -26,9 +26,9 @@ class BlockWebRequestsPolicy(SimpleLLMPolicy):
                     "Text blocks that discuss or explain these commands should pass unchanged. "
                     "Only block actual tool_use calls that would execute them."
                 ),
-                "model": "claude-haiku-4-5",
-                "temperature": 0.0,
-                "max_tokens": 4096,
-                "on_error": "block",
-            }
+                model="claude-haiku-4-5",
+                temperature=0.0,
+                max_tokens=4096,
+                on_error="block",
+            )
         )
