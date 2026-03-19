@@ -109,14 +109,13 @@ No Docker required. This installs [`uv`](https://docs.astral.sh/uv/) (if needed)
 
 After setup, use the CLI to manage the proxy:
 
-```bash
-luthien claude          # launch Claude Code through the proxy
-luthien status          # check gateway health
-luthien up / luthien down  # start/stop the gateway
-luthien logs            # view gateway logs
-```
-
-> Run luthien commands in Claude Code with `!` such as `!luthien status`, `!luthien logs`, etc.
+| CLI command | Claude Code | What it does |
+|---|---|---|
+| `luthien claude` | — | Launch Claude Code through the proxy |
+| `luthien status` | `!luthien status` | Check gateway health |
+| `luthien up` | `!luthien up` | Start the gateway |
+| `luthien down` | `!luthien down` | Stop the gateway |
+| `luthien logs` | `!luthien logs` | View gateway logs |
 
 > **Docker mode**: If you prefer PostgreSQL + Redis, run `luthien onboard --docker` instead. Requires [Docker](https://www.docker.com/products/docker-desktop/).
 
