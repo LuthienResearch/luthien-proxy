@@ -5,8 +5,6 @@
 
 import os
 
-import pytest
-
 from luthien_proxy.main import configure_local_mode
 
 

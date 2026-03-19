@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import argparse
 import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
 
 import litellm
@@ -468,8 +470,6 @@ def configure_local_mode() -> dict[str, str]:
     Returns:
         Dict with proxy_api_key and admin_api_key (whether generated or existing).
     """
-    import secrets
-
     os.environ.setdefault("DATABASE_URL", "sqlite:///luthien_local.db")
     os.environ.setdefault("REDIS_URL", "")
     os.environ.setdefault("POLICY_CONFIG", "config/policy_config.yaml")
@@ -496,8 +496,6 @@ if __name__ == "__main__":
 
     async def main():
         """Production entry point with proper resource lifecycle."""
-        import argparse
-
         parser = argparse.ArgumentParser(description="Luthien Gateway")
         parser.add_argument(
             "--local",
