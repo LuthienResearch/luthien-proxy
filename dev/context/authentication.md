@@ -29,8 +29,8 @@ Token is extracted from, in order:
 1. `x-anthropic-api-key` header → always use that key directly (explicit override)
 2. Token matches `PROXY_API_KEY` and mode is not `passthrough` → use server's `AnthropicClient` (configured via `ANTHROPIC_API_KEY` env var)
 3. Otherwise (passthrough) → forward the client's token:
-   - Bearer + looks like OAuth token → `AnthropicClient(auth_token=token)` (adds `anthropic-beta: oauth-2025-04-20` header)
-   - Otherwise → `AnthropicClient(api_key=token)`
+   - Bearer + NOT an `sk-ant-*` API key → `AnthropicClient(auth_token=token)` (OAuth token)
+   - `sk-ant-*` API key (any transport) → `AnthropicClient(api_key=token)`
 
 **For OpenAI (`/v1/chat/completions`)**: `verify_token()` validates but the token is NOT forwarded to LiteLLM — LiteLLM uses env vars (`ANTHROPIC_API_KEY`, etc.) or per-request `api_key` kwargs.
 
@@ -65,11 +65,13 @@ This is implemented in `_resolve_api_key(context)` on each policy class (backed 
 
 ---
 
-## OAuth Passthrough (2026-03-17)
+## OAuth Passthrough (2026-03-18)
 
-Claude Code authenticates via OAuth (Claude Pro/Max accounts). The OAuth bearer token is forwarded to Anthropic via `AnthropicClient(auth_token=token)`, which adds the required `anthropic-beta: oauth-2025-04-20` header.
+Claude Code authenticates via OAuth (Claude Pro/Max accounts). The OAuth bearer token is forwarded to Anthropic via `AnthropicClient(auth_token=token)`.
 
-`is_anthropic_api_key(token)` in `gateway_routes.py` distinguishes `sk-ant-*` API keys from OAuth tokens to choose the right client constructor.
+`is_anthropic_api_key(token)` in `credential_manager.py` distinguishes `sk-ant-*` API keys from OAuth tokens. API keys are always sent via `api_key=` (x-api-key header), while non-`sk-ant-*` bearer tokens use `auth_token=` (Authorization: Bearer).
+
+**Known tech debt**: The prefix-based distinction (`sk-ant-*`) is a workaround. Ideally, credential type should be surfaced by the credential manager during validation so the gateway can treat each credential type without string inspection.
 
 ---
 

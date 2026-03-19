@@ -17,7 +17,7 @@ must parse SSE content to detect mid-stream failures (HTTP status will be 200).
 
 Requires:
   - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock.yaml up -d
+      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
 
 Run:
     uv run pytest -m mock_e2e tests/e2e_tests/test_mock_error_handling.py -v

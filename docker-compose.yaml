@@ -100,6 +100,7 @@ services:
       - GATEWAY_PORT=8000
       - POLICY_CONFIG=${POLICY_CONFIG:-/app/config/policy_config.yaml}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - OTEL_ENABLED=${OTEL_ENABLED:-true}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
       - OTEL_SERVICE_NAME=luthien-gateway
       # API keys loaded from .env file only (not from shell) to prevent

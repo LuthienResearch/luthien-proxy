@@ -31,11 +31,11 @@ class TestSettingsDefaults:
         settings = Settings(_env_file=None)
         assert settings.policy_config == ""
 
-    def test_default_otel_enabled(self, monkeypatch):
-        """Test OpenTelemetry is enabled by default."""
+    def test_default_otel_disabled(self, monkeypatch):
+        """Test OpenTelemetry is disabled by default (opt-in)."""
         monkeypatch.delenv("OTEL_ENABLED", raising=False)
         settings = Settings(_env_file=None)
-        assert settings.otel_enabled is True
+        assert settings.otel_enabled is False
 
     def test_default_service_name(self, monkeypatch):
         """Test default service name."""
