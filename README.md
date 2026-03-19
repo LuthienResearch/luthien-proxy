@@ -117,6 +117,19 @@ luthien status          # check gateway health
 luthien up / luthien down  # start/stop the stack
 ```
 
+### Quick Start (no Docker)
+
+If you don't want Docker, you can run the gateway directly with SQLite:
+
+```bash
+git clone https://github.com/LuthienResearch/luthien-proxy.git
+cd luthien-proxy
+uv sync
+uv run python -m luthien_proxy.main --local
+```
+
+The `--local` flag auto-configures SQLite, skips Redis, and generates ephemeral API keys (printed at startup). No `.env` editing required.
+
 ---
 
 ## What You Get
