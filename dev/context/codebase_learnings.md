@@ -134,40 +134,28 @@ The gateway provides an admin API for runtime policy management. Policies are cr
 
 All admin endpoints require `Authorization: Bearer ${ADMIN_API_KEY}` header.
 
-### Creating and Activating Policies
+### Setting the Active Policy
 
-**Step 1: Create a named policy instance** (saved to DB but not active):
+Use a single endpoint to set the active policy (creates and activates in one step):
 
 ```bash
-curl -X POST http://localhost:8000/api/admin/policy/create \
+curl -X POST http://localhost:8000/api/admin/policy/set \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${ADMIN_API_KEY}" \
   -d '{
-    "name": "my-policy",
     "policy_class_ref": "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
     "config": {
       "model": "openai/gpt-4o-mini",
       "probability_threshold": 0.99,
       "temperature": 0.0,
       "max_tokens": 256
-    },
-    "description": "Optional description"
+    }
   }'
-```
-
-**Step 2: Activate the policy**:
-
-```bash
-curl -X POST http://localhost:8000/api/admin/policy/activate \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ${ADMIN_API_KEY}" \
-  -d '{"name": "my-policy"}'
 ```
 
 ### Other Useful Endpoints
 
 - `GET /api/admin/policy/current` - View active policy and its config
-- `GET /api/admin/policy/instances` - List all saved policy instances
 - `GET /api/admin/policy/list` - List available policy classes with descriptions
 
 **Files**: `src/luthien_proxy/admin/routes.py`

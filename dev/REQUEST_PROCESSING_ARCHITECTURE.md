@@ -269,14 +269,13 @@ Policies can intercept at these points:
 
 - **Gateway Routes**: `src/luthien_proxy/gateway_routes.py`
 - **PolicyOrchestrator**: `src/luthien_proxy/orchestration/policy_orchestrator.py`
-- **PolicyExecutor**: `src/luthien_proxy/streaming/policy_executor/default.py`
-- **ClientFormatter**: `src/luthien_proxy/streaming/client_formatter/{openai,anthropic}.py`
+- **PolicyExecutor**: `src/luthien_proxy/streaming/policy_executor/executor.py`
+- **ClientFormatter**: `src/luthien_proxy/streaming/client_formatter/openai.py`
 
 ### Supporting Components
 
 - **StreamingChunkAssembler**: `src/luthien_proxy/streaming/streaming_chunk_assembler.py`
 - **PolicyContext**: `src/luthien_proxy/policy_core/policy_context.py`
-- **ObservabilityContext**: `src/luthien_proxy/observability/context.py`
 - **TransactionRecorder**: `src/luthien_proxy/observability/transaction_recorder.py`
 
 ### Policies
