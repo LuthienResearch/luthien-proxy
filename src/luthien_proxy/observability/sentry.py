@@ -14,6 +14,7 @@ from typing import Any
 import sentry_sdk
 from sentry_sdk.integrations.logging import ignore_logger
 from sentry_sdk.scrubber import DEFAULT_DENYLIST, EventScrubber
+from sentry_sdk.types import Event, Hint
 
 from luthien_proxy.settings import Settings, get_settings
 
@@ -80,7 +81,7 @@ def _summarize(value: Any) -> Any:
     return f"<{type(value).__name__}>"
 
 
-def _sentry_before_send(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] | None:
+def _sentry_before_send(event: Event, hint: Hint) -> Event | None:
     """Selectively redact sensitive data while preserving debugging context.
 
     Keeps variable names, types, and safe values (call_id, model, chunk_count).
