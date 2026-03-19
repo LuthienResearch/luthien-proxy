@@ -1,6 +1,5 @@
 """Tests for local_process module."""
 
-import os
 import signal
 from unittest.mock import MagicMock, patch
 
@@ -13,7 +12,6 @@ from luthien_cli.local_process import (
     start_gateway,
     stop_gateway,
 )
-
 
 # === _parse_env_value ===
 

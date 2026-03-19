@@ -166,7 +166,11 @@ def ensure_gateway_venv() -> str:
             _run_uv("venv", str(venv_dir), "--python", "3.13", console=console)
 
     install_args = [
-        "pip", "install", "--python", str(venv_python), "luthien-proxy",
+        "pip",
+        "install",
+        "--python",
+        str(venv_python),
+        "luthien-proxy",
     ]
     if needs_install:
         label = "Installing luthien-proxy..."
