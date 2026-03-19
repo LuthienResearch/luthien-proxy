@@ -46,6 +46,8 @@ Proactively update files in `dev/context/` as you learn about the codebase:
 
 These files persist across sessions and help build institutional knowledge. Update them during development, not just at the end. Include timestamps (YYYY-MM-DD) when adding entries to detect when knowledge may be stale.
 
+**Reliability warning**: Files in `dev/context/` are written by both humans and AI agents. Agent-written content may contain inferences presented as facts. Before relying on a claim in these docs (especially around how authentication, streaming, or edge cases work), verify against the actual code. If you discover incorrect information, fix it immediately rather than working around it.
+
 Note that both Claude Code and Codex agents work in this repo and may read from and write to context.
 
 ### Objective Workflow

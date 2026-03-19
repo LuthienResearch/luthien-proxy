@@ -34,3 +34,14 @@ Update context files proactively during development, not just at the end of obje
 - Include file paths and line numbers for code references
 - Explain WHY decisions were made, not just WHAT was implemented
 - Document gotchas when you encounter them, while the pain is fresh
+
+## Reliability of Context Documents
+
+These documents are written by both humans and AI agents during development. **Agent-written content may contain incorrect inferences presented as facts.** Known incidents:
+
+- `authentication.md` documented prefix-based OAuth detection (`sk-ant-*`) as intentional architecture. It was actually a bug — the transport header (`Authorization: Bearer` vs `x-api-key`) is the correct discriminator. This incorrect doc caused a future agent to spend time defending the wrong approach.
+
+**When reading these docs:**
+- Treat claims about behavior as "probably true, verify before relying on"
+- If something seems wrong, check the code — the code is authoritative
+- When you fix incorrect information, note the correction with a timestamp

@@ -29,8 +29,8 @@ Token is extracted from, in order:
 1. `x-anthropic-api-key` header → always use that key directly (explicit override)
 2. Token matches `PROXY_API_KEY` and mode is not `passthrough` → use server's `AnthropicClient` (configured via `ANTHROPIC_API_KEY` env var)
 3. Otherwise (passthrough) → forward the client's token:
-   - Bearer + NOT an `sk-ant-*` API key → `AnthropicClient(auth_token=token)` (OAuth token)
-   - `sk-ant-*` API key (any transport) → `AnthropicClient(api_key=token)`
+   - Received via `Authorization: Bearer` → `AnthropicClient(auth_token=token)` (OAuth token)
+   - Received via `x-api-key` → `AnthropicClient(api_key=token)` (API key)
 
 **For Anthropic (`/v1/messages`)**: `verify_token()` validates but the token is NOT forwarded to LiteLLM — LiteLLM uses env vars (`ANTHROPIC_API_KEY`, etc.) or per-request `api_key` kwargs.
 
@@ -65,13 +65,16 @@ This is implemented in `_resolve_api_key(context)` on each policy class (backed 
 
 ---
 
-## OAuth Passthrough (2026-03-18)
+## OAuth Passthrough (2026-03-18, updated 2026-03-18)
 
-Claude Code authenticates via OAuth (Claude Pro/Max accounts). The OAuth bearer token is forwarded to Anthropic via `AnthropicClient(auth_token=token)`.
+Claude Code authenticates via OAuth (Claude Pro/Max accounts). The transport header is authoritative for credential type:
 
-`is_anthropic_api_key(token)` in `credential_manager.py` distinguishes `sk-ant-*` API keys from OAuth tokens. API keys are always sent via `api_key=` (x-api-key header), while non-`sk-ant-*` bearer tokens use `auth_token=` (Authorization: Bearer).
+- `Authorization: Bearer <token>` → OAuth token → `AnthropicClient(auth_token=token)`
+- `x-api-key: <token>` → API key → `AnthropicClient(api_key=token)`
 
-**Known tech debt**: The prefix-based distinction (`sk-ant-*`) is a workaround. Ideally, credential type should be surfaced by the credential manager during validation so the gateway can treat each credential type without string inspection.
+**Important**: The transport header (Bearer vs x-api-key) is the correct way to distinguish credential types. Do NOT use prefix-based detection (`sk-ant-*` inspection). This was verified empirically — Claude Code always uses the correct transport for each credential type (PR #347).
+
+`is_anthropic_api_key(token)` still exists in `credential_manager.py` as tech debt. It should not be used for new code — use the transport header instead.
 
 ---
 
