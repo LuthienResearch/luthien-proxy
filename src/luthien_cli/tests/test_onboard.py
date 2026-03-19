@@ -275,6 +275,11 @@ def test_find_free_port_raises_after_exhaustion():
             _find_free_port(5433)
 
 
+def test_find_free_port_skips_excluded():
+    with patch("luthien_cli.local_process.is_port_free", return_value=True):
+        assert _find_free_port(5433, exclude={5433, 5434}) == 5435
+
+
 def test_find_docker_ports_respects_env_vars():
     with patch.dict("os.environ", {"GATEWAY_PORT": "9999"}):
         with patch("luthien_cli.local_process.find_free_port", return_value=5433):
