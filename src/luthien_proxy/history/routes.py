@@ -9,7 +9,10 @@ Provides endpoints for:
 
 from __future__ import annotations
 
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -118,7 +121,8 @@ async def get_session(
     try:
         return await fetch_session_detail(session_id, db_pool)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from None
+        logger.warning(f"Session not found: {repr(e)}")
+        raise HTTPException(status_code=404, detail="Session not found.") from None
 
 
 @api_router.get("/sessions/{session_id}/export")
@@ -135,7 +139,8 @@ async def export_session(
     try:
         session = await fetch_session_detail(session_id, db_pool)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from None
+        logger.warning(f"Session not found for export: {repr(e)}")
+        raise HTTPException(status_code=404, detail="Session not found.") from None
 
     markdown = export_session_markdown(session)
 

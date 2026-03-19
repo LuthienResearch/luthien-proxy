@@ -221,15 +221,17 @@ async def set_policy(
             validation_errors=[dict(err) for err in e.errors()],
         )
     except ValueError as e:
+        logger.warning(f"Policy validation error: {repr(e)}")
         return PolicyEnableResponse(
             success=False,
             error="Validation error",
-            troubleshooting=[str(e)],
+            troubleshooting=["Check the policy configuration values and try again."],
         )
     except (ImportError, AttributeError, TypeError) as e:
+        logger.warning(f"Policy load error: {repr(e)}")
         return PolicyEnableResponse(
             success=False,
-            error=str(e),
+            error="Failed to load policy class.",
             troubleshooting=[
                 "Check that the policy class reference is correct",
                 "Verify the policy module exists and is importable",
