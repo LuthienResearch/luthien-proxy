@@ -307,6 +307,23 @@ if stream_state.finish_reason:
 - **Right**: `walk_packages(pkg.__path__, prefix="luthien_proxy.policies.")` — yields full dotted names including subpackage modules
 - **Affected**: `policy_discovery.py` — needed for preset policies in `policies/presets/` subpackage
 
+## Docker Compose Does Not Work From Worktrees (2026-03-18)
+
+**Gotcha**: `docker-compose.yaml` volume mounts (`./src:/app/src:ro`) resolve relative to the main repo root, not the worktree directory. Running `docker compose up` from a worktree mounts the main repo's source code, not the worktree's.
+
+- **Symptom**: Code changes in the worktree don't appear in the running container
+- **Also**: `.env` is gitignored and only exists in the main repo root
+- **Fix**: Use the local dev server instead: `DATABASE_URL=sqlite:///tmp/luthien-dev.db REDIS_URL="" uv run uvicorn luthien_proxy.main:create_app --factory --port 8001`
+- **See also**: ARCHITECTURE.md "Development from Worktrees" section
+
+## Coverage Output Drowns E2E Test Results (2026-03-18)
+
+**Gotcha**: `pyproject.toml` defaults include `--cov` which produces a full coverage table. For e2e tests (which go through Docker), this table shows 0% on all source files and obscures actual test pass/fail output.
+
+- **Symptom**: `uv run pytest -m mock_e2e ... 2>&1 | tail -30` shows nothing but coverage table
+- **Fix**: Add `--no-cov` when running e2e, mock_e2e, or sqlite_e2e tests
+- **Example**: `uv run pytest -m sqlite_e2e tests/e2e_tests/ --no-cov -v`
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

@@ -124,6 +124,64 @@ Client receives SSE events
 | `debug/` | Debug endpoints for inspecting conversation events |
 | `usage_telemetry/` | `UsageCollector` — in-memory aggregate metrics (request counts, token counts), periodic send to telemetry endpoint |
 
+## External Dependencies
+
+| Service | Used For | Required? |
+|---------|----------|-----------|
+| **PostgreSQL** | Conversation storage, policy config, auth config, request logs, telemetry config | Yes (or SQLite for local mode) |
+| **Redis** | Credential validation cache, activity event pub/sub (SSE), policy config distributed lock, last-credential-type metadata | No — in-process replacements used when `REDIS_URL` is empty |
+
+When `REDIS_URL` is unset, the gateway runs in **local mode**: single-process with in-process pub/sub (`InProcessEventPublisher`), in-process credential cache (`InProcessCredentialCache`), and no distributed policy lock. This is appropriate for single-user local development.
+
+### Observability Pipeline
+
+Events flow through a multi-sink emitter:
+
+```
+Application code
+    |
+    v
+EventEmitter (observability/emitter.py)
+    |-- stdout (structured logging)
+    |-- Database (TransactionRecorder → conversation_events)
+    |-- EventPublisher (activity SSE stream)
+           |-- RedisEventPublisher (when Redis available)
+           |-- InProcessEventPublisher (local mode)
+                    |
+                    v
+              /activity/monitor SSE endpoint (ui/routes.py)
+```
+
+`EventEmitter` is the high-level multi-sink dispatcher. `EventPublisherProtocol` is the transport layer for the SSE activity stream specifically. Don't confuse the two — "Emitter" dispatches to multiple sinks, "Publisher" is one specific sink (the SSE activity feed).
+
+### Configuration Surfaces
+
+Settings live in different places depending on their nature:
+
+| Surface | What goes here | Example |
+|---------|---------------|---------|
+| `Settings` (pydantic-settings, env vars) | Infrastructure config | `DATABASE_URL`, `REDIS_URL`, `GATEWAY_PORT`, `SENTRY_DSN` |
+| YAML via `POLICY_CONFIG` | Policy selection and policy-specific config | Policy class, model, threshold |
+| Admin API (`/api/admin/*`) | Runtime-changeable settings | Active policy, auth mode, gateway settings |
+| CLI config (`~/.luthien/config.toml`) | Per-user CLI preferences | Repo path, default policy |
+
+## Development from Worktrees
+
+Docker Compose does **not** work reliably from worktrees — volume mounts resolve relative to the main repo, not the worktree. Instead, run a local dev server directly:
+
+```bash
+DATABASE_URL=sqlite:///tmp/luthien-dev.db REDIS_URL="" \
+  uv run uvicorn luthien_proxy.main:create_app --factory --port 8001
+```
+
+This starts the gateway in local mode (SQLite + in-process pub/sub). The activity monitor, admin API, and history UI all work. Add `tmp/` to your global gitignore to avoid committing SQLite files.
+
+For e2e tests from a worktree, use `sqlite_e2e` markers which start an in-process gateway automatically:
+
+```bash
+uv run pytest -m sqlite_e2e tests/e2e_tests/ --no-cov
+```
+
 ## Key Abstractions
 
 ### BasePolicy

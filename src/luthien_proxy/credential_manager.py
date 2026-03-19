@@ -21,7 +21,7 @@ from luthien_proxy.utils.db import DatabasePool
 
 logger = logging.getLogger(__name__)
 
-REDIS_KEY_PREFIX = "luthien:auth:cred:"
+CACHE_KEY_PREFIX = "luthien:auth:cred:"
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages/count_tokens"
 ANTHROPIC_API_VERSION = "2023-06-01"
 ANTHROPIC_BETA = "token-counting-2024-11-01"
@@ -222,7 +222,7 @@ class CredentialManager:
             return 0
 
         keys: list[str] = []
-        async for key in self._cache.scan_iter(match=f"{REDIS_KEY_PREFIX}*"):
+        async for key in self._cache.scan_iter(match=f"{CACHE_KEY_PREFIX}*"):
             keys.append(key)
 
         if not keys:
@@ -237,7 +237,7 @@ class CredentialManager:
             return []
 
         results = []
-        async for key in self._cache.scan_iter(match=f"{REDIS_KEY_PREFIX}*"):
+        async for key in self._cache.scan_iter(match=f"{CACHE_KEY_PREFIX}*"):
             raw = await self._cache.get(key)
             if raw is None:
                 continue
@@ -247,7 +247,7 @@ class CredentialManager:
                 continue
             results.append(
                 CachedCredential(
-                    key_hash=key_str.removeprefix(REDIS_KEY_PREFIX),
+                    key_hash=key_str.removeprefix(CACHE_KEY_PREFIX),
                     valid=data["valid"],
                     validated_at=data["validated_at"],
                     last_used_at=data.get("last_used_at", data["validated_at"]),
@@ -267,7 +267,7 @@ class CredentialManager:
     async def _get_cached(self, key_hash: str) -> CachedCredential | None:
         if self._cache is None:
             return None
-        raw = await self._cache.get(f"{REDIS_KEY_PREFIX}{key_hash}")
+        raw = await self._cache.get(f"{CACHE_KEY_PREFIX}{key_hash}")
         if raw is None:
             return None
         data = self._parse_cached_data(raw, f"{key_hash[:16]}...")
@@ -286,7 +286,7 @@ class CredentialManager:
         now = time.time()
         ttl = self._config.valid_cache_ttl_seconds if valid else self._config.invalid_cache_ttl_seconds
         data = json.dumps({"valid": valid, "validated_at": now, "last_used_at": now})
-        await self._cache.setex(f"{REDIS_KEY_PREFIX}{key_hash}", ttl, data)
+        await self._cache.setex(f"{CACHE_KEY_PREFIX}{key_hash}", ttl, data)
 
     async def _touch_last_used(self, key_hash: str) -> None:
         """Update last_used_at without resetting TTL.
@@ -297,7 +297,7 @@ class CredentialManager:
         """
         if self._cache is None:
             return
-        redis_key = f"{REDIS_KEY_PREFIX}{key_hash}"
+        redis_key = f"{CACHE_KEY_PREFIX}{key_hash}"
         raw = await self._cache.get(redis_key)
         if raw is None:
             return
@@ -312,7 +312,7 @@ class CredentialManager:
     async def _invalidate_key(self, key_hash: str) -> bool:
         if self._cache is None:
             return False
-        return await self._cache.delete(f"{REDIS_KEY_PREFIX}{key_hash}")
+        return await self._cache.delete(f"{CACHE_KEY_PREFIX}{key_hash}")
 
     async def _call_count_tokens(self, credential: str, *, is_bearer: bool) -> bool | None:
         """Validate a credential by calling the free count_tokens endpoint.
