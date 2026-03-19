@@ -100,7 +100,7 @@ async function apiCall(endpoint, options = {}) {
 
 // Shared HTML escaper — also used by FormRenderer
 window.escapeHtml = function(text) {
-    if (typeof text !== 'string') return text;
+    if (typeof text !== 'string') return String(text ?? '');
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
@@ -846,9 +846,11 @@ async function runTest(side) {
             stream: false,
             use_mock: false,
         };
-        // Pass custom API key if user entered one
-        if (state.credentialSource === 'custom' && state.apiKey) {
-            testPayload.api_key = state.apiKey;
+        // Read API key from DOM at send time (avoids persisting in global state)
+        if (state.credentialSource === 'custom') {
+            const credInput = document.getElementById(`cred-input-${side}`);
+            const key = credInput ? credInput.value.trim() : '';
+            if (key) testPayload.api_key = key;
         }
         const result = await apiCall('/api/admin/test/chat', {
             method: 'POST',

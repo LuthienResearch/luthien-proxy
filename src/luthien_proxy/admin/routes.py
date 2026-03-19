@@ -330,8 +330,8 @@ async def send_chat(
 
     # Use custom API key if provided, otherwise fall back to server proxy key
     test_api_key = settings.proxy_api_key
-    if body.api_key is not None and body.api_key != "":
-        test_api_key = body.api_key
+    if body.api_key is not None and body.api_key.strip():
+        test_api_key = body.api_key.strip()
 
     try:
         async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
