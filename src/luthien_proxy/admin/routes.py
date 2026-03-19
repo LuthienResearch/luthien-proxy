@@ -87,6 +87,11 @@ class ChatRequest(BaseModel):
         "The policy pipeline still runs on both the request and the mock response. "
         "Set to True to skip the real LLM call (useful when no server-side LLM credentials are configured).",
     )
+    api_key: str | None = Field(
+        default=None,
+        description="Optional API key to use for this test request. "
+        "Overrides the server's proxy key as the credential sent to the gateway.",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -323,12 +328,17 @@ async def send_chat(
         "stream": False,
     }
 
+    # Use custom API key if provided, otherwise fall back to server proxy key
+    test_api_key = settings.proxy_api_key
+    if body.api_key is not None and body.api_key != "":
+        test_api_key = body.api_key
+
     try:
         async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
             response = await client.post(
                 f"{base_url}/v1/messages",
                 json=payload,
-                headers={"x-api-key": settings.proxy_api_key},
+                headers={"x-api-key": test_api_key},
             )
 
         if response.status_code != 200:
