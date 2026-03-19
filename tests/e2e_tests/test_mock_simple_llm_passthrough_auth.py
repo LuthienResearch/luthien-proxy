@@ -31,7 +31,7 @@ _SIMPLE_LLM_POLICY = "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
 _PASSTHROUGH_JUDGE_CONFIG = {
     "instructions": "Pass all content through",
     "model": "claude-haiku-4-5",
-    "api_base": f"http://host.docker.internal:{DEFAULT_MOCK_PORT}",
+    "api_base": f"http://127.0.0.1:{DEFAULT_MOCK_PORT}",
     # Deliberately no api_key — should use client's passthrough key
     "on_error": "pass",
 }

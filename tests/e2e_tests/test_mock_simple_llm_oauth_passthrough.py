@@ -32,7 +32,7 @@ _OAUTH_TOKEN = "claude-oauth-bearer-token-for-e2e-testing"
 _JUDGE_CONFIG = {
     "instructions": "Pass all content through",
     "model": "claude-haiku-4-5",
-    "api_base": f"http://host.docker.internal:{DEFAULT_MOCK_PORT}",
+    "api_base": f"http://127.0.0.1:{DEFAULT_MOCK_PORT}",
     "on_error": "pass",
 }
 

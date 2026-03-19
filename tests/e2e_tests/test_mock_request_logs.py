@@ -80,7 +80,9 @@ def _compose_up_gateway(extra_env: dict[str, str] | None = None) -> None:
     variables, then removes it after the container starts.
     """
     main_root, worktree_root = _find_roots()
-    mock_yaml = main_root / "docker-compose.mock-bridge.yaml"
+    mock_yaml = worktree_root / "docker-compose.mock-bridge.yaml"
+    if not mock_yaml.exists():
+        mock_yaml = main_root / "docker-compose.mock-bridge.yaml"
 
     compose_cmd = ["docker", "compose", "-f", str(main_root / "docker-compose.yaml")]
     if mock_yaml.exists():
@@ -100,10 +102,20 @@ def _compose_up_gateway(extra_env: dict[str, str] | None = None) -> None:
         os.close(fd)
         compose_cmd += ["-f", override_path]
 
+    env = os.environ.copy()
+    env_file = main_root / ".env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _, val = line.partition("=")
+                env.setdefault(key.strip(), val.strip().strip('"'))
+
     try:
         subprocess.run(
             [*compose_cmd, "up", "-d", "gateway"],
             cwd=str(main_root),
+            env=env,
             check=True,
             timeout=60,
             capture_output=True,
