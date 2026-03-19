@@ -150,5 +150,5 @@ class PolicyDecisionRecord(LuthienRecord):
 
 ## See Also
 
-- [observability/context.py](../../src/luthien_proxy/observability/context.py) - Implementation
+- [observability/emitter.py](../../src/luthien_proxy/observability/emitter.py) - EventEmitter implementation
 - [gateway_routes.py](../../src/luthien_proxy/gateway_routes.py) - Real-world usage examples

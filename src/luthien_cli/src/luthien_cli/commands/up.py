@@ -13,18 +13,28 @@ from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config, save_config
 from luthien_cli.repo import ensure_repo
 
 
-def wait_for_healthy(url: str, timeout: int = 60) -> bool:
-    """Poll gateway /health until it responds or timeout."""
+def wait_for_healthy(url: str, timeout: int = 60, console: Console | None = None) -> bool:
+    """Poll gateway /health until it responds or timeout.
+
+    Shows a spinner when a console is provided.
+    """
     deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            r = httpx.get(f"{url}/health", timeout=5.0)
-            if r.status_code == 200:
-                return True
-        except (httpx.ConnectError, httpx.ReadError, httpx.TimeoutException):
-            pass
-        time.sleep(2)
-    return False
+
+    def _poll() -> bool:
+        while time.time() < deadline:
+            try:
+                r = httpx.get(f"{url}/health", timeout=5.0)
+                if r.status_code == 200:
+                    return True
+            except (httpx.ConnectError, httpx.ReadError, httpx.TimeoutException):
+                pass
+            time.sleep(2)
+        return False
+
+    if console is not None:
+        with console.status("Waiting for gateway to be healthy..."):
+            return _poll()
+    return _poll()
 
 
 @click.command()
@@ -40,18 +50,18 @@ def up(follow: bool):
 
     console.print(f"[blue]Starting stack in {config.repo_path}[/blue]")
 
-    result = subprocess.run(
-        ["docker", "compose", "up", "-d"],
-        cwd=config.repo_path,
-        capture_output=True,
-        text=True,
-    )
+    with console.status("Starting containers..."):
+        result = subprocess.run(
+            ["docker", "compose", "up", "-d"],
+            cwd=config.repo_path,
+            capture_output=True,
+            text=True,
+        )
     if result.returncode != 0:
         console.print(f"[red]docker compose up failed:[/red]\n{result.stderr}")
         raise SystemExit(1)
 
-    console.print("[yellow]Waiting for gateway to be healthy...[/yellow]")
-    if wait_for_healthy(config.gateway_url):
+    if wait_for_healthy(config.gateway_url, console=console):
         console.print(f"[green]Gateway is healthy at {config.gateway_url}[/green]")
     else:
         console.print("[red]Gateway did not become healthy within 60s[/red]")
@@ -76,12 +86,13 @@ def down():
 
     console.print(f"[blue]Stopping stack in {config.repo_path}[/blue]")
 
-    result = subprocess.run(
-        ["docker", "compose", "down"],
-        cwd=config.repo_path,
-        capture_output=True,
-        text=True,
-    )
+    with console.status("Stopping containers..."):
+        result = subprocess.run(
+            ["docker", "compose", "down"],
+            cwd=config.repo_path,
+            capture_output=True,
+            text=True,
+        )
     if result.returncode != 0:
         console.print(f"[red]docker compose down failed:[/red]\n{result.stderr}")
         raise SystemExit(1)

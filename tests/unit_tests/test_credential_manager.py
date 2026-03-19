@@ -27,7 +27,7 @@ class TestHashCredential:
 
 class TestCredentialManagerInit:
     def test_default_config(self):
-        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager = CredentialManager(db_pool=None, cache=None)
         assert manager.config.auth_mode == AuthMode.BOTH
         assert manager.config.validate_credentials is True
         assert manager.config.valid_cache_ttl_seconds == 3600
@@ -37,7 +37,7 @@ class TestCredentialManagerInit:
 class TestCredentialManagerInitialize:
     @pytest.mark.asyncio
     async def test_no_db_uses_default(self):
-        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager = CredentialManager(db_pool=None, cache=None)
         await manager.initialize(default_auth_mode=AuthMode.PASSTHROUGH)
         assert manager.config.auth_mode == AuthMode.PASSTHROUGH
 
@@ -55,7 +55,7 @@ class TestCredentialManagerInitialize:
         mock_db = AsyncMock()
         mock_db.get_pool.return_value = mock_pool
 
-        manager = CredentialManager(db_pool=mock_db, redis_client=None)
+        manager = CredentialManager(db_pool=mock_db, cache=None)
         await manager.initialize()
         assert manager.config.auth_mode == AuthMode.BOTH
         assert manager.config.validate_credentials is False
@@ -68,7 +68,7 @@ class TestCredentialManagerInitialize:
         mock_db = AsyncMock()
         mock_db.get_pool.return_value = mock_pool
 
-        manager = CredentialManager(db_pool=mock_db, redis_client=None)
+        manager = CredentialManager(db_pool=mock_db, cache=None)
         await manager.initialize(default_auth_mode=AuthMode.PASSTHROUGH)
         assert manager.config.auth_mode == AuthMode.PASSTHROUGH
 
@@ -81,7 +81,7 @@ class TestValidateCredential:
         mock_redis.get.return_value = cached_data.encode()
         mock_redis.ttl.return_value = 3000
 
-        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        manager = CredentialManager(db_pool=None, cache=mock_redis)
         result = await manager.validate_credential("test-key", is_bearer=False)
         assert result is True
 
@@ -90,7 +90,7 @@ class TestValidateCredential:
         mock_redis = AsyncMock()
         mock_redis.get.return_value = None
 
-        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        manager = CredentialManager(db_pool=None, cache=mock_redis)
 
         with patch.object(manager, "_call_count_tokens", new_callable=AsyncMock, return_value=True):
             result = await manager.validate_credential("test-key", is_bearer=False)
@@ -102,7 +102,7 @@ class TestValidateCredential:
         mock_redis = AsyncMock()
         mock_redis.get.return_value = None
 
-        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        manager = CredentialManager(db_pool=None, cache=mock_redis)
 
         with patch.object(manager, "_call_count_tokens", new_callable=AsyncMock, return_value=False):
             result = await manager.validate_credential("bad-key", is_bearer=False)
@@ -117,7 +117,7 @@ class TestValidateCredential:
         mock_redis = AsyncMock()
         mock_redis.get.return_value = None
 
-        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        manager = CredentialManager(db_pool=None, cache=mock_redis)
 
         with patch.object(manager, "_call_count_tokens", new_callable=AsyncMock, return_value=None):
             result = await manager.validate_credential("some-key", is_bearer=False)
@@ -130,7 +130,7 @@ class TestValidateCredential:
         mock_redis = AsyncMock()
         mock_redis.get.return_value = None
 
-        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        manager = CredentialManager(db_pool=None, cache=mock_redis)
 
         with patch.object(manager, "_call_count_tokens", new_callable=AsyncMock, return_value=None):
             result = await manager.validate_credential("oauth-token-xyz", is_bearer=True)
@@ -143,7 +143,7 @@ class TestValidateCredential:
         mock_redis = AsyncMock()
         mock_redis.get.return_value = None
 
-        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        manager = CredentialManager(db_pool=None, cache=mock_redis)
 
         with patch.object(manager, "_call_count_tokens", new_callable=AsyncMock, return_value=None):
             result = await manager.validate_credential("sk-ant-api03-abc123", is_bearer=False)
@@ -159,7 +159,7 @@ class TestCallCountTokens:
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
 
-        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager = CredentialManager(db_pool=None, cache=None)
         manager._http_client = mock_client
         result = await manager._call_count_tokens("valid-key", is_bearer=False)
         assert result is True
@@ -171,7 +171,7 @@ class TestCallCountTokens:
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
 
-        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager = CredentialManager(db_pool=None, cache=None)
         manager._http_client = mock_client
         result = await manager._call_count_tokens("invalid-key", is_bearer=False)
         assert result is False
@@ -181,7 +181,7 @@ class TestCallCountTokens:
         mock_client = AsyncMock()
         mock_client.post.side_effect = httpx.ConnectError("connection refused")
 
-        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager = CredentialManager(db_pool=None, cache=None)
         manager._http_client = mock_client
         result = await manager._call_count_tokens("some-key", is_bearer=False)
         assert result is None
@@ -193,7 +193,7 @@ class TestCallCountTokens:
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
 
-        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager = CredentialManager(db_pool=None, cache=None)
         manager._http_client = mock_client
         result = await manager._call_count_tokens("some-key", is_bearer=False)
         assert result is None
@@ -206,7 +206,7 @@ class TestCallCountTokens:
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
 
-        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager = CredentialManager(db_pool=None, cache=None)
         manager._http_client = mock_client
         await manager._call_count_tokens("sk-ant-api03-abc123", is_bearer=False)
 
@@ -222,7 +222,7 @@ class TestCallCountTokens:
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
 
-        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager = CredentialManager(db_pool=None, cache=None)
         manager._http_client = mock_client
         await manager._call_count_tokens("eyJhbGciOiJSUz.oauth-token", is_bearer=True)
 
@@ -239,7 +239,7 @@ class TestCallCountTokens:
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
 
-        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager = CredentialManager(db_pool=None, cache=None)
         manager._http_client = mock_client
         await manager._call_count_tokens("sk-ant-api03-abc123", is_bearer=True)
 
@@ -248,50 +248,50 @@ class TestCallCountTokens:
         assert "x-api-key" not in headers
 
     @pytest.mark.asyncio
-    async def test_bearer_token_includes_oauth_beta_header(self):
-        """Bearer tokens should include the OAuth beta flag in anthropic-beta."""
+    async def test_bearer_token_includes_token_counting_beta_header(self):
+        """Bearer tokens should include the token counting beta flag in anthropic-beta."""
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
 
-        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager = CredentialManager(db_pool=None, cache=None)
         manager._http_client = mock_client
         await manager._call_count_tokens("oauth-token-xyz", is_bearer=True)
 
         headers = mock_client.post.call_args.kwargs["headers"]
-        assert "oauth-2025-04-20" in headers["anthropic-beta"]
+        assert headers["anthropic-beta"] == "token-counting-2024-11-01"
 
     @pytest.mark.asyncio
     async def test_api_key_excludes_oauth_beta_header(self):
-        """API keys should NOT include the OAuth beta flag in anthropic-beta."""
+        """API keys should NOT include oauth flags in anthropic-beta."""
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
 
-        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager = CredentialManager(db_pool=None, cache=None)
         manager._http_client = mock_client
         await manager._call_count_tokens("sk-ant-api03-abc123", is_bearer=False)
 
         headers = mock_client.post.call_args.kwargs["headers"]
-        assert "oauth-2025-04-20" not in headers["anthropic-beta"]
+        assert headers["anthropic-beta"] == "token-counting-2024-11-01"
 
     @pytest.mark.asyncio
-    async def test_bearer_credential_includes_oauth_beta_header(self):
-        """All Bearer credentials include OAuth beta header.
+    async def test_bearer_credential_includes_token_counting_beta_header(self):
+        """All Bearer credentials include token counting beta header.
         Transport (header) is the authority, not token prefix."""
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
 
-        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager = CredentialManager(db_pool=None, cache=None)
         manager._http_client = mock_client
         await manager._call_count_tokens("sk-ant-api03-abc123", is_bearer=True)
 
         headers = mock_client.post.call_args.kwargs["headers"]
-        assert "oauth-2025-04-20" in headers["anthropic-beta"]
+        assert headers["anthropic-beta"] == "token-counting-2024-11-01"
 
     @pytest.mark.asyncio
     async def test_401_bearer_token_returns_none(self):
@@ -301,7 +301,7 @@ class TestCallCountTokens:
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
 
-        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager = CredentialManager(db_pool=None, cache=None)
         manager._http_client = mock_client
         result = await manager._call_count_tokens("oauth-token-xyz", is_bearer=True)
         assert result is None
@@ -310,17 +310,17 @@ class TestCallCountTokens:
 class TestInvalidation:
     @pytest.mark.asyncio
     async def test_invalidate_credential(self):
-        mock_redis = AsyncMock()
-        mock_redis.delete.return_value = 1
-        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        mock_cache = AsyncMock()
+        mock_cache.delete.return_value = True
+        manager = CredentialManager(db_pool=None, cache=mock_cache)
         result = await manager.invalidate_credential("somehash")
         assert result is True
 
     @pytest.mark.asyncio
     async def test_invalidate_missing_credential(self):
-        mock_redis = AsyncMock()
-        mock_redis.delete.return_value = 0
-        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        mock_cache = AsyncMock()
+        mock_cache.delete.return_value = False
+        manager = CredentialManager(db_pool=None, cache=mock_cache)
         result = await manager.invalidate_credential("nothash")
         assert result is False
 
@@ -328,7 +328,7 @@ class TestInvalidation:
     async def test_on_backend_401(self):
         mock_redis = AsyncMock()
         mock_redis.delete.return_value = 1
-        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        manager = CredentialManager(db_pool=None, cache=mock_redis)
         await manager.on_backend_401("some-api-key")
         expected_hash = hash_credential("some-api-key")
         mock_redis.delete.assert_called_once_with(f"luthien:auth:cred:{expected_hash}")
@@ -337,7 +337,7 @@ class TestInvalidation:
 class TestListCached:
     @pytest.mark.asyncio
     async def test_returns_empty_without_redis(self):
-        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager = CredentialManager(db_pool=None, cache=None)
         result = await manager.list_cached()
         assert result == []
 
@@ -345,16 +345,16 @@ class TestListCached:
     async def test_returns_cached_entries(self):
         now = time.time()
         entry = json.dumps({"valid": True, "validated_at": now, "last_used_at": now})
-        mock_redis = AsyncMock()
+        mock_cache = AsyncMock()
 
         async def fake_scan_iter(match=None):
-            yield b"luthien:auth:cred:abc123"
-            yield b"luthien:auth:cred:def456"
+            yield "luthien:auth:cred:abc123"
+            yield "luthien:auth:cred:def456"
 
-        mock_redis.scan_iter = fake_scan_iter
-        mock_redis.get = AsyncMock(return_value=entry.encode())
+        mock_cache.scan_iter = fake_scan_iter
+        mock_cache.get = AsyncMock(return_value=entry)
 
-        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        manager = CredentialManager(db_pool=None, cache=mock_cache)
         result = await manager.list_cached()
         assert len(result) == 2
         assert result[0].key_hash == "abc123"
@@ -363,15 +363,15 @@ class TestListCached:
     @pytest.mark.asyncio
     async def test_skips_expired_keys(self):
         """Keys that expire between scan and get are skipped."""
-        mock_redis = AsyncMock()
+        mock_cache = AsyncMock()
 
         async def fake_scan_iter(match=None):
-            yield b"luthien:auth:cred:gone"
+            yield "luthien:auth:cred:gone"
 
-        mock_redis.scan_iter = fake_scan_iter
-        mock_redis.get = AsyncMock(return_value=None)
+        mock_cache.scan_iter = fake_scan_iter
+        mock_cache.get = AsyncMock(return_value=None)
 
-        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        manager = CredentialManager(db_pool=None, cache=mock_cache)
         result = await manager.list_cached()
         assert result == []
 
@@ -379,7 +379,7 @@ class TestListCached:
 class TestInvalidateAll:
     @pytest.mark.asyncio
     async def test_returns_zero_without_redis(self):
-        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager = CredentialManager(db_pool=None, cache=None)
         result = await manager.invalidate_all()
         assert result == 0
 
@@ -394,7 +394,7 @@ class TestInvalidateAll:
         mock_redis.scan_iter = fake_scan_iter
         mock_redis.unlink = AsyncMock(return_value=2)
 
-        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        manager = CredentialManager(db_pool=None, cache=mock_redis)
         result = await manager.invalidate_all()
         assert result == 2
         mock_redis.unlink.assert_called_once()
@@ -409,7 +409,7 @@ class TestInvalidateAll:
 
         mock_redis.scan_iter = fake_scan_iter
 
-        manager = CredentialManager(db_pool=None, redis_client=mock_redis)
+        manager = CredentialManager(db_pool=None, cache=mock_redis)
         result = await manager.invalidate_all()
         assert result == 0
         mock_redis.unlink.assert_not_called()
@@ -418,13 +418,13 @@ class TestInvalidateAll:
 class TestUpdateConfig:
     @pytest.mark.asyncio
     async def test_update_without_db(self):
-        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager = CredentialManager(db_pool=None, cache=None)
         config = await manager.update_config(auth_mode="passthrough")
         assert config.auth_mode == AuthMode.PASSTHROUGH
 
     @pytest.mark.asyncio
     async def test_partial_update(self):
-        manager = CredentialManager(db_pool=None, redis_client=None)
+        manager = CredentialManager(db_pool=None, cache=None)
         config = await manager.update_config(validate_credentials=False)
         assert config.validate_credentials is False
         assert config.auth_mode == AuthMode.BOTH  # unchanged from default

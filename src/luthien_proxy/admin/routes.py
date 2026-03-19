@@ -522,4 +522,55 @@ async def update_telemetry_config(
     return {"success": True, "enabled": body.enabled}
 
 
+# === Gateway Settings ===
+
+
+class GatewaySettingsResponse(BaseModel):
+    """Response with current gateway settings."""
+
+    inject_policy_context: bool
+    dogfood_mode: bool
+
+
+class GatewaySettingsUpdateRequest(BaseModel):
+    """Request to update gateway settings."""
+
+    inject_policy_context: bool | None = None
+    dogfood_mode: bool | None = None
+
+
+@router.get("/gateway/settings", response_model=GatewaySettingsResponse)
+async def get_gateway_settings(
+    _: str = Depends(verify_admin_token),
+):
+    """Get current gateway settings."""
+    settings = get_settings()
+    return GatewaySettingsResponse(
+        inject_policy_context=settings.inject_policy_context,
+        dogfood_mode=settings.dogfood_mode,
+    )
+
+
+@router.put("/gateway/settings", response_model=GatewaySettingsResponse)
+async def update_gateway_settings(
+    body: GatewaySettingsUpdateRequest,
+    _: str = Depends(verify_admin_token),
+):
+    """Update gateway settings at runtime.
+
+    These settings take effect immediately for new requests.
+    Env var values serve as defaults; runtime updates override them
+    until the gateway restarts.
+    """
+    settings = get_settings()
+    if body.inject_policy_context is not None:
+        settings.inject_policy_context = body.inject_policy_context
+    if body.dogfood_mode is not None:
+        settings.dogfood_mode = body.dogfood_mode
+    return GatewaySettingsResponse(
+        inject_policy_context=settings.inject_policy_context,
+        dogfood_mode=settings.dogfood_mode,
+    )
+
+
 __all__ = ["router"]

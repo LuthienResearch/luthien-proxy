@@ -224,9 +224,9 @@ Copy `.env.example` to `.env` and configure your environment:
 ### Required Configuration
 
 ```bash
-# Upstream LLM Provider API Keys
-OPENAI_API_KEY=your_openai_api_key_here
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
+# Upstream LLM Provider API Keys (at least one required, or use Claude Pro/Max OAuth)
+OPENAI_API_KEY=your_openai_api_key_here       # optional — needed for OpenAI-format policies
+ANTHROPIC_API_KEY=your_anthropic_api_key_here  # optional if using Claude Pro/Max OAuth
 
 # Gateway Authentication
 PROXY_API_KEY=sk-luthien-dev-key     # API key for clients to access the proxy
@@ -287,11 +287,13 @@ policy:
 
 Available policies in `src/luthien_proxy/policies/`:
 
-- `noop_policy.py` - Pass-through (no filtering)
+- `noop_policy.py` - Pass-through (no filtering, default)
+- `simple_policy.py` - Base class for custom request/response policies
+- `simple_llm_policy.py` - Base class for policies using an LLM judge
+- `tool_call_judge_policy.py` - AI-based tool call safety evaluation
+- `string_replacement_policy.py` - Fast string find-and-replace on responses
 - `all_caps_policy.py` - Simple transformation example
 - `debug_logging_policy.py` - Logs requests/responses for debugging
-- `tool_call_judge_policy.py` - AI-based tool call safety evaluation
-- `simple_policy.py` - Base class for custom policies
 
 ## Dev Tooling
 
@@ -346,7 +348,7 @@ The gateway integrates everything into a single FastAPI application:
 
 - **UI** (`src/luthien_proxy/ui/`): Real-time monitoring and debugging
   - `/activity/monitor` - Live activity feed
-  - `/activity/live` - WebSocket activity stream
+  - `/api/activity/stream` - SSE activity stream
   - Debug endpoints for inspection
 
 **Documentation**:
@@ -372,7 +374,7 @@ The gateway integrates everything into a single FastAPI application:
 **UI Endpoints:**
 
 - `GET /activity/monitor` -Real-time activity monitor (HTML)
-- `GET /activity/live` -WebSocket activity stream (JSON)
+- `GET /api/activity/stream` -SSE activity stream (JSON)
 - `GET /debug` -Debug information viewer
 
 **Authentication:**
@@ -390,14 +392,13 @@ curl http://localhost:8000/api/admin/policy/current \
   -H "Authorization: Bearer admin-dev-key"
 ```
 
-**Create a named policy instance:**
+**Set the active policy:**
 
 ```bash
-curl -X POST http://localhost:8000/api/admin/policy/create \
+curl -X POST http://localhost:8000/api/admin/policy/set \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer admin-dev-key" \
   -d '{
-    "name": "my-policy",
     "policy_class_ref": "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
     "config": {
       "model": "openai/gpt-4o-mini",
@@ -408,26 +409,10 @@ curl -X POST http://localhost:8000/api/admin/policy/create \
   }'
 ```
 
-**Activate a policy:**
-
-```bash
-curl -X POST http://localhost:8000/api/admin/policy/activate \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer admin-dev-key" \
-  -d '{"name": "my-policy"}'
-```
-
 **List available policy classes:**
 
 ```bash
 curl http://localhost:8000/api/admin/policy/list \
-  -H "Authorization: Bearer admin-dev-key"
-```
-
-**List saved policy instances:**
-
-```bash
-curl http://localhost:8000/api/admin/policy/instances \
   -H "Authorization: Bearer admin-dev-key"
 ```
 
@@ -437,7 +422,7 @@ The gateway uses an event-driven policy architecture with streaming support.
 
 ### Key Components
 
-- `src/luthien_proxy/policies/base_policy.py` - Abstract policy interface
+- `src/luthien_proxy/policy_core/base_policy.py` - Abstract policy interface
 - `src/luthien_proxy/policies/simple_policy.py` - Base class for custom policies
 - `src/luthien_proxy/orchestration/policy_orchestrator.py` - Policy orchestration
 - `src/luthien_proxy/gateway_routes.py` - API endpoint handlers with policy integration
@@ -496,7 +481,7 @@ docker compose ps db
 docker compose restart db
 
 # Re-run migrations
-docker compose run --rm db-migrations
+docker compose run --rm migrations
 ```
 
 ## License

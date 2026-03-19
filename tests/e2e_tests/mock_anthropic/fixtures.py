@@ -15,7 +15,7 @@ def mock_anthropic():
     what the mock returns for that request.
 
     Requires the gateway to be started with ANTHROPIC_BASE_URL pointing at
-    this server. See docker-compose.mock.yaml.
+    this server. See docker-compose.mock-bridge.yaml.
     """
     server = MockAnthropicServer()
     server.start()

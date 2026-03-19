@@ -176,7 +176,6 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                 descriptor,
                 tuple(emitted_blocks),
                 api_key=self._resolve_judge_api_key(context, self._config.api_key, self._fallback_api_key),
-                extra_headers=self._judge_oauth_headers(context, self._config.api_key),
             )
             context.record_event(
                 "policy.simple_llm.judge_result",

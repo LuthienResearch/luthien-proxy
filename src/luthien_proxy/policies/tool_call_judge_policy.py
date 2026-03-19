@@ -386,7 +386,6 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
                 self._config,
                 self._judge_instructions,
                 api_key=self._resolve_judge_api_key(context, self._config.api_key, self._fallback_api_key),
-                extra_headers=self._judge_oauth_headers(context, self._config.api_key),
             )
         except Exception as exc:
             logger.error(
@@ -442,6 +441,44 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
     # Shared Helpers
     # ========================================================================
 
+    async def _call_judge_with_failsafe(
+        self,
+        policy_ctx: "PolicyContext",
+        name: str,
+        arguments: str,
+    ) -> JudgeResult | None:
+        """Call judge LLM with fail-secure error handling.
+
+        Returns:
+            Judge result object on success, None if judge call failed (fail-secure)
+        """
+        try:
+            return await call_judge(
+                name,
+                arguments,
+                self._config,
+                self._judge_instructions,
+                api_key=self._resolve_judge_api_key(policy_ctx, self._config.api_key, self._fallback_api_key),
+            )
+        except Exception as exc:
+            # LOUD ERROR LOGGING - judge failure is a security concern
+            logger.error(
+                f"🚨 SECURITY: Judge evaluation FAILED for tool call '{name}' with arguments: {arguments[:TOOL_ARGS_TRUNCATION_LENGTH]}... "
+                f"Error: {exc}. DEFAULTING TO BLOCK (fail-secure).",
+                exc_info=True,
+            )
+
+            self._emit_evaluation_failed(policy_ctx, name, arguments, exc)
+            return None
+
+    def _create_judge_failure_message(self, name: str, arguments: str) -> str:
+        """Create user-facing message for judge failure (fail-secure block)."""
+        # Note: We don't include the full exception in user message for security
+        return (
+            f"⚠️ SECURITY BLOCK: Tool call '{name}' could not be evaluated by the judge due to an error. "
+            f"For security, this call has been blocked. "
+            f"Tool arguments: {arguments[:TOOL_ARGS_TRUNCATION_LENGTH]}..."
+        )
     def _emit_evaluation_started(
         self,
         policy_ctx: "PolicyContext",

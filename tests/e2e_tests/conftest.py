@@ -68,7 +68,7 @@ def mock_anthropic():
     before each test to control what the mock returns.
 
     Requires gateway started with ANTHROPIC_BASE_URL=http://host.docker.internal:18888.
-    See docker-compose.mock.yaml.
+    See docker-compose.mock-bridge.yaml.
     """
     server = MockAnthropicServer()
     server.start()
@@ -93,6 +93,13 @@ def claude_available():
     """Check if claude CLI is available."""
     if not shutil.which("claude"):
         pytest.skip("Claude CLI not installed - run: npm install -g @anthropic-ai/claude-cli")
+
+
+@pytest.fixture
+def codex_available():
+    """Check if codex CLI is available."""
+    if not shutil.which("codex"):
+        pytest.skip("Codex CLI not installed - see https://developers.openai.com/codex/quickstart/")
 
 
 @pytest.fixture

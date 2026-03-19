@@ -2,7 +2,7 @@
 
 **When to use this guide:** You're new to the observability system and want a hands-on walkthrough of all features.
 
-This guide walks through testing the UppercaseNthWordPolicy and exploring all observability features.
+This guide walks through testing the AllCapsPolicy and exploring all observability features.
 
 **Other observability docs:**
 - Need to view a specific trace? See [VIEWING_TRACES_GUIDE.md](VIEWING_TRACES_GUIDE.md)
@@ -21,7 +21,7 @@ This guide walks through testing the UppercaseNthWordPolicy and exploring all ob
    ./scripts/observability.sh up -d
    ```
    This starts:
-   - Gateway (with UppercaseNthWordPolicy)
+   - Gateway (with AllCapsPolicy)
    - PostgreSQL and Redis
    - Tempo (distributed tracing)
 
@@ -33,7 +33,7 @@ This guide walks through testing the UppercaseNthWordPolicy and exploring all ob
 
 ## Part 1: Verify Gateway
 
-The gateway is now running in Docker with `UppercaseNthWordPolicy(n=3)` which will uppercase every 3rd word in responses.
+The gateway is now running in Docker with `AllCapsPolicy` which will uppercase all text in responses.
 
 ```bash
 # Check gateway logs
@@ -291,7 +291,7 @@ Back to the **Activity Monitor**, filter to show only **Policy Events**:
 
 **Policy not transforming text?**
 - Check gateway logs for policy initialization
-- Verify UppercaseNthWordPolicy is configured in main.py
+- Verify AllCapsPolicy is configured in `config/policy_config.yaml`
 - Test with non-streaming first (easier to debug)
 
 ## Shutting Down
@@ -306,7 +306,6 @@ This stops all services (gateway, databases, observability stack).
 
 ## Next Steps
 
-- Try changing `n` to a different value in [main.py:78](../src/luthien_proxy/main.py#L78) (e.g., n=2 for every other word, n=1 for all words)
-- Create your own policy by copying [UppercaseNthWordPolicy](../src/luthien_proxy/policies/uppercase_nth_word.py)
+- Create your own policy by copying [AllCapsPolicy](../src/luthien_proxy/policies/all_caps_policy.py)
 - Add more complex transformations (e.g., word filtering, content moderation)
 - Export interesting traces and diffs for documentation

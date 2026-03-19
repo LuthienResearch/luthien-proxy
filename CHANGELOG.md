@@ -4,6 +4,17 @@
 
 ### Features
 
+- **In-process Redis replacement** — activity monitor, credential cache, and all Redis features work without Redis in local single-process mode via `EventPublisherProtocol` and `CredentialCacheProtocol` abstractions
+- **Silence OTel errors** (silence-otel): Gracefully handle missing OTel/Tempo infrastructure
+  - Default `OTEL_ENABLED` to `false` (opt-in instead of opt-out)
+  - Silence gRPC and OTel exporter loggers that spam ERROR on connection failure
+  - Docker Compose explicitly enables OTel when running the full stack
+  - Log "OTel disabled" at DEBUG instead of INFO
+- **CLI progress indicators** (cli-progress): Add spinners to long-running CLI operations so users know the tool isn't hung
+  - `luthien onboard`: spinners during image pull, container stop/start, and health check
+  - `luthien up` / `luthien down`: spinners during container start/stop and health check
+  - `repo.py`: spinners during artifact download and update checks
+- **Policy context injection** — injects a system message informing the LLM about active policies, preventing model confusion when policies modify output; configurable via `INJECT_POLICY_CONTEXT` env var (#355)
 - **SQLite support** for Docker-free installs (#344)
 - **`luthien onboard`** interactive setup command — prompts for policy description, generates keys, starts stack (#317)
 - **Auto-fetch proxy artifacts on onboard** — `luthien onboard` downloads Docker artifacts from GitHub, no repo checkout needed (#345)
@@ -236,7 +247,7 @@
 
 - Improve conversation history list UI (#133)
   - Add first user message preview for at-a-glance session recognition
-  - Add quick filters: Today, This week, Last week, Last 30 days, Claude Code
+  - Add quick filters: Today, This week, Last week, Last 30 days, Claude Code, Codex
   - Add "More filters" dropdown with sort options (newest, oldest, longest, shortest) and policy activity filters
   - Sticky search/filter bar with magnifying glass icon
   - Date grouping (Today, Yesterday, day names, full dates)
@@ -487,7 +498,7 @@
 - Simplified service architecture: gateway, local-llm, db, redis
 - Observability stack: `./scripts/observability.sh up -d`
 - Live development with hot reload
-- Launch scripts for Claude Code routing through gateway
+- Launch scripts for Claude Code and Codex routing through gateway
 - Comprehensive documentation:
   - `dev/event_driven_policy_guide.md` - Policy development guide
   - `dev/observability.md` - Observability features

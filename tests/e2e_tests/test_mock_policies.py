@@ -5,7 +5,7 @@ control the mock response exactly, enabling precise assertions on transformed ou
 
 Requires:
   - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock.yaml up -d
+      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
   - Mock server auto-started by the mock_anthropic fixture (port 18888).
 
 Run:

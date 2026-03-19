@@ -23,5 +23,8 @@ class NoOpPolicy(BasePolicy, AnthropicHookPolicy):
         """Return 'NoOp'."""
         return "NoOp"
 
+    def active_policy_names(self) -> list[str]:
+        """NoOp doesn't modify anything."""
+        return []
 
 __all__ = ["NoOpPolicy"]
