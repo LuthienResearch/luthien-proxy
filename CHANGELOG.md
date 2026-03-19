@@ -4,6 +4,7 @@
 
 ### Features
 
+- **In-process Redis replacement** — activity monitor, credential cache, and all Redis features work without Redis in local single-process mode via `EventPublisherProtocol` and `CredentialCacheProtocol` abstractions
 - **SQLite support** for Docker-free installs (#344)
 - **`luthien onboard`** interactive setup command — prompts for policy description, generates keys, starts stack (#317)
 - **Auto-fetch proxy artifacts on onboard** — `luthien onboard` downloads Docker artifacts from GitHub, no repo checkout needed (#345)
