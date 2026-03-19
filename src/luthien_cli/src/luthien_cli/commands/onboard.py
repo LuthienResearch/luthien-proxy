@@ -130,6 +130,29 @@ def _write_policy(repo_path: str, gateway_url: str) -> None:
         f.write(yaml_content)
 
 
+def _prompt_for_policy(console: Console) -> str:
+    console.print("\n[bold]Describe the policy you'd like applied to LLM responses.[/bold]")
+    console.print(
+        "[dim]Examples:\n"
+        '  "Block any PII such as SSNs, credit card numbers, and email addresses"\n'
+        '  "Ensure responses are professional and appropriate for a workplace"\n'
+        '  "Redact any internal hostnames or IP addresses"[/dim]\n'
+    )
+    return click.prompt("Policy instructions")
+
+
+def _prompt_for_sentry(console: Console) -> tuple[bool, str]:
+    console.print(
+        "\n[bold]Enable Sentry error tracking?[/bold]\n"
+        "[dim]Sends error reports (with sensitive data scrubbed) to help debug gateway issues.[/dim]"
+    )
+    sentry_enabled = click.confirm("Enable Sentry", default=False)
+    sentry_dsn = ""
+    if sentry_enabled:
+        sentry_dsn = click.prompt("Sentry DSN", default="")
+    return sentry_enabled, sentry_dsn
+
+
 def _show_results(
     console: Console,
     gateway_url: str,
@@ -340,15 +363,7 @@ def onboard(use_docker: bool, yes: bool):
 
     proxy_key = _generate_key("sk-luthien")
     admin_key = _generate_key("admin")
-
-    console.print(
-        "\n[bold]Enable Sentry error tracking?[/bold]\n"
-        "[dim]Sends error reports (with sensitive data scrubbed) to help debug gateway issues.[/dim]"
-    )
-    sentry_enabled = click.confirm("Enable Sentry", default=False)
-    sentry_dsn = ""
-    if sentry_enabled:
-        sentry_dsn = click.prompt("Sentry DSN", default="")
+    sentry_enabled, sentry_dsn = _prompt_for_sentry(console)
 
     if use_docker:
         _onboard_docker(console, config, proxy_key, admin_key, sentry_enabled, sentry_dsn)
