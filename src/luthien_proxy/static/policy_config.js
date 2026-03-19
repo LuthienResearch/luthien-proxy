@@ -216,9 +216,8 @@ function renderCurrentPolicyBanner() {
     }
 }
 
-// Policies to show at the top, in this order.
-// Everything else goes behind "See more advanced policies".
-const PROMOTED_POLICIES = [
+// Simple policies shown in the top group, in this order.
+const SIMPLE_POLICIES = [
     'AllCapsPolicy',
     'StringReplacementPolicy',
     'SimpleLLMPolicy',
@@ -271,61 +270,34 @@ function renderPolicyCard(policy, container) {
 }
 
 function renderPolicyList() {
-    const container = document.getElementById('policy-list');
-    container.innerHTML = '';
+    const simpleContainer = document.getElementById('policy-list-simple');
+    const advancedContainer = document.getElementById('policy-list-advanced');
+    simpleContainer.innerHTML = '';
+    advancedContainer.innerHTML = '';
 
-    // Split policies into promoted (top) and advanced (hidden)
-    const promoted = [];
+    // Split policies into simple and advanced
+    const simple = [];
     const advanced = [];
 
     for (const policy of state.availablePolicies) {
-        if (PROMOTED_POLICIES.includes(policy.name)) {
-            promoted.push(policy);
+        if (SIMPLE_POLICIES.includes(policy.name)) {
+            simple.push(policy);
         } else {
             advanced.push(policy);
         }
     }
 
-    // Sort promoted policies in the specified order
-    promoted.sort((a, b) => {
-        return PROMOTED_POLICIES.indexOf(a.name) - PROMOTED_POLICIES.indexOf(b.name);
+    // Sort simple policies in the specified order
+    simple.sort((a, b) => {
+        return SIMPLE_POLICIES.indexOf(a.name) - SIMPLE_POLICIES.indexOf(b.name);
     });
 
-    // Render promoted policies
-    for (const policy of promoted) {
-        renderPolicyCard(policy, container);
+    for (const policy of simple) {
+        renderPolicyCard(policy, simpleContainer);
     }
 
-    // Add "See more advanced policies" divider if there are advanced policies
-    if (advanced.length > 0) {
-        const divider = document.createElement('div');
-        divider.className = 'policy-list-divider';
-        divider.onclick = function() {
-            const advSection = document.getElementById('policy-list-advanced');
-            const arrow = document.getElementById('divider-arrow');
-            const isVisible = advSection.classList.toggle('visible');
-            arrow.classList.toggle('open', isVisible);
-        };
-        divider.innerHTML = `
-            <span class="divider-line"></span>
-            <span class="divider-text">
-                <span class="divider-arrow" id="divider-arrow">&#9654;</span>
-                ${advanced.length} more policies
-            </span>
-            <span class="divider-line"></span>
-        `;
-        container.appendChild(divider);
-
-        // Container for advanced policies
-        const advSection = document.createElement('div');
-        advSection.className = 'policy-list-advanced';
-        advSection.id = 'policy-list-advanced';
-
-        for (const policy of advanced) {
-            renderPolicyCard(policy, advSection);
-        }
-
-        container.appendChild(advSection);
+    for (const policy of advanced) {
+        renderPolicyCard(policy, advancedContainer);
     }
 }
 

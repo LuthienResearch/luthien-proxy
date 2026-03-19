@@ -1003,21 +1003,17 @@
             background: #1a1a1a;
             border: 1px solid #333;
             border-radius: 6px;
-            padding: 8px;
+            padding: 8px 14px;
             cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            font-size: 13px;
+            color: #888;
             transition: all 0.15s;
         }
 
         .settings-gear-btn:hover {
             border-color: #555;
             background: #222;
-        }
-
-        .settings-gear-btn:hover svg path {
-            fill: #e5e5e5;
+            color: #e5e5e5;
         }
 
         .settings-dropdown {
@@ -1075,53 +1071,6 @@
             color: #f87171;
         }
 
-        /* Policy list section toggle */
-        .policy-list-divider {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin: 12px 0 8px;
-            cursor: pointer;
-            user-select: none;
-        }
-
-        .policy-list-divider:hover .divider-text {
-            color: #e5e5e5;
-        }
-
-        .divider-line {
-            flex: 1;
-            height: 1px;
-            background: #262626;
-        }
-
-        .divider-text {
-            font-size: 12px;
-            color: #666;
-            white-space: nowrap;
-            transition: color 0.15s;
-        }
-
-        .divider-arrow {
-            font-size: 10px;
-            color: #666;
-            transition: transform 0.2s;
-            display: inline-block;
-        }
-
-        .divider-arrow.open {
-            transform: rotate(90deg);
-        }
-
-        .policy-list-advanced {
-            display: none;
-        }
-
-        .policy-list-advanced.visible {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
     </style>
 </head>
 <body>
@@ -1142,13 +1091,9 @@
                 <h1>Policy Configuration</h1>
                 <p class="subtitle">Configure and activate gateway policies</p>
             </div>
-            <!-- Gateway Settings Gear Icon -->
+            <!-- Gateway Settings Button -->
             <div class="settings-gear" id="settings-gear">
-                <button class="settings-gear-btn" id="settings-gear-btn" title="Gateway Settings">
-                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M8.325 2.317a1.25 1.25 0 0 1 1.224-1.003h.902a1.25 1.25 0 0 1 1.224 1.003l.215 1.074a6.25 6.25 0 0 1 1.36.786l1.028-.35a1.25 1.25 0 0 1 1.476.535l.451.78a1.25 1.25 0 0 1-.252 1.538l-.813.724a6.3 6.3 0 0 1 0 1.192l.813.724a1.25 1.25 0 0 1 .252 1.538l-.451.78a1.25 1.25 0 0 1-1.476.535l-1.028-.35a6.25 6.25 0 0 1-1.36.786l-.215 1.074a1.25 1.25 0 0 1-1.224 1.003h-.902a1.25 1.25 0 0 1-1.224-1.003l-.215-1.074a6.25 6.25 0 0 1-1.36-.786l-1.028.35a1.25 1.25 0 0 1-1.476-.535l-.451-.78a1.25 1.25 0 0 1 .252-1.538l.813-.724a6.3 6.3 0 0 1 0-1.192l-.813-.724a1.25 1.25 0 0 1-.252-1.538l.451-.78a1.25 1.25 0 0 1 1.476-.535l1.028.35a6.25 6.25 0 0 1 1.36-.786l.215-1.074ZM10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" fill="#888"/>
-                    </svg>
-                </button>
+                <button class="settings-gear-btn" id="settings-gear-btn">Settings</button>
                 <div class="settings-dropdown" id="settings-dropdown">
                     <div class="settings-dropdown-header">Gateway Settings</div>
                     <div class="settings-dropdown-item">
@@ -1232,9 +1177,12 @@
         <div class="main-layout">
             <!-- Policy List -->
             <div class="policy-list-section">
-                <h2>Available Policies</h2>
-                <div class="policy-list" id="policy-list">
+                <h2>Simple Policies</h2>
+                <div class="policy-list" id="policy-list-simple">
                     <div class="loading"><span class="spinner">⏳</span> Loading policies...</div>
+                </div>
+                <h2 style="margin-top: 24px;">Advanced Policies</h2>
+                <div class="policy-list" id="policy-list-advanced">
                 </div>
             </div>
 
