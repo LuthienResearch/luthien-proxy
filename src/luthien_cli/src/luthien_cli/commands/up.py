@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import subprocess
 import time
+from urllib.parse import urlparse
 
 import click
 import httpx
 from rich.console import Console
 
 from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config, save_config
-from luthien_cli.local_process import is_gateway_running, start_gateway, stop_gateway
+from luthien_cli.local_process import gateway_log_path, is_gateway_running, start_gateway, stop_gateway
 from luthien_cli.repo import ensure_gateway_venv, ensure_repo
 
 
@@ -35,6 +36,12 @@ def wait_for_healthy(url: str, timeout: int = 60, console: Console | None = None
     return _poll()
 
 
+def _port_from_url(url: str) -> int:
+    """Extract port from a gateway URL, defaulting to 8000."""
+    parsed = urlparse(url)
+    return parsed.port or 8000
+
+
 @click.command()
 @click.option("--follow", "-f", is_flag=True, help="Tail gateway logs after startup")
 def up(follow: bool):
@@ -53,7 +60,7 @@ def up(follow: bool):
         if existing:
             console.print(f"[yellow]Gateway already running (PID {existing})[/yellow]")
         else:
-            port = int(config.gateway_url.rsplit(":", 1)[-1]) if ":" in config.gateway_url else 8000
+            port = _port_from_url(config.gateway_url)
             pid = start_gateway(config.repo_path, port=port, console=console)
             console.print(f"[dim]Gateway started (PID {pid})[/dim]")
 
@@ -65,8 +72,6 @@ def up(follow: bool):
             raise SystemExit(1)
 
         if follow:
-            from luthien_cli.local_process import gateway_log_path
-
             log_path = gateway_log_path(config.repo_path)
             if log_path.exists():
                 subprocess.run(["tail", "-f", str(log_path)])
@@ -108,18 +113,13 @@ def down():
     console = Console()
     config = load_config(DEFAULT_CONFIG_PATH)
 
+    if not config.repo_path:
+        console.print("[red]No repo_path configured. Nothing to stop.[/red]")
+        raise SystemExit(1)
+
     if config.mode == "local":
-        if not config.repo_path:
-            console.print("[red]No repo_path configured. Nothing to stop.[/red]")
-            raise SystemExit(1)
-
         stop_gateway(config.repo_path, console=console)
-
     else:
-        if not config.repo_path:
-            console.print("[red]No repo_path configured. Nothing to stop.[/red]")
-            raise SystemExit(1)
-
         console.print(f"[blue]Stopping stack in {config.repo_path}[/blue]")
 
         with console.status("Stopping containers..."):

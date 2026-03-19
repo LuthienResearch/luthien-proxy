@@ -82,14 +82,21 @@ def start_gateway(
     log_path = _log_file(repo_path)
     log_handle = open(log_path, "a")
 
-    proc = subprocess.Popen(
-        [python, "-m", "luthien_proxy.main"],
-        stdout=log_handle,
-        stderr=log_handle,
-        start_new_session=True,
-        env=env,
-        cwd=repo_path,
-    )
+    try:
+        proc = subprocess.Popen(
+            [python, "-m", "luthien_proxy.main"],
+            stdout=log_handle,
+            stderr=log_handle,
+            start_new_session=True,
+            env=env,
+            cwd=repo_path,
+        )
+    except Exception:
+        log_handle.close()
+        raise
+
+    # Detached process inherits the file handle; parent can close its copy
+    log_handle.close()
 
     _pid_file(repo_path).write_text(str(proc.pid))
     return proc.pid
