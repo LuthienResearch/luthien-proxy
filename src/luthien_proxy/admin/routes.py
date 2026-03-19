@@ -302,11 +302,12 @@ async def send_chat(
     """
     settings = get_settings()
 
-    # When mock mode is enabled, return a synthetic response without calling the gateway
+    # Mock mode: echo the user's message back as if the LLM responded with it.
+    # Useful for testing how a policy transforms text without spending API credits.
     if body.use_mock:
         return ChatResponse(
             success=True,
-            content="[Mock response] Hello! I am a simulated response for policy testing.",
+            content=body.message,
             model=body.model,
         )
 

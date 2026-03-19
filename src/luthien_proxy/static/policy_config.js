@@ -782,6 +782,13 @@ function renderTestSection(side) {
             ${state.availableModels.map(m => `<option value="${esc(m)}">`).join('')}
         </datalist>
     </div>
+    <div class="test-mock-row">
+        <label class="test-mock-label">
+            <input type="checkbox" id="test-mock-${side}" class="test-mock-checkbox">
+            <span>Mock</span>
+            <span class="test-mock-info" title="Skip the real LLM call. The server echoes your message back as if the LLM responded with it, then runs the active policy on that response. Useful for testing how a policy transforms text without spending API credits.">&#9432;</span>
+        </label>
+    </div>
     <div class="test-input-row">
         <textarea class="test-textarea" id="test-input-${side}" placeholder="Enter test message..." rows="2"
             onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();runTest('${side}');}"></textarea>
@@ -842,11 +849,13 @@ async function runTest(side) {
     meta.textContent = '';
 
     try {
+        const mockCheckbox = document.getElementById(`test-mock-${side}`);
+        const useMock = mockCheckbox ? mockCheckbox.checked : false;
         const testPayload = {
             model: model || state.selectedModel,
             message: msg,
             stream: false,
-            use_mock: false,
+            use_mock: useMock,
         };
         // Read API key from DOM at send time (avoids persisting in global state)
         if (state.credentialSource === 'custom') {
