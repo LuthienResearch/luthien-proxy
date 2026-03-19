@@ -563,7 +563,7 @@ async def _handle_execution_streaming(
                     # Headers may already be sent, so emit an in-stream error event.
                     policy_ctx.record_event(
                         "policy.execution.streaming_error",
-                        {"summary": "Execution policy raised during streaming", "error": str(e)},
+                        {"summary": "Execution policy raised during streaming", "error": repr(e)},
                     )
                     if isinstance(e, AnthropicStatusError):
                         final_status = e.status_code or 500
@@ -759,12 +759,12 @@ def _build_error_event(e: Exception, call_id: str) -> _StreamErrorEvent:
         logger.warning(f"[{call_id}] Mid-stream Anthropic API error: {e.status_code} {message}")
     elif isinstance(e, AnthropicConnectionError):
         error_type = "api_connection_error"
-        message = str(e)
-        logger.warning(f"[{call_id}] Mid-stream Anthropic connection error: {message}")
+        message = "An error occurred while connecting to the API."
+        logger.warning(f"[{call_id}] Mid-stream Anthropic connection error: {repr(e)}")
     else:
         error_type = "api_error"
         message = "An internal error occurred while processing the request."
-        logger.error(f"[{call_id}] Mid-stream error: {e}")
+        logger.error(f"[{call_id}] Mid-stream error: {repr(e)}")
 
     return _StreamErrorEvent(
         type="error",
@@ -816,10 +816,10 @@ def _handle_anthropic_error(e: Exception, call_id: str) -> None:
             provider="anthropic",
         ) from e
     elif isinstance(e, AnthropicConnectionError):
-        logger.warning(f"[{call_id}] Anthropic connection error: {e}")
+        logger.warning(f"[{call_id}] Anthropic connection error: {repr(e)}")
         raise BackendAPIError(
             status_code=502,
-            message=str(e),
+            message="An error occurred while connecting to the API.",
             error_type="api_connection_error",
             client_format=ClientFormat.ANTHROPIC,
             provider="anthropic",
