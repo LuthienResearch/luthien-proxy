@@ -2,6 +2,13 @@
 # Requires: bash 3.2+
 set -euo pipefail
 
+echo "== Clean tree check (pre) =="
+if ! git diff --quiet 2>/dev/null; then
+    echo "ERROR: Working tree is dirty. Commit or stash changes before running dev checks."
+    git diff --stat
+    exit 1
+fi
+
 echo "== Dependency sync (locked) =="
 uv sync --all-groups --locked
 
@@ -53,9 +60,8 @@ uv run -m pytest -q
 echo "== Radon complexity (report-only) =="
 uv run radon cc -s -a src || true
 
-echo "== Clean tree check =="
+echo "== Clean tree check (post) =="
 if ! git diff --quiet 2>/dev/null; then
-    echo ""
     echo "ERROR: Formatting/lint produced uncommitted changes."
     echo "Stage and commit these changes before pushing."
     git diff --stat
