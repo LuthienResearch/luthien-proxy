@@ -443,7 +443,10 @@ function renderProposed() {
         }
         html += '</ul>';
         html += `<div id="proposed-status"></div>`;
-        html += `<button class="btn-activate" id="btn-activate" onclick="handleActivateChain()">Activate Chain</button>`;
+        const chainLabel = state.chain.length > 1
+            ? `Activate First (${state.chain[0] ? esc(getPolicy(state.chain[0].classRef)?.name || '?') : '?'}) — chain requires CompositePolicy`
+            : 'Activate';
+        html += `<button class="btn-activate" id="btn-activate" onclick="handleActivateChain()">${chainLabel}</button>`;
         html += renderTestSection('proposed');
         content.innerHTML = html;
         for (let i = 0; i < state.chain.length; i++) bindLegacyConfigInputs('chain-' + i);
@@ -856,6 +859,7 @@ async function runTest(side) {
 
         const content = result.content || '(empty response)';
         boxOut.textContent = content;
+        boxOut.style.color = '';
 
         let metaText = `Model: ${result.model || model}`;
         if (result.usage) {
