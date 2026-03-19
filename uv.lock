@@ -1027,7 +1027,7 @@ requires-dist = [
 dev = [
     { name = "asgi-lifespan", specifier = ">=2.1.0" },
     { name = "pre-commit", specifier = ">=4.3.0" },
-    { name = "pyright" },
+    { name = "pyright", specifier = ">=1.1.406,<1.2" },
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-asyncio", specifier = ">=1.1.0" },
     { name = "pytest-cov", specifier = ">=6.2.1" },
