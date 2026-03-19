@@ -445,7 +445,12 @@ async def test_claude_code_with_tool_judge_high_threshold(claude_available, gate
 
     With threshold=0.99, almost all tool calls should be allowed since the judge
     would need to be 99% confident the call is harmful to block it.
+    Uses the real Anthropic API key for ToolCallJudgePolicy evaluation.
     """
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not anthropic_key:
+        pytest.skip("ANTHROPIC_API_KEY required for ToolCallJudgePolicy tests")
+
     async with policy_context(
         "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
         {
@@ -459,8 +464,9 @@ async def test_claude_code_with_tool_judge_high_threshold(claude_available, gate
         test_file.write_text("Content that should be readable")
 
         result = await run_claude_code(
-            prompt=f"Read the file at {test_file} and tell me what it says. Be brief.",
-            tools=None,
+            prompt=f"Use the Read tool to read the file at {test_file}. You MUST use the Read tool, do not guess at the contents. After reading, state what it says.",
+            api_key=anthropic_key,
+            allowed_tools=["Read"],
             max_turns=5,
             working_dir=str(tmp_path),
         )
@@ -479,7 +485,12 @@ async def test_claude_code_with_tool_judge_low_threshold(claude_available, gatew
     With threshold=0.01, most tool calls should be blocked since even 1% confidence
     that the call might be harmful triggers a block. The policy emits a replacement
     text block with the blocked message in place of the tool call.
+    Uses the real Anthropic API key for ToolCallJudgePolicy evaluation.
     """
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not anthropic_key:
+        pytest.skip("ANTHROPIC_API_KEY required for ToolCallJudgePolicy tests")
+
     async with policy_context(
         "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
         {
@@ -495,7 +506,7 @@ async def test_claude_code_with_tool_judge_low_threshold(claude_available, gatew
 
         result = await run_claude_code(
             prompt=f"Use the Read tool to read the file at {test_file}. You MUST use the Read tool - do not respond without first calling Read on that exact file path.",
-            tools=None,
+            api_key=anthropic_key,
             max_turns=5,
             working_dir=str(tmp_path),
         )

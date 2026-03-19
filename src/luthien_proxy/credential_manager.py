@@ -25,7 +25,6 @@ REDIS_KEY_PREFIX = "luthien:auth:cred:"
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages/count_tokens"
 ANTHROPIC_API_VERSION = "2023-06-01"
 ANTHROPIC_BETA = "token-counting-2024-11-01"
-ANTHROPIC_OAUTH_BETA = "token-counting-2024-11-01,oauth-2025-04-20"
 
 # Minimal payload for credential validation (free endpoint).
 # OAuth tokens and API keys both have access to haiku.
@@ -69,6 +68,11 @@ class CachedCredential:
 def hash_credential(api_key: str) -> str:
     """SHA-256 hash of a credential for cache lookup and display."""
     return hashlib.sha256(api_key.encode()).hexdigest()
+
+
+def is_anthropic_api_key(credential: str) -> bool:
+    """Check if a credential looks like an Anthropic API key (sk-ant-* prefix)."""
+    return credential.startswith("sk-ant-")
 
 
 class CredentialManager:
@@ -322,14 +326,12 @@ class CredentialManager:
             self._http_client = httpx.AsyncClient(timeout=10.0)
 
         # OAuth tokens arrive via Authorization: Bearer; API keys via x-api-key.
-        use_bearer_transport = is_bearer
-        beta = ANTHROPIC_OAUTH_BETA if use_bearer_transport else ANTHROPIC_BETA
         headers: dict[str, str] = {
             "anthropic-version": ANTHROPIC_API_VERSION,
-            "anthropic-beta": beta,
+            "anthropic-beta": ANTHROPIC_BETA,
             "content-type": "application/json",
         }
-        if use_bearer_transport:
+        if is_bearer:
             headers["authorization"] = f"Bearer {credential}"
         else:
             headers["x-api-key"] = credential
@@ -343,7 +345,7 @@ class CredentialManager:
             if response.status_code == 200:
                 return True
             if response.status_code == 401:
-                if use_bearer_transport:
+                if is_bearer:
                     # OAuth bearer tokens (e.g. from claude.ai) may be valid for the
                     # messages endpoint but rejected by count_tokens. Treat as inconclusive
                     # so the request is forwarded and Anthropic's real endpoint decides.

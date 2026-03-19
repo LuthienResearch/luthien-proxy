@@ -2,23 +2,89 @@
 
 ## Overview
 
-E2E tests verify the gateway behavior by making real HTTP requests through the running infrastructure. These tests require:
+E2E tests verify the gateway behavior by making real HTTP requests through the running infrastructure. Tests are organized into three categories with different markers and infrastructure requirements.
 
-- Gateway running (`docker compose up gateway`)
-- Valid API credentials in `.env` or environment variables
-- `AUTH_MODE=both` to run passthrough-auth coverage (otherwise passthrough tests are skipped)
+## Test Categories
 
-## Running E2E Tests
+### `mock_e2e` — Mock Backend Tests
+
+Use a mock Anthropic server (port 18888) instead of real API calls. Fast, deterministic, no API costs.
+
+**Setup:**
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
+```
+
+**Run:**
+```bash
+uv run pytest -m mock_e2e tests/e2e_tests/ -x -v
+```
+
+The mock server is started automatically by the `mock_anthropic` fixture in conftest.py. The `docker-compose.mock-bridge.yaml` overlay points the gateway at `host.docker.internal:18888`.
+
+### `e2e` — Real API Tests
+
+Use the real Anthropic API. Slower, costs money, tests real-world behavior.
+
+**Setup:**
+```bash
+docker compose up -d  # Standard gateway with real API keys
+```
+
+**Run:**
+```bash
+uv run pytest -m "e2e and not mock_e2e and not sqlite_e2e" tests/e2e_tests/ -x -v
+```
+
+Some tests require specific gateway configurations:
+
+| Tests | Requirement | Setup |
+|-------|-------------|-------|
+| `test_policy_composition.py` (dogfood tests) | `DOGFOOD_MODE=true` | Compose override with `DOGFOOD_MODE=true` |
+| `test_request_logging.py` | `ENABLE_REQUEST_LOGGING=true` | Override + set `E2E_GATEWAY_URL=http://localhost:8000` |
+| `test_claude_code.py` (judge tests) | `ANTHROPIC_API_KEY` in env | Loaded from `.env` by conftest |
+| `test_streaming_chunk_structure.py` (judge test) | `ANTHROPIC_API_KEY` in env | Loaded from `.env` by conftest |
+
+### `sqlite_e2e` — In-Process SQLite Tests
+
+Run an in-process gateway with SQLite — no Docker needed. Fast and self-contained.
+
+**Run:**
+```bash
+uv run pytest -m sqlite_e2e tests/e2e_tests/sqlite/ -x -v
+```
+
+**Important:** sqlite_e2e and mock_e2e must run in **separate pytest sessions** to avoid module-level constant contamination from the sqlite conftest's patching.
+
+## Running All E2E Tests
+
+To run every e2e test with proper server setup:
 
 ```bash
-# Run all e2e tests (slow - use sparingly)
-uv run pytest -m e2e -x -v
+# 1. SQLite tests (no Docker needed, run FIRST in own session)
+uv run pytest -m sqlite_e2e tests/e2e_tests/sqlite/ -x -v --timeout=60
 
-# Run specific test file
-uv run pytest tests/e2e_tests/test_session_tracking.py -m e2e -v
+# 2. Mock e2e tests (separate session)
+docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
+uv run pytest -m mock_e2e tests/e2e_tests/ -x -v --timeout=120
 
-# Run passthrough-auth tests explicitly
-uv run pytest tests/e2e_tests/test_anthropic_passthrough_auth.py -m e2e -x -v
+# 3. Real e2e tests (standard config)
+docker compose up -d gateway
+uv run pytest -m "e2e and not mock_e2e and not sqlite_e2e" tests/e2e_tests/ -x -v --timeout=120 \
+  -k "not test_request_logging"
+
+# 4. Dogfood mode tests (compose override)
+# Create override: services.gateway.environment: [DOGFOOD_MODE=true]
+docker compose -f docker-compose.yaml -f /tmp/compose-dogfood.yaml up -d gateway
+uv run pytest -m e2e tests/e2e_tests/test_policy_composition.py -v --timeout=120
+
+# 5. Request logging tests (compose override)
+# Create override: services.gateway.environment: [ENABLE_REQUEST_LOGGING=true]
+docker compose -f docker-compose.yaml -f /tmp/compose-reqlog.yaml up -d gateway
+E2E_GATEWAY_URL=http://localhost:8000 uv run pytest -m e2e tests/e2e_tests/test_request_logging.py -v --timeout=120
+
+# 6. Restore gateway to normal
+docker compose up -d gateway
 ```
 
 ## Shared Test Infrastructure
@@ -53,14 +119,9 @@ async def test_with_custom_policy():
     # NoOpPolicy is automatically restored after the context exits
 ```
 
-The context manager:
-1. Calls `POST /api/admin/policy/set` to activate the specified policy
-2. Yields control to your test code
-3. Restores `NoOpPolicy` in the `finally` block
-
 ### Admin API Endpoint
 
-The policy management uses `POST /api/admin/policy/set` (not `/api/admin/policy/create` or `/api/admin/policy/activate`):
+The policy management uses `POST /api/admin/policy/set`:
 
 ```python
 response = await client.post(
@@ -76,8 +137,9 @@ response = await client.post(
 
 ## Test Structure
 
-- Tests are marked with `@pytest.mark.e2e` to be excluded from fast unit test runs
-- Use fixtures like `gateway_healthy`, `claude_available`, `codex_available` for prerequisite checks
+- `mock_e2e` tests use `pytestmark = pytest.mark.mock_e2e` at module level
+- `e2e` tests use `@pytest.mark.e2e` on individual test functions
+- `sqlite_e2e` tests use `pytestmark = pytest.mark.sqlite_e2e` at module level
 - Tests that fail prerequisites are skipped, not failed
 
 ## CLI Testing
@@ -90,16 +152,5 @@ async def run_claude_code(prompt: str, timeout_seconds: int = 60):
     env = os.environ.copy()
     env["ANTHROPIC_BASE_URL"] = GATEWAY_URL
     env["ANTHROPIC_API_KEY"] = API_KEY
-    # ...
-```
-
-### Codex
-
-```python
-async def run_codex(prompt: str, timeout_seconds: int = 60):
-    cmd = ["codex", "exec", "--json", "-s", "read-only", "--skip-git-repo-check", prompt]
-    env = os.environ.copy()
-    env["OPENAI_BASE_URL"] = f"{GATEWAY_URL}/v1"
-    env["OPENAI_API_KEY"] = API_KEY
     # ...
 ```

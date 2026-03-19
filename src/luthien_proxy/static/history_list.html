@@ -405,7 +405,6 @@
                     case 'lastweek': return sessionDate >= lastWeekStart && sessionDate < lastWeekEnd;
                     case '30days': return sessionDate >= thirtyDaysAgo;
                     case 'claude': return models.includes('claude');
-                    case 'codex': return models.includes('codex') || models.includes('gpt');
                     case 'interventions': return s.policy_interventions > 0;
                     case 'no-interventions': return s.policy_interventions === 0;
                     default: return true;

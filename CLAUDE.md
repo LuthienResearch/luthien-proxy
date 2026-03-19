@@ -46,7 +46,7 @@ Proactively update files in `dev/context/` as you learn about the codebase:
 
 These files persist across sessions and help build institutional knowledge. Update them during development, not just at the end. Include timestamps (YYYY-MM-DD) when adding entries to detect when knowledge may be stale.
 
-Note that both Claude Code and Codex agents work in this repo and may read from and write to context.
+Note that Claude Code agents work in this repo and may read from and write to context.
 
 ### Objective Workflow
 
@@ -148,7 +148,6 @@ Common commands:
 ## Tooling
 
 - Inspect the dev Postgres quickly with `uv run python scripts/query_debug_logs.py`. The helper loads `.env`, connects to `DATABASE_URL`, and prints recent conversation events and debug logs.
-- Quick Codex feedback: run `codex e "question or idea"` for a fast suggestion without starting an interactive session. Note that subsequent invocations won't persist context - pass in existing context or refer to relevant files to persist some context between calls.
 
 ## Coding Style & Naming Conventions
 
@@ -156,7 +155,6 @@ Common commands:
 - Formatting via Ruff: double quotes, spaces for indent (see `pyproject.toml`).
 - Naming: modules `snake_case`, classes `PascalCase`, functions and vars `snake_case`.
 - Docstrings: Google style for public modules/classes/functions; focus on WHY and non-trivial behavior.
-- Optional runtime type checking (`beartype`) for critical sections
 - String formatting: prefer f-strings over `.format()` or `%` formatting for readability and performance
 
 ## Testing Guidelines

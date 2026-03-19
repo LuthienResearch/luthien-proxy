@@ -1,13 +1,13 @@
-"""Mock e2e test for SimpleLLMPolicy OAuth passthrough authentication.
+"""Mock e2e test for SimpleLLMPolicy passthrough authentication.
 
-Verifies that when the client authenticates with an OAuth bearer token
+Verifies that when the client authenticates with a bearer token
 (a Bearer token that is NOT a regular sk-ant-api* key), the judge call:
-  1. Forwards the OAuth token as the api_key
-  2. Adds the required 'anthropic-beta: oauth-2025-04-20' header
+  1. Forwards the token as the api_key
+  2. Does NOT add OAuth-specific headers (OAuth beta header no longer sent)
 
 Setup:
 - Auth mode set to 'passthrough' without credential validation so the
-  gateway accepts a fake OAuth token without hitting Anthropic.
+  gateway accepts a bearer token without hitting Anthropic.
 - Judge api_base points at the mock server.
 - Mock server receives both requests and we inspect their headers.
 
@@ -45,15 +45,15 @@ _BASE_REQUEST = {
 
 
 @pytest.mark.asyncio
-async def test_judge_adds_oauth_header_for_oauth_bearer_token(
+async def test_judge_forwards_bearer_token_passthrough(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
 ) -> None:
-    """Judge call includes anthropic-beta: oauth-2025-04-20 when client uses an OAuth token.
+    """Judge call forwards bearer token from passthrough authentication.
 
     The mock server receives two requests:
-    1. Main LLM call — uses gateway's ANTHROPIC_API_KEY (mock-key), no OAuth header
-    2. Judge call — uses the OAuth token + anthropic-beta: oauth-2025-04-20 header
+    1. Main LLM call — uses gateway's ANTHROPIC_API_KEY (mock-key)
+    2. Judge call — uses the bearer token forwarded from the request
     """
     mock_anthropic.enqueue(text_response("Hello there"))
     mock_anthropic.enqueue(text_response('{"action": "pass", "blocks": []}'))
@@ -74,36 +74,35 @@ async def test_judge_adds_oauth_header_for_oauth_bearer_token(
         f"Expected 2 requests (main + judge), got {len(all_headers)}. Requests: {mock_anthropic.received_requests()}"
     )
 
-    # Main call: gateway uses AnthropicClient(auth_token=token), which sends
-    # Authorization: Bearer <token> + anthropic-beta: oauth-2025-04-20.
+    # Main call: gateway uses AnthropicClient(auth_token=token).
     # The token is NOT in x-api-key (that's LiteLLM's style, not the Anthropic SDK's).
     main_headers = all_headers[0]
     assert main_headers.get("x-api-key") != _OAUTH_TOKEN, (
-        "Main call should not send OAuth token via x-api-key (it uses Authorization: Bearer)"
+        "Main call should not send bearer token via x-api-key (it uses Authorization: Bearer)"
     )
 
-    # Judge call: LiteLLM sends token via x-api-key, our code adds the OAuth beta header.
+    # Judge call: LiteLLM sends token via x-api-key (passthrough forwarding).
     judge_headers = all_headers[1]
     assert judge_headers.get("x-api-key") == _OAUTH_TOKEN, (
-        f"Judge call should forward OAuth token as x-api-key, got: {judge_headers.get('x-api-key')!r}"
+        f"Judge call should forward bearer token as x-api-key, got: {judge_headers.get('x-api-key')!r}"
     )
-    assert "oauth-2025-04-20" in judge_headers.get("anthropic-beta", ""), (
-        f"Judge call should include anthropic-beta: oauth-2025-04-20, "
+    assert "oauth-2025-04-20" not in judge_headers.get("anthropic-beta", ""), (
+        f"Judge call should NOT include oauth-2025-04-20 header, "
         f"got anthropic-beta: {judge_headers.get('anthropic-beta')!r}"
     )
 
 
 @pytest.mark.asyncio
-async def test_oauth_only_no_server_key(
+async def test_bearer_token_only_no_server_key(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
 ) -> None:
-    """Judge works using only the OAuth token — no server api key, no policy api key.
+    """Judge works using only the bearer token — no server api key, no policy api key.
 
     The mock environment has ANTHROPIC_API_KEY=mock-key, but LLM_JUDGE_API_KEY is not
     set, so _fallback_api_key is None. Without passthrough the judge would fall through
-    to LiteLLM's ANTHROPIC_API_KEY env var. With OAuth passthrough the judge uses the
-    OAuth token directly and ignores the env fallback.
+    to LiteLLM's ANTHROPIC_API_KEY env var. With passthrough the judge uses the
+    bearer token directly and ignores the env fallback.
     """
     mock_anthropic.enqueue(text_response("Hello there"))
     mock_anthropic.enqueue(text_response('{"action": "pass", "blocks": []}'))
@@ -123,24 +122,26 @@ async def test_oauth_only_no_server_key(
     assert len(all_headers) == 2, f"Expected 2 requests, got {len(all_headers)}"
 
     judge_headers = all_headers[1]
-    # OAuth token was used — judge did not fall through to the env-var key
+    # Bearer token was used — judge did not fall through to the env-var key
     assert judge_headers.get("x-api-key") == _OAUTH_TOKEN, (
-        f"Judge should use OAuth token even with no server key configured, "
+        f"Judge should use bearer token even with no server key configured, "
         f"got x-api-key: {judge_headers.get('x-api-key')!r}"
     )
-    assert "oauth-2025-04-20" in judge_headers.get("anthropic-beta", ""), "Judge call should have OAuth beta header"
+    assert "oauth-2025-04-20" not in judge_headers.get("anthropic-beta", ""), (
+        "Judge call should NOT have OAuth beta header"
+    )
 
 
 @pytest.mark.asyncio
-async def test_oauth_takes_precedence_over_server_env_key(
+async def test_bearer_token_takes_precedence_over_server_env_key(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
 ) -> None:
-    """OAuth passthrough takes precedence over the server's ANTHROPIC_API_KEY env fallback.
+    """Bearer token passthrough takes precedence over the server's ANTHROPIC_API_KEY env fallback.
 
     In the mock env, ANTHROPIC_API_KEY=mock-key is set. Without any explicit key or
-    passthrough, LiteLLM would use 'mock-key' for the judge call. With an OAuth bearer
-    token in the request, the passthrough key wins and the judge uses the OAuth token.
+    passthrough, LiteLLM would use 'mock-key' for the judge call. With a bearer
+    token in the request, the passthrough key wins and the judge uses the bearer token.
     """
     mock_anthropic.enqueue(text_response("Hello there"))
     mock_anthropic.enqueue(text_response('{"action": "pass", "blocks": []}'))
@@ -160,12 +161,12 @@ async def test_oauth_takes_precedence_over_server_env_key(
     assert len(all_headers) == 2, f"Expected 2 requests, got {len(all_headers)}"
 
     judge_headers = all_headers[1]
-    # OAuth token wins over ANTHROPIC_API_KEY=mock-key
+    # Bearer token wins over ANTHROPIC_API_KEY=mock-key
     assert judge_headers.get("x-api-key") == _OAUTH_TOKEN, (
-        f"OAuth passthrough should beat server env key (mock-key), got x-api-key: {judge_headers.get('x-api-key')!r}"
+        f"Bearer token passthrough should beat server env key (mock-key), got x-api-key: {judge_headers.get('x-api-key')!r}"
     )
     assert judge_headers.get("x-api-key") != "mock-key", (
-        "Server ANTHROPIC_API_KEY should NOT be used when OAuth passthrough is available"
+        "Server ANTHROPIC_API_KEY should NOT be used when bearer token passthrough is available"
     )
 
 

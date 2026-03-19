@@ -807,7 +807,12 @@ async def test_anthropic_buffered_tool_call_emits_message_delta(http_client, too
 
     ToolCallJudgePolicy buffers tool_use events, judges the complete call, then
     re-emits the full event sequence (start, delta, stop) if allowed.
+    Uses the real Anthropic API key for ToolCallJudgePolicy evaluation.
     """
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not anthropic_key:
+        pytest.skip("ANTHROPIC_API_KEY required for ToolCallJudgePolicy tests")
+
     async with http_client.stream(
         "POST",
         f"{GATEWAY_URL}/v1/messages",
@@ -832,10 +837,11 @@ async def test_anthropic_buffered_tool_call_emits_message_delta(http_client, too
                     },
                 }
             ],
+            "tool_choice": {"type": "tool", "name": "get_weather"},
             "max_tokens": 150,
             "stream": True,
         },
-        headers={"Authorization": f"Bearer {API_KEY}"},
+        headers={"Authorization": f"Bearer {anthropic_key}"},
     ) as response:
         assert response.status_code == 200
 
