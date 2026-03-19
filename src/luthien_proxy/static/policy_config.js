@@ -124,7 +124,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initSettingsPopover();
     initFilterInput();
     initModeToggle();
-    await Promise.all([loadPolicies(), loadCurrentPolicy(), loadModels(), loadGatewaySettings(), loadCredentials()]);
+    await Promise.all([loadPolicies(), loadCurrentPolicy(), loadModels(), loadGatewaySettings()]);
     renderAll();
 });
 
@@ -751,16 +751,12 @@ function renderTestSection(side) {
     html += '<div class="test-section-title">Test This Policy</div>';
 
     // Credential source selector
+    // Only "server" and "custom" are functional — cached credentials are hashed
+    // and can't be retrieved for direct test requests
     html += '<div class="test-cred-row">';
     html += '<label class="test-cred-label">Credentials:</label>';
     html += `<select class="test-cred-select" id="cred-select-${side}" onchange="onCredSourceChange('${side}', this.value)">`;
     html += '<option value="server"' + (state.credentialSource === 'server' ? ' selected' : '') + '>Server API Key</option>';
-    for (const c of state.cachedCredentials) {
-        const shortHash = c.key_hash.slice(0, 8) + '...';
-        const selected = state.credentialSource === c.key_hash ? ' selected' : '';
-        const ago = timeSince(c.last_used_at);
-        html += `<option value="${esc(c.key_hash)}"${selected}>Cached: ${shortHash} (used ${ago})</option>`;
-    }
     html += '<option value="custom"' + (state.credentialSource === 'custom' ? ' selected' : '') + '>Enter API key...</option>';
     html += '</select>';
     html += '</div>';
