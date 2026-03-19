@@ -93,7 +93,7 @@ These settings are reused from the general config for Sentry tags:
 
 | Setting | Env Var | Default | Sentry field |
 |---------|---------|---------|-------------|
-| `environment` | `ENVIRONMENT` | `development` | `environment` tag |
+| `environment` | `ENVIRONMENT` (or `RAILWAY_SERVICE_NAME` on Railway) | `development` | `environment` tag |
 | `service_name` | `SERVICE_NAME` | `luthien-proxy` | Part of `release` tag |
 | `service_version` | `SERVICE_VERSION` | `2.0.0` | Part of `release` tag |
 
@@ -122,10 +122,11 @@ ENVIRONMENT=production
 
 **Railway SaaS** (`provisioner.py` sets these automatically):
 ```bash
-ENVIRONMENT=railway
 SENTRY_ENABLED=true
 SENTRY_DSN=https://178c87f543acaf02b3f154ee329679fa@o4511061292089344.ingest.us.sentry.io/4511061302575104
 SENTRY_SERVER_NAME=railway-{instance-name}
+# ENVIRONMENT is derived automatically from RAILWAY_SERVICE_NAME (injected by Railway)
+# e.g. "luthien-proxy-demo", "luthien-test-e2e" — each deployment gets its own Sentry environment
 ```
 
 **Opting out** (any environment):
@@ -141,9 +142,12 @@ All error events are tagged with `environment`. Use Sentry's search bar:
 
 - `environment:development` — your local dev errors
 - `environment:test` — errors from test suite runs (expected errors from test scenarios)
-- `environment:railway` — errors from SaaS Railway instances
+- `environment:luthien-proxy-demo` — errors from the demo Railway deployment specifically
+- `environment:luthien-test-e2e` — errors from the e2e Railway deployment specifically
 - `environment:production` — errors from self-hosted production deployments
 - `!environment:test` — everything except test noise
+
+Railway deployments automatically get their own environment tag from `RAILWAY_SERVICE_NAME` (injected by Railway at runtime). No manual `ENVIRONMENT` config needed per deployment.
 
 ### Filtering by Release
 

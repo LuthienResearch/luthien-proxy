@@ -37,6 +37,24 @@ class TestSettingsDefaults:
         settings = Settings(_env_file=None)
         assert settings.otel_enabled is False
 
+    def test_environment_defaults_to_development(self, monkeypatch):
+        monkeypatch.delenv("ENVIRONMENT", raising=False)
+        monkeypatch.delenv("RAILWAY_SERVICE_NAME", raising=False)
+        settings = Settings(_env_file=None)
+        assert settings.environment == "development"
+
+    def test_environment_uses_railway_service_name(self, monkeypatch):
+        monkeypatch.delenv("ENVIRONMENT", raising=False)
+        monkeypatch.setenv("RAILWAY_SERVICE_NAME", "luthien-proxy-demo")
+        settings = Settings(_env_file=None)
+        assert settings.environment == "luthien-proxy-demo"
+
+    def test_environment_explicit_overrides_railway(self, monkeypatch):
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setenv("RAILWAY_SERVICE_NAME", "luthien-proxy-demo")
+        settings = Settings(_env_file=None)
+        assert settings.environment == "production"
+
     def test_default_service_name(self, monkeypatch):
         """Test default service name."""
         monkeypatch.delenv("SERVICE_NAME", raising=False)
