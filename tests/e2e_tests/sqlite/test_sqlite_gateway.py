@@ -117,11 +117,6 @@ __all__ = [
     # streaming
     "test_anthropic_streaming_event_lifecycle",
     "test_anthropic_streaming_message_start_structure",
-    # openai + tools
-    "test_openai_non_streaming_response_structure",
-    "test_openai_streaming_response_structure",
-    "test_tool_use_non_streaming_response_structure",
-    "test_tool_use_streaming_event_sequence",
     # special chars
     "test_allcaps_passes_through_emoji",
     "test_noop_policy_preserves_unicode",
