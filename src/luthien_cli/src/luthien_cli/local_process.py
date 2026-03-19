@@ -11,6 +11,8 @@ from pathlib import Path
 
 from rich.console import Console
 
+from luthien_cli.repo import MANAGED_VENV_DIR
+
 GATEWAY_PID_FILE = "gateway.pid"
 GATEWAY_LOG_FILE = "gateway.log"
 
@@ -25,7 +27,7 @@ def _log_file(repo_path: str) -> Path:
 
 def _venv_python() -> str:
     """Path to the Python interpreter in the managed venv."""
-    return str(Path.home() / ".luthien" / "venv" / "bin" / "python")
+    return str(MANAGED_VENV_DIR / "bin" / "python")
 
 
 def _parse_env_value(value: str) -> str:
