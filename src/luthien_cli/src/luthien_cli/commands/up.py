@@ -59,6 +59,7 @@ def ensure_gateway_up(console: Console) -> None:
     config = load_config(DEFAULT_CONFIG_PATH)
 
     if is_gateway_healthy(config.gateway_url):
+        console.print(f"[green]Gateway is healthy at {config.gateway_url}[/green]")
         return
 
     if config.mode == "local":

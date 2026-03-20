@@ -37,6 +37,7 @@ def test_up_docker_mode(tmp_path):
     up_result = MagicMock(returncode=0)
     with (
         patch("luthien_cli.commands.up.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.up.is_gateway_healthy", return_value=False),
         patch("luthien_cli.commands.up.find_docker_ports", return_value={"GATEWAY_PORT": "8001"}),
         patch("luthien_cli.commands.up.subprocess.run", side_effect=[ps_result, up_result]),
         patch("luthien_cli.commands.up.wait_for_healthy", return_value=True),
@@ -78,6 +79,7 @@ def test_up_docker_mode_skips_port_selection_when_gateway_running(tmp_path):
     up_result = MagicMock(returncode=0)
     with (
         patch("luthien_cli.commands.up.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.up.is_gateway_healthy", return_value=False),
         patch("luthien_cli.commands.up.find_docker_ports") as mock_find_ports,
         patch("luthien_cli.commands.up.subprocess.run", side_effect=[ps_result, up_result]),
         patch("luthien_cli.commands.up.wait_for_healthy", return_value=True),
