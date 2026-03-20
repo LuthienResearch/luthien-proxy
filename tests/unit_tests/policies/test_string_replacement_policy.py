@@ -815,3 +815,34 @@ class TestStreamingBufferBehavior:
 
         full_text = await _collect_stream_text(policy, ctx, events)
         assert full_text == "say goodbye"
+
+    @pytest.mark.asyncio
+    async def test_buffer_resets_between_content_blocks(self):
+        """Buffer flushes on content_block_stop so second block starts clean."""
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["hello", "hi"]]))
+        ctx = PolicyContext.for_testing()
+
+        events: list[Any] = [
+            # Block 0
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="say hello"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0),
+            # Block 1 — replacement split across chunks
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=1,
+                delta=TextDelta.model_construct(type="text_delta", text="hel"),
+            ),
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=1,
+                delta=TextDelta.model_construct(type="text_delta", text="lo there"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=1),
+        ]
+
+        full_text = await _collect_stream_text(policy, ctx, events)
+        assert full_text == "say hihi there"

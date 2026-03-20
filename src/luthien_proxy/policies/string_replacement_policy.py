@@ -273,11 +273,11 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
         string, and the safe prefix is emitted while the tail is held back.
 
         The buffer stores post-replacement text, which means replacement results
-        can be re-processed on the next iteration. For typical configs this is
-        benign (e.g., "goodbye" won't re-match "hello"). Configs where a
-        replacement output matches another source (e.g., ["ab", "ba"]) may see
-        extra replacements at chunk boundaries — this matches the sequential
-        application behaviour of apply_replacements on full text.
+        can be re-processed on the next iteration. For typical word-level configs
+        this is benign (e.g., "goodbye" won't re-match "hello"). Configs where a
+        replacement output partially overlaps the same source pattern (e.g.,
+        ["ab", "ca"]) may produce different results than full-text processing
+        at chunk boundaries.
 
         A single buffer is shared across content blocks within one request.
         This is safe because the Anthropic protocol sends blocks sequentially
