@@ -268,8 +268,16 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
         """Transform text_delta events with string replacements.
 
         Uses a sliding buffer to handle replacements spanning chunk boundaries.
-        Text is accumulated, replacements applied to the combined text, and
-        a safe prefix is emitted while the tail is held back for the next chunk.
+        On each chunk the buffer (post-replacement tail from the prior iteration)
+        is prepended to the new raw text, replacements are applied to the combined
+        string, and the safe prefix is emitted while the tail is held back.
+
+        The buffer stores post-replacement text, which means replacement results
+        can be re-processed on the next iteration. For typical configs this is
+        benign (e.g., "goodbye" won't re-match "hello"). Configs where a
+        replacement output matches another source (e.g., ["ab", "ba"]) may see
+        extra replacements at chunk boundaries — this matches the sequential
+        application behaviour of apply_replacements on full text.
         """
         # Flush buffer before content_block_stop so the block is complete
         if isinstance(event, RawContentBlockStopEvent) and self._buffer_size > 0:
