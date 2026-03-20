@@ -27,7 +27,14 @@ fi
 
 echo "Launching fresh container..."
 echo "─────────────────────────────────────────"
+# Mount ~/.claude/ read-only for config, but ~/.claude.json read-write
+# because Claude Code needs to update auth tokens during the session.
+MOUNTS=(-v "$HOME/.claude:/root/.claude:ro")
+if [[ -f "$HOME/.claude.json" ]]; then
+    MOUNTS+=(-v "$HOME/.claude.json:/root/.claude.json")
+fi
+
 exec docker run -it --rm \
-    -v "$HOME/.claude:/root/.claude:ro" \
+    "${MOUNTS[@]}" \
     "$IMAGE" \
     bash -c 'luthien onboard; exec bash'
