@@ -31,8 +31,6 @@ if TYPE_CHECKING:
     )
     from luthien_proxy.policy_core.policy_context import PolicyContext
 
-logger = logging.getLogger(__name__)
-
 
 WELCOME_MESSAGE = """
 
