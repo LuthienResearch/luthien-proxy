@@ -467,7 +467,7 @@ function renderProposed() {
         html += '</span></div>';
 
         if (isExpanded) {
-            html += `<div class="chain-item-desc">${esc((p.description || '').split('.')[0])}</div>`;
+            html += `<div class="chain-item-desc">${esc(p.description || '')}</div>`;
             if (hasConfig) {
                 html += `<div id="chain-config-${i}" class="chain-config-container"></div>`;
             } else {
