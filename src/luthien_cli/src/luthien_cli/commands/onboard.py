@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import subprocess
+import sys
 import textwrap
 import webbrowser
 from pathlib import Path
@@ -18,6 +19,24 @@ from luthien_cli.commands.up import wait_for_healthy
 from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config, save_config
 from luthien_cli.local_process import find_docker_ports, find_free_port, start_gateway, stop_gateway
 from luthien_cli.repo import ensure_gateway_venv, ensure_repo
+
+def _read_single_key() -> str:
+    """Read a single keypress without waiting for Enter."""
+    if not sys.stdin.isatty():
+        return sys.stdin.read(1) or "\n"
+
+    import termios
+    import tty
+
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        ch = sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    return ch
+
 
 ONBOARDING_POLICY_TEMPLATE = """\
 policy:
@@ -151,11 +170,12 @@ def _show_results(
     except Exception:
         console.print(f"[dim]Open {config_url} in your browser to configure policies[/dim]")
 
-    # Prompt user to launch Claude Code
+    # Prompt user to launch Claude Code (single keypress, no Enter needed)
     console.print()
+    console.print("[bold]Press any key to launch Claude Code through Luthien Proxy, or q to quit.[/bold]")
     try:
-        key = console.input("[bold]Press Enter to launch Claude Code through Luthien Proxy, or q to quit: [/bold]")
-        if key.strip().lower() == "q":
+        key = _read_single_key()
+        if key.lower() == "q":
             return
     except (KeyboardInterrupt, EOFError):
         return
