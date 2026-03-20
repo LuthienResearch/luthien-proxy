@@ -86,9 +86,7 @@ class TestExtractSessionIdFromAnthropicBody:
     def test_returns_none_for_oauth_json_without_session_id(self):
         """Test returns None when OAuth JSON doesn't contain session_id."""
         body = {
-            "metadata": {
-                "user_id": '{"device_id":"abc123","account_uuid":"def456"}'
-            },
+            "metadata": {"user_id": '{"device_id":"abc123","account_uuid":"def456"}'},
         }
         session_id = extract_session_id_from_anthropic_body(body)
         assert session_id is None
@@ -96,9 +94,7 @@ class TestExtractSessionIdFromAnthropicBody:
     def test_returns_none_for_oauth_json_with_empty_session_id(self):
         """Test returns None when OAuth JSON has empty session_id."""
         body = {
-            "metadata": {
-                "user_id": '{"device_id":"abc123","session_id":""}'
-            },
+            "metadata": {"user_id": '{"device_id":"abc123","session_id":""}'},
         }
         session_id = extract_session_id_from_anthropic_body(body)
         assert session_id is None
