@@ -5,9 +5,8 @@ import stat
 from unittest.mock import patch
 
 import yaml
-from rich.console import Console
-
 from click.testing import CliRunner
+from rich.console import Console
 
 from luthien_cli.commands.hackathon import (
     POLICY_CHOICES,
@@ -318,7 +317,7 @@ class TestReadExistingKeys:
 
     def test_reads_quoted_keys(self, tmp_path):
         env_path = tmp_path / ".env"
-        env_path.write_text('PROXY_API_KEY="sk-quoted"\nADMIN_API_KEY=\'admin-quoted\'\n')
+        env_path.write_text("PROXY_API_KEY=\"sk-quoted\"\nADMIN_API_KEY='admin-quoted'\n")
         proxy, admin = _read_existing_keys(env_path)
         assert proxy == "sk-quoted"
         assert admin == "admin-quoted"
