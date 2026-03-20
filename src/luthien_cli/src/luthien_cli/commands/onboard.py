@@ -280,7 +280,8 @@ def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str) ->
 
 @click.command()
 @click.option("--docker", "use_docker", is_flag=True, help="Use Docker (PostgreSQL + Redis) instead of local mode")
-def onboard(use_docker: bool):
+@click.option("-y", "--yes", is_flag=True, help="Skip confirmation prompt")
+def onboard(use_docker: bool, yes: bool):
     """Set up a local Luthien gateway and start it with the onboarding policy."""
     console = Console()
     config = load_config(DEFAULT_CONFIG_PATH)
@@ -288,12 +289,25 @@ def onboard(use_docker: bool):
     mode_label = "Docker (PostgreSQL + Redis)" if use_docker else "local (SQLite, no Docker required)"
     console.print(
         Panel(
-            f"Installing the [bold]luthien[/bold] CLI tool and setting up a local gateway.\n\n"
+            "This will:\n"
+            "  1. Install the [bold]luthien[/bold] CLI tool (via pipx)\n"
+            "  2. Install a local [bold]luthien-proxy[/bold] server\n"
+            "  3. Start the proxy with an onboarding policy\n\n"
             f"[bold]Mode:[/bold] {mode_label}",
             title="Luthien Onboard",
             border_style="blue",
         )
     )
+
+    if not yes:
+        try:
+            answer = console.input("[bold]Continue? [Y/n]: [/bold]")
+            if answer.strip().lower() in ("n", "no"):
+                console.print("[dim]Cancelled.[/dim]")
+                return
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[dim]Cancelled.[/dim]")
+            return
 
     proxy_key = _generate_key("sk-luthien")
     admin_key = _generate_key("admin")

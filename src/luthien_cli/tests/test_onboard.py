@@ -120,7 +120,7 @@ def test_onboard_local_full_flow(tmp_path):
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open"),
     ):
-        result = runner.invoke(cli, ["onboard"], input="q\n")
+        result = runner.invoke(cli, ["onboard"], input="y\nq\n")
 
     assert result.exit_code == 0, result.output
     assert "Gateway is running" in result.output
@@ -157,7 +157,7 @@ def test_onboard_docker_full_flow(tmp_path):
         patch("luthien_cli.commands.onboard.webbrowser.open"),
     ):
         mock_run.return_value = MagicMock(returncode=0)
-        result = runner.invoke(cli, ["onboard", "--docker"], input="q\n")
+        result = runner.invoke(cli, ["onboard", "--docker"], input="y\nq\n")
 
     assert result.exit_code == 0, result.output
     assert "Gateway is running" in result.output
@@ -198,7 +198,7 @@ def test_onboard_docker_failure(tmp_path):
         patch("luthien_cli.commands.onboard.subprocess.run") as mock_run,
     ):
         mock_run.return_value = MagicMock(returncode=1, stderr="compose error")
-        result = runner.invoke(cli, ["onboard", "--docker"])
+        result = runner.invoke(cli, ["onboard", "--docker", "-y"])
 
     assert result.exit_code != 0
     assert "failed" in result.output.lower()
@@ -219,7 +219,7 @@ def test_onboard_local_gateway_unhealthy(tmp_path):
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=False),
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
     ):
-        result = runner.invoke(cli, ["onboard"])
+        result = runner.invoke(cli, ["onboard", "-y"])
 
     assert result.exit_code != 0
     assert "healthy" in result.output.lower()
@@ -299,7 +299,7 @@ def test_onboard_shows_uninstall_instructions(tmp_path):
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open"),
     ):
-        result = runner.invoke(cli, ["onboard"], input="q\n")
+        result = runner.invoke(cli, ["onboard"], input="y\nq\n")
 
     assert result.exit_code == 0, result.output
     assert "pipx uninstall" in result.output
@@ -321,7 +321,7 @@ def test_onboard_opens_browser(tmp_path):
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open") as mock_browser,
     ):
-        result = runner.invoke(cli, ["onboard"], input="q\n")
+        result = runner.invoke(cli, ["onboard"], input="y\nq\n")
 
     assert result.exit_code == 0, result.output
     mock_browser.assert_called_once_with("http://localhost:8000/policy-config")
