@@ -34,22 +34,27 @@ jobs:
 
       - name: Check for changes since last tag
         id: changes
+        env:
+          LATEST_FOUND: ${{ steps.latest.outputs.found }}
+          LATEST_TAG: ${{ steps.latest.outputs.tag }}
         run: |
-          if [ "${{ steps.latest.outputs.found }}" = "false" ]; then
+          if [ "$LATEST_FOUND" = "false" ]; then
             echo "count=1" >> "$GITHUB_OUTPUT"
           else
-            CHANGED=$(git diff --name-only "${{ steps.latest.outputs.tag }}"..HEAD -- src/luthien_cli/ | wc -l)
+            CHANGED=$(git diff --name-only "${LATEST_TAG}..HEAD" -- src/luthien_cli/ | wc -l)
             echo "count=$CHANGED" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Bump patch and tag
         if: steps.changes.outputs.count != '0'
+        env:
+          LATEST_FOUND: ${{ steps.latest.outputs.found }}
+          LATEST_TAG: ${{ steps.latest.outputs.tag }}
         run: |
-          if [ "${{ steps.latest.outputs.found }}" = "false" ]; then
+          if [ "$LATEST_FOUND" = "false" ]; then
             NEW="cli-v0.1.0"
           else
-            TAG="${{ steps.latest.outputs.tag }}"
-            VERSION="${TAG#cli-v}"
+            VERSION="${LATEST_TAG#cli-v}"
             IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
             NEW="cli-v${MAJOR}.${MINOR}.$((PATCH + 1))"
           fi
