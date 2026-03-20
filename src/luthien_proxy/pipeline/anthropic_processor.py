@@ -46,7 +46,10 @@ from luthien_proxy.llm.types.anthropic import (
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.pipeline.client_format import ClientFormat
 from luthien_proxy.pipeline.policy_context_injection import inject_policy_awareness_anthropic
-from luthien_proxy.pipeline.session import extract_session_id_from_anthropic_body
+from luthien_proxy.pipeline.session import (
+    extract_session_id_from_anthropic_body,
+    extract_session_id_from_headers,
+)
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
     AnthropicPolicyEmission,
@@ -447,8 +450,9 @@ async def _process_request(
         # Log incoming request
         emitter.record(call_id, "pipeline.client_request", {"payload": body})
 
-        # Extract session ID from Anthropic metadata
-        session_id = extract_session_id_from_anthropic_body(body)
+        # Extract session ID: try metadata.user_id first (API key mode),
+        # fall back to x-session-id header (OAuth passthrough mode)
+        session_id = extract_session_id_from_anthropic_body(body) or extract_session_id_from_headers(headers)
 
         # Validate required fields
         if "model" not in body:
