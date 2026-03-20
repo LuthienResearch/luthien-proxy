@@ -148,7 +148,7 @@ ADMIN_API_KEY=admin-dev-key          # API key for admin/policy management UI
 
 ```bash
 # Database (default: SQLite, no setup needed)
-DATABASE_URL=sqlite:///~/.luthien/luthien.db
+DATABASE_URL=sqlite:///luthien.db
 
 # For Docker Compose / multi-user deployments, use PostgreSQL + Redis instead:
 # DATABASE_URL=postgresql://luthien:password@db:5432/luthien_control

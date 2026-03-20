@@ -168,7 +168,7 @@ curl http://localhost:8000/health
 luthien logs
 
 # View logs (Docker Compose mode)
-# docker compose logs gateway | tail -50
+docker compose logs gateway | tail -50
 ```
 
 ## Observability (Optional)
