@@ -366,10 +366,12 @@
         const urlParams = new URLSearchParams(window.location.search);
         const callIdFromUrl = urlParams.get('call_id');
 
-        // Load diff if call_id provided in URL
+        // Load diff if call_id provided in URL, otherwise show recent calls
         if (callIdFromUrl) {
             document.getElementById('callIdInput').value = callIdFromUrl;
             loadDiff();
+        } else {
+            loadRecentCalls();
         }
 
         async function loadDiff() {
