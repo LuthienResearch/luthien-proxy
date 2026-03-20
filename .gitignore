@@ -15,6 +15,12 @@ coverage.json
 # Logs
 logs/
 
+# SQLite files
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
 # Secrets
 .env
 .env.*
