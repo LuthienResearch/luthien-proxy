@@ -47,7 +47,7 @@ jobs:
           echo "$NOTES" > /tmp/release_notes.md
 
       - name: Install uv and Python
-        uses: astral-sh/setup-uv@v2
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.13"
 
