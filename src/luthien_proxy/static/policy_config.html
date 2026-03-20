@@ -145,18 +145,6 @@
         .proposed-name { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
         .proposed-desc { font-size: 13px; color: #a1a1aa; margin-bottom: 12px; }
 
-        /* Mode toggle */
-        .mode-toggle {
-            display: flex; gap: 0;
-            border: 1px solid #27272a; border-radius: 4px; overflow: hidden;
-        }
-        .mode-btn {
-            flex: 1; padding: 4px 10px; font-size: 12px; text-align: center;
-            background: transparent; color: #71717a; border: none; cursor: pointer;
-            transition: all 0.15s; font-family: inherit;
-        }
-        .mode-btn.active { background: #27272a; color: #e4e4e7; }
-
         /* Config form */
         .config-form label {
             display: block; font-size: 12px; color: #71717a; margin-bottom: 3px; margin-top: 10px;
@@ -491,6 +479,92 @@
 
         [x-cloak] { display: none !important; }
 
+        /* Policy card + icon */
+        .p-add-icon {
+            margin-left: auto; font-size: 18px; font-weight: 700;
+            color: #3f3f46; transition: color 0.15s;
+        }
+        .policy-card:hover .p-add-icon { color: #6b9fff; }
+        .policy-card.in-chain { border-color: #6b9fff33; background: #0c192933; }
+        .policy-card.in-chain .p-add-icon { color: #6b9fff; }
+
+        /* Available hint */
+        .available-hint {
+            font-size: 12px; color: #52525b; text-align: center;
+            padding: 8px 12px; margin-bottom: 4px;
+            border: 1px dashed #27272a; border-radius: 6px;
+        }
+
+        /* Show/hide internal policies */
+        .show-hidden-btn {
+            width: 100%; margin-top: 8px; padding: 6px 0;
+            background: none; border: none; color: #52525b;
+            font-size: 11px; cursor: pointer; font-family: inherit;
+        }
+        .show-hidden-btn:hover { color: #a1a1aa; }
+
+        /* Empty chain state */
+        .empty-chain-state { text-align: center; padding: 40px 20px; }
+        .empty-chain-icon {
+            font-size: 32px; font-weight: 700; color: #27272a;
+            width: 56px; height: 56px; line-height: 56px;
+            border: 2px dashed #27272a; border-radius: 50%;
+            margin: 0 auto 12px; transition: all 0.15s;
+        }
+        .empty-chain-title { font-size: 16px; font-weight: 600; color: #a1a1aa; margin-bottom: 6px; }
+        .empty-chain-desc { font-size: 13px; color: #52525b; line-height: 1.5; }
+
+        /* Chain header */
+        .chain-header-row {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .chain-title { font-size: 14px; font-weight: 600; color: #e4e4e7; }
+        .chain-count { font-size: 12px; color: #52525b; }
+
+        /* Chain items — improved */
+        .chain-item.expanded { background: #111114; border-color: #3f3f46; }
+        .chain-item-name { cursor: pointer; }
+        .chain-item-name:hover { color: #6b9fff; }
+        .chain-item-config-hint {
+            font-size: 11px; color: #52525b; cursor: pointer;
+            padding-left: 26px; margin-top: 2px;
+        }
+        .chain-item-config-hint:hover { color: #6b9fff; }
+        .chain-btn:disabled { opacity: 0.2; cursor: default; }
+        .chain-btn-remove:hover { color: #f87171 !important; }
+
+        /* Add policy button at bottom of chain */
+        .chain-add-btn {
+            width: 100%; padding: 10px; margin-top: 8px;
+            background: none; border: 2px dashed #27272a;
+            color: #52525b; border-radius: 6px;
+            font-size: 13px; font-weight: 500; cursor: pointer;
+            transition: all 0.15s; font-family: inherit;
+        }
+        .chain-add-btn:hover {
+            border-color: #6b9fff; color: #6b9fff;
+        }
+
+        /* Active chain display */
+        .active-chain-list {
+            background: #0d150d; border-radius: 6px; padding: 8px 12px;
+            margin-bottom: 8px;
+        }
+        .active-chain-item {
+            display: flex; align-items: center; gap: 8px;
+            padding: 6px 0;
+            font-size: 14px; font-weight: 500;
+        }
+        .active-chain-item + .active-chain-item {
+            border-top: 1px solid #1a3a1a;
+        }
+        .active-chain-item-config {
+            padding: 4px 0 8px 26px;
+            font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+            font-size: 11px;
+        }
+
         /* Reduced motion */
         @media (prefers-reduced-motion: reduce) {
             *, *::before, *::after { transition-duration: 0.01ms !important; }
@@ -552,15 +626,9 @@
 
     <!-- Proposed -->
     <div class="column" id="col-proposed">
-        <div class="col-header" style="display:flex;align-items:center;justify-content:space-between;">
-            <span>Proposed</span>
-            <div class="mode-toggle" id="mode-toggle">
-                <button class="mode-btn active" data-mode="single">Single</button>
-                <button class="mode-btn" data-mode="chain">Chain</button>
-            </div>
-        </div>
+        <div class="col-header">Proposed</div>
         <div class="col-body" id="proposed-body">
-            <div class="empty-state" id="proposed-empty">&larr; Select a policy to configure</div>
+            <div class="empty-state" id="proposed-empty"></div>
             <div id="proposed-content" style="display:none;"></div>
         </div>
     </div>

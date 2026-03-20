@@ -1,10 +1,10 @@
 // ============================================================
-// Policy Configuration — Three-column UI
-// Synthesized from PR #372 (forms, grouping) + PR #376 (layout, workflow)
+// Policy Configuration — Chain-first UI
 // ============================================================
 
 const NOOP_CLASS_REF = 'luthien_proxy.policies.noop_policy:NoOpPolicy';
 const DEFAULT_MODEL = 'claude-haiku-4-5-20241022';
+const MULTI_SERIAL_CLASS_REF = 'luthien_proxy.policies.multi_serial_policy:MultiSerialPolicy';
 
 // Policies shown in the "Simple" group (top of Available column)
 const SIMPLE_POLICIES = [
@@ -13,6 +13,17 @@ const SIMPLE_POLICIES = [
     'SimpleLLMPolicy',
     'ToolCallJudgePolicy',
 ];
+
+// Hidden from default view — internal/meta policies users don't pick directly
+const HIDDEN_POLICIES = new Set([
+    'DebugLoggingPolicy',
+    'NoOpPolicy',
+    'SimpleNoOp',
+    'MultiParallelPolicy',
+    'MultiSerialPolicy',
+    'SimplePolicy',
+    'SamplePydanticPolicy',
+]);
 
 // Inline examples shown on policy cards
 const EXAMPLES = {
@@ -64,10 +75,8 @@ const EXAMPLES = {
 const state = {
     policies: [],
     currentPolicy: null,
-    selectedClassRef: null,
     configValues: {},
     invalidFields: new Set(),
-    mode: 'single',
     chain: [],
     availableModels: [],
     selectedModel: DEFAULT_MODEL,
@@ -75,6 +84,8 @@ const state = {
     cachedCredentials: [],
     credentialSource: 'server',
     currentFormData: null,
+    showHidden: false,
+    expandedChainIndex: -1,
 };
 
 // Order-insensitive deep equality for config objects
@@ -114,7 +125,6 @@ async function apiCall(endpoint, options = {}) {
 }
 
 // Shared HTML escaper — also used by FormRenderer
-// Uses esc() to ensure quotes are escaped (safe for attribute contexts)
 window.escapeHtml = function(text) {
     return esc(text);
 };
@@ -128,7 +138,6 @@ function esc(s) {
 // Bootstrap
 // ============================================================
 
-// Initialize Alpine store for drawer state
 document.addEventListener('alpine:init', () => {
     Alpine.store('drawer', { open: false, path: '', index: -1 });
 });
@@ -136,7 +145,6 @@ document.addEventListener('alpine:init', () => {
 document.addEventListener('DOMContentLoaded', async () => {
     initSettingsPopover();
     initFilterInput();
-    initModeToggle();
     await Promise.all([loadPolicies(), loadCurrentPolicy(), loadModels(), loadGatewaySettings()]);
     renderAll();
 });
@@ -226,7 +234,6 @@ function initSettingsPopover() {
             popover.classList.remove('open');
         }
     });
-    // Escape key closes popover
     document.addEventListener('keydown', e => {
         if (e.key === 'Escape' && popover.classList.contains('open')) {
             popover.classList.remove('open');
@@ -256,54 +263,26 @@ async function saveGatewaySetting(field, value) {
 }
 
 // ============================================================
-// Filter & mode toggle
+// Filter
 // ============================================================
 function initFilterInput() {
     document.getElementById('filter-input').addEventListener('input', renderAvailable);
 }
 
-function initModeToggle() {
-    document.getElementById('mode-toggle').addEventListener('click', e => {
-        if (!e.target.classList.contains('mode-btn')) return;
-        const newMode = e.target.dataset.mode;
-        if (newMode === state.mode) return;
-        state.mode = newMode;
-        document.querySelectorAll('#mode-toggle .mode-btn').forEach(b =>
-            b.classList.toggle('active', b.dataset.mode === newMode)
-        );
-        if (newMode === 'single') {
-            if (state.chain.length > 0) {
-                state.selectedClassRef = state.chain[0].classRef;
-                state.configValues = state.chain[0].config;
-            }
-        } else {
-            if (state.selectedClassRef) {
-                state.chain = [{ classRef: state.selectedClassRef, config: { ...state.configValues } }];
-                state.selectedClassRef = null;
-            }
-        }
-        testState.proposed = {};
-        renderAll();
-    });
+function toggleShowHidden() {
+    state.showHidden = !state.showHidden;
+    renderAvailable();
 }
 
 // ============================================================
-// Select policy
+// Select policy — always adds to chain
 // ============================================================
 function selectPolicy(classRef) {
     const p = getPolicy(classRef);
     if (!p) return;
-    if (state.mode === 'single') {
-        state.selectedClassRef = classRef;
-        state.invalidFields.clear();
-        state.currentFormData = null;
-        const isActivePolicy = isCurrentActive(classRef);
-        state.configValues = isActivePolicy && state.currentPolicy.config
-            ? { ...state.currentPolicy.config }
-            : defaultConfigFor(p);
-    } else {
-        state.chain.push({ classRef, config: defaultConfigFor(p) });
-    }
+    state.chain.push({ classRef, config: defaultConfigFor(p) });
+    state.expandedChainIndex = state.chain.length - 1;
+    state.invalidFields.clear();
     renderAll();
 }
 
@@ -334,9 +313,14 @@ function renderAvailable() {
 
     const simple = [];
     const advanced = [];
+    let hiddenCount = 0;
 
     for (const p of state.policies) {
         if (filter && !p.name.toLowerCase().includes(filter) && !(p.description || '').toLowerCase().includes(filter)) continue;
+        if (!state.showHidden && HIDDEN_POLICIES.has(p.name)) {
+            hiddenCount++;
+            continue;
+        }
         if (SIMPLE_POLICIES.includes(p.name)) {
             simple.push(p);
         } else {
@@ -344,8 +328,14 @@ function renderAvailable() {
         }
     }
 
-    // Sort simple policies in the specified order
     simple.sort((a, b) => SIMPLE_POLICIES.indexOf(a.name) - SIMPLE_POLICIES.indexOf(b.name));
+
+    if (state.chain.length === 0) {
+        const hint = document.createElement('div');
+        hint.className = 'available-hint';
+        hint.textContent = 'Click a policy to add it to your chain';
+        list.appendChild(hint);
+    }
 
     if (simple.length > 0) {
         const label = document.createElement('div');
@@ -363,6 +353,14 @@ function renderAvailable() {
         for (const p of advanced) renderPolicyCard(p, list);
     }
 
+    if (hiddenCount > 0) {
+        const toggle = document.createElement('button');
+        toggle.className = 'show-hidden-btn';
+        toggle.textContent = state.showHidden ? 'Hide internal policies' : `Show ${hiddenCount} internal policies`;
+        toggle.onclick = toggleShowHidden;
+        list.appendChild(toggle);
+    }
+
     if (list.children.length === 0 && state.policies.length > 0) {
         list.innerHTML = '<div class="empty-state">No policies match filter</div>';
     }
@@ -373,8 +371,10 @@ function renderPolicyCard(p, container) {
     div.className = 'policy-card';
     div.setAttribute('role', 'button');
     div.setAttribute('tabindex', '0');
-    if (state.mode === 'single' && state.selectedClassRef === p.class_ref) div.className += ' selected';
     if (isCurrentActive(p.class_ref)) div.className += ' is-active';
+
+    const inChain = state.chain.some(c => c.classRef === p.class_ref);
+    if (inChain) div.className += ' in-chain';
 
     const cc = configParamCount(p);
     const configHint = cc > 0 ? ` <span class="p-config-hint">(${cc} setting${cc > 1 ? 's' : ''})</span>` : '';
@@ -383,103 +383,113 @@ function renderPolicyCard(p, container) {
     const firstLine = (p.description || '').split('.')[0];
     const exampleHtml = renderExampleBlock(p.class_ref, false);
 
-    div.innerHTML = `<div class="p-name">${dot}${esc(p.name)}</div><div class="p-desc">${esc(firstLine)}.${configHint}</div>${exampleHtml}`;
+    div.innerHTML = `
+        <div class="p-name">${dot}${esc(p.name)}<span class="p-add-icon" title="Add to chain">+</span></div>
+        <div class="p-desc">${esc(firstLine)}.${configHint}</div>${exampleHtml}`;
     div.onclick = () => selectPolicy(p.class_ref);
     div.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectPolicy(p.class_ref); } };
     container.appendChild(div);
 }
 
 // ============================================================
-// Render: Proposed column
+// Render: Proposed column — always chain view
 // ============================================================
 function renderProposed() {
     const col = document.getElementById('col-proposed');
-    const hasContent = (state.mode === 'single' && state.selectedClassRef) ||
-                       (state.mode === 'chain' && state.chain.length > 0);
+    const hasContent = state.chain.length > 0;
     col.className = 'column' + (hasContent ? ' col-proposed has-content' : '');
 
     const empty = document.getElementById('proposed-empty');
     const content = document.getElementById('proposed-content');
 
-    if (state.mode === 'single') {
-        if (!state.selectedClassRef) {
-            empty.innerHTML = '&larr; Select a policy to configure';
-            empty.style.display = ''; content.style.display = 'none';
-            return;
-        }
-        empty.style.display = 'none'; content.style.display = '';
-        const p = getPolicy(state.selectedClassRef);
-        if (!p) return;
-
-        let html = `<div class="proposed-name">${esc(p.name)}</div>`;
-        html += `<div class="proposed-desc">${esc(p.description || '')}</div>`;
-        html += renderExampleBlock(p.class_ref, true);
-
-        // Config form placeholder — filled after innerHTML set
-        html += `<div id="proposed-config-form"></div>`;
-        html += `<div id="proposed-status"></div>`;
-
-        const matchesActive = isCurrentActive(p.class_ref) &&
-            configEqual(state.currentPolicy.config || {}, state.configValues);
-        html += `<button class="btn-activate" id="btn-activate" ${matchesActive ? 'disabled' : ''} onclick="handleActivate()">${matchesActive ? 'Already Active' : 'Activate'}</button>`;
-        html += renderTestSection('proposed');
-        content.innerHTML = html;
-
-        // Render the config form using Alpine.js FormRenderer or legacy
-        renderConfigFormIntoContainer(p, 'proposed-config-form');
-        bindTestSection('proposed');
-    } else {
-        if (state.chain.length === 0) {
-            empty.innerHTML = '&larr; Click policies to build a chain';
-            empty.style.display = ''; content.style.display = 'none';
-            return;
-        }
-        empty.style.display = 'none'; content.style.display = '';
-        let html = `<div style="font-size:13px;color:#71717a;margin-bottom:8px;">Policy Chain (${state.chain.length})</div>`;
-        html += '<ul class="chain-list">';
-        for (let i = 0; i < state.chain.length; i++) {
-            const item = state.chain[i];
-            const p = getPolicy(item.classRef);
-            if (!p) continue;
-            html += '<li class="chain-item">';
-            html += '<div class="chain-item-header">';
-            html += `<span class="chain-num">${i + 1}</span>`;
-            html += `<span class="chain-item-name">${esc(p.name)}</span>`;
-            html += '<span class="chain-actions">';
-            if (i > 0) html += `<button class="chain-btn" onclick="event.stopPropagation();moveChain(${i},-1)" title="Move up">&uarr;</button>`;
-            if (i < state.chain.length - 1) html += `<button class="chain-btn" onclick="event.stopPropagation();moveChain(${i},1)" title="Move down">&darr;</button>`;
-            html += `<button class="chain-btn" onclick="event.stopPropagation();removeChain(${i})" title="Remove">&times;</button>`;
-            html += '</span></div>';
-            html += `<div class="chain-item-desc">${esc((p.description || '').split('.')[0])}</div>`;
-            if (configParamCount(p) > 0) {
-                html += `<div class="config-form">${renderLegacyConfigFormInner(p, item.config, 'chain-' + i)}</div>`;
-            }
-            html += '</li>';
-            if (i < state.chain.length - 1) html += '<div class="chain-divider">&darr;</div>';
-        }
-        html += '</ul>';
-        html += `<div id="proposed-status"></div>`;
-        const chainLabel = state.chain.length > 1
-            ? `Activate Chain (${state.chain.length} policies)`
-            : 'Activate';
-        html += `<button class="btn-activate" id="btn-activate" onclick="handleActivateChain()">${chainLabel}</button>`;
-        html += renderTestSection('proposed');
-        content.innerHTML = html;
-        for (let i = 0; i < state.chain.length; i++) bindLegacyConfigInputs('chain-' + i);
-        bindTestSection('proposed');
+    if (state.chain.length === 0) {
+        empty.innerHTML = '<div class="empty-chain-state">' +
+            '<div class="empty-chain-icon">+</div>' +
+            '<div class="empty-chain-title">Build a Policy Chain</div>' +
+            '<div class="empty-chain-desc">Click policies on the left to add them here. ' +
+            'Policies run in order, top to bottom.</div>' +
+            '</div>';
+        empty.style.display = ''; content.style.display = 'none';
+        return;
     }
+
+    empty.style.display = 'none'; content.style.display = '';
+
+    let html = '<div class="chain-header-row">';
+    html += '<span class="chain-title">Policy Chain</span>';
+    html += `<span class="chain-count">${state.chain.length} ${state.chain.length === 1 ? 'policy' : 'policies'}</span>`;
+    html += '</div>';
+
+    html += '<ul class="chain-list">';
+    for (let i = 0; i < state.chain.length; i++) {
+        const item = state.chain[i];
+        const p = getPolicy(item.classRef);
+        if (!p) continue;
+        const isExpanded = state.expandedChainIndex === i;
+        const hasConfig = configParamCount(p) > 0;
+
+        html += `<li class="chain-item${isExpanded ? ' expanded' : ''}">`;
+        html += '<div class="chain-item-header">';
+        html += `<span class="chain-num">${i + 1}</span>`;
+        html += `<span class="chain-item-name" onclick="toggleChainExpand(${i})">${esc(p.name)}</span>`;
+        html += '<span class="chain-actions">';
+        html += `<button class="chain-btn" onclick="event.stopPropagation();moveChain(${i},-1)" title="Move up" ${i === 0 ? 'disabled' : ''}>&uarr;</button>`;
+        html += `<button class="chain-btn" onclick="event.stopPropagation();moveChain(${i},1)" title="Move down" ${i === state.chain.length - 1 ? 'disabled' : ''}>&darr;</button>`;
+        html += `<button class="chain-btn chain-btn-remove" onclick="event.stopPropagation();removeChain(${i})" title="Remove">&times;</button>`;
+        html += '</span></div>';
+
+        if (isExpanded) {
+            html += `<div class="chain-item-desc">${esc((p.description || '').split('.')[0])}</div>`;
+            if (hasConfig) {
+                html += `<div class="config-form">${renderLegacyConfigFormInner(p, item.config, 'chain-' + i)}</div>`;
+            } else {
+                html += '<div class="no-config">No configuration needed</div>';
+            }
+        } else if (hasConfig) {
+            html += `<div class="chain-item-config-hint" onclick="toggleChainExpand(${i})">Click to configure</div>`;
+        }
+
+        html += '</li>';
+        if (i < state.chain.length - 1) html += '<div class="chain-divider">&darr;</div>';
+    }
+    html += '</ul>';
+
+    html += '<button class="chain-add-btn" onclick="document.getElementById(\'filter-input\').focus()">+ Add Policy</button>';
+
+    html += '<div id="proposed-status"></div>';
+    const activateLabel = state.chain.length > 1
+        ? `Activate Chain (${state.chain.length} policies)`
+        : 'Activate';
+    html += `<button class="btn-activate" id="btn-activate" onclick="handleActivateChain()">${activateLabel}</button>`;
+    html += renderTestSection('proposed');
+    content.innerHTML = html;
+    for (let i = 0; i < state.chain.length; i++) bindLegacyConfigInputs('chain-' + i);
+    bindTestSection('proposed');
 }
 
 function moveChain(i, dir) {
     const j = i + dir;
     if (j < 0 || j >= state.chain.length) return;
     [state.chain[i], state.chain[j]] = [state.chain[j], state.chain[i]];
+    // Track expanded item through the move
+    if (state.expandedChainIndex === i) state.expandedChainIndex = j;
+    else if (state.expandedChainIndex === j) state.expandedChainIndex = i;
     renderProposed();
 }
 
 function removeChain(i) {
     state.chain.splice(i, 1);
+    if (state.expandedChainIndex === i) {
+        state.expandedChainIndex = -1;
+    } else if (state.expandedChainIndex > i) {
+        state.expandedChainIndex--;
+    }
     renderAll();
+}
+
+function toggleChainExpand(i) {
+    state.expandedChainIndex = (state.expandedChainIndex === i) ? -1 : i;
+    renderProposed();
 }
 
 // ============================================================
@@ -497,7 +507,6 @@ function renderConfigFormIntoContainer(policy, containerId) {
         return;
     }
 
-    // Check if any parameter has Pydantic structure
     const hasPydanticSchema = Object.values(schema).some(
         paramSchema => paramSchema && (
             paramSchema.properties || paramSchema.$defs || paramSchema['x-sub-policy-list'] ||
@@ -518,7 +527,6 @@ function renderWithAlpine(container, schema, initialData) {
         if (value !== null) formData[key] = value;
     }
 
-    // Merge current config values if editing active policy
     for (const [key, value] of Object.entries(state.configValues || {})) {
         if (value !== null && value !== undefined) formData[key] = value;
     }
@@ -541,7 +549,6 @@ function renderWithAlpine(container, schema, initialData) {
     if (window.Alpine) Alpine.initTree(container);
 }
 
-// Global callback for Alpine data binding
 window.updateFormData = function(data) {
     state.currentFormData = data;
     state.configValues = data;
@@ -647,8 +654,7 @@ function updateActivateButton() {
     const btn = document.getElementById('btn-activate');
     if (!btn) return;
 
-    const hasErrors = state.invalidFields.size > 0;
-    if (hasErrors) {
+    if (state.invalidFields.size > 0) {
         btn.disabled = true;
         btn.textContent = 'Fix errors to activate';
         btn.classList.add('error-state');
@@ -656,15 +662,11 @@ function updateActivateButton() {
     }
     btn.classList.remove('error-state');
 
-    if (state.mode === 'single' && state.selectedClassRef) {
-        const matchesActive = isCurrentActive(state.selectedClassRef) &&
-            configEqual(state.currentPolicy.config || {}, state.configValues);
-        btn.disabled = matchesActive || state.isActivating;
-        btn.textContent = state.isActivating ? 'Activating...' : (matchesActive ? 'Already Active' : 'Activate');
-    } else {
-        btn.disabled = state.isActivating;
-        btn.textContent = state.isActivating ? 'Activating...' : 'Activate Chain';
-    }
+    btn.disabled = state.isActivating;
+    const label = state.chain.length > 1
+        ? `Activate Chain (${state.chain.length} policies)`
+        : 'Activate';
+    btn.textContent = state.isActivating ? 'Activating...' : label;
 }
 
 // ============================================================
@@ -678,20 +680,39 @@ function renderActive() {
     }
 
     const cp = state.currentPolicy;
+    const isChain = cp.class_ref === MULTI_SERIAL_CLASS_REF;
     const p = getPolicy(cp.class_ref);
-    const name = p ? p.name : cp.policy;
-    const desc = p ? p.description : '';
+
+    const name = isChain ? 'Chain' : (p ? p.name : cp.policy);
+    const desc = isChain ? '' : (p ? p.description : '');
 
     let html = '<div class="active-label">Currently Running</div>';
     html += `<div class="active-name">${esc(name)}</div>`;
-    html += `<div class="active-desc">${esc(desc)}</div>`;
+    if (desc) html += `<div class="active-desc">${esc(desc)}</div>`;
 
     const config = cp.config || {};
-    const configKeys = Object.keys(config);
-    if (configKeys.length > 0) {
-        html += '<div class="active-config">';
-        html += formatConfigHtml(config);
+
+    if (isChain && config.policies && Array.isArray(config.policies)) {
+        html += '<div class="active-chain-list">';
+        config.policies.forEach((sub, i) => {
+            const subPolicy = getPolicy(sub.class || sub['class']);
+            const subName = subPolicy ? subPolicy.name : (sub.class || sub['class'] || 'Unknown');
+            html += '<div class="active-chain-item">';
+            html += `<span class="chain-num">${i + 1}</span>`;
+            html += `<span>${esc(subName)}</span>`;
+            html += '</div>';
+            if (sub.config && Object.keys(sub.config).length > 0) {
+                html += `<div class="active-chain-item-config">${formatConfigHtml(sub.config)}</div>`;
+            }
+        });
         html += '</div>';
+    } else {
+        const configKeys = Object.keys(config);
+        if (configKeys.length > 0) {
+            html += '<div class="active-config">';
+            html += formatConfigHtml(config);
+            html += '</div>';
+        }
     }
 
     const parts = [];
@@ -705,9 +726,9 @@ function renderActive() {
     }
 
     if (cp.class_ref !== NOOP_CLASS_REF) {
-        html += `<button class="deactivate-link" onclick="handleDeactivate()">Deactivate</button>`;
+        html += '<button class="deactivate-link" onclick="handleDeactivate()">Deactivate</button>';
     }
-    html += `<div id="active-status"></div>`;
+    html += '<div id="active-status"></div>';
 
     html += renderTestSection('active');
     body.innerHTML = html;
@@ -751,7 +772,6 @@ function timeSince(timestamp) {
 
 function onCredSourceChange(side, value) {
     state.credentialSource = value;
-    // Sync both selects
     ['proposed', 'active'].forEach(s => {
         const sel = document.getElementById(`cred-select-${s}`);
         if (sel) sel.value = value;
@@ -767,9 +787,6 @@ function renderTestSection(side) {
     let html = '<div class="test-section">';
     html += '<div class="test-section-title">Test This Policy</div>';
 
-    // Credential source selector
-    // Only "server" and "custom" are functional — cached credentials are hashed
-    // and can't be retrieved for direct test requests
     html += '<div class="test-cred-row">';
     html += '<label class="test-cred-label">Credentials:</label>';
     html += `<select class="test-cred-select" id="cred-select-${side}" onchange="onCredSourceChange('${side}', this.value)">`;
@@ -869,7 +886,6 @@ async function runTest(side) {
             stream: false,
             use_mock: useMock,
         };
-        // Read API key from DOM at send time (avoids persisting in global state)
         if (state.credentialSource === 'custom') {
             const credInput = document.getElementById(`cred-input-${side}`);
             const key = credInput ? credInput.value.trim() : '';
@@ -918,8 +934,9 @@ async function runTest(side) {
 // ============================================================
 // Activate / Deactivate
 // ============================================================
-async function handleActivate() {
-    if (state.isActivating || !state.selectedClassRef) return;
+async function handleActivateChain() {
+    if (state.chain.length === 0) return;
+    if (state.isActivating) return;
     if (state.invalidFields.size > 0) {
         showStatus('proposed-status', 'error', 'Fix errors before activating');
         return;
@@ -930,18 +947,35 @@ async function handleActivate() {
     showStatus('proposed-status', 'info', 'Activating...');
 
     try {
+        let payload;
+
+        if (state.chain.length === 1) {
+            payload = {
+                policy_class_ref: state.chain[0].classRef,
+                config: state.chain[0].config,
+                enabled_by: 'ui'
+            };
+        } else {
+            const subPolicies = state.chain.map(item => ({
+                class: item.classRef,
+                config: item.config,
+            }));
+            payload = {
+                policy_class_ref: MULTI_SERIAL_CLASS_REF,
+                config: { policies: subPolicies },
+                enabled_by: 'ui'
+            };
+        }
+
         const result = await apiCall('/api/admin/policy/set', {
             method: 'POST',
-            body: JSON.stringify({
-                policy_class_ref: state.selectedClassRef,
-                config: state.configValues,
-                enabled_by: 'ui'
-            })
+            body: JSON.stringify(payload)
         });
 
         if (result.success) {
             await loadCurrentPolicy();
-            state.selectedClassRef = null;
+            state.chain = [];
+            state.expandedChainIndex = -1;
             testState.proposed = {};
             testState.active = {};
             renderAll();
@@ -952,59 +986,6 @@ async function handleActivate() {
             } else {
                 showStatus('proposed-status', 'error', errMsg);
             }
-        }
-    } catch (err) {
-        showStatus('proposed-status', 'error', err.message);
-    } finally {
-        state.isActivating = false;
-        updateActivateButton();
-    }
-}
-
-const MULTI_SERIAL_CLASS_REF = 'luthien_proxy.policies.multi_serial_policy:MultiSerialPolicy';
-
-async function handleActivateChain() {
-    if (state.chain.length === 0) return;
-
-    // Single-item chain — activate directly as a single policy
-    if (state.chain.length === 1) {
-        state.selectedClassRef = state.chain[0].classRef;
-        state.configValues = state.chain[0].config;
-        state.mode = 'single';
-        await handleActivate();
-        return;
-    }
-
-    // Multi-item chain — wrap in MultiSerialPolicy
-    if (state.isActivating) return;
-    state.isActivating = true;
-    updateActivateButton();
-    showStatus('proposed-status', 'info', 'Activating chain...');
-
-    try {
-        const subPolicies = state.chain.map(item => ({
-            class: item.classRef,
-            config: item.config,
-        }));
-
-        const result = await apiCall('/api/admin/policy/set', {
-            method: 'POST',
-            body: JSON.stringify({
-                policy_class_ref: MULTI_SERIAL_CLASS_REF,
-                config: { policies: subPolicies },
-                enabled_by: 'ui'
-            })
-        });
-
-        if (result.success) {
-            await loadCurrentPolicy();
-            state.chain = [];
-            state.mode = 'single';
-            testState.proposed = {};
-            testState.active = {};
-            renderAll();
-        } else {
-            showStatus('proposed-status', 'error', result.error || 'Chain activation failed');
         }
     } catch (err) {
         showStatus('proposed-status', 'error', err.message);
