@@ -55,14 +55,18 @@
             grid-template-columns: 0.85fr 1.15fr 1.15fr;
             gap: 12px;
             padding: 12px 16px;
-            flex: 1;
-            min-height: 0;
+            align-items: start;
         }
         .column {
             background: #18181b; border: 1px solid #27272a; border-radius: 8px;
             display: flex; flex-direction: column;
-            min-height: calc(100vh - 80px);
+            min-height: 200px;
             overflow: hidden;
+        }
+        /* Proposed and Active stick to top while scrolling Available */
+        #col-proposed, #col-active {
+            position: sticky; top: 12px;
+            max-height: calc(100vh - 24px);
         }
         .col-header {
             font-size: 16px; font-weight: 600; letter-spacing: 0.5px;
@@ -594,6 +598,7 @@
         @media (max-width: 1000px) {
             .columns { grid-template-columns: 1fr; gap: 8px; }
             .column { min-height: 350px; }
+            #col-proposed, #col-active { position: static; max-height: none; }
             .test-results.visible { grid-template-columns: 1fr; }
         }
     </style>
