@@ -15,13 +15,12 @@ Example config:
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
-from luthien_proxy.policy_core import TextModifierPolicy
 from luthien_proxy.policies.onboarding_policy import is_first_turn
+from luthien_proxy.policy_core import TextModifierPolicy
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator

@@ -80,8 +80,7 @@ def _clone_repo(console: Console, clone_path: Path) -> bool:
             )
             if result.returncode != 0:
                 console.print(
-                    "[yellow]git pull failed (you may have local changes). "
-                    "Continuing with existing code.[/yellow]"
+                    "[yellow]git pull failed (you may have local changes). Continuing with existing code.[/yellow]"
                 )
             return True
         else:
@@ -95,9 +94,14 @@ def _clone_repo(console: Console, clone_path: Path) -> bool:
         console.print("[blue]Forking and cloning repository...[/blue]")
         result = subprocess.run(
             [
-                "gh", "repo", "fork", GITHUB_REPO,
-                "--clone", "--default-branch-only",
-                "--", str(clone_path),
+                "gh",
+                "repo",
+                "fork",
+                GITHUB_REPO,
+                "--clone",
+                "--default-branch-only",
+                "--",
+                str(clone_path),
             ],
             capture_output=True,
             text=True,

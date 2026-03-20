@@ -39,8 +39,9 @@ class HackathonPolicy(SimplePolicy):
     async def simple_on_request(self, request_str: str, context: PolicyContext) -> str:
         """Transform the user's message before it reaches the LLM.
 
-        Examples:
-            return request_str + "\\n\\nAlways respond in haiku form."
+        Examples::
+
+            return request_str + " Always respond in haiku form."
             return request_str.replace("pip install", "uv pip install")
         """
         return request_str
@@ -48,9 +49,10 @@ class HackathonPolicy(SimplePolicy):
     async def simple_on_response_content(self, content: str, context: PolicyContext) -> str:
         """Transform the LLM's text response before the user sees it.
 
-        Examples:
+        Examples::
+
             return content.upper()
-            return content + "\\n\\n[Processed by HackathonPolicy]"
+            return content + " [Processed by HackathonPolicy]"
         """
         return content
 
