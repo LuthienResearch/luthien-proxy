@@ -118,8 +118,9 @@ def test_onboard_local_full_flow(tmp_path):
         patch("luthien_cli.commands.onboard.start_gateway", return_value=12345),
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
+        patch("luthien_cli.commands.onboard.webbrowser.open"),
     ):
-        result = runner.invoke(cli, ["onboard"])
+        result = runner.invoke(cli, ["onboard"], input="q\n")
 
     assert result.exit_code == 0, result.output
     assert "Gateway is running" in result.output
@@ -153,9 +154,10 @@ def test_onboard_docker_full_flow(tmp_path):
         patch("luthien_cli.commands.onboard.subprocess.run") as mock_run,
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_docker_ports", return_value={"GATEWAY_PORT": "9123"}),
+        patch("luthien_cli.commands.onboard.webbrowser.open"),
     ):
         mock_run.return_value = MagicMock(returncode=0)
-        result = runner.invoke(cli, ["onboard", "--docker"])
+        result = runner.invoke(cli, ["onboard", "--docker"], input="q\n")
 
     assert result.exit_code == 0, result.output
     assert "Gateway is running" in result.output
@@ -281,7 +283,7 @@ def test_find_docker_ports_auto_selects():
             assert result == {"POSTGRES_PORT": "5433", "REDIS_PORT": "6379", "GATEWAY_PORT": "8000"}
 
 
-def test_onboard_shows_api_key_warning(tmp_path):
+def test_onboard_shows_uninstall_instructions(tmp_path):
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
     repo_path = tmp_path / "managed-repo"
@@ -295,9 +297,31 @@ def test_onboard_shows_api_key_warning(tmp_path):
         patch("luthien_cli.commands.onboard.start_gateway", return_value=12345),
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
+        patch("luthien_cli.commands.onboard.webbrowser.open"),
     ):
-        result = runner.invoke(cli, ["onboard"])
+        result = runner.invoke(cli, ["onboard"], input="q\n")
 
     assert result.exit_code == 0, result.output
-    assert "Yes" in result.output
-    assert "bypass" in result.output.lower()
+    assert "pipx uninstall" in result.output
+
+
+def test_onboard_opens_browser(tmp_path):
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    repo_path = tmp_path / "managed-repo"
+    repo_path.mkdir()
+    (repo_path / "config").mkdir()
+
+    with (
+        patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.onboard.ensure_gateway_venv", return_value=str(repo_path)),
+        patch("luthien_cli.commands.onboard.stop_gateway"),
+        patch("luthien_cli.commands.onboard.start_gateway", return_value=12345),
+        patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
+        patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
+        patch("luthien_cli.commands.onboard.webbrowser.open") as mock_browser,
+    ):
+        result = runner.invoke(cli, ["onboard"], input="q\n")
+
+    assert result.exit_code == 0, result.output
+    mock_browser.assert_called_once_with("http://localhost:8000/policy-config")

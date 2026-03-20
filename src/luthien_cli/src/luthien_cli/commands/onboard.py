@@ -7,6 +7,7 @@ import re
 import secrets
 import subprocess
 import textwrap
+import webbrowser
 from pathlib import Path
 
 import click
@@ -109,10 +110,11 @@ def _write_policy(repo_path: str, gateway_url: str) -> None:
 def _show_results(
     console: Console,
     gateway_url: str,
-    proxy_key: str,
     mode: str,
 ) -> None:
-    """Show the final success panel."""
+    """Show the final success panel and prompt user to launch Claude Code."""
+    config_url = f"{gateway_url}/policy-config"
+
     console.print()
     console.print(
         Panel(
@@ -121,25 +123,19 @@ def _show_results(
 
                 [bold]Gateway URL:[/bold]  {gateway_url}
                 [bold]Policy:[/bold]       OnboardingPolicy (welcome on first turn)
-                [bold]Auth mode:[/bold]    both (proxy key or Anthropic key)
                 [bold]Mode:[/bold]         {mode}
 
-                [bold]Configure policies:[/bold]  {gateway_url}/policy-config
-
-                [bold yellow]Launch Claude Code through the gateway:[/bold yellow]
-                  luthien claude
-
-                [bold]Or manually:[/bold]
-                  ANTHROPIC_BASE_URL={gateway_url}/ ANTHROPIC_API_KEY={proxy_key} claude
-
-                [bold red]Important:[/bold red] If Claude Code asks about a detected API key,
-                select [bold]"Yes"[/bold]. Selecting "No" bypasses the proxy.
+                [bold]Configure policies:[/bold]  {config_url}
 
                 [bold]Manage the gateway:[/bold]
                   luthien status     # check health
                   luthien logs       # view logs
                   luthien down       # stop the gateway
                   luthien up         # start again
+                  [bold yellow]luthien claude[/bold yellow]    # launch Claude Code through the proxy
+
+                [bold]Uninstall:[/bold]
+                  pipx uninstall luthien-cli
 
                 [dim]Luthien sends anonymous usage data to help development.
                 To disable, set USAGE_TELEMETRY=false in .env and restart.[/dim]"""),
@@ -148,11 +144,34 @@ def _show_results(
         )
     )
 
+    # Open the config UI in the browser
+    try:
+        webbrowser.open(config_url)
+        console.print(f"[dim]Opened {config_url} in browser[/dim]")
+    except Exception:
+        console.print(f"[dim]Open {config_url} in your browser to configure policies[/dim]")
+
+    # Prompt user to launch Claude Code
+    console.print()
+    try:
+        key = console.input("[bold]Press Enter to launch Claude Code through Luthien Proxy, or q to quit: [/bold]")
+        if key.strip().lower() == "q":
+            return
+    except (KeyboardInterrupt, EOFError):
+        return
+
+    # Launch Claude Code through the proxy
+    from luthien_cli.commands.claude import _launch_claude
+
+    _launch_claude(console)
+
 
 def _onboard_local(console: Console, config, proxy_key: str, admin_key: str) -> None:
     """Onboard in local mode: SQLite + in-process event publisher, no Docker."""
     # 1. Install gateway package
+    console.print("[blue]Installing luthien-proxy...[/blue]")
     config.repo_path = ensure_gateway_venv()
+    console.print("[green]luthien CLI and proxy installed.[/green]")
 
     # 2. Find a free port (needed before writing policy config)
     gateway_port = find_free_port(8000)
@@ -185,7 +204,7 @@ def _onboard_local(console: Console, config, proxy_key: str, admin_key: str) -> 
         console.print("[dim]Check logs: luthien logs[/dim]")
         raise SystemExit(1)
 
-    _show_results(console, actual_gateway_url.rstrip("/"), proxy_key, "local")
+    _show_results(console, actual_gateway_url.rstrip("/"), "local")
 
 
 def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str) -> None:
@@ -256,7 +275,7 @@ def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str) ->
         console.print(f"[dim]Check logs: docker compose -f {config.repo_path}/docker-compose.yaml logs gateway[/dim]")
         raise SystemExit(1)
 
-    _show_results(console, actual_gateway_url.rstrip("/"), proxy_key, "docker")
+    _show_results(console, actual_gateway_url.rstrip("/"), "docker")
 
 
 @click.command()
@@ -269,8 +288,7 @@ def onboard(use_docker: bool):
     mode_label = "Docker (PostgreSQL + Redis)" if use_docker else "local (SQLite, no Docker required)"
     console.print(
         Panel(
-            f"This will set up a local Luthien gateway with the onboarding policy,\n"
-            f"then launch Claude Code through it.\n\n"
+            f"Installing the [bold]luthien[/bold] CLI tool and setting up a local gateway.\n\n"
             f"[bold]Mode:[/bold] {mode_label}",
             title="Luthien Onboard",
             border_style="blue",
