@@ -138,7 +138,7 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 
 **Dockerless (default for development and single-user local use)**:
 - Run the gateway directly: `./scripts/start_gateway.sh` or `uv run python -m luthien_proxy.main`
-- Uses SQLite (`DATABASE_URL=sqlite:///path/to/luthien.db`) — no Postgres or Redis needed
+- Uses SQLite (`DATABASE_URL` unset, defaults to `~/.luthien/local.db`) — no Postgres or Redis needed
 - Code changes take effect immediately on restart (no image rebuilds)
 - The `luthien` CLI defaults to this mode (`luthien onboard` → `luthien up`)
 
@@ -191,7 +191,7 @@ Most near-term development work is dockerless. Prefer `start_gateway.sh` for day
 - Keep lint, test, and type-check settings consolidated in `pyproject.toml`; avoid extra config files unless necessary.
 - Copy `.env.example` to `.env`; never commit secrets.
 - Key env vars: `DATABASE_URL`, `POLICY_CONFIG`, `PROXY_API_KEY`. (`REDIS_URL` only needed for Docker Compose deployments.)
-- For dockerless dev, use `DATABASE_URL=sqlite:///path/to/luthien.db` (no Postgres needed).
+- For dockerless dev, use `DATABASE_URL` unset, defaults to `~/.luthien/local.db` (no Postgres needed).
 - Update `config/policy_config.yaml` rather than hardcoding.
 - Validate setup with test requests to the gateway at `http://localhost:8000`.
 

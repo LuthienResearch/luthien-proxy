@@ -105,10 +105,10 @@ if [ -f .env ]; then
     set +a
 fi
 
-# Docker Compose requires PostgreSQL — check that DATABASE_URL isn't SQLite
-if [[ "${DATABASE_URL:-}" == sqlite* ]]; then
-    echo "❌ DATABASE_URL is set to SQLite, but Docker Compose requires PostgreSQL."
-    echo "   Edit .env: uncomment the PostgreSQL section and comment out the SQLite line."
+# Docker Compose requires PostgreSQL — check DATABASE_URL
+if [[ -z "${DATABASE_URL:-}" ]] || [[ "${DATABASE_URL:-}" == sqlite* ]]; then
+    echo "❌ DATABASE_URL is not set or points to SQLite, but Docker Compose requires PostgreSQL."
+    echo "   Edit .env: uncomment the PostgreSQL section (DATABASE_URL, POSTGRES_*)."
     echo "   (Or use ./scripts/start_gateway.sh for dockerless local dev.)"
     exit 1
 fi
