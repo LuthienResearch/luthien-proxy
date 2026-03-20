@@ -22,11 +22,17 @@ RUN npm install -g @anthropic-ai/claude-code
 COPY . /root/luthien-proxy
 WORKDIR /root/luthien-proxy
 
+# Initialize a git repo so hatch-vcs can derive a version for luthien-cli.
+# COPY doesn't include .git/, so builds from the Docker context have no history.
+RUN git init && git config user.email "test@test" && git config user.name "test" \
+    && git add -A && git commit -m "init" && git tag cli-v0.0.0-dev
+
 # Pre-install deps so the hackathon command skips the slow uv sync
 RUN uv sync --dev
 
 # Install luthien-cli from current source
-RUN uv pip install --system /root/luthien-proxy/src/luthien_cli
+RUN SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0.dev0 \
+    uv pip install --system /root/luthien-proxy/src/luthien_cli
 
 WORKDIR /root
 CMD ["/bin/bash"]
