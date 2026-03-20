@@ -45,8 +45,11 @@ def _launch_claude(console: Console, extra_args: list[str] | None = None) -> Non
 
     # Open the config page in the browser
     config_url = config.gateway_url.rstrip("/") + "/policy-config"
-    console.print(f"[dim]Opening config page: {config_url}[/dim]")
-    webbrowser.open(config_url)
+    try:
+        webbrowser.open(config_url)
+        console.print(f"[dim]Opened config page: {config_url}[/dim]")
+    except Exception:
+        console.print(f"[dim]Config page: {config_url}[/dim]")
 
     console.print(
         "[dim]Tip: run luthien commands with ! such as !luthien status, !luthien logs, !luthien up, and !luthien down[/dim]"

@@ -20,6 +20,7 @@ from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config, save_config
 from luthien_cli.local_process import find_docker_ports, find_free_port, start_gateway, stop_gateway
 from luthien_cli.repo import ensure_gateway_venv, ensure_repo
 
+
 def _read_single_key() -> str:
     """Read a single keypress without waiting for Enter."""
     if not sys.stdin.isatty():
@@ -265,6 +266,13 @@ def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str) ->
         selected = ", ".join(f"{k}={v}" for k, v in port_env.items())
         console.print(f"[dim]Auto-selected ports: {selected}[/dim]")
 
+    gateway_port = port_env.get("GATEWAY_PORT", os.environ.get("GATEWAY_PORT", "8000"))
+    actual_gateway_url = f"http://localhost:{gateway_port}"
+
+    # Write policy config before starting containers so the gateway
+    # reads the correct config at startup.
+    _write_policy(config.repo_path, actual_gateway_url)
+
     with console.status("Starting containers..."):
         result = subprocess.run(
             ["docker", "compose", "up", "-d"],
@@ -276,12 +284,6 @@ def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str) ->
     if result.returncode != 0:
         console.print(f"[red]docker compose up failed:[/red]\n{result.stderr}")
         raise SystemExit(1)
-
-    gateway_port = port_env.get("GATEWAY_PORT", os.environ.get("GATEWAY_PORT", "8000"))
-    actual_gateway_url = f"http://localhost:{gateway_port}"
-
-    # Write policy config now that we know the gateway URL
-    _write_policy(config.repo_path, actual_gateway_url)
 
     config.gateway_url = actual_gateway_url
     config.api_key = proxy_key

@@ -9,6 +9,8 @@ Run:
     uv run pytest -m mock_e2e tests/e2e_tests/test_mock_onboarding_policy.py -v
 """
 
+import json
+
 import httpx
 import pytest
 from tests.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
@@ -111,8 +113,6 @@ async def test_first_turn_streaming_appends_welcome(
     all_text = ""
     for line in resp.text.split("\n"):
         if line.startswith("data: ") and line.strip() != "data: [DONE]":
-            import json
-
             try:
                 event = json.loads(line[6:])
                 if event.get("type") == "content_block_delta":

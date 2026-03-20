@@ -66,6 +66,8 @@ def is_first_turn(request: Mapping[str, Any]) -> bool:
     """Check if this is the first turn of a conversation.
 
     First turn = exactly one user message with no prior assistant responses.
+    Only checks "user" and "assistant" roles in the messages array — system
+    prompts live in the top-level ``system`` field per the Anthropic API.
     """
     messages = request.get("messages", [])
     if not messages:
@@ -91,20 +93,23 @@ class OnboardingPolicy(TextModifierPolicy):
         self._welcome = WELCOME_MESSAGE.format(gateway_url=self._gateway_url)
 
     def extra_text(self) -> str | None:
-        """Return the welcome message (only used when _should_activate is True)."""
+        """Return the welcome message. All callers are gated by is_first_turn()."""
         return self._welcome
 
     def run_anthropic(
         self, io: AnthropicPolicyIOProtocol, context: PolicyContext
     ) -> AsyncIterator[AnthropicPolicyEmission]:
-        """Only apply text modification on the first turn; passthrough otherwise."""
+        """Only apply text modification on the first turn; passthrough otherwise.
+
+        Intentionally a plain def (not async def) — both branches return
+        async iterators directly.
+        """
         if is_first_turn(io.request):
             return super().run_anthropic(io, context)
 
-        # Not first turn — pure passthrough
         return self._passthrough(io)
 
-    async def _passthrough(self, io: AnthropicPolicyIOProtocol) -> AsyncIterator[AnthropicPolicyEmission]:
+    async def _passthrough(self, io: AnthropicPolicyIOProtocol):
         """Stream or complete with zero modifications."""
         request = io.request
         if request.get("stream", False):
