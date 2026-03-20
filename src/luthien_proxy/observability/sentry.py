@@ -32,7 +32,6 @@ _LLM_CONTENT_VARS = {
     "body",
     "messages",
     "prompt",
-    "content",
     "request_message",
     "final_request",
     "final_request_dict",

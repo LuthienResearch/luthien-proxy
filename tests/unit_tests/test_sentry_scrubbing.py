@@ -2,19 +2,13 @@
 
 import pytest
 
+from luthien_proxy.observability.sentry import _sentry_before_send, _summarize
+
 pytestmark = pytest.mark.timeout(10)
-
-
-def _get_sentry_functions():
-    """Import Sentry scrubbing functions."""
-    from luthien_proxy.observability.sentry import _sentry_before_send, _summarize
-
-    return _summarize, _sentry_before_send
 
 
 @pytest.fixture(autouse=True)
 def enable_sentry(monkeypatch):
-    """Enable Sentry for all tests in this module."""
     monkeypatch.setenv("SENTRY_ENABLED", "true")
     monkeypatch.setenv("SENTRY_DSN", "https://fake@sentry.io/0")
 
@@ -23,60 +17,60 @@ class TestSummarize:
     """Tests for _summarize() function."""
 
     def test_none_returns_none(self):
-        summarize, _ = _get_sentry_functions()
+        summarize = _summarize
         assert summarize(None) is None
 
     def test_bool_preserved_true(self):
-        summarize, _ = _get_sentry_functions()
+        summarize = _summarize
         assert summarize(True) is True
 
     def test_bool_preserved_false(self):
-        summarize, _ = _get_sentry_functions()
+        summarize = _summarize
         assert summarize(False) is False
 
     def test_int_preserved_positive(self):
-        summarize, _ = _get_sentry_functions()
+        summarize = _summarize
         assert summarize(42) == 42
 
     def test_int_preserved_zero(self):
-        summarize, _ = _get_sentry_functions()
+        summarize = _summarize
         assert summarize(0) == 0
 
     def test_float_preserved(self):
-        summarize, _ = _get_sentry_functions()
+        summarize = _summarize
         assert summarize(3.14) == 3.14
 
     def test_str_replaced_with_length(self):
-        summarize, _ = _get_sentry_functions()
+        summarize = _summarize
         assert summarize("hello") == "<str len=5>"
 
     def test_str_empty(self):
-        summarize, _ = _get_sentry_functions()
+        summarize = _summarize
         assert summarize("") == "<str len=0>"
 
     def test_bytes_replaced_with_length(self):
-        summarize, _ = _get_sentry_functions()
+        summarize = _summarize
         assert summarize(b"binary data") == "<bytes len=11>"
 
     def test_bytes_empty(self):
-        summarize, _ = _get_sentry_functions()
+        summarize = _summarize
         assert summarize(b"") == "<bytes len=0>"
 
     def test_list_replaced_with_length(self):
-        summarize, _ = _get_sentry_functions()
+        summarize = _summarize
         assert summarize([1, 2, 3]) == "<list len=3>"
 
     def test_list_empty(self):
-        summarize, _ = _get_sentry_functions()
+        summarize = _summarize
         assert summarize([]) == "<list len=0>"
 
     def test_dict_shows_keys(self):
-        summarize, _ = _get_sentry_functions()
+        summarize = _summarize
         result = summarize({"model": "claude", "messages": []})
         assert result == "<dict keys=['model', 'messages']>"
 
     def test_dict_keys_truncated_at_8(self):
-        summarize, _ = _get_sentry_functions()
+        summarize = _summarize
         large_dict = {f"key_{i}": i for i in range(20)}
         result = summarize(large_dict)
         assert "key_7" in result
@@ -84,16 +78,16 @@ class TestSummarize:
         assert "..." in result
 
     def test_dict_no_truncation_indicator_when_8_or_fewer(self):
-        summarize, _ = _get_sentry_functions()
+        summarize = _summarize
         result = summarize({f"key_{i}": i for i in range(8)})
         assert "..." not in result
 
     def test_unknown_type_object(self):
-        summarize, _ = _get_sentry_functions()
+        summarize = _summarize
         assert summarize(object()) == "<object>"
 
     def test_unknown_type_set(self):
-        summarize, _ = _get_sentry_functions()
+        summarize = _summarize
         assert summarize(set()) == "<set>"
 
 
@@ -171,33 +165,33 @@ class TestBeforeSend:
         return event
 
     def test_drops_keyboard_interrupt(self):
-        _, before_send = _get_sentry_functions()
+        before_send = _sentry_before_send
         event = self._make_event()
         hint = {"exc_info": (KeyboardInterrupt, KeyboardInterrupt(), None)}
         assert before_send(event, hint) is None
 
     def test_drops_system_exit(self):
-        _, before_send = _get_sentry_functions()
+        before_send = _sentry_before_send
         event = self._make_event()
         hint = {"exc_info": (SystemExit, SystemExit(0), None)}
         assert before_send(event, hint) is None
 
     def test_strips_server_name(self):
-        _, before_send = _get_sentry_functions()
+        before_send = _sentry_before_send
         event = self._make_event()
         hint = {}
         result = before_send(event, hint)
         assert "server_name" not in result
 
     def test_strips_cookies(self):
-        _, before_send = _get_sentry_functions()
+        before_send = _sentry_before_send
         event = self._make_event()
         hint = {}
         result = before_send(event, hint)
         assert "cookies" not in result["request"]
 
     def test_keeps_safe_headers(self):
-        _, before_send = _get_sentry_functions()
+        before_send = _sentry_before_send
         event = self._make_event()
         hint = {}
         result = before_send(event, hint)
@@ -208,7 +202,7 @@ class TestBeforeSend:
         assert headers["user-agent"] == "Claude/1.0"
 
     def test_redacts_auth_headers(self):
-        _, before_send = _get_sentry_functions()
+        before_send = _sentry_before_send
         event = self._make_event()
         hint = {}
         result = before_send(event, hint)
@@ -217,7 +211,7 @@ class TestBeforeSend:
         assert headers["x-api-key"] == "[REDACTED]"
 
     def test_keeps_safe_request_body_keys(self):
-        _, before_send = _get_sentry_functions()
+        before_send = _sentry_before_send
         event = self._make_event()
         hint = {}
         result = before_send(event, hint)
@@ -228,7 +222,7 @@ class TestBeforeSend:
         assert data["temperature"] == 0.7
 
     def test_summarizes_llm_content_in_request_body(self):
-        _, before_send = _get_sentry_functions()
+        before_send = _sentry_before_send
         event = self._make_event()
         hint = {}
         result = before_send(event, hint)
@@ -237,7 +231,7 @@ class TestBeforeSend:
         assert data["system"] == "<str len=15>"
 
     def test_summarizes_string_request_body(self):
-        _, before_send = _get_sentry_functions()
+        before_send = _sentry_before_send
         event = self._make_event()
         event["request"]["data"] = '{"model": "claude", "messages": [{"role": "user", "content": "secret prompt"}]}'
         hint = {}
@@ -245,7 +239,7 @@ class TestBeforeSend:
         assert result["request"]["data"] == "<str len=79>"
 
     def test_keeps_safe_frame_vars(self):
-        _, before_send = _get_sentry_functions()
+        before_send = _sentry_before_send
         event = self._make_event()
         hint = {}
         result = before_send(event, hint)
@@ -256,7 +250,7 @@ class TestBeforeSend:
         assert frame_vars["model"] == "claude-sonnet"
 
     def test_summarizes_llm_content_vars(self):
-        _, before_send = _get_sentry_functions()
+        before_send = _sentry_before_send
         event = self._make_event()
         hint = {}
         result = before_send(event, hint)
@@ -266,7 +260,7 @@ class TestBeforeSend:
         assert frame_vars["messages"] == "<list len=1>"
 
     def test_handles_missing_request(self):
-        _, before_send = _get_sentry_functions()
+        before_send = _sentry_before_send
         event = self._make_event(include_request=False)
         hint = {}
         result = before_send(event, hint)
@@ -274,7 +268,7 @@ class TestBeforeSend:
         assert "server_name" not in result
 
     def test_handles_missing_exception(self):
-        _, before_send = _get_sentry_functions()
+        before_send = _sentry_before_send
         event = self._make_event(include_exception=False)
         hint = {}
         result = before_send(event, hint)
@@ -282,7 +276,7 @@ class TestBeforeSend:
         assert "server_name" not in result
 
     def test_handles_empty_frame_vars(self):
-        _, before_send = _get_sentry_functions()
+        before_send = _sentry_before_send
         event = self._make_event(frame_vars_empty=True)
         hint = {}
         result = before_send(event, hint)
@@ -290,7 +284,7 @@ class TestBeforeSend:
         assert frame_vars == {}
 
     def test_handles_no_frame_vars_key(self):
-        _, before_send = _get_sentry_functions()
+        before_send = _sentry_before_send
         event = self._make_event(include_frame_vars=False)
         hint = {}
         result = before_send(event, hint)
@@ -298,7 +292,7 @@ class TestBeforeSend:
         assert "vars" not in frame
 
     def test_handles_non_dict_headers(self):
-        _, before_send = _get_sentry_functions()
+        before_send = _sentry_before_send
         event = self._make_event()
         event["request"]["headers"] = "raw-header-string"
         hint = {}
@@ -317,6 +311,19 @@ class TestSentryDisabledInTests:
 
     def test_init_sentry_is_noop_when_disabled(self, monkeypatch):
         monkeypatch.delenv("SENTRY_ENABLED", raising=False)
+        monkeypatch.delenv("SENTRY_DSN", raising=False)
+        import sentry_sdk
+
+        from luthien_proxy.observability.sentry import init_sentry
+        from luthien_proxy.settings import Settings, clear_settings_cache
+
+        clear_settings_cache()
+        settings = Settings(_env_file=None)
+        init_sentry(settings)
+        assert not sentry_sdk.is_initialized()
+
+    def test_init_sentry_is_noop_when_enabled_but_dsn_empty(self, monkeypatch):
+        monkeypatch.setenv("SENTRY_ENABLED", "true")
         monkeypatch.delenv("SENTRY_DSN", raising=False)
         import sentry_sdk
 
