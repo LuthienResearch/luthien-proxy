@@ -77,7 +77,6 @@ const EXAMPLES = {
 const state = {
     policies: [],
     currentPolicy: null,
-    configValues: {},
     invalidFields: new Set(),
     chain: [],
     availableModels: [],
@@ -85,7 +84,6 @@ const state = {
     isActivating: false,
     cachedCredentials: [],
     credentialSource: 'server',
-    currentFormData: null,
     showHidden: false,
     expandedChainIndex: -1,
     expandedAvailablePolicy: null,
@@ -224,7 +222,7 @@ function isInActiveChain(classRef) {
     if (cp.class_ref !== MULTI_SERIAL_CLASS_REF) return false;
     const policies = cp.config && cp.config.policies;
     if (!Array.isArray(policies)) return false;
-    return policies.some(sub => (sub.class || sub.class_ref) === classRef);
+    return policies.some(sub => (sub.class_ref || sub.class) === classRef);
 }
 
 function defaultConfigFor(policy) {
@@ -350,7 +348,7 @@ function renderAvailable() {
     if (state.chain.length === 0) {
         const hint = document.createElement('div');
         hint.className = 'available-hint';
-        hint.textContent = 'Click a policy to add it to your chain';
+        hint.textContent = 'Press + on a policy to add it to your chain';
         list.appendChild(hint);
     }
 
@@ -576,75 +574,8 @@ function updateChainConfig(index, data) {
 }
 
 // ============================================================
-// Config form rendering (Alpine.js FormRenderer or legacy)
+// Config form rendering (legacy fallback for non-Pydantic schemas)
 // ============================================================
-function renderConfigFormIntoContainer(policy, containerId) {
-    const container = document.getElementById(containerId);
-    if (!container) return;
-
-    const schema = policy.config_schema || {};
-    const example = policy.example_config || {};
-
-    if (Object.keys(schema).length === 0) {
-        container.innerHTML = '<div class="no-config">No configuration needed</div>';
-        return;
-    }
-
-    const hasPydanticSchema = Object.values(schema).some(
-        paramSchema => paramSchema && (
-            paramSchema.properties || paramSchema.$defs || paramSchema['x-sub-policy-list'] ||
-            (paramSchema.type === 'array' && paramSchema.items?.type === 'array')
-        )
-    );
-
-    if (hasPydanticSchema && window.FormRenderer) {
-        renderWithAlpine(container, schema, example);
-    } else {
-        renderLegacyForm(container, schema, example);
-    }
-}
-
-function renderWithAlpine(container, schema, initialData) {
-    const formData = window.FormRenderer.getDefaultValue(schema, schema);
-    for (const [key, value] of Object.entries(initialData || {})) {
-        if (value !== null) formData[key] = value;
-    }
-
-    for (const [key, value] of Object.entries(state.configValues || {})) {
-        if (value !== null && value !== undefined) formData[key] = value;
-    }
-
-    state.currentFormData = formData;
-    state.configValues = formData;
-
-    const formHtml = window.FormRenderer.generateForm(schema);
-    const escapedFormData = JSON.stringify(formData)
-        .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
-        .replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-    container.innerHTML = `
-        <div class="config-form" x-data="{ formData: ${escapedFormData} }"
-             x-init="window.__alpineData = $data; $watch('formData', value => window.updateFormData(value)); window.initSubPolicyForms()">
-            ${formHtml}
-        </div>
-    `;
-
-    if (window.Alpine) Alpine.initTree(container);
-}
-
-window.updateFormData = function(data) {
-    state.currentFormData = data;
-    state.configValues = data;
-    updateActivateButton();
-};
-
-function renderLegacyForm(container, schema, example) {
-    state.currentFormData = null;
-    const html = `<div class="config-form">${renderLegacyConfigFormInner({ config_schema: schema }, state.configValues, 'single')}</div>`;
-    container.innerHTML = html;
-    bindLegacyConfigInputs('single');
-}
-
 function renderLegacyConfigFormInner(policy, config, prefix) {
     const schema = policy.config_schema || {};
     const keys = Object.keys(schema);
@@ -718,9 +649,7 @@ function bindLegacyConfigInputs(prefix) {
                 val = el.value;
             }
 
-            if (prefix === 'single') {
-                state.configValues[key] = val;
-            } else if (prefix.startsWith('chain-')) {
+            if (prefix.startsWith('chain-')) {
                 const idx = parseInt(prefix.split('-')[1]);
                 state.chain[idx].config[key] = val;
             }
@@ -778,7 +707,7 @@ function renderActive() {
     if (isChain && config.policies && Array.isArray(config.policies)) {
         html += '<div class="active-chain-list">';
         config.policies.forEach((sub, i) => {
-            const classRef = sub.class || sub.class_ref;
+            const classRef = sub.class_ref || sub.class;
             const subPolicy = getPolicy(classRef);
             const subName = subPolicy ? subPolicy.name : (classRef || 'Unknown').split(':').pop();
             html += '<div class="active-chain-item">';
