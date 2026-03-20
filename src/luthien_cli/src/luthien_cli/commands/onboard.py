@@ -39,12 +39,7 @@ def _read_single_key() -> str:
     return ch
 
 
-ONBOARDING_POLICY_TEMPLATE = """\
-policy:
-  class: "luthien_proxy.policies.onboarding_policy:OnboardingPolicy"
-  config:
-    gateway_url: "{gateway_url}"
-"""
+ONBOARDING_POLICY_CLASS = "luthien_proxy.policies.onboarding_policy:OnboardingPolicy"
 
 
 def _generate_key(prefix: str) -> str:
@@ -118,13 +113,20 @@ def _ensure_docker_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
 
 def _write_policy(repo_path: str, gateway_url: str) -> None:
     """Write OnboardingPolicy config to the repo's config directory."""
+    import yaml
+
     config_dir = f"{repo_path}/config"
     os.makedirs(config_dir, exist_ok=True)
 
-    policy_yaml = ONBOARDING_POLICY_TEMPLATE.format(gateway_url=gateway_url)
+    policy_config = {
+        "policy": {
+            "class": ONBOARDING_POLICY_CLASS,
+            "config": {"gateway_url": gateway_url},
+        }
+    }
 
     with open(f"{config_dir}/policy_config.yaml", "w") as f:
-        f.write(policy_yaml)
+        yaml.safe_dump(policy_config, f, default_flow_style=False)
 
 
 def _show_results(
@@ -181,10 +183,10 @@ def _show_results(
     except (KeyboardInterrupt, EOFError):
         return
 
-    # Launch Claude Code through the proxy
-    from luthien_cli.commands.claude import _launch_claude
+    # Launch Claude Code through the proxy with the onboarding prompt
+    from luthien_cli.commands.claude import ONBOARDING_PROMPT, _launch_claude
 
-    _launch_claude(console)
+    _launch_claude(console, [ONBOARDING_PROMPT])
 
 
 def _onboard_local(console: Console, config, proxy_key: str, admin_key: str) -> None:

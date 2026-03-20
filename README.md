@@ -107,6 +107,8 @@ curl -fsSL https://raw.githubusercontent.com/LuthienResearch/luthien-proxy/main/
 
 No Docker required. This installs [`uv`](https://docs.astral.sh/uv/) (if needed) and the Luthien CLI, sets up the gateway with SQLite, walks you through configuration, and starts the proxy. Works with both API keys and Claude Pro/Max subscriptions.
 
+> **Platform support**: Linux and macOS. Windows is not currently supported.
+
 After setup, use the CLI or Claude Code to manage the proxy:
 
 | CLI command | Claude Code | What it does |

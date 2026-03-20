@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import webbrowser
 
 import click
 from rich.console import Console
@@ -43,27 +42,11 @@ def _launch_claude(console: Console, extra_args: list[str] | None = None) -> Non
     env.pop("ANTHROPIC_API_KEY", None)
     console.print(f"[blue]Routing through {config.gateway_url} (OAuth passthrough)[/blue]")
 
-    # Open the config page in the browser
-    config_url = config.gateway_url.rstrip("/") + "/policy-config"
-    try:
-        webbrowser.open(config_url)
-        console.print(f"[dim]Opened config page: {config_url}[/dim]")
-    except Exception:
-        console.print(f"[dim]Config page: {config_url}[/dim]")
-
     console.print(
         "[dim]Tip: run luthien commands with ! such as !luthien status, !luthien logs, !luthien up, and !luthien down[/dim]"
     )
 
     args = list(extra_args or [])
-
-    # If no explicit prompt given, pre-seed the first message.
-    # Passed as a positional arg (not -p) so Claude Code starts an
-    # interactive session with this as the first turn.
-    has_prompt = "-p" in args or "--prompt" in args or any(not a.startswith("-") for a in args)
-    if not has_prompt:
-        args = [ONBOARDING_PROMPT, *args]
-
     os.execvpe("claude", ["claude", *args], env)
 
 
