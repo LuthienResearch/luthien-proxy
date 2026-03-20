@@ -3,6 +3,10 @@
 This policy replaces specified strings in response content with replacement values.
 It supports case-insensitive matching with intelligent capitalization preservation.
 
+Streaming uses a sliding buffer to handle replacements that span chunk boundaries.
+The buffer holds back the last N characters (N = longest source length - 1) so that
+words split across chunks are still matched and replaced correctly.
+
 Example config:
     policy:
       class: "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy"
@@ -17,11 +21,13 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
     RawContentBlockDeltaEvent,
+    RawContentBlockStopEvent,
     TextDelta,
 )
 from pydantic import BaseModel, Field
@@ -31,11 +37,20 @@ from luthien_proxy.policy_core import (
     BasePolicy,
     PolicyContext,
 )
+from luthien_proxy.policy_core.anthropic_execution_interface import AnthropicPolicyEmission
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import (
         AnthropicResponse,
     )
+
+
+@dataclass
+class _StreamBufferState:
+    """Per-request buffer state for cross-chunk streaming replacements."""
+
+    buffer: str = ""
+    last_event_index: int = 0
 
 
 class StringReplacementConfig(BaseModel):
@@ -192,6 +207,14 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
         self._replacements: tuple[tuple[str, str], ...] = tuple((pair[0], pair[1]) for pair in self.config.replacements)
         self._match_capitalization = self.config.match_capitalization
 
+        # Buffer size for streaming: hold back enough chars to catch replacements
+        # that span chunk boundaries. For sources of length L, we need L-1 chars.
+        self._buffer_size: int = max(
+            (len(from_str) for from_str, _ in self._replacements),
+            default=0,
+        )
+        self._buffer_size = max(self._buffer_size - 1, 0)
+
     def _apply_replacements(self, text: str) -> str:
         """Apply all configured replacements to the given text."""
         return apply_replacements(text, self._replacements, self._match_capitalization)
@@ -221,25 +244,86 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
                         )
         return response
 
+    def _get_buffer_state(self, context: PolicyContext) -> _StreamBufferState:
+        return context.get_request_state(self, _StreamBufferState, _StreamBufferState)
+
+    def _flush_buffer(self, state: _StreamBufferState) -> list[MessageStreamEvent]:
+        """Flush remaining buffer as a final text delta event."""
+        if not state.buffer:
+            return []
+        text = state.buffer
+        state.buffer = ""
+        flush_delta = TextDelta.model_construct(type="text_delta", text=text)
+        return [
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=state.last_event_index,
+                delta=flush_delta,
+            )
+        ]
+
     async def on_anthropic_stream_event(
         self, event: MessageStreamEvent, context: PolicyContext
     ) -> list[MessageStreamEvent]:
         """Transform text_delta events with string replacements.
 
-        For content_block_delta events with delta.type == "text_delta",
-        creates a new event with replaced text instead of mutating the original.
-        This avoids potential issues with SDK internal state.
+        Uses a sliding buffer to handle replacements spanning chunk boundaries.
+        Text is accumulated, replacements applied to the combined text, and
+        a safe prefix is emitted while the tail is held back for the next chunk.
         """
+        # Flush buffer before content_block_stop so the block is complete
+        if isinstance(event, RawContentBlockStopEvent) and self._buffer_size > 0:
+            state = self._get_buffer_state(context)
+            flush_events = self._flush_buffer(state)
+            flush_events.append(event)
+            return flush_events
+
         if not isinstance(event, RawContentBlockDeltaEvent):
             return [event]
 
-        if isinstance(event.delta, TextDelta):
+        if not isinstance(event.delta, TextDelta):
+            return [event]
+
+        # No buffering needed (single-char or empty replacements)
+        if self._buffer_size <= 0:
             original = event.delta.text
             transformed = self._apply_replacements(original)
             new_delta = event.delta.model_copy(update={"text": transformed})
             return [event.model_copy(update={"delta": new_delta})]
 
-        return [event]
+        # Buffered path: combine buffer + new chunk, apply replacements
+        state = self._get_buffer_state(context)
+        combined = state.buffer + event.delta.text
+        replaced = self._apply_replacements(combined)
+        state.last_event_index = event.index
+
+        if len(replaced) <= self._buffer_size:
+            # Not enough text to emit safely yet
+            state.buffer = replaced
+            return []
+
+        # Emit safe prefix, hold back the tail
+        emit_text = replaced[: -self._buffer_size]
+        state.buffer = replaced[-self._buffer_size :]
+
+        new_delta = event.delta.model_copy(update={"text": emit_text})
+        return [event.model_copy(update={"delta": new_delta})]
+
+    async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
+        """Flush any remaining buffer after the stream ends."""
+        if self._buffer_size <= 0:
+            return []
+        state = context.pop_request_state(self, _StreamBufferState)
+        if state and state.buffer:
+            flush_delta = TextDelta.model_construct(type="text_delta", text=state.buffer)
+            return [
+                RawContentBlockDeltaEvent.model_construct(
+                    type="content_block_delta",
+                    index=state.last_event_index,
+                    delta=flush_delta,
+                )
+            ]
+        return []
 
 
 __all__ = [
