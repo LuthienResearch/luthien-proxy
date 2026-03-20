@@ -19,7 +19,6 @@ from pydantic import Field
 
 from luthien_proxy.policies.onboarding_policy import OnboardingPolicy, OnboardingPolicyConfig
 
-
 WELCOME_MESSAGE = """
 
 ---

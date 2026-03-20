@@ -1,12 +1,9 @@
 """Tests for hackathon command helpers."""
 
 import io
-import os
 import stat
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 import yaml
 from rich.console import Console
 
@@ -83,8 +80,8 @@ class TestParseEnvValue:
 
     def test_mismatched_quotes_not_stripped(self):
         """Don't strip mismatched quotes."""
-        result = _parse_env_value('"value\'')
-        assert result == '"value\''
+        result = _parse_env_value("\"value'")
+        assert result == "\"value'"
 
     def test_single_quote_only(self):
         """Don't strip single quote when not at end."""
@@ -200,9 +197,7 @@ class TestWritePolicyConfig:
         """Verify gateway_url is included for hackathon_onboarding_policy."""
         repo_path = tmp_path / "repo"
         repo_path.mkdir()
-        policy_class_ref = (
-            "luthien_proxy.policies.hackathon_onboarding_policy:HackathonOnboardingPolicy"
-        )
+        policy_class_ref = "luthien_proxy.policies.hackathon_onboarding_policy:HackathonOnboardingPolicy"
         gateway_url = "http://localhost:9000"
         _write_policy_config(repo_path, policy_class_ref, gateway_url)
 

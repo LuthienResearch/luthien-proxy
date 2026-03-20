@@ -383,8 +383,6 @@ def _show_hackathon_guide(
     )
 
 
-
-
 @click.command()
 @click.option("--path", default=str(DEFAULT_CLONE_PATH), help="Where to clone the repo")
 @click.option("-y", "--yes", is_flag=True, help="Skip confirmation prompts")
