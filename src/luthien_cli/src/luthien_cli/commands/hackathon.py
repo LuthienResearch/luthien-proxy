@@ -170,8 +170,34 @@ def _pick_policy(console: Console, yes: bool) -> tuple[str, str]:
     return choice[1], choice[0]
 
 
-def _write_env(repo_path: Path, proxy_key: str, admin_key: str, port: int) -> None:
-    """Write .env for hackathon mode (SQLite, from source)."""
+def _read_existing_keys(env_path: Path) -> tuple[str | None, str | None]:
+    """Read existing PROXY_API_KEY and ADMIN_API_KEY from .env if present."""
+    if not env_path.exists():
+        return None, None
+    proxy_key = None
+    admin_key = None
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if line.startswith("PROXY_API_KEY="):
+            proxy_key = _parse_env_value(line.partition("=")[2].strip())
+        elif line.startswith("ADMIN_API_KEY="):
+            admin_key = _parse_env_value(line.partition("=")[2].strip())
+    return proxy_key, admin_key
+
+
+def _write_env(repo_path: Path, proxy_key: str, admin_key: str, port: int) -> tuple[str, str]:
+    """Write .env for hackathon mode (SQLite, from source).
+
+    Preserves existing API keys on re-runs to avoid breaking active sessions.
+    Returns (proxy_key, admin_key) actually written (may differ from args if reusing existing).
+    """
+    env_path = repo_path / ".env"
+    existing_proxy, existing_admin = _read_existing_keys(env_path)
+    if existing_proxy:
+        proxy_key = existing_proxy
+    if existing_admin:
+        admin_key = existing_admin
+
     db_path = str(repo_path / "luthien.db")
     policy_path = str(repo_path / "config" / "policy_config.yaml")
 
@@ -186,9 +212,9 @@ def _write_env(repo_path: Path, proxy_key: str, admin_key: str, port: int) -> No
         f"USAGE_TELEMETRY=true\n"
         f"GATEWAY_PORT={port}\n"
     )
-    env_path = repo_path / ".env"
     env_path.write_text(env_content)
     os.chmod(env_path, 0o600)
+    return proxy_key, admin_key
 
 
 def _write_policy_config(repo_path: Path, policy_class_ref: str, gateway_url: str) -> None:
@@ -210,7 +236,11 @@ def _write_policy_config(repo_path: Path, policy_class_ref: str, gateway_url: st
 
 
 def _parse_env_value(value: str) -> str:
-    """Strip surrounding quotes from a .env value."""
+    """Strip surrounding quotes from a .env value.
+
+    Only handles simple KEY=value lines. Does not support multi-line values,
+    escaped quotes, export prefixes, or inline comments.
+    """
     if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
         return value[1:-1]
     return value
@@ -403,7 +433,9 @@ def hackathon(path: str, yes: bool) -> None:
                   4. Create a starter policy template for you
                   5. Show you everything you need to start hacking
 
-                [dim]No Docker required. Uses SQLite for storage.[/dim]"""),
+                [dim]No Docker required. Uses SQLite for storage.
+                Sends anonymous usage telemetry to help development.
+                To disable: set USAGE_TELEMETRY=false in .env[/dim]"""),
             title="Luthien Hackathon",
             border_style="yellow",
         )
@@ -437,7 +469,7 @@ def hackathon(path: str, yes: bool) -> None:
     gateway_url = f"http://localhost:{gateway_port}"
 
     console.print("\n[blue]Configuring gateway...[/blue]")
-    _write_env(clone_path, proxy_key, admin_key, gateway_port)
+    proxy_key, admin_key = _write_env(clone_path, proxy_key, admin_key, gateway_port)
     _write_policy_config(clone_path, policy_class_ref, gateway_url)
 
     # 5. Start gateway from source

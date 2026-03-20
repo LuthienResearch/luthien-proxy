@@ -7,13 +7,19 @@ from unittest.mock import patch
 import yaml
 from rich.console import Console
 
+from click.testing import CliRunner
+
 from luthien_cli.commands.hackathon import (
     POLICY_CHOICES,
+    _clone_repo,
     _generate_key,
+    _install_deps,
     _parse_env_value,
     _pick_policy,
+    _read_existing_keys,
     _write_env,
     _write_policy_config,
+    hackathon,
 )
 
 
@@ -292,3 +298,92 @@ class TestPickPolicy:
         assert len(result) == 2
         assert isinstance(result[0], str)
         assert isinstance(result[1], str)
+
+
+class TestReadExistingKeys:
+    """Tests for _read_existing_keys()."""
+
+    def test_no_env_file(self, tmp_path):
+        env_path = tmp_path / ".env"
+        proxy, admin = _read_existing_keys(env_path)
+        assert proxy is None
+        assert admin is None
+
+    def test_reads_existing_keys(self, tmp_path):
+        env_path = tmp_path / ".env"
+        env_path.write_text("PROXY_API_KEY=sk-existing\nADMIN_API_KEY=admin-existing\n")
+        proxy, admin = _read_existing_keys(env_path)
+        assert proxy == "sk-existing"
+        assert admin == "admin-existing"
+
+    def test_reads_quoted_keys(self, tmp_path):
+        env_path = tmp_path / ".env"
+        env_path.write_text('PROXY_API_KEY="sk-quoted"\nADMIN_API_KEY=\'admin-quoted\'\n')
+        proxy, admin = _read_existing_keys(env_path)
+        assert proxy == "sk-quoted"
+        assert admin == "admin-quoted"
+
+
+class TestWriteEnvKeyPreservation:
+    """Tests for _write_env key preservation on re-runs."""
+
+    def test_preserves_existing_keys(self, tmp_path):
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        # First run
+        _write_env(repo_path, "sk-first", "admin-first", 8000)
+        # Second run with different keys
+        proxy, admin = _write_env(repo_path, "sk-second", "admin-second", 9000)
+        assert proxy == "sk-first"
+        assert admin == "admin-first"
+
+    def test_uses_new_keys_on_first_run(self, tmp_path):
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        proxy, admin = _write_env(repo_path, "sk-new", "admin-new", 8000)
+        assert proxy == "sk-new"
+        assert admin == "admin-new"
+
+    def test_returns_actual_keys_used(self, tmp_path):
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        result = _write_env(repo_path, "sk-test", "admin-test", 8000)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+
+
+class TestCloneRepo:
+    """Tests for _clone_repo error paths."""
+
+    def test_existing_dir_not_git_repo(self, tmp_path):
+        console = Console(file=io.StringIO())
+        clone_path = tmp_path / "not-a-repo"
+        clone_path.mkdir()
+        assert _clone_repo(console, clone_path) is False
+
+    def test_existing_git_repo_reused(self, tmp_path):
+        console = Console(file=io.StringIO())
+        clone_path = tmp_path / "repo"
+        clone_path.mkdir()
+        (clone_path / ".git").mkdir()
+        # git pull will fail since it's not a real repo, but function returns True
+        assert _clone_repo(console, clone_path) is True
+
+
+class TestInstallDeps:
+    """Tests for _install_deps error paths."""
+
+    def test_uv_not_found(self, tmp_path):
+        console = Console(file=io.StringIO())
+        with patch("luthien_cli.commands.hackathon.shutil.which", return_value=None):
+            assert _install_deps(console, tmp_path) is False
+
+
+class TestHackathonCommand:
+    """Integration test for the hackathon click command."""
+
+    def test_help(self):
+        runner = CliRunner()
+        result = runner.invoke(hackathon, ["--help"])
+        assert result.exit_code == 0
+        assert "hackathon" in result.output.lower() or "fork" in result.output.lower()
