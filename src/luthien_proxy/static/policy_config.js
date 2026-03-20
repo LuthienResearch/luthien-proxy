@@ -413,8 +413,9 @@ function renderPolicyCard(p, container) {
     }
 
     div.innerHTML = `
-        <div class="p-name">${dot}${esc(p.name)}<button class="p-add-btn" onclick="addToChain('${esc(p.class_ref)}', event)" title="Add to policy chain">+</button></div>
+        <div class="p-name">${dot}${esc(p.name)}<button class="p-add-btn">+<span class="p-add-tooltip">Add to policy chain</span></button></div>
         <div class="p-desc">${esc(firstLine)}.${configHint}</div>${isExpanded ? expandedHtml : ''}`;
+    div.querySelector('.p-add-btn').onclick = (e) => addToChain(p.class_ref, e);
     div.onclick = () => togglePolicyExpand(p.class_ref);
     div.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePolicyExpand(p.class_ref); } };
     container.appendChild(div);
@@ -470,7 +471,7 @@ function renderProposed() {
         if (isExpanded) {
             html += `<div class="chain-item-desc">${esc((p.description || '').split('.')[0])}</div>`;
             if (hasConfig) {
-                html += `<div class="config-form">${renderLegacyConfigFormInner(p, item.config, 'chain-' + i)}</div>`;
+                html += `<div id="chain-config-${i}" class="chain-config-container"></div>`;
             } else {
                 html += '<div class="no-config">No configuration needed</div>';
             }
@@ -492,7 +493,11 @@ function renderProposed() {
     html += `<button class="btn-activate" id="btn-activate" onclick="handleActivateChain()">${activateLabel}</button>`;
     html += renderTestSection('proposed');
     content.innerHTML = html;
-    for (let i = 0; i < state.chain.length; i++) bindLegacyConfigInputs('chain-' + i);
+    for (let i = 0; i < state.chain.length; i++) {
+        if (state.expandedChainIndex === i) {
+            renderChainItemConfig(i);
+        }
+    }
     bindTestSection('proposed');
 }
 
@@ -519,6 +524,55 @@ function removeChain(i) {
 function toggleChainExpand(i) {
     state.expandedChainIndex = (state.expandedChainIndex === i) ? -1 : i;
     renderProposed();
+}
+
+function renderChainItemConfig(i) {
+    const item = state.chain[i];
+    if (!item) return;
+    const p = getPolicy(item.classRef);
+    if (!p || configParamCount(p) === 0) return;
+
+    const container = document.getElementById(`chain-config-${i}`);
+    if (!container) return;
+
+    const schema = p.config_schema || {};
+    const hasPydanticSchema = Object.values(schema).some(
+        ps => ps && (ps.properties || ps.$defs || ps['x-sub-policy-list'] ||
+            (ps.type === 'array' && ps.items?.type === 'array'))
+    );
+
+    if (hasPydanticSchema && window.FormRenderer) {
+        const formData = window.FormRenderer.getDefaultValue(schema, schema);
+        for (const [key, value] of Object.entries(p.example_config || {})) {
+            if (value !== null) formData[key] = value;
+        }
+        for (const [key, value] of Object.entries(item.config || {})) {
+            if (value !== null && value !== undefined) formData[key] = value;
+        }
+        item.config = formData;
+
+        const formHtml = window.FormRenderer.generateForm(schema);
+        const escapedFormData = JSON.stringify(formData)
+            .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+        container.innerHTML = `
+            <div class="config-form" x-data="{ formData: ${escapedFormData} }"
+                 x-init="$watch('formData', value => updateChainConfig(${i}, value))">
+                ${formHtml}
+            </div>`;
+        if (window.Alpine) Alpine.initTree(container);
+    } else {
+        container.innerHTML = `<div class="config-form">${renderLegacyConfigFormInner(p, item.config, 'chain-' + i)}</div>`;
+        bindLegacyConfigInputs('chain-' + i);
+    }
+}
+
+function updateChainConfig(index, data) {
+    if (state.chain[index]) {
+        state.chain[index].config = data;
+        updateActivateButton();
+    }
 }
 
 // ============================================================

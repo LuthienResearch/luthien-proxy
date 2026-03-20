@@ -485,13 +485,28 @@
         .p-add-btn {
             margin-left: auto; font-size: 20px; font-weight: 700; line-height: 1;
             color: #a1a1aa; background: #27272a; border: 1px solid #3f3f46;
-            border-radius: 6px; width: 32px; height: 28px; cursor: pointer;
-            transition: all 0.15s; flex-shrink: 0;
+            border-radius: 6px; width: 30px; height: 30px; cursor: pointer;
+            transition: all 0.15s; flex-shrink: 0; position: relative;
         }
         .p-add-btn:hover { color: #fff; background: #6b9fff; border-color: #6b9fff; }
-        .policy-card.in-chain { border-left: 3px solid #6b9fff88; }
+
+        /* Instant tooltip */
+        .p-add-tooltip {
+            position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%);
+            background: #27272a; border: 1px solid #3f3f46; color: #e4e4e7;
+            padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 400;
+            white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.1s;
+            z-index: 10;
+        }
+        .p-add-btn:hover .p-add-tooltip { opacity: 1; }
+        .policy-card.in-chain { border-left: 3px solid #6b9fff; }
         .policy-card.in-chain .p-add-btn { color: #6b9fff; border-color: #6b9fff44; }
-        .policy-card.is-active { border-left: 3px solid #4ade8088; }
+        .policy-card.is-active { border-left: 3px solid #4ade80; }
+        /* Both proposed and active: split gradient border via pseudo-element */
+        .policy-card.in-chain.is-active {
+            border-left: 3px solid;
+            border-image: linear-gradient(to bottom, #6b9fff, #4ade80) 1;
+        }
         .policy-card.expanded { background: #111114; border-color: #3f3f46; }
         .p-full-desc { font-size: 12px; color: #a1a1aa; margin-top: 6px; line-height: 1.5; }
         .p-config-detail { font-size: 11px; color: #52525b; margin-top: 4px; }
