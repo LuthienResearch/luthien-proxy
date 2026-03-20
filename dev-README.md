@@ -5,8 +5,11 @@ Development reference for contributing to Luthien. For user-facing docs, see **[
 ## Development Commands
 
 ```bash
-# After code changes, restart the gateway
-docker compose restart gateway
+# Start the gateway locally (default — no Docker needed)
+./scripts/start_gateway.sh
+
+# Or with Docker Compose (multi-user/production):
+# docker compose restart gateway
 
 # Run unit tests
 uv run pytest tests/unit_tests
@@ -158,14 +161,14 @@ Subclass `SimplePolicy` for basic request/response transformations. See `src/lut
 ### Tests failing
 
 ```bash
-# Ensure services are running
-docker compose ps
-
 # Check service health
 curl http://localhost:8000/health
 
-# View detailed logs
-docker compose logs gateway | tail -50
+# View logs (local mode)
+luthien logs
+
+# View logs (Docker Compose mode)
+# docker compose logs gateway | tail -50
 ```
 
 ## Observability (Optional)

@@ -121,35 +121,42 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
   - `commands/`: Click commands — `onboard`, `claude`, `status`, `up`/`down`, `logs`, `config`
   - `repo.py`: Manages `~/.luthien/luthien-proxy/` — downloads and updates proxy artifacts from GitHub
 - `config/`: `policy_config.yaml`
-- `scripts/`: developer helpers (`quick_start.sh`, `test_gateway.sh`)
-- `docker/` + `docker-compose.yaml`: local stack (db, redis, gateway)
-- `migrations/`: SQL database migrations (run by a separate Docker service before gateway starts; gateway validates migration state on startup via `check_migrations`)
+- `scripts/`: developer helpers (`start_gateway.sh` for dockerless dev, `quick_start.sh` for Docker Compose, `quick_start_standalone.sh` for single-container)
+- `docker/` + `docker-compose.yaml`: multi-container stack for production deployments (db, redis, gateway)
+- `migrations/`: SQL database migrations (auto-applied for SQLite; run by a separate Docker service for Postgres deployments)
 - `tests/`: unit/integration tests
 
 ## Build, Test, and Development Commands
 
 - Install dev deps: `uv sync --dev`
-- Start full stack: `./scripts/quick_start.sh` (handles auto-port-selection; raw `docker compose up` skips this)
+- Start gateway (dockerless): `./scripts/start_gateway.sh` — runs the gateway as a local Python process with SQLite, no Docker/Postgres/Redis needed
 - Run tests: `uv run pytest` (coverage: `uv run pytest --cov=src -q`)
 - Lint/format: `uv run ruff format` then `uv run ruff check --fix`. The `scripts/dev_checks.sh` script applies formatting automatically, and VS Code formats on save via Ruff. See `scripts/format_all.sh` for a quick all-in-one solution.
 - Type check: `uv run pyright`
 
-### Local Docker Development
+### Deployment Modes
 
-The `docker-compose.yaml` mounts source code into containers as read-only volumes (`./src:/app/src:ro`). This means:
+**Dockerless (default for development and single-user local use)**:
+- Run the gateway directly: `./scripts/start_gateway.sh` or `uv run python -m luthien_proxy.main`
+- Uses SQLite (`DATABASE_URL=sqlite:///path/to/luthien.db`) — no Postgres or Redis needed
+- Code changes take effect immediately on restart (no image rebuilds)
+- The `luthien` CLI defaults to this mode (`luthien onboard` → `luthien up`)
 
-- **Python changes**: Require `docker compose restart gateway` to pick up modifications
-- **Static files (HTML/JS/CSS)**: Mounted live, but browsers cache aggressively. Use hard refresh (Cmd+Shift+R / Ctrl+Shift+R) to see changes
-- **Config files**: Changes to `config/` files require container restart
+**Single Docker container (self-contained local testing)**:
+- `./scripts/quick_start_standalone.sh` — builds one container with everything bundled
+- Good for testing the deployment artifact without multi-container orchestration
+- Still uses SQLite internally, no Postgres/Redis containers
 
-Common commands:
-- `docker compose restart gateway` - restart just the gateway after code changes
-- `docker compose logs gateway --tail 50` - check recent gateway logs
-- `docker compose ps` - verify container status
+**Docker Compose with Postgres + Redis (multi-user production)**:
+- `./scripts/quick_start.sh` — spins up db, redis, and gateway containers
+- Use this for shared/multi-user deployments that need durable storage and pub/sub
+- The `docker-compose.yaml` mounts source code as read-only volumes (`./src:/app/src:ro`), so Python changes require `docker compose restart gateway`
+
+Most near-term development work is dockerless. Prefer `start_gateway.sh` for day-to-day work.
 
 ## Tooling
 
-- Inspect the dev Postgres quickly with `uv run python scripts/query_debug_logs.py`. The helper loads `.env`, connects to `DATABASE_URL`, and prints recent conversation events and debug logs.
+- Inspect the dev database with `uv run python scripts/query_debug_logs.py`. The helper loads `.env`, connects to `DATABASE_URL` (works with both SQLite and Postgres), and prints recent conversation events and debug logs.
 
 ## Coding Style & Naming Conventions
 
@@ -183,7 +190,8 @@ Common commands:
 
 - Keep lint, test, and type-check settings consolidated in `pyproject.toml`; avoid extra config files unless necessary.
 - Copy `.env.example` to `.env`; never commit secrets.
-- Key env vars: `DATABASE_URL`, `REDIS_URL`, `POLICY_CONFIG`, `PROXY_API_KEY`.
+- Key env vars: `DATABASE_URL`, `POLICY_CONFIG`, `PROXY_API_KEY`. (`REDIS_URL` only needed for Docker Compose deployments.)
+- For dockerless dev, use `DATABASE_URL=sqlite:///path/to/luthien.db` (no Postgres needed).
 - Update `config/policy_config.yaml` rather than hardcoding.
 - Validate setup with test requests to the gateway at `http://localhost:8000`.
 
