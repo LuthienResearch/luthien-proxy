@@ -4,11 +4,21 @@ from __future__ import annotations
 
 import os
 import shutil
+import webbrowser
 
 import click
 from rich.console import Console
 
 from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config
+
+ONBOARDING_PROMPT = (
+    "I just installed luthien proxy! It's a proxy server that makes it easy to hack "
+    "on the raw API data between Claude Code and the Anthropic backend before it even "
+    "touches Claude Code, giving me more fine-grained control. Please give a short "
+    "response - the proxy will take your response and modify it to include information "
+    "about my luthien proxy install. This is the default onboarding policy and will "
+    "only affect the first response - but I may activate other policies later on."
+)
 
 
 @click.command(context_settings={"ignore_unknown_options": True})
@@ -50,8 +60,19 @@ def claude(claude_args: tuple[str, ...], api_key: str | None):
         env.pop("ANTHROPIC_API_KEY", None)
         console.print(f"[blue]Routing through {config.gateway_url} (OAuth passthrough)[/blue]")
 
+    # Open the config page in the browser
+    config_url = config.gateway_url.rstrip("/") + "/policy-config"
+    console.print(f"[dim]Opening config page: {config_url}[/dim]")
+    webbrowser.open(config_url)
+
     console.print(
         "[dim]Tip: run luthien commands with ! such as !luthien status, !luthien logs, !luthien up, and !luthien down[/dim]"
     )
 
-    os.execvpe("claude", ["claude", *claude_args], env)
+    # Pre-seed the first message with onboarding prompt if no explicit prompt was given
+    args = list(claude_args)
+    has_prompt = "-p" in args or "--prompt" in args
+    if not has_prompt:
+        args = ["-p", ONBOARDING_PROMPT, *args]
+
+    os.execvpe("claude", ["claude", *args], env)

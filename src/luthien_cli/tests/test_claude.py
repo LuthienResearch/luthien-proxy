@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
+from luthien_cli.commands.claude import ONBOARDING_PROMPT
 from luthien_cli.main import cli
 
 
@@ -15,6 +16,7 @@ def test_claude_oauth_passthrough_by_default(tmp_path):
     with (
         patch("luthien_cli.commands.claude.DEFAULT_CONFIG_PATH", config_path),
         patch("luthien_cli.commands.claude.shutil.which", return_value="/usr/bin/claude"),
+        patch("luthien_cli.commands.claude.webbrowser.open") as mock_browser,
         patch("os.execvpe") as mock_exec,
     ):
         result = runner.invoke(cli, ["claude", "--", "--model", "opus"])
@@ -23,6 +25,7 @@ def test_claude_oauth_passthrough_by_default(tmp_path):
         assert env["ANTHROPIC_BASE_URL"] == "http://localhost:9000/"
         assert "ANTHROPIC_API_KEY" not in env
         assert "oauth passthrough" in result.output.lower()
+        mock_browser.assert_called_once_with("http://localhost:9000/policy-config")
 
 
 def test_claude_sends_api_key_from_config(tmp_path):
@@ -33,6 +36,7 @@ def test_claude_sends_api_key_from_config(tmp_path):
     with (
         patch("luthien_cli.commands.claude.DEFAULT_CONFIG_PATH", config_path),
         patch("luthien_cli.commands.claude.shutil.which", return_value="/usr/bin/claude"),
+        patch("luthien_cli.commands.claude.webbrowser.open"),
         patch("os.execvpe") as mock_exec,
     ):
         result = runner.invoke(cli, ["claude"])
@@ -51,6 +55,7 @@ def test_claude_cli_api_key_overrides_config(tmp_path):
     with (
         patch("luthien_cli.commands.claude.DEFAULT_CONFIG_PATH", config_path),
         patch("luthien_cli.commands.claude.shutil.which", return_value="/usr/bin/claude"),
+        patch("luthien_cli.commands.claude.webbrowser.open"),
         patch("os.execvpe") as mock_exec,
     ):
         result = runner.invoke(cli, ["claude", "--api-key", "sk-from-cli"])
@@ -69,6 +74,7 @@ def test_claude_api_key_from_env(tmp_path, monkeypatch):
     with (
         patch("luthien_cli.commands.claude.DEFAULT_CONFIG_PATH", config_path),
         patch("luthien_cli.commands.claude.shutil.which", return_value="/usr/bin/claude"),
+        patch("luthien_cli.commands.claude.webbrowser.open"),
         patch("os.execvpe") as mock_exec,
     ):
         result = runner.invoke(cli, ["claude"])
@@ -88,6 +94,7 @@ def test_claude_oauth_strips_inherited_api_key(tmp_path, monkeypatch):
     with (
         patch("luthien_cli.commands.claude.DEFAULT_CONFIG_PATH", config_path),
         patch("luthien_cli.commands.claude.shutil.which", return_value="/usr/bin/claude"),
+        patch("luthien_cli.commands.claude.webbrowser.open"),
         patch("os.execvpe") as mock_exec,
     ):
         runner.invoke(cli, ["claude"], catch_exceptions=False)
@@ -107,3 +114,52 @@ def test_claude_fails_when_not_installed(tmp_path):
         result = runner.invoke(cli, ["claude"])
         assert result.exit_code != 0
         assert "not found" in result.output.lower() or "not installed" in result.output.lower()
+
+
+def test_claude_preseeds_onboarding_prompt(tmp_path):
+    """Without explicit -p flag, the onboarding prompt is pre-seeded."""
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('[gateway]\nurl = "http://localhost:9000"\napi_key = "sk-test"\n')
+    with (
+        patch("luthien_cli.commands.claude.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.claude.shutil.which", return_value="/usr/bin/claude"),
+        patch("luthien_cli.commands.claude.webbrowser.open"),
+        patch("os.execvpe") as mock_exec,
+    ):
+        runner.invoke(cli, ["claude"])
+        args = mock_exec.call_args[0][1]
+        assert "-p" in args
+        assert ONBOARDING_PROMPT in args
+
+
+def test_claude_skips_preseed_when_prompt_given(tmp_path):
+    """When user passes -p, don't add the onboarding prompt."""
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('[gateway]\nurl = "http://localhost:9000"\napi_key = "sk-test"\n')
+    with (
+        patch("luthien_cli.commands.claude.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.claude.shutil.which", return_value="/usr/bin/claude"),
+        patch("luthien_cli.commands.claude.webbrowser.open"),
+        patch("os.execvpe") as mock_exec,
+    ):
+        runner.invoke(cli, ["claude", "--", "-p", "my custom prompt"])
+        args = mock_exec.call_args[0][1]
+        assert ONBOARDING_PROMPT not in args
+        assert "my custom prompt" in args
+
+
+def test_claude_opens_config_page(tmp_path):
+    """Config page should be opened in browser."""
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('[gateway]\nurl = "http://localhost:9000"\napi_key = "sk-test"\n')
+    with (
+        patch("luthien_cli.commands.claude.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.claude.shutil.which", return_value="/usr/bin/claude"),
+        patch("luthien_cli.commands.claude.webbrowser.open") as mock_browser,
+        patch("os.execvpe"),
+    ):
+        runner.invoke(cli, ["claude"])
+        mock_browser.assert_called_once_with("http://localhost:9000/policy-config")
