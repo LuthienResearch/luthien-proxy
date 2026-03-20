@@ -15,12 +15,11 @@ Example config:
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
-from luthien_proxy.policy_core import BasePolicy, TextModifierPolicy
+from luthien_proxy.policy_core import TextModifierPolicy
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -87,6 +86,7 @@ class OnboardingPolicy(TextModifierPolicy):
     """
 
     def __init__(self, config: OnboardingPolicyConfig | dict | None = None):
+        """Initialize with optional config. Accepts dict or Pydantic model."""
         self.config = self._init_config(config, OnboardingPolicyConfig)
         self._gateway_url = self.config.gateway_url.rstrip("/")
         self._welcome = WELCOME_MESSAGE.format(gateway_url=self._gateway_url)
@@ -105,9 +105,7 @@ class OnboardingPolicy(TextModifierPolicy):
         # Not first turn — pure passthrough
         return self._passthrough(io)
 
-    async def _passthrough(
-        self, io: AnthropicPolicyIOProtocol
-    ) -> AsyncIterator[AnthropicPolicyEmission]:
+    async def _passthrough(self, io: AnthropicPolicyIOProtocol) -> AsyncIterator[AnthropicPolicyEmission]:
         """Stream or complete with zero modifications."""
         request = io.request
         if request.get("stream", False):
@@ -116,14 +114,11 @@ class OnboardingPolicy(TextModifierPolicy):
         else:
             yield await io.complete(request)
 
-    async def on_anthropic_request(
-        self, request: AnthropicRequest, context: PolicyContext
-    ) -> AnthropicRequest:
+    async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
+        """Pass through request unchanged."""
         return request
 
-    async def on_anthropic_response(
-        self, response: AnthropicResponse, context: PolicyContext
-    ) -> AnthropicResponse:
+    async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
         """For non-streaming in MultiSerialPolicy composition: only modify on first turn."""
         if context.request and is_first_turn(context.request):
             return await super().on_anthropic_response(response, context)
