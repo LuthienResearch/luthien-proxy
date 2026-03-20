@@ -78,7 +78,8 @@ def test_claude_fails_when_not_installed(tmp_path):
 
 
 def test_claude_preseeds_onboarding_prompt(tmp_path):
-    """Without explicit -p flag, the onboarding prompt is pre-seeded."""
+    """Without explicit prompt, the onboarding prompt is passed as a positional arg
+    so Claude Code starts an interactive session with it as the first turn."""
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
     config_path.write_text('[gateway]\nurl = "http://localhost:9000"\n')
@@ -90,7 +91,8 @@ def test_claude_preseeds_onboarding_prompt(tmp_path):
     ):
         runner.invoke(cli, ["claude"])
         args = mock_exec.call_args[0][1]
-        assert "-p" in args
+        # Positional arg (not -p), so it starts interactive
+        assert "-p" not in args
         assert ONBOARDING_PROMPT in args
 
 

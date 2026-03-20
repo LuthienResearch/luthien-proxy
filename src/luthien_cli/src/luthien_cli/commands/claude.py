@@ -52,11 +52,14 @@ def _launch_claude(console: Console, extra_args: list[str] | None = None) -> Non
         "[dim]Tip: run luthien commands with ! such as !luthien status, !luthien logs, !luthien up, and !luthien down[/dim]"
     )
 
-    # Pre-seed the first message with onboarding prompt if no explicit prompt was given
     args = list(extra_args or [])
-    has_prompt = "-p" in args or "--prompt" in args
+
+    # If no explicit prompt given, pre-seed the first message.
+    # Passed as a positional arg (not -p) so Claude Code starts an
+    # interactive session with this as the first turn.
+    has_prompt = "-p" in args or "--prompt" in args or any(not a.startswith("-") for a in args)
     if not has_prompt:
-        args = ["-p", ONBOARDING_PROMPT, *args]
+        args = [ONBOARDING_PROMPT, *args]
 
     os.execvpe("claude", ["claude", *args], env)
 
