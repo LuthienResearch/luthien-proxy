@@ -45,6 +45,9 @@ def claude(claude_args: tuple[str, ...], api_key: str | None):
         env["ANTHROPIC_API_KEY"] = effective_key
         console.print(f"[blue]Routing through {config.gateway_url} (proxy API key)[/blue]")
     else:
+        # Remove any inherited API key so Claude Code doesn't warn about
+        # "both OAuth token and API key" being set simultaneously.
+        env.pop("ANTHROPIC_API_KEY", None)
         console.print(f"[blue]Routing through {config.gateway_url} (OAuth passthrough)[/blue]")
 
     console.print(
