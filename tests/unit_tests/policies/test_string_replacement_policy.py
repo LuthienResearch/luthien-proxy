@@ -3,7 +3,7 @@
 Tests native Anthropic API support.
 """
 
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from anthropic.types import (
@@ -326,29 +326,48 @@ class TestAnthropicCapitalization:
         assert result_text_block["text"] == "hi HI Hi"
 
 
+async def _collect_stream_text(
+    policy: StringReplacementPolicy,
+    ctx: PolicyContext,
+    events: list[Any],
+) -> str:
+    """Send events through the policy and collect all emitted text.
+
+    Calls on_anthropic_stream_event for each event, then on_anthropic_stream_complete
+    to flush any remaining buffer.
+    """
+    parts: list[str] = []
+    for event in events:
+        result = await policy.on_anthropic_stream_event(event, ctx)
+        for ev in result:
+            if isinstance(ev, RawContentBlockDeltaEvent) and isinstance(ev.delta, TextDelta):
+                parts.append(ev.delta.text)
+    for ev in await policy.on_anthropic_stream_complete(ctx):
+        if isinstance(ev, RawContentBlockDeltaEvent) and isinstance(ev.delta, TextDelta):
+            parts.append(ev.delta.text)
+    return "".join(parts)
+
+
 class TestAnthropicStreamEvent:
     """Tests for on_anthropic_stream_event text delta transformation behavior."""
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_transforms_text_delta(self):
-        """on_anthropic_stream_event applies replacement to text_delta text."""
+        """on_anthropic_stream_event applies replacement to text_delta text, flushing on block stop."""
         policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["foo", "bar"]]))
         ctx = PolicyContext.for_testing()
 
         text_delta = TextDelta.model_construct(type="text_delta", text="hello foo world")
-        event = RawContentBlockDeltaEvent.model_construct(
+        delta_event = RawContentBlockDeltaEvent.model_construct(
             type="content_block_delta",
             index=0,
             delta=text_delta,
         )
+        stop_event = RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0)
 
-        result = await policy.on_anthropic_stream_event(event, ctx)
+        full_text = await _collect_stream_text(policy, ctx, [delta_event, stop_event])
 
-        assert len(result) == 1
-        result_event = cast(RawContentBlockDeltaEvent, result[0])
-        assert result_event.type == "content_block_delta"
-        assert isinstance(result_event.delta, TextDelta)
-        assert result_event.delta.text == "hello bar world"
+        assert full_text == "hello bar world"
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_does_not_mutate_original(self):
@@ -366,14 +385,11 @@ class TestAnthropicStreamEvent:
 
         result = await policy.on_anthropic_stream_event(event, ctx)
 
-        # Result should contain a different object
-        assert len(result) == 1
-        assert result[0] is not event
         # Original event should be unchanged
         assert event.delta.text == original_text
-        # Result should have replaced text
-        result_event = cast(RawContentBlockDeltaEvent, result[0])
-        assert result_event.delta.text == "hello bar world"
+        # Result events should have different objects
+        for ev in result:
+            assert ev is not event
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_match_capitalization(self):
@@ -387,17 +403,16 @@ class TestAnthropicStreamEvent:
         ctx = PolicyContext.for_testing()
 
         text_delta = TextDelta.model_construct(type="text_delta", text="HELLO world")
-        event = RawContentBlockDeltaEvent.model_construct(
+        delta_event = RawContentBlockDeltaEvent.model_construct(
             type="content_block_delta",
             index=0,
             delta=text_delta,
         )
+        stop_event = RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0)
 
-        result = await policy.on_anthropic_stream_event(event, ctx)
+        full_text = await _collect_stream_text(policy, ctx, [delta_event, stop_event])
 
-        assert len(result) == 1
-        result_event = cast(RawContentBlockDeltaEvent, result[0])
-        assert result_event.delta.text == "GOODBYE world"
+        assert full_text == "GOODBYE world"
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_leaves_thinking_delta_unchanged(self):
@@ -480,7 +495,7 @@ class TestAnthropicStreamEvent:
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_passes_through_content_block_stop(self):
-        """on_anthropic_stream_event passes through content_block_stop events unchanged."""
+        """content_block_stop passes through when the buffer is empty (no prior text deltas)."""
         policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["test", "demo"]]))
         ctx = PolicyContext.for_testing()
 
@@ -610,3 +625,224 @@ class TestAnthropicEdgeCases:
 
         result_text_block = cast(AnthropicTextBlock, result["content"][0])
         assert result_text_block["text"] == "Hello check world!"
+
+
+class TestStreamingBufferBehavior:
+    """Tests for cross-chunk buffering in streaming mode."""
+
+    @pytest.mark.asyncio
+    async def test_replacement_spanning_two_chunks(self):
+        """Replacement target split across two chunks is correctly replaced."""
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["hello", "goodbye"]]))
+        ctx = PolicyContext.for_testing()
+
+        events = [
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="say hel"),
+            ),
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="lo there"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0),
+        ]
+
+        full_text = await _collect_stream_text(policy, ctx, events)
+        assert full_text == "say goodbye there"
+
+    @pytest.mark.asyncio
+    async def test_one_char_at_a_time(self):
+        """Replacement works even when text arrives one character at a time."""
+        policy = StringReplacementPolicy(
+            config=StringReplacementConfig(
+                replacements=[["hello", "hi"]],
+                match_capitalization=True,
+            )
+        )
+        ctx = PolicyContext.for_testing()
+
+        text = "say Hello!"
+        events: list[Any] = [
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text=c),
+            )
+            for c in text
+        ]
+        events.append(RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0))
+
+        full_text = await _collect_stream_text(policy, ctx, events)
+        assert full_text == "say Hi!"
+
+    @pytest.mark.asyncio
+    async def test_multiple_replacements_across_chunks(self):
+        """Multiple different replacement targets spanning chunks all work."""
+        policy = StringReplacementPolicy(
+            config=StringReplacementConfig(
+                replacements=[["apple", "orange"], ["grape", "melon"]],
+                match_capitalization=True,
+            )
+        )
+        ctx = PolicyContext.for_testing()
+
+        # "apple" split as "app" + "le", "grape" split as "gra" + "pe"
+        events = [
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="I like app"),
+            ),
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="le and gra"),
+            ),
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="pe juice"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0),
+        ]
+
+        full_text = await _collect_stream_text(policy, ctx, events)
+        assert full_text == "I like orange and melon juice"
+
+    @pytest.mark.asyncio
+    async def test_no_buffering_for_single_char_replacements(self):
+        """Single-char replacements don't use buffering (no chunk boundary issue)."""
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["a", "x"]]))
+        ctx = PolicyContext.for_testing()
+
+        # buffer_size should be 0 for single-char source
+        assert policy._buffer_size == 0
+
+        text_delta = TextDelta.model_construct(type="text_delta", text="banana")
+        event = RawContentBlockDeltaEvent.model_construct(
+            type="content_block_delta",
+            index=0,
+            delta=text_delta,
+        )
+
+        result = await policy.on_anthropic_stream_event(event, ctx)
+        assert len(result) == 1
+        result_event = cast(RawContentBlockDeltaEvent, result[0])
+        result_delta = cast(TextDelta, result_event.delta)
+        assert result_delta.text == "bxnxnx"
+
+    @pytest.mark.asyncio
+    async def test_buffer_flushed_on_stream_complete(self):
+        """on_anthropic_stream_complete flushes any remaining buffer."""
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["hello", "hi"]]))
+        ctx = PolicyContext.for_testing()
+
+        # Send text without a content_block_stop
+        text_delta = TextDelta.model_construct(type="text_delta", text="hello")
+        event = RawContentBlockDeltaEvent.model_construct(
+            type="content_block_delta",
+            index=0,
+            delta=text_delta,
+        )
+        result = await policy.on_anthropic_stream_event(event, ctx)
+        parts = [
+            ev.delta.text
+            for ev in result
+            if isinstance(ev, RawContentBlockDeltaEvent) and isinstance(ev.delta, TextDelta)
+        ]
+
+        # Flush via stream_complete
+        complete_events = await policy.on_anthropic_stream_complete(ctx)
+        for ev in complete_events:
+            if isinstance(ev, RawContentBlockDeltaEvent) and isinstance(ev.delta, TextDelta):
+                parts.append(ev.delta.text)
+
+        assert "".join(parts) == "hi"
+
+    @pytest.mark.asyncio
+    async def test_empty_buffer_on_stream_complete(self):
+        """on_anthropic_stream_complete returns empty list when no buffer remains."""
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["foo", "bar"]]))
+        ctx = PolicyContext.for_testing()
+
+        result = await policy.on_anthropic_stream_complete(ctx)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_double_flush_does_not_double_emit(self):
+        """content_block_stop flush followed by stream_complete does not emit twice."""
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["hello", "hi"]]))
+        ctx = PolicyContext.for_testing()
+
+        # Send text + content_block_stop (flushes buffer)
+        events: list[Any] = [
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="hello"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0),
+        ]
+        full_text = await _collect_stream_text(policy, ctx, events)
+        assert full_text == "hi"
+
+        # stream_complete should return nothing — buffer already flushed
+        complete_events = await policy.on_anthropic_stream_complete(ctx)
+        assert complete_events == []
+
+    @pytest.mark.asyncio
+    async def test_replacement_target_at_exact_end_of_stream(self):
+        """Replacement target as the final chunk is correctly replaced on flush."""
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["hello", "goodbye"]]))
+        ctx = PolicyContext.for_testing()
+
+        events: list[Any] = [
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="say "),
+            ),
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="hello"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0),
+        ]
+
+        full_text = await _collect_stream_text(policy, ctx, events)
+        assert full_text == "say goodbye"
+
+    @pytest.mark.asyncio
+    async def test_buffer_resets_between_content_blocks(self):
+        """Buffer flushes on content_block_stop so second block starts clean."""
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["hello", "hi"]]))
+        ctx = PolicyContext.for_testing()
+
+        events: list[Any] = [
+            # Block 0
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="say hello"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0),
+            # Block 1 — replacement split across chunks
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=1,
+                delta=TextDelta.model_construct(type="text_delta", text="hel"),
+            ),
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=1,
+                delta=TextDelta.model_construct(type="text_delta", text="lo there"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=1),
+        ]
+
+        full_text = await _collect_stream_text(policy, ctx, events)
+        assert full_text == "say hihi there"
