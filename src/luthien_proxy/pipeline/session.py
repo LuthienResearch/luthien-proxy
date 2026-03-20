@@ -6,6 +6,7 @@ conversations across multiple API calls.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -20,8 +21,10 @@ _SESSION_PATTERN = re.compile(r"_session_([a-f0-9-]+)$")
 def extract_session_id_from_anthropic_body(body: dict[str, Any]) -> str | None:
     """Extract session ID from Anthropic API request body.
 
-    Claude Code sends session info in the metadata.user_id field with format:
-    user_<hash>_account__session_<uuid>
+    Claude Code sends session info in the metadata.user_id field in two formats:
+
+    1. API key mode: ``user_<hash>_account__session_<uuid>``
+    2. OAuth mode: JSON string ``{"device_id": "...", "session_id": "..."}``
 
     Args:
         body: Raw request body as dict
@@ -37,9 +40,20 @@ def extract_session_id_from_anthropic_body(body: dict[str, Any]) -> str | None:
     if not isinstance(user_id, str):
         return None
 
+    # Try API key format: user_<hash>_account__session_<uuid>
     match = _SESSION_PATTERN.search(user_id)
     if match:
         return match.group(1)
+
+    # Try OAuth format: JSON string with session_id field
+    try:
+        parsed = json.loads(user_id)
+        if isinstance(parsed, dict):
+            session_id = parsed.get("session_id")
+            if isinstance(session_id, str) and session_id:
+                return session_id
+    except (json.JSONDecodeError, TypeError):
+        pass
 
     return None
 

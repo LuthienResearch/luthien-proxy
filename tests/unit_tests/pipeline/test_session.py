@@ -71,6 +71,46 @@ class TestExtractSessionIdFromAnthropicBody:
         session_id = extract_session_id_from_anthropic_body(body)
         assert session_id is None
 
+    def test_extracts_session_id_from_oauth_json_format(self):
+        """Test extraction from OAuth mode's JSON-encoded metadata.user_id."""
+        body = {
+            "model": "claude-3-opus",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "metadata": {
+                "user_id": '{"device_id":"180260606031d2868a596deb2c39d945fc289a03c4492558bd34b7e1eb32ccc1","account_uuid":"e1622933-df71-44ba-9aca-54add8a7ddab","session_id":"f70cfe65-eed9-4ddd-ab51-136673c94e60"}'
+            },
+        }
+        session_id = extract_session_id_from_anthropic_body(body)
+        assert session_id == "f70cfe65-eed9-4ddd-ab51-136673c94e60"
+
+    def test_returns_none_for_oauth_json_without_session_id(self):
+        """Test returns None when OAuth JSON doesn't contain session_id."""
+        body = {
+            "metadata": {
+                "user_id": '{"device_id":"abc123","account_uuid":"def456"}'
+            },
+        }
+        session_id = extract_session_id_from_anthropic_body(body)
+        assert session_id is None
+
+    def test_returns_none_for_oauth_json_with_empty_session_id(self):
+        """Test returns None when OAuth JSON has empty session_id."""
+        body = {
+            "metadata": {
+                "user_id": '{"device_id":"abc123","session_id":""}'
+            },
+        }
+        session_id = extract_session_id_from_anthropic_body(body)
+        assert session_id is None
+
+    def test_returns_none_for_invalid_json_user_id(self):
+        """Test returns None when user_id is invalid JSON and doesn't match regex."""
+        body = {
+            "metadata": {"user_id": "not_json_and_no_session_pattern"},
+        }
+        session_id = extract_session_id_from_anthropic_body(body)
+        assert session_id is None
+
     def test_extracts_different_session_uuids(self):
         """Test extraction works with various UUID formats."""
         test_cases = [
