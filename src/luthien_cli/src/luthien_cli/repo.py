@@ -165,12 +165,13 @@ def ensure_gateway_venv() -> str:
         with console.status("Setting up Python environment..."):
             _run_uv("venv", str(venv_dir), "--python", "3.13", console=console)
 
+    github_source = "git+https://github.com/LuthienResearch/luthien-proxy.git"
     install_args = [
         "pip",
         "install",
         "--python",
         str(venv_python),
-        "luthien-proxy",
+        github_source,
     ]
     if needs_install:
         label = "Installing luthien-proxy..."

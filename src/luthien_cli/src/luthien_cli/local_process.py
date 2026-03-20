@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -161,3 +162,44 @@ def stop_gateway(repo_path: str, console: Console | None = None) -> bool:
 def gateway_log_path(repo_path: str) -> Path:
     """Return the path to the gateway log file."""
     return _log_file(repo_path)
+
+
+_DOCKER_PORT_DEFAULTS: dict[str, int] = {
+    "POSTGRES_PORT": 5433,
+    "REDIS_PORT": 6379,
+    "GATEWAY_PORT": 8000,
+}
+
+
+def is_port_free(port: int) -> bool:
+    """Check if a TCP port is available on localhost."""
+    if not 1024 <= port <= 65535:
+        return False
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("127.0.0.1", port))
+            return True
+        except OSError:
+            return False
+
+
+def find_free_port(start: int, exclude: set[int] | None = None) -> int:
+    """Find the next free port starting from the given default."""
+    for offset in range(100):
+        port = start + offset
+        if is_port_free(port) and port not in (exclude or set()):
+            return port
+    raise RuntimeError(f"Could not find a free port starting from {start}")
+
+
+def find_docker_ports() -> dict[str, str]:
+    """Auto-select free ports for docker compose services."""
+    port_env: dict[str, str] = {}
+    assigned: set[int] = set()
+    for var, default in _DOCKER_PORT_DEFAULTS.items():
+        if os.environ.get(var):
+            continue
+        port = find_free_port(default, exclude=assigned)
+        assigned.add(port)
+        port_env[var] = str(port)
+    return port_env

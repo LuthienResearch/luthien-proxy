@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import re
 import secrets
-import socket
 import subprocess
 import textwrap
 from pathlib import Path
@@ -16,7 +15,7 @@ from rich.panel import Panel
 
 from luthien_cli.commands.up import wait_for_healthy
 from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config, save_config
-from luthien_cli.local_process import start_gateway, stop_gateway
+from luthien_cli.local_process import find_docker_ports, find_free_port, start_gateway, stop_gateway
 from luthien_cli.repo import ensure_gateway_venv, ensure_repo
 
 POLICY_TEMPLATE = """\
@@ -30,27 +29,6 @@ policy:
     max_tokens: 4096
     on_error: "pass"
 """
-
-
-def _is_port_free(port: int) -> bool:
-    """Check if a TCP port is available on localhost."""
-    if not 1024 <= port <= 65535:
-        return False
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        try:
-            s.bind(("127.0.0.1", port))
-            return True
-        except OSError:
-            return False
-
-
-def _find_free_port(start: int) -> int:
-    """Find the next free port starting from the given default."""
-    for offset in range(100):
-        port = start + offset
-        if _is_port_free(port):
-            return port
-    raise RuntimeError(f"Could not find a free port starting from {start}")
 
 
 def _generate_key(prefix: str) -> str:
@@ -213,7 +191,7 @@ def _onboard_local(console: Console, config, proxy_key: str, admin_key: str, ins
     stop_gateway(config.repo_path)
 
     # 4. Find a free port and start the gateway
-    gateway_port = _find_free_port(8000)
+    gateway_port = find_free_port(8000)
     console.print(f"\n[blue]Starting gateway on port {gateway_port}...[/blue]")
     pid = start_gateway(config.repo_path, port=gateway_port, console=console)
     console.print(f"[dim]Gateway started (PID {pid})[/dim]")
@@ -234,24 +212,6 @@ def _onboard_local(console: Console, config, proxy_key: str, admin_key: str, ins
         raise SystemExit(1)
 
     _show_results(console, actual_gateway_url.rstrip("/"), proxy_key, instructions, "local")
-
-
-_DOCKER_PORT_DEFAULTS = {
-    "POSTGRES_PORT": 5433,
-    "REDIS_PORT": 6379,
-    "GATEWAY_PORT": 8000,
-}
-
-
-def _find_docker_ports() -> dict[str, str]:
-    """Auto-select free ports for docker compose services."""
-    port_env: dict[str, str] = {}
-    for var, default in _DOCKER_PORT_DEFAULTS.items():
-        if os.environ.get(var):
-            continue
-        port = _find_free_port(default)
-        port_env[var] = str(port)
-    return port_env
 
 
 def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str, instructions: str) -> None:
@@ -288,7 +248,7 @@ def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str, in
     if down_result.returncode == 0 and "Removed" in (down_result.stderr or ""):
         console.print("[dim]Stopped existing luthien containers.[/dim]")
 
-    port_env = _find_docker_ports()
+    port_env = find_docker_ports()
     if port_env:
         selected = ", ".join(f"{k}={v}" for k, v in port_env.items())
         console.print(f"[dim]Auto-selected ports: {selected}[/dim]")

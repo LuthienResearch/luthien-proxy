@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import time
 from urllib.parse import urlparse
@@ -11,7 +12,13 @@ import httpx
 from rich.console import Console
 
 from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config, save_config
-from luthien_cli.local_process import gateway_log_path, is_gateway_running, start_gateway, stop_gateway
+from luthien_cli.local_process import (
+    find_docker_ports,
+    gateway_log_path,
+    is_gateway_running,
+    start_gateway,
+    stop_gateway,
+)
 from luthien_cli.repo import ensure_gateway_venv, ensure_repo
 
 
@@ -83,16 +90,41 @@ def up(follow: bool):
 
         console.print(f"[blue]Starting stack in {config.repo_path}[/blue]")
 
+        gateway_running = subprocess.run(
+            ["docker", "compose", "ps", "--services", "--filter", "status=running"],
+            cwd=config.repo_path,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+
+        port_env: dict[str, str] = {}
+        if "gateway" in gateway_running:
+            console.print("[yellow]Gateway already running.[/yellow]")
+        else:
+            port_env = find_docker_ports()
+            if port_env:
+                selected = ", ".join(f"{k}={v}" for k, v in port_env.items())
+                console.print(f"[dim]Auto-selected ports: {selected}[/dim]")
+
         with console.status("Starting containers..."):
             result = subprocess.run(
                 ["docker", "compose", "up", "-d"],
                 cwd=config.repo_path,
                 capture_output=True,
                 text=True,
+                env={**os.environ, **port_env},
             )
         if result.returncode != 0:
             console.print(f"[red]docker compose up failed:[/red]\n{result.stderr}")
             raise SystemExit(1)
+
+        new_gateway_port = port_env.get(
+            "GATEWAY_PORT", os.environ.get("GATEWAY_PORT", str(_port_from_url(config.gateway_url)))
+        )
+        new_gateway_url = f"http://localhost:{new_gateway_port}"
+        if new_gateway_url != config.gateway_url:
+            config.gateway_url = new_gateway_url
+            save_config(config, DEFAULT_CONFIG_PATH)
 
         if wait_for_healthy(config.gateway_url, console=console):
             console.print(f"[green]Gateway is healthy at {config.gateway_url}[/green]")
