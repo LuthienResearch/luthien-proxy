@@ -64,4 +64,4 @@ debug_multitool_nonstreaming.json
 .claude/worktrees/
 
 # Generated version files (hatch-vcs)
-_version.py
+src/luthien_cli/src/luthien_cli/_version.py
