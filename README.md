@@ -168,7 +168,6 @@ POLICY_SOURCE=db-fallback-file
 
 # Path to YAML policy file (when POLICY_SOURCE includes "file")
 POLICY_CONFIG=./config/policy_config.yaml
-# Docker: use /app/config/policy_config.yaml
 ```
 
 ### LLM Judge Policies (Optional)
