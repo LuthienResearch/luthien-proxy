@@ -130,6 +130,8 @@ After setup, use the CLI or Claude Code to manage the proxy:
 - **Real-time monitoring** at <http://localhost:8000/activity/monitor>
 - **Policy management UI** at <http://localhost:8000/policy-config>
 
+> **Trouble accessing the dashboard?** The monitoring and policy UIs require the admin API key. On localhost, auth is bypassed by default — but if you're accessing from another host or see a login page, see [Configuration](#configuration) below.
+
 ## Configuration
 
 Copy `.env.example` to `.env` and configure your environment:
@@ -143,8 +145,10 @@ ANTHROPIC_API_KEY=your_anthropic_api_key_here  # optional if using Claude Pro/Ma
 
 # Gateway Authentication
 PROXY_API_KEY=sk-luthien-dev-key     # API key for clients to access the proxy
-ADMIN_API_KEY=admin-dev-key          # API key for admin/policy management UI
+ADMIN_API_KEY=admin-dev-key          # API key for admin/policy management UI (History, Policy tabs)
 ```
+
+> **Two API keys, two purposes**: `PROXY_API_KEY` is for Claude Code and other LLM clients connecting through the gateway. `ADMIN_API_KEY` is for the web dashboard (History, Policy Configuration, Activity Monitor). On localhost, the dashboard bypasses auth automatically.
 
 ### Core Infrastructure
 

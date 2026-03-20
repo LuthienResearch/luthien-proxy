@@ -57,11 +57,16 @@ async def _apply_sqlite_schema(db_pool: DatabasePool) -> None:
 def _find_sqlite_schema() -> Path | None:
     """Locate the sqlite_schema.sql file.
 
-    Checks:
-    1. Next to the migration files (migrations/sqlite_schema.sql)
-    2. Relative to the current working directory
+    Checks (in order):
+    1. MIGRATIONS_DIR env var (explicit override)
+    2. Bundled with the package (next to this file)
+    3. Repo-relative path (migrations/ at repo root)
+    4. Relative to the current working directory
     """
     candidates = [
+        # Bundled with the package — works in pip-installed environments
+        Path(__file__).resolve().parent / "sqlite_schema.sql",
+        # Repo-relative — works when running from the repo checkout
         Path(__file__).resolve().parents[3] / "migrations" / "sqlite_schema.sql",
         Path("migrations/sqlite_schema.sql"),
     ]
