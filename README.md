@@ -147,11 +147,10 @@ ADMIN_API_KEY=admin-dev-key          # API key for admin/policy management UI
 ### Core Infrastructure
 
 ```bash
-# Database
-DATABASE_URL=postgresql://luthien:password@db:5432/luthien_control
-
-# Redis (for real-time activity streaming)
-REDIS_URL=redis://redis:6379
+# Database — leave unset for SQLite (default: ~/.luthien/local.db)
+# For Docker Compose / multi-user deployments, use PostgreSQL + Redis:
+# DATABASE_URL=postgresql://luthien:password@db:5432/luthien_control
+# REDIS_URL=redis://redis:6379
 
 # Gateway
 GATEWAY_HOST=localhost
@@ -166,7 +165,7 @@ GATEWAY_PORT=8000
 POLICY_SOURCE=db-fallback-file
 
 # Path to YAML policy file (when POLICY_SOURCE includes "file")
-POLICY_CONFIG=/app/config/policy_config.yaml
+POLICY_CONFIG=./config/policy_config.yaml
 ```
 
 ### LLM Judge Policies (Optional)
@@ -259,16 +258,14 @@ Or at runtime via the admin API: `PUT /api/admin/telemetry` with `{"enabled": fa
 ### Gateway not starting
 
 ```bash
-# Check service status
+# Local mode (default)
+luthien status          # check health
+luthien logs            # view gateway logs
+luthien down && luthien up  # full restart
+
+# Docker Compose mode
 docker compose ps
-
-# View gateway logs
 docker compose logs gateway
-
-# Restart gateway
-docker compose restart gateway
-
-# Full restart
 docker compose down && ./scripts/quick_start.sh
 ```
 
@@ -278,18 +275,16 @@ docker compose down && ./scripts/quick_start.sh
 2. **Check upstream credentials**:
    - *API key mode*: Verify `ANTHROPIC_API_KEY` starts with `sk-ant-api` in `.env`
    - *Claude Max/OAuth mode*: Run `claude auth login` to ensure your session is active
-3. **Check logs**: `docker compose logs -f gateway`
+3. **Check logs**: `luthien logs` (local mode) or `docker compose logs -f gateway` (Docker mode)
 
 ### Database connection issues
 
+Local mode uses SQLite — if the database file is corrupt, delete it and restart (`rm ~/.luthien/local.db && luthien up`).
+
+For Docker Compose deployments:
 ```bash
-# Check database is running
 docker compose ps db
-
-# Restart database
 docker compose restart db
-
-# Re-run migrations
 docker compose run --rm migrations
 ```
 
