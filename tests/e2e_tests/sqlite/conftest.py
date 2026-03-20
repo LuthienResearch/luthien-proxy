@@ -92,6 +92,7 @@ def sqlite_gateway_url():
     import tests.e2e_tests.test_mock_admin_api as m_admin
     import tests.e2e_tests.test_mock_basic as m_basic
     import tests.e2e_tests.test_mock_error_handling as m_errors
+    import tests.e2e_tests.test_mock_onboarding_policy as m_onboarding
     import tests.e2e_tests.test_mock_openai_and_tool_use as m_openai
     import tests.e2e_tests.test_mock_policies as m_policies
     import tests.e2e_tests.test_mock_policy_management as m_polmgmt
@@ -100,7 +101,19 @@ def sqlite_gateway_url():
     import tests.e2e_tests.test_mock_special_chars as m_chars
     import tests.e2e_tests.test_mock_streaming_structure as m_stream
 
-    _test_modules = [m_basic, m_errors, m_admin, m_polmgmt, m_policies, m_fwd, m_sessions, m_stream, m_openai, m_chars]
+    _test_modules = [
+        m_basic,
+        m_errors,
+        m_admin,
+        m_polmgmt,
+        m_policies,
+        m_fwd,
+        m_sessions,
+        m_stream,
+        m_openai,
+        m_chars,
+        m_onboarding,
+    ]
 
     # Attributes to patch: the imported constants + derived header dicts
     _attrs = ("GATEWAY_URL", "API_KEY", "ADMIN_API_KEY", "_HEADERS", "_ADMIN_HEADERS")

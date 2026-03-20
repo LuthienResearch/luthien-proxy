@@ -33,6 +33,13 @@ from tests.e2e_tests.test_mock_error_handling import (
     test_missing_messages_field_returns_400,
 )
 
+# --- Onboarding policy ---
+from tests.e2e_tests.test_mock_onboarding_policy import (
+    test_first_turn_appends_welcome,
+    test_first_turn_streaming_appends_welcome,
+    test_second_turn_passthrough,
+)
+
 # --- Policies ---
 from tests.e2e_tests.test_mock_policies import (
     test_all_caps_non_streaming,
@@ -120,4 +127,8 @@ __all__ = [
     # special chars
     "test_allcaps_passes_through_emoji",
     "test_noop_policy_preserves_unicode",
+    # onboarding policy
+    "test_first_turn_appends_welcome",
+    "test_second_turn_passthrough",
+    "test_first_turn_streaming_appends_welcome",
 ]
