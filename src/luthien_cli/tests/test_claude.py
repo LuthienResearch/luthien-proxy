@@ -1,5 +1,6 @@
 """Tests for claude command."""
 
+import inspect
 from unittest.mock import patch
 
 from click.testing import CliRunner
@@ -8,7 +9,7 @@ from luthien_cli.main import cli
 
 
 def test_claude_oauth_passthrough_by_default(tmp_path):
-    """Without any API key, Claude Code uses OAuth passthrough."""
+    """Claude Code always uses OAuth passthrough — no API key in env."""
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
     config_path.write_text('[gateway]\nurl = "http://localhost:9000"\n')
@@ -25,62 +26,8 @@ def test_claude_oauth_passthrough_by_default(tmp_path):
         assert "oauth passthrough" in result.output.lower()
 
 
-def test_claude_sends_api_key_from_config(tmp_path):
-    """With gateway.api_key in config, it sets ANTHROPIC_API_KEY."""
-    runner = CliRunner()
-    config_path = tmp_path / "config.toml"
-    config_path.write_text('[gateway]\nurl = "http://localhost:9000"\napi_key = "sk-proxy"\n')
-    with (
-        patch("luthien_cli.commands.claude.DEFAULT_CONFIG_PATH", config_path),
-        patch("luthien_cli.commands.claude.shutil.which", return_value="/usr/bin/claude"),
-        patch("os.execvpe") as mock_exec,
-    ):
-        result = runner.invoke(cli, ["claude"])
-        mock_exec.assert_called_once()
-        env = mock_exec.call_args[0][2]
-        assert env["ANTHROPIC_BASE_URL"] == "http://localhost:9000/"
-        assert env["ANTHROPIC_API_KEY"] == "sk-proxy"
-        assert "proxy api key" in result.output.lower()
-
-
-def test_claude_cli_api_key_overrides_config(tmp_path):
-    """--api-key flag overrides the config file api_key."""
-    runner = CliRunner()
-    config_path = tmp_path / "config.toml"
-    config_path.write_text('[gateway]\nurl = "http://localhost:9000"\napi_key = "sk-from-config"\n')
-    with (
-        patch("luthien_cli.commands.claude.DEFAULT_CONFIG_PATH", config_path),
-        patch("luthien_cli.commands.claude.shutil.which", return_value="/usr/bin/claude"),
-        patch("os.execvpe") as mock_exec,
-    ):
-        result = runner.invoke(cli, ["claude", "--api-key", "sk-from-cli"])
-        mock_exec.assert_called_once()
-        env = mock_exec.call_args[0][2]
-        assert env["ANTHROPIC_API_KEY"] == "sk-from-cli"
-        assert "proxy api key" in result.output.lower()
-
-
-def test_claude_api_key_from_env(tmp_path, monkeypatch):
-    """LUTHIEN_API_KEY env var provides the API key."""
-    runner = CliRunner()
-    config_path = tmp_path / "config.toml"
-    config_path.write_text('[gateway]\nurl = "http://localhost:9000"\n')
-    monkeypatch.setenv("LUTHIEN_API_KEY", "sk-from-env")
-    with (
-        patch("luthien_cli.commands.claude.DEFAULT_CONFIG_PATH", config_path),
-        patch("luthien_cli.commands.claude.shutil.which", return_value="/usr/bin/claude"),
-        patch("os.execvpe") as mock_exec,
-    ):
-        result = runner.invoke(cli, ["claude"])
-        mock_exec.assert_called_once()
-        env = mock_exec.call_args[0][2]
-        assert env["ANTHROPIC_API_KEY"] == "sk-from-env"
-        assert "proxy api key" in result.output.lower()
-
-
-def test_claude_oauth_strips_inherited_api_key(tmp_path, monkeypatch):
-    """In OAuth mode, an inherited ANTHROPIC_API_KEY must be removed to avoid
-    Claude Code's 'both token and API key set' conflict warning."""
+def test_claude_strips_inherited_api_key(tmp_path, monkeypatch):
+    """An inherited ANTHROPIC_API_KEY is always removed."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-inherited-from-shell")
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
@@ -96,6 +43,22 @@ def test_claude_oauth_strips_inherited_api_key(tmp_path, monkeypatch):
         assert "ANTHROPIC_API_KEY" not in env
 
 
+def test_claude_passes_args_through(tmp_path):
+    """Extra args are forwarded to claude."""
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('[gateway]\nurl = "http://localhost:9000"\n')
+    with (
+        patch("luthien_cli.commands.claude.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.claude.shutil.which", return_value="/usr/bin/claude"),
+        patch("os.execvpe") as mock_exec,
+    ):
+        runner.invoke(cli, ["claude", "--", "-p", "my custom prompt"])
+        args = mock_exec.call_args[0][1]
+        assert "-p" in args
+        assert "my custom prompt" in args
+
+
 def test_claude_fails_when_not_installed(tmp_path):
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
@@ -107,3 +70,11 @@ def test_claude_fails_when_not_installed(tmp_path):
         result = runner.invoke(cli, ["claude"])
         assert result.exit_code != 0
         assert "not found" in result.output.lower() or "not installed" in result.output.lower()
+
+
+def test_claude_does_not_import_webbrowser():
+    """luthien claude should NOT open a browser — only onboard does that."""
+    import luthien_cli.commands.claude as claude_mod
+
+    source = inspect.getsource(claude_mod)
+    assert "webbrowser" not in source

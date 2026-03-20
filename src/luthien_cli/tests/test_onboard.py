@@ -9,7 +9,6 @@ from click.testing import CliRunner
 
 from luthien_cli.commands.onboard import (
     _ensure_docker_env,
-    _indent_instructions,
     _write_local_env,
     _write_policy,
 )
@@ -19,20 +18,13 @@ from luthien_cli.local_process import is_port_free as _is_port_free
 from luthien_cli.main import cli
 
 
-def test_indent_instructions():
-    text = "Block PII\nRemove emails"
-    result = _indent_instructions(text, indent=6)
-    assert result == "      Block PII\n      Remove emails"
-
-
 def test_write_policy(tmp_path):
-    _write_policy(str(tmp_path), "Block all PII from responses")
+    _write_policy(str(tmp_path), "http://localhost:8000")
     policy_path = tmp_path / "config" / "policy_config.yaml"
     assert policy_path.exists()
     content = policy_path.read_text()
-    assert "SimpleLLMPolicy" in content
-    assert "Block all PII from responses" in content
-    assert "claude-haiku-4-5" in content
+    assert "OnboardingPolicy" in content
+    assert "http://localhost:8000" in content
 
 
 def test_write_local_env(tmp_path):
@@ -112,7 +104,7 @@ def test_ensure_docker_env_falls_back_to_example(tmp_path):
 
 
 def test_onboard_local_full_flow(tmp_path):
-    """Test the default local onboard flow."""
+    """Test the default local onboard flow (no policy prompt — uses onboarding policy)."""
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
     repo_path = tmp_path / "managed-repo"
@@ -126,12 +118,9 @@ def test_onboard_local_full_flow(tmp_path):
         patch("luthien_cli.commands.onboard.start_gateway", return_value=12345),
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
+        patch("luthien_cli.commands.onboard.webbrowser.open"),
     ):
-        result = runner.invoke(
-            cli,
-            ["onboard"],
-            input="Block PII from all responses\n",
-        )
+        result = runner.invoke(cli, ["onboard"], input="y\nq\n")
 
     assert result.exit_code == 0, result.output
     assert "Gateway is running" in result.output
@@ -141,9 +130,9 @@ def test_onboard_local_full_flow(tmp_path):
     config_content = config_path.read_text()
     assert 'mode = "local"' in config_content
 
-    # Verify policy was written
+    # Verify onboarding policy was written
     policy = (repo_path / "config" / "policy_config.yaml").read_text()
-    assert "Block PII from all responses" in policy
+    assert "OnboardingPolicy" in policy
 
     # Verify .env has sqlite
     env_content = (repo_path / ".env").read_text()
@@ -165,13 +154,10 @@ def test_onboard_docker_full_flow(tmp_path):
         patch("luthien_cli.commands.onboard.subprocess.run") as mock_run,
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_docker_ports", return_value={"GATEWAY_PORT": "9123"}),
+        patch("luthien_cli.commands.onboard.webbrowser.open"),
     ):
         mock_run.return_value = MagicMock(returncode=0)
-        result = runner.invoke(
-            cli,
-            ["onboard", "--docker"],
-            input="Block PII from all responses\n",
-        )
+        result = runner.invoke(cli, ["onboard", "--docker"], input="y\nq\n")
 
     assert result.exit_code == 0, result.output
     assert "Gateway is running" in result.output
@@ -193,9 +179,10 @@ def test_onboard_docker_full_flow(tmp_path):
     assert "9123" in config_content
     assert 'mode = "docker"' in config_content
 
-    # Verify policy was written
+    # Verify onboarding policy was written with correct gateway URL
     policy = (repo_path / "config" / "policy_config.yaml").read_text()
-    assert "Block PII from all responses" in policy
+    assert "OnboardingPolicy" in policy
+    assert "9123" in policy
 
 
 def test_onboard_docker_failure(tmp_path):
@@ -211,7 +198,7 @@ def test_onboard_docker_failure(tmp_path):
         patch("luthien_cli.commands.onboard.subprocess.run") as mock_run,
     ):
         mock_run.return_value = MagicMock(returncode=1, stderr="compose error")
-        result = runner.invoke(cli, ["onboard", "--docker"], input="Block PII\n")
+        result = runner.invoke(cli, ["onboard", "--docker", "-y"])
 
     assert result.exit_code != 0
     assert "failed" in result.output.lower()
@@ -232,7 +219,7 @@ def test_onboard_local_gateway_unhealthy(tmp_path):
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=False),
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
     ):
-        result = runner.invoke(cli, ["onboard"], input="Block PII\n")
+        result = runner.invoke(cli, ["onboard", "-y"])
 
     assert result.exit_code != 0
     assert "healthy" in result.output.lower()
@@ -296,7 +283,7 @@ def test_find_docker_ports_auto_selects():
             assert result == {"POSTGRES_PORT": "5433", "REDIS_PORT": "6379", "GATEWAY_PORT": "8000"}
 
 
-def test_onboard_shows_api_key_warning(tmp_path):
+def test_onboard_shows_uninstall_instructions(tmp_path):
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
     repo_path = tmp_path / "managed-repo"
@@ -310,13 +297,31 @@ def test_onboard_shows_api_key_warning(tmp_path):
         patch("luthien_cli.commands.onboard.start_gateway", return_value=12345),
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
+        patch("luthien_cli.commands.onboard.webbrowser.open"),
     ):
-        result = runner.invoke(
-            cli,
-            ["onboard"],
-            input="Block PII\n",
-        )
+        result = runner.invoke(cli, ["onboard"], input="y\nq\n")
 
     assert result.exit_code == 0, result.output
-    assert "Yes" in result.output
-    assert "bypass" in result.output.lower()
+    assert "pipx uninstall" in result.output
+
+
+def test_onboard_opens_browser(tmp_path):
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    repo_path = tmp_path / "managed-repo"
+    repo_path.mkdir()
+    (repo_path / "config").mkdir()
+
+    with (
+        patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.onboard.ensure_gateway_venv", return_value=str(repo_path)),
+        patch("luthien_cli.commands.onboard.stop_gateway"),
+        patch("luthien_cli.commands.onboard.start_gateway", return_value=12345),
+        patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
+        patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
+        patch("luthien_cli.commands.onboard.webbrowser.open") as mock_browser,
+    ):
+        result = runner.invoke(cli, ["onboard"], input="y\nq\n")
+
+    assert result.exit_code == 0, result.output
+    mock_browser.assert_called_once_with("http://localhost:8000/policy-config")

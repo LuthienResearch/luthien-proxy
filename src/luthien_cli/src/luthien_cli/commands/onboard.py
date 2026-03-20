@@ -1,4 +1,4 @@
-"""luthien onboard -- interactive setup for a local gateway with a policy."""
+"""luthien onboard -- set up and start a local gateway with the onboarding policy."""
 
 from __future__ import annotations
 
@@ -6,7 +6,9 @@ import os
 import re
 import secrets
 import subprocess
+import sys
 import textwrap
+import webbrowser
 from pathlib import Path
 
 import click
@@ -18,28 +20,30 @@ from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config, save_config
 from luthien_cli.local_process import find_docker_ports, find_free_port, start_gateway, stop_gateway
 from luthien_cli.repo import ensure_gateway_venv, ensure_repo
 
-POLICY_TEMPLATE = """\
-policy:
-  class: "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
-  config:
-    model: "claude-haiku-4-5"
-    instructions: |
-{instructions}
-    temperature: 0.0
-    max_tokens: 4096
-    on_error: "pass"
-"""
+
+def _read_single_key() -> str:
+    """Read a single keypress without waiting for Enter."""
+    if not sys.stdin.isatty():
+        return sys.stdin.read(1) or "\n"
+
+    import termios
+    import tty
+
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        ch = sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    return ch
+
+
+ONBOARDING_POLICY_CLASS = "luthien_proxy.policies.onboarding_policy:OnboardingPolicy"
 
 
 def _generate_key(prefix: str) -> str:
     return f"{prefix}-{secrets.token_urlsafe(24)}"
-
-
-def _indent_instructions(text: str, indent: int = 6) -> str:
-    """Indent each line of the instructions for YAML block scalar."""
-    lines = text.strip().splitlines()
-    prefix = " " * indent
-    return "\n".join(f"{prefix}{line}" for line in lines)
 
 
 def _write_local_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
@@ -107,39 +111,32 @@ def _ensure_docker_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
     os.chmod(env_path, 0o600)
 
 
-def _write_policy(repo_path: str, instructions: str) -> None:
-    """Write SimpleLLMPolicy config to the repo's config directory."""
+def _write_policy(repo_path: str, gateway_url: str) -> None:
+    """Write OnboardingPolicy config to the repo's config directory."""
+    import yaml
+
     config_dir = f"{repo_path}/config"
     os.makedirs(config_dir, exist_ok=True)
 
-    policy_yaml = POLICY_TEMPLATE.format(
-        instructions=_indent_instructions(instructions),
-    )
+    policy_config = {
+        "policy": {
+            "class": ONBOARDING_POLICY_CLASS,
+            "config": {"gateway_url": gateway_url},
+        }
+    }
 
     with open(f"{config_dir}/policy_config.yaml", "w") as f:
-        f.write(policy_yaml)
-
-
-def _prompt_for_policy(console: Console) -> str:
-    """Prompt user for policy instructions."""
-    console.print("\n[bold]Describe the policy you'd like applied to LLM responses.[/bold]")
-    console.print(
-        "[dim]Examples:\n"
-        '  "Block any PII such as SSNs, credit card numbers, and email addresses"\n'
-        '  "Ensure responses are professional and appropriate for a workplace"\n'
-        '  "Redact any internal hostnames or IP addresses"[/dim]\n'
-    )
-    return click.prompt("Policy instructions")
+        yaml.safe_dump(policy_config, f, default_flow_style=False)
 
 
 def _show_results(
     console: Console,
     gateway_url: str,
-    proxy_key: str,
-    instructions: str,
     mode: str,
 ) -> None:
-    """Show the final success panel."""
+    """Show the final success panel and prompt user to launch Claude Code."""
+    config_url = f"{gateway_url}/policy-config"
+
     console.print()
     console.print(
         Panel(
@@ -147,27 +144,20 @@ def _show_results(
                 [green bold]Gateway is running![/green bold]
 
                 [bold]Gateway URL:[/bold]  {gateway_url}
-                [bold]Policy:[/bold]       SimpleLLMPolicy
-                [bold]Auth mode:[/bold]    both (proxy key or Anthropic key)
+                [bold]Policy:[/bold]       OnboardingPolicy (welcome on first turn)
                 [bold]Mode:[/bold]         {mode}
 
-                [bold]Policy instructions:[/bold]
-                [dim]{instructions}[/dim]
-
-                [bold yellow]Launch Claude Code through the gateway:[/bold yellow]
-                  luthien claude
-
-                [bold]Or manually:[/bold]
-                  ANTHROPIC_BASE_URL={gateway_url}/ ANTHROPIC_API_KEY={proxy_key} claude
-
-                [bold red]Important:[/bold red] If Claude Code asks about a detected API key,
-                select [bold]"Yes"[/bold]. Selecting "No" bypasses the proxy.
+                [bold]Configure policies:[/bold]  {config_url}
 
                 [bold]Manage the gateway:[/bold]
                   luthien status     # check health
                   luthien logs       # view logs
                   luthien down       # stop the gateway
                   luthien up         # start again
+                  [bold yellow]luthien claude[/bold yellow]    # launch Claude Code through the proxy
+
+                [bold]Uninstall:[/bold]
+                  pipx uninstall luthien-cli
 
                 [dim]Luthien sends anonymous usage data to help development.
                 To disable, set USAGE_TELEMETRY=false in .env and restart.[/dim]"""),
@@ -176,28 +166,54 @@ def _show_results(
         )
     )
 
+    # Open the config UI in the browser
+    try:
+        webbrowser.open(config_url)
+        console.print(f"[dim]Opened {config_url} in browser[/dim]")
+    except Exception:
+        console.print(f"[dim]Open {config_url} in your browser to configure policies[/dim]")
 
-def _onboard_local(console: Console, config, proxy_key: str, admin_key: str, instructions: str) -> None:
+    # Prompt user to launch Claude Code (single keypress, no Enter needed)
+    console.print()
+    console.print("[bold]Press any key to launch Claude Code through Luthien Proxy, or q to quit.[/bold]")
+    try:
+        key = _read_single_key()
+        if key.lower() == "q":
+            return
+    except (KeyboardInterrupt, EOFError):
+        return
+
+    # Launch Claude Code through the proxy with the onboarding prompt
+    from luthien_cli.commands.claude import ONBOARDING_PROMPT, _launch_claude
+
+    _launch_claude(console, [ONBOARDING_PROMPT])
+
+
+def _onboard_local(console: Console, config, proxy_key: str, admin_key: str) -> None:
     """Onboard in local mode: SQLite + in-process event publisher, no Docker."""
     # 1. Install gateway package
+    console.print("[blue]Installing luthien-proxy...[/blue]")
     config.repo_path = ensure_gateway_venv()
+    console.print("[green]luthien CLI and proxy installed.[/green]")
 
-    # 2. Write config files
+    # 2. Find a free port (needed before writing policy config)
+    gateway_port = find_free_port(8000)
+    actual_gateway_url = f"http://localhost:{gateway_port}"
+
+    # 3. Write config files
     console.print("\n[blue]Configuring gateway...[/blue]")
-    _write_policy(config.repo_path, instructions)
+    _write_policy(config.repo_path, actual_gateway_url)
     _write_local_env(config.repo_path, proxy_key, admin_key)
 
-    # 3. Stop any existing gateway
+    # 4. Stop any existing gateway
     stop_gateway(config.repo_path)
 
-    # 4. Find a free port and start the gateway
-    gateway_port = find_free_port(8000)
+    # 5. Start the gateway
     console.print(f"\n[blue]Starting gateway on port {gateway_port}...[/blue]")
     pid = start_gateway(config.repo_path, port=gateway_port, console=console)
     console.print(f"[dim]Gateway started (PID {pid})[/dim]")
 
-    # 5. Save config
-    actual_gateway_url = f"http://localhost:{gateway_port}"
+    # 6. Save config
     config.gateway_url = actual_gateway_url
     config.api_key = proxy_key
     config.admin_key = admin_key
@@ -205,24 +221,23 @@ def _onboard_local(console: Console, config, proxy_key: str, admin_key: str, ins
     save_config(config, DEFAULT_CONFIG_PATH)
     console.print("[green]CLI config saved to ~/.luthien/config.toml[/green]")
 
-    # 6. Wait for health
+    # 7. Wait for health
     if not wait_for_healthy(actual_gateway_url, console=console):
         console.print("[red]Gateway did not become healthy within 60s[/red]")
         console.print("[dim]Check logs: luthien logs[/dim]")
         raise SystemExit(1)
 
-    _show_results(console, actual_gateway_url.rstrip("/"), proxy_key, instructions, "local")
+    _show_results(console, actual_gateway_url.rstrip("/"), "local")
 
 
-def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str, instructions: str) -> None:
+def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str) -> None:
     """Onboard in Docker mode: PostgreSQL + Redis via docker compose."""
     # 1. Ensure proxy files
     if not config.repo_path:
         config.repo_path = ensure_repo()
 
-    # 2. Write config files
+    # 2. Write env config
     console.print("\n[blue]Configuring gateway...[/blue]")
-    _write_policy(config.repo_path, instructions)
     _ensure_docker_env(config.repo_path, proxy_key, admin_key)
 
     # 3. Start Docker stack
@@ -253,6 +268,13 @@ def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str, in
         selected = ", ".join(f"{k}={v}" for k, v in port_env.items())
         console.print(f"[dim]Auto-selected ports: {selected}[/dim]")
 
+    gateway_port = port_env.get("GATEWAY_PORT", os.environ.get("GATEWAY_PORT", "8000"))
+    actual_gateway_url = f"http://localhost:{gateway_port}"
+
+    # Write policy config before starting containers so the gateway
+    # reads the correct config at startup.
+    _write_policy(config.repo_path, actual_gateway_url)
+
     with console.status("Starting containers..."):
         result = subprocess.run(
             ["docker", "compose", "up", "-d"],
@@ -264,9 +286,6 @@ def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str, in
     if result.returncode != 0:
         console.print(f"[red]docker compose up failed:[/red]\n{result.stderr}")
         raise SystemExit(1)
-
-    gateway_port = port_env.get("GATEWAY_PORT", os.environ.get("GATEWAY_PORT", "8000"))
-    actual_gateway_url = f"http://localhost:{gateway_port}"
 
     config.gateway_url = actual_gateway_url
     config.api_key = proxy_key
@@ -280,32 +299,44 @@ def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str, in
         console.print(f"[dim]Check logs: docker compose -f {config.repo_path}/docker-compose.yaml logs gateway[/dim]")
         raise SystemExit(1)
 
-    _show_results(console, actual_gateway_url.rstrip("/"), proxy_key, instructions, "docker")
+    _show_results(console, actual_gateway_url.rstrip("/"), "docker")
 
 
 @click.command()
 @click.option("--docker", "use_docker", is_flag=True, help="Use Docker (PostgreSQL + Redis) instead of local mode")
-def onboard(use_docker: bool):
-    """Interactive setup: configure a policy and start the gateway."""
+@click.option("-y", "--yes", is_flag=True, help="Skip confirmation prompt")
+def onboard(use_docker: bool, yes: bool):
+    """Set up a local Luthien gateway and start it with the onboarding policy."""
     console = Console()
     config = load_config(DEFAULT_CONFIG_PATH)
 
     mode_label = "Docker (PostgreSQL + Redis)" if use_docker else "local (SQLite, no Docker required)"
     console.print(
         Panel(
-            f"This will set up a local Luthien gateway with a policy you describe,\n"
-            f"then show you how to route Claude Code through it.\n\n"
+            "This will:\n"
+            "  1. Install the [bold]luthien[/bold] CLI tool (via pipx)\n"
+            "  2. Install a local [bold]luthien-proxy[/bold] server\n"
+            "  3. Start the proxy with an onboarding policy\n\n"
             f"[bold]Mode:[/bold] {mode_label}",
             title="Luthien Onboard",
             border_style="blue",
         )
     )
 
+    if not yes:
+        try:
+            answer = console.input("[bold]Continue? [Y/n]: [/bold]")
+            if answer.strip().lower() in ("n", "no"):
+                console.print("[dim]Cancelled.[/dim]")
+                return
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[dim]Cancelled.[/dim]")
+            return
+
     proxy_key = _generate_key("sk-luthien")
     admin_key = _generate_key("admin")
-    instructions = _prompt_for_policy(console)
 
     if use_docker:
-        _onboard_docker(console, config, proxy_key, admin_key, instructions)
+        _onboard_docker(console, config, proxy_key, admin_key)
     else:
-        _onboard_local(console, config, proxy_key, admin_key, instructions)
+        _onboard_local(console, config, proxy_key, admin_key)
