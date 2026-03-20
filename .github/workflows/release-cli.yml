@@ -1,0 +1,34 @@
+name: Release CLI
+
+on:
+  push:
+    tags:
+      - "cli-v*"
+
+concurrency:
+  group: release-cli
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v2
+        with:
+          python-version: "3.13"
+
+      - name: Build luthien-cli
+        working-directory: src/luthien_cli
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: src/luthien_cli/dist/
