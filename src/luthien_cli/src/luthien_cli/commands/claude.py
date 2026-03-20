@@ -10,15 +10,6 @@ from rich.console import Console
 
 from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config
 
-ONBOARDING_PROMPT = (
-    "I just installed luthien proxy! It's a proxy server that makes it easy to hack "
-    "on the raw API data between Claude Code and the Anthropic backend before it even "
-    "touches Claude Code, giving me more fine-grained control. Please give a short "
-    "response - the proxy will take your response and modify it to include information "
-    "about my luthien proxy install. This is the default onboarding policy and will "
-    "only affect the first response - but I may activate other policies later on."
-)
-
 
 def _launch_claude(console: Console, extra_args: list[str] | None = None) -> None:
     """Launch Claude Code through the configured gateway.
