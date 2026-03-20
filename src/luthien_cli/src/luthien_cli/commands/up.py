@@ -49,12 +49,17 @@ def _port_from_url(url: str) -> int:
     return parsed.port or 8000
 
 
-@click.command()
-@click.option("--follow", "-f", is_flag=True, help="Tail gateway logs after startup")
-def up(follow: bool):
-    """Start the gateway (auto-detects local or Docker mode)."""
-    console = Console()
+def ensure_gateway_up(console: Console) -> None:
+    """Ensure the gateway is running and healthy (idempotent).
+
+    Returns immediately if the gateway is already healthy. Otherwise starts
+    it using the configured mode (local vs docker) and waits for healthy.
+    Raises SystemExit on failure.
+    """
     config = load_config(DEFAULT_CONFIG_PATH)
+
+    if is_gateway_healthy(config.gateway_url):
+        return
 
     if config.mode == "local":
         if not config.repo_path:
@@ -77,11 +82,6 @@ def up(follow: bool):
             console.print("[red]Gateway did not become healthy within 60s[/red]")
             console.print("[dim]Check logs: luthien logs[/dim]")
             raise SystemExit(1)
-
-        if follow:
-            log_path = gateway_log_path(config.repo_path)
-            if log_path.exists():
-                subprocess.run(["tail", "-f", str(log_path)])
 
     else:
         if not config.repo_path:
@@ -132,7 +132,31 @@ def up(follow: bool):
             console.print("[red]Gateway did not become healthy within 60s[/red]")
             raise SystemExit(1)
 
-        if follow:
+
+def is_gateway_healthy(url: str) -> bool:
+    """Quick one-shot health check (no retries)."""
+    try:
+        r = httpx.get(f"{url}/health", timeout=3.0)
+        return r.status_code == 200
+    except (httpx.ConnectError, httpx.ReadError, httpx.TimeoutException):
+        return False
+
+
+@click.command()
+@click.option("--follow", "-f", is_flag=True, help="Tail gateway logs after startup")
+def up(follow: bool):
+    """Start the gateway (auto-detects local or Docker mode)."""
+    console = Console()
+
+    ensure_gateway_up(console)
+
+    if follow:
+        config = load_config(DEFAULT_CONFIG_PATH)
+        if config.mode == "local" and config.repo_path:
+            log_path = gateway_log_path(config.repo_path)
+            if log_path.exists():
+                subprocess.run(["tail", "-f", str(log_path)])
+        elif config.repo_path:
             subprocess.run(
                 ["docker", "compose", "logs", "-f", "gateway"],
                 cwd=config.repo_path,
