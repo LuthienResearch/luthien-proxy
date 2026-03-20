@@ -22,7 +22,7 @@ from luthien_cli.repo import ensure_gateway_venv, ensure_repo
 
 
 def _read_single_key() -> str:
-    """Read a single keypress without waiting for Enter."""
+    """Read a single keypress without waiting for Enter (Unix/macOS only)."""
     if not sys.stdin.isatty():
         return sys.stdin.read(1) or "\n"
 
@@ -38,6 +38,15 @@ def _read_single_key() -> str:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
     return ch
 
+
+ONBOARDING_PROMPT = (
+    "I just installed luthien proxy! It's a proxy server that makes it easy to hack "
+    "on the raw API data between Claude Code and the Anthropic backend before it even "
+    "touches Claude Code, giving me more fine-grained control. Please give a short "
+    "response - the proxy will take your response and modify it to include information "
+    "about my luthien proxy install. This is the default onboarding policy and will "
+    "only affect the first response - but I may activate other policies later on."
+)
 
 ONBOARDING_POLICY_CLASS = "luthien_proxy.policies.onboarding_policy:OnboardingPolicy"
 
@@ -184,7 +193,7 @@ def _show_results(
         return
 
     # Launch Claude Code through the proxy with the onboarding prompt
-    from luthien_cli.commands.claude import ONBOARDING_PROMPT, _launch_claude
+    from luthien_cli.commands.claude import _launch_claude
 
     _launch_claude(console, [ONBOARDING_PROMPT])
 
