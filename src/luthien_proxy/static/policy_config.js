@@ -1,433 +1,544 @@
-const NOOP_CLASS_REF = 'luthien_proxy.policies.noop_policy:NoOpPolicy';
+// ============================================================
+// Policy Configuration — Three-column UI
+// Synthesized from PR #372 (forms, grouping) + PR #376 (layout, workflow)
+// ============================================================
 
-// State
-const state = {
-    currentPolicy: null,
-    selectedPolicy: null,
-    availablePolicies: [],
-    availableModels: [],
-    configValues: {},
-    invalidFields: new Set(),  // Track fields with invalid JSON
-    isActivating: false,
-    isSending: false,
-    selectedModel: null,
-    currentFormData: null  // For Alpine-based form data
+const NOOP_CLASS_REF = 'luthien_proxy.policies.noop_policy:NoOpPolicy';
+const DEFAULT_MODEL = 'claude-haiku-4-5-20241022';
+
+// Policies shown in the "Simple" group (top of Available column)
+const SIMPLE_POLICIES = [
+    'AllCapsPolicy',
+    'StringReplacementPolicy',
+    'SimpleLLMPolicy',
+    'ToolCallJudgePolicy',
+];
+
+// Inline examples shown on policy cards
+const EXAMPLES = {
+    'luthien_proxy.policies.noop_policy:NoOpPolicy': {
+        desc: null,
+        input: 'Hello, how are you?',
+        output: 'Hello, how are you?',
+    },
+    'luthien_proxy.policies.all_caps_policy:AllCapsPolicy': {
+        desc: null,
+        input: 'Hello, how are you?',
+        output: 'HELLO, HOW ARE YOU?',
+    },
+    'luthien_proxy.policies.debug_logging_policy:DebugLoggingPolicy': {
+        desc: null,
+        input: 'Hello, how are you?',
+        output: 'Hello, how are you?  (request & response logged)',
+    },
+    'luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy': {
+        desc: 'Config: replacements = [["quick", "fast"], ["fox", "cat"]]',
+        input: 'The quick brown fox jumps',
+        output: 'The fast brown cat jumps',
+    },
+    'luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy': {
+        desc: 'Config: model = "gpt-4o-mini", threshold = 0.01',
+        input: 'Tool call: run_shell("rm -rf /")',
+        output: '\u26d4 Tool \'run_shell\' blocked: Destructive filesystem operation',
+    },
+    'luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy': {
+        desc: 'Config: model, instructions for the policy LLM',
+        input: 'User request to write code',
+        output: '[Policy LLM evaluates request against instructions]',
+    },
+    'luthien_proxy.policies.dogfood_safety_policy:DogfoodSafetyPolicy': {
+        desc: null,
+        input: 'Delete all user data from the database',
+        output: '\u26d4 Blocked: Safety constraint violation',
+    },
+    'luthien_proxy.policies.simple_policy:SimplePolicy': {
+        desc: null,
+        input: 'Hello!',
+        output: 'Hello!  (non-streaming)',
+    },
 };
 
-// Initialize Alpine store for drawer state
-document.addEventListener('alpine:init', () => {
-    Alpine.store('drawer', {
-        open: false,
-        path: '',
-        index: -1
-    });
-});
+// ============================================================
+// State
+// ============================================================
+const state = {
+    policies: [],
+    currentPolicy: null,
+    selectedClassRef: null,
+    configValues: {},
+    invalidFields: new Set(),
+    mode: 'single',
+    chain: [],
+    availableModels: [],
+    selectedModel: DEFAULT_MODEL,
+    isActivating: false,
+    cachedCredentials: [],
+    credentialSource: 'server',
+    currentFormData: null,
+};
 
-// Check if current editor config matches the active policy
-function isConfigMatchingActive() {
-    if (!state.currentPolicy || !state.selectedPolicy) return false;
-    if (state.currentPolicy.class_ref !== state.selectedPolicy.class_ref) return false;
-
-    const activeConfig = state.currentPolicy.config || {};
-    const editorConfig = state.configValues || {};
-
-    return JSON.stringify(activeConfig) === JSON.stringify(editorConfig);
+// Order-insensitive deep equality for config objects
+function configEqual(a, b) {
+    if (a === b) return true;
+    if (a == null || b == null) return a == b;
+    if (typeof a !== typeof b) return false;
+    if (typeof a !== 'object') return a === b;
+    if (Array.isArray(a) !== Array.isArray(b)) return false;
+    if (Array.isArray(a)) {
+        if (a.length !== b.length) return false;
+        return a.every((v, i) => configEqual(v, b[i]));
+    }
+    const keysA = Object.keys(a), keysB = Object.keys(b);
+    if (keysA.length !== keysB.length) return false;
+    return keysA.every(k => Object.hasOwn(b, k) && configEqual(a[k], b[k]));
 }
 
-// Check if we're editing the same policy type as active
-function isEditingActiveType() {
-    return state.currentPolicy && state.selectedPolicy &&
-        state.currentPolicy.class_ref === state.selectedPolicy.class_ref;
-}
+// Preserve test results across re-renders
+const testState = { proposed: {}, active: {} };
 
-// Initialize
-document.addEventListener('DOMContentLoaded', async () => {
-    await Promise.all([loadCurrentPolicy(), loadPolicies(), loadModels()]);
-    initTestPanel();
-});
-
+// ============================================================
+// API helpers
+// ============================================================
 async function apiCall(endpoint, options = {}) {
-    const headers = {
-        'Content-Type': 'application/json',
-        ...options.headers
-    };
-
+    const headers = { 'Content-Type': 'application/json', ...options.headers };
     const response = await fetch(endpoint, { ...options, headers, credentials: 'same-origin' });
     if (response.status === 403) {
         window.location.href = '/login?error=required&next=' + encodeURIComponent(window.location.pathname);
         throw new Error('Session expired');
     }
     if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({ detail: 'Request failed' }));
         throw new Error(error.detail || 'Request failed');
     }
     return response.json();
 }
 
-async function loadCurrentPolicy() {
-    try {
-        const data = await apiCall('/api/admin/policy/current');
-        state.currentPolicy = data;
-        renderCurrentPolicyBanner();
-    } catch (err) {
-        console.error('Failed to load current policy:', err);
-        document.getElementById('current-policy-name').textContent = 'Error loading';
-    }
+// Shared HTML escaper — also used by FormRenderer
+// Uses esc() to ensure quotes are escaped (safe for attribute contexts)
+window.escapeHtml = function(text) {
+    return esc(text);
+};
+
+function esc(s) {
+    return String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+
+// ============================================================
+// Bootstrap
+// ============================================================
+
+// Initialize Alpine store for drawer state
+document.addEventListener('alpine:init', () => {
+    Alpine.store('drawer', { open: false, path: '', index: -1 });
+});
+
+document.addEventListener('DOMContentLoaded', async () => {
+    initSettingsPopover();
+    initFilterInput();
+    initModeToggle();
+    await Promise.all([loadPolicies(), loadCurrentPolicy(), loadModels(), loadGatewaySettings()]);
+    renderAll();
+});
 
 async function loadPolicies() {
     try {
         const data = await apiCall('/api/admin/policy/list');
-        state.availablePolicies = data.policies;
-        window.__policyList = data.policies;
-        renderPolicyList();
+        state.policies = data.policies || [];
+        window.__policyList = state.policies;
     } catch (err) {
         console.error('Failed to load policies:', err);
-        document.getElementById('policy-list').innerHTML =
-            `<div class="status-message error">Failed to load policies: ${err.message}</div>`;
+        document.getElementById('available-list').innerHTML =
+            `<div class="status-msg error">Failed to load policies: ${esc(err.message)}</div>`;
     }
 }
 
-const DEFAULT_MODEL = 'claude-haiku-4-5-20241022';
+async function loadCurrentPolicy() {
+    try {
+        state.currentPolicy = await apiCall('/api/admin/policy/current');
+    } catch (err) {
+        console.error('Failed to load current policy:', err);
+    }
+}
 
 async function loadModels() {
     try {
         const data = await apiCall('/api/admin/models');
         state.availableModels = data.models || [];
-        // Default to claude-haiku if available, otherwise first model
         state.selectedModel = state.availableModels.find(m => m.includes('haiku'))
-            || state.availableModels[0]
-            || DEFAULT_MODEL;
-    } catch (err) {
-        console.error('Failed to load models:', err);
+            || state.availableModels[0] || DEFAULT_MODEL;
+    } catch {
         state.availableModels = [];
-        state.selectedModel = DEFAULT_MODEL;
     }
 }
 
-function initTestPanel() {
-    // Populate model selector datalist
-    const modelSelect = document.getElementById('model-select');
-    const modelDatalist = document.getElementById('model-datalist');
-    if (modelSelect && modelDatalist) {
-        // Populate datalist with available models
-        modelDatalist.innerHTML = state.availableModels.map(m =>
-            `<option value="${escapeHtml(m)}"></option>`
-        ).join('');
-        // Set initial value to first model if available
-        if (state.selectedModel) {
-            modelSelect.value = state.selectedModel;
-        }
-        // Update state when user changes the model
-        modelSelect.addEventListener('input', (e) => {
-            state.selectedModel = e.target.value.trim();
-        });
-    }
-
-    // Toggle panel visibility
-    const toggleBtn = document.getElementById('test-panel-toggle');
-    const panelContent = document.getElementById('test-panel-content');
-    if (toggleBtn && panelContent) {
-        toggleBtn.addEventListener('click', () => {
-            const isCollapsed = panelContent.classList.toggle('collapsed');
-            toggleBtn.textContent = isCollapsed ? 'Show' : 'Hide';
-        });
-    }
-
-    // Send button
-    const sendBtn = document.getElementById('send-btn');
-    if (sendBtn) {
-        sendBtn.addEventListener('click', handleSendChat);
+async function loadGatewaySettings() {
+    try {
+        const data = await apiCall('/api/admin/gateway/settings');
+        document.getElementById('set-inject').checked = data.inject_policy_context;
+        document.getElementById('set-dogfood').checked = data.dogfood_mode;
+    } catch (e) {
+        console.warn('Failed to load gateway settings:', e);
     }
 }
 
-function formatConfigValue(val, indent = 0) {
-    const pad = '  '.repeat(indent);
-    if (val === null || val === undefined) {
-        return `<span class="config-val">null</span>`;
+async function loadCredentials() {
+    try {
+        const data = await apiCall('/api/admin/auth/credentials');
+        state.cachedCredentials = (data.credentials || []).filter(c => c.valid);
+    } catch {
+        state.cachedCredentials = [];
     }
-    if (typeof val === 'boolean') {
-        return `<span class="config-val-bool">${val}</span>`;
-    }
-    if (typeof val === 'number') {
-        return `<span class="config-val-number">${val}</span>`;
-    }
-    if (typeof val === 'string') {
-        return `<span class="config-val-string">"${escapeHtml(val)}"</span>`;
-    }
-    if (Array.isArray(val)) {
-        if (val.length === 0) return `<span class="config-val">[]</span>`;
-        const items = val.map(v => `${pad}  ${formatConfigValue(v, indent + 1)}`).join('\n');
-        return `[\n${items}\n${pad}]`;
-    }
-    if (typeof val === 'object') {
-        return formatConfigAsHtml(val, indent);
-    }
-    return `<span class="config-val">${escapeHtml(String(val))}</span>`;
 }
 
-function formatConfigAsHtml(config, indent = 0) {
-    const pad = '  '.repeat(indent);
-    const innerPad = '  '.repeat(indent + 1);
-    const entries = Object.entries(config);
-    if (entries.length === 0) return `<span class="config-val">{}</span>`;
+// ============================================================
+// Lookup helpers
+// ============================================================
+function getPolicy(classRef) {
+    return state.policies.find(p => p.class_ref === classRef);
+}
 
-    const lines = entries.map(([key, val]) => {
-        return `${innerPad}<span class="config-key">${escapeHtml(key)}</span>: ${formatConfigValue(val, indent + 1)}`;
+function configParamCount(policy) {
+    if (!policy || !policy.config_schema) return 0;
+    return Object.keys(policy.config_schema).length;
+}
+
+function isCurrentActive(classRef) {
+    return state.currentPolicy && state.currentPolicy.class_ref === classRef;
+}
+
+function defaultConfigFor(policy) {
+    return { ...(policy.example_config || {}) };
+}
+
+// ============================================================
+// Settings popover
+// ============================================================
+function initSettingsPopover() {
+    const btn = document.getElementById('settings-btn');
+    const popover = document.getElementById('settings-popover');
+    btn.addEventListener('click', e => {
+        e.stopPropagation();
+        popover.classList.toggle('open');
     });
-    return `{\n${lines.join('\n')}\n${pad}}`;
+    document.addEventListener('click', e => {
+        if (popover.classList.contains('open') && !e.target.closest('#settings-wrap')) {
+            popover.classList.remove('open');
+        }
+    });
+    // Escape key closes popover
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && popover.classList.contains('open')) {
+            popover.classList.remove('open');
+            btn.focus();
+        }
+    });
+
+    document.getElementById('set-inject').addEventListener('change', e => {
+        saveGatewaySetting('inject_policy_context', e.target.checked);
+    });
+    document.getElementById('set-dogfood').addEventListener('change', e => {
+        saveGatewaySetting('dogfood_mode', e.target.checked);
+    });
 }
 
-function renderCurrentPolicyBanner() {
-    const nameEl = document.getElementById('current-policy-name');
-    const metaEl = document.getElementById('current-policy-meta');
-    const configEl = document.getElementById('current-policy-config');
+async function saveGatewaySetting(field, value) {
+    try {
+        await apiCall('/api/admin/gateway/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ [field]: value })
+        });
+    } catch (e) {
+        console.error('Failed to save gateway setting:', e);
+        const elId = field === 'inject_policy_context' ? 'set-inject' : 'set-dogfood';
+        document.getElementById(elId).checked = !value;
+    }
+}
 
-    if (state.currentPolicy) {
-        nameEl.textContent = state.currentPolicy.policy;
-        const parts = [];
-        if (state.currentPolicy.enabled_by) {
-            parts.push(`by ${state.currentPolicy.enabled_by}`);
-        }
-        if (state.currentPolicy.enabled_at) {
-            const date = new Date(state.currentPolicy.enabled_at);
-            parts.push(date.toLocaleString());
-        }
-        metaEl.textContent = parts.join(' • ');
+// ============================================================
+// Filter & mode toggle
+// ============================================================
+function initFilterInput() {
+    document.getElementById('filter-input').addEventListener('input', renderAvailable);
+}
 
-        // Show config if present
-        if (configEl) {
-            const config = state.currentPolicy.config || {};
-            const configKeys = Object.keys(config);
-            if (configKeys.length > 0) {
-                configEl.innerHTML = formatConfigAsHtml(config);
-                configEl.style.display = 'block';
-            } else {
-                configEl.textContent = '(no config)';
-                configEl.style.display = 'block';
+function initModeToggle() {
+    document.getElementById('mode-toggle').addEventListener('click', e => {
+        if (!e.target.classList.contains('mode-btn')) return;
+        const newMode = e.target.dataset.mode;
+        if (newMode === state.mode) return;
+        state.mode = newMode;
+        document.querySelectorAll('#mode-toggle .mode-btn').forEach(b =>
+            b.classList.toggle('active', b.dataset.mode === newMode)
+        );
+        if (newMode === 'single') {
+            if (state.chain.length > 0) {
+                state.selectedClassRef = state.chain[0].classRef;
+                state.configValues = state.chain[0].config;
+            }
+        } else {
+            if (state.selectedClassRef) {
+                state.chain = [{ classRef: state.selectedClassRef, config: { ...state.configValues } }];
+                state.selectedClassRef = null;
             }
         }
-    } else {
-        nameEl.textContent = 'None';
-        metaEl.textContent = '';
-        if (configEl) {
-            configEl.style.display = 'none';
-        }
-    }
-}
-
-function renderPolicyList() {
-    const container = document.getElementById('policy-list');
-    container.innerHTML = '';
-
-    state.availablePolicies.forEach(policy => {
-        const isActive = state.currentPolicy && state.currentPolicy.class_ref === policy.class_ref;
-        const isSelected = state.selectedPolicy && state.selectedPolicy.class_ref === policy.class_ref;
-
-        const item = document.createElement('div');
-        item.className = 'policy-item';
-        if (isActive) item.classList.add('active');
-        if (isSelected) item.classList.add('selected');
-        item.dataset.classRef = policy.class_ref;
-
-        const header = document.createElement('div');
-        header.className = 'policy-item-header';
-
-        const name = document.createElement('div');
-        name.className = 'policy-item-name';
-        name.textContent = policy.name;
-
-        header.appendChild(name);
-
-        if (isActive) {
-            const badge = document.createElement('span');
-            badge.className = 'policy-item-badge active';
-            badge.textContent = 'Active';
-            header.appendChild(badge);
-        }
-
-        const desc = document.createElement('div');
-        desc.className = 'policy-item-description';
-        desc.textContent = policy.description;
-
-        item.appendChild(header);
-        item.appendChild(desc);
-
-        const configKeys = Object.keys(policy.config_schema || {});
-        if (configKeys.length > 0) {
-            const configInfo = document.createElement('div');
-            configInfo.className = 'policy-item-config';
-            configInfo.textContent = `Config: ${configKeys.join(', ')}`;
-            item.appendChild(configInfo);
-        }
-
-        item.addEventListener('click', () => selectPolicy(policy));
-        container.appendChild(item);
+        testState.proposed = {};
+        renderAll();
     });
 }
 
-function selectPolicy(policy) {
-    state.selectedPolicy = policy;
-    state.invalidFields.clear();  // Reset invalid fields when selecting a new policy
-
-    // If this is the currently active policy, use its actual config
-    // Otherwise, use the example config as a starting point
-    const isActivePolicy = state.currentPolicy && state.currentPolicy.class_ref === policy.class_ref;
-    if (isActivePolicy && state.currentPolicy.config) {
-        state.configValues = { ...state.currentPolicy.config };
+// ============================================================
+// Select policy
+// ============================================================
+function selectPolicy(classRef) {
+    const p = getPolicy(classRef);
+    if (!p) return;
+    if (state.mode === 'single') {
+        state.selectedClassRef = classRef;
+        state.invalidFields.clear();
+        state.currentFormData = null;
+        const isActivePolicy = isCurrentActive(classRef);
+        state.configValues = isActivePolicy && state.currentPolicy.config
+            ? { ...state.currentPolicy.config }
+            : defaultConfigFor(p);
     } else {
-        state.configValues = { ...(policy.example_config || {}) };
+        state.chain.push({ classRef, config: defaultConfigFor(p) });
     }
-
-    // Update selection in list
-    document.querySelectorAll('.policy-item').forEach(item => {
-        item.classList.remove('selected');
-        if (item.dataset.classRef === policy.class_ref) {
-            item.classList.add('selected');
-        }
-    });
-
-    renderConfigPanel();
+    renderAll();
 }
 
-function renderConfigPanel() {
-    const panel = document.getElementById('config-panel');
-    const policy = state.selectedPolicy;
-
-    if (!policy) {
-        panel.innerHTML = '<div class="config-panel-empty">Select a policy to configure</div>';
-        return;
+// ============================================================
+// Example block rendering
+// ============================================================
+function renderExampleBlock(classRef, large) {
+    const ex = EXAMPLES[classRef];
+    if (!ex) return '';
+    const cls = large ? 'example-block-proposed' : 'example-block';
+    let html = `<div class="${cls}">`;
+    if (ex.desc) {
+        html += `<div class="example-config-desc">${esc(ex.desc)}</div>`;
     }
+    html += `<div class="example-io"><span class="ex-label">In:</span> "${esc(ex.input)}"</div>`;
+    html += `<div class="example-io"><span class="ex-label">Out:</span> "${esc(ex.output)}"</div>`;
+    html += '</div>';
+    return html;
+}
 
-    const isActiveType = isEditingActiveType();
-    const isMatchingActive = isConfigMatchingActive();
+// ============================================================
+// Render: Available column (with Simple/Advanced grouping)
+// ============================================================
+function renderAvailable() {
+    const filter = document.getElementById('filter-input').value.toLowerCase();
+    const list = document.getElementById('available-list');
+    list.innerHTML = '';
 
-    // Build status indicator
-    let statusHtml = '';
-    if (isActiveType) {
-        if (isMatchingActive) {
-            statusHtml = `<div class="config-status config-status-active">
-                <span class="config-status-icon">✓</span>
-                Viewing active policy configuration
-            </div>`;
+    const simple = [];
+    const advanced = [];
+
+    for (const p of state.policies) {
+        if (filter && !p.name.toLowerCase().includes(filter) && !(p.description || '').toLowerCase().includes(filter)) continue;
+        if (SIMPLE_POLICIES.includes(p.name)) {
+            simple.push(p);
         } else {
-            statusHtml = `<div class="config-status config-status-modified">
-                <span class="config-status-icon">●</span>
-                Configuration differs from active policy
-            </div>`;
+            advanced.push(p);
         }
-    } else {
-        statusHtml = `<div class="config-status config-status-different">
-            <span class="config-status-icon">○</span>
-            Different policy type from active
-        </div>`;
     }
 
-    const isNoOpActive = isMatchingActive && policy.class_ref === NOOP_CLASS_REF;
-    let buttonHtml;
-    if (isNoOpActive) {
-        buttonHtml = `<button class="primary" id="activate-btn" disabled>
-                Currently pass-through
-            </button>`;
-    } else if (isMatchingActive) {
-        buttonHtml = `<button class="secondary danger" id="deactivate-btn" ${state.isActivating ? 'disabled' : ''}>
-                ${state.isActivating ? 'Deactivating...' : 'Deactivate Policy'}
-            </button>`;
-    } else {
-        buttonHtml = `<button class="primary" id="activate-btn" ${state.isActivating ? 'disabled' : ''}>
-                ${state.isActivating ? 'Activating...' : 'Activate Policy'}
-            </button>`;
+    // Sort simple policies in the specified order
+    simple.sort((a, b) => SIMPLE_POLICIES.indexOf(a.name) - SIMPLE_POLICIES.indexOf(b.name));
+
+    if (simple.length > 0) {
+        const label = document.createElement('div');
+        label.className = 'group-label';
+        label.textContent = 'Simple';
+        list.appendChild(label);
+        for (const p of simple) renderPolicyCard(p, list);
     }
 
-    let html = `
-        <div class="selected-policy-name">${escapeHtml(policy.name)}</div>
-        ${statusHtml}
-        <div class="selected-policy-description">${escapeHtml(policy.description)}</div>
-        <div class="config-form" id="config-form"></div>
-        <div class="button-group">
-            ${buttonHtml}
-        </div>
-        <div id="status-container"></div>
-        <div class="quick-links">
-            <h3>Quick Links</h3>
-            <a href="/activity/monitor">View Activity Monitor</a>
-            <a href="/diffs">View Diff Viewer</a>
-        </div>
-    `;
+    if (advanced.length > 0) {
+        const label = document.createElement('div');
+        label.className = 'group-label';
+        label.textContent = 'Advanced';
+        list.appendChild(label);
+        for (const p of advanced) renderPolicyCard(p, list);
+    }
 
-    panel.innerHTML = html;
-
-    renderConfigForm(policy);
-    if (isNoOpActive) {
-        // NoOp is already active — no action needed
-    } else if (isMatchingActive) {
-        document.getElementById('deactivate-btn').addEventListener('click', handleDeactivate);
-    } else {
-        document.getElementById('activate-btn').addEventListener('click', handleActivate);
+    if (list.children.length === 0 && state.policies.length > 0) {
+        list.innerHTML = '<div class="empty-state">No policies match filter</div>';
     }
 }
 
-function renderConfigForm(policy) {
-    const container = document.getElementById('config-form');
+function renderPolicyCard(p, container) {
+    const div = document.createElement('div');
+    div.className = 'policy-card';
+    div.setAttribute('role', 'button');
+    div.setAttribute('tabindex', '0');
+    if (state.mode === 'single' && state.selectedClassRef === p.class_ref) div.className += ' selected';
+    if (isCurrentActive(p.class_ref)) div.className += ' is-active';
+
+    const cc = configParamCount(p);
+    const configHint = cc > 0 ? ` <span class="p-config-hint">(${cc} setting${cc > 1 ? 's' : ''})</span>` : '';
+    const dot = isCurrentActive(p.class_ref) ? '<span class="active-dot" title="Currently active"></span>' : '';
+
+    const firstLine = (p.description || '').split('.')[0];
+    const exampleHtml = renderExampleBlock(p.class_ref, false);
+
+    div.innerHTML = `<div class="p-name">${dot}${esc(p.name)}</div><div class="p-desc">${esc(firstLine)}.${configHint}</div>${exampleHtml}`;
+    div.onclick = () => selectPolicy(p.class_ref);
+    div.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectPolicy(p.class_ref); } };
+    container.appendChild(div);
+}
+
+// ============================================================
+// Render: Proposed column
+// ============================================================
+function renderProposed() {
+    const col = document.getElementById('col-proposed');
+    const hasContent = (state.mode === 'single' && state.selectedClassRef) ||
+                       (state.mode === 'chain' && state.chain.length > 0);
+    col.className = 'column' + (hasContent ? ' col-proposed has-content' : '');
+
+    const empty = document.getElementById('proposed-empty');
+    const content = document.getElementById('proposed-content');
+
+    if (state.mode === 'single') {
+        if (!state.selectedClassRef) {
+            empty.innerHTML = '&larr; Select a policy to configure';
+            empty.style.display = ''; content.style.display = 'none';
+            return;
+        }
+        empty.style.display = 'none'; content.style.display = '';
+        const p = getPolicy(state.selectedClassRef);
+        if (!p) return;
+
+        let html = `<div class="proposed-name">${esc(p.name)}</div>`;
+        html += `<div class="proposed-desc">${esc(p.description || '')}</div>`;
+        html += renderExampleBlock(p.class_ref, true);
+
+        // Config form placeholder — filled after innerHTML set
+        html += `<div id="proposed-config-form"></div>`;
+        html += `<div id="proposed-status"></div>`;
+
+        const matchesActive = isCurrentActive(p.class_ref) &&
+            configEqual(state.currentPolicy.config || {}, state.configValues);
+        html += `<button class="btn-activate" id="btn-activate" ${matchesActive ? 'disabled' : ''} onclick="handleActivate()">${matchesActive ? 'Already Active' : 'Activate'}</button>`;
+        html += renderTestSection('proposed');
+        content.innerHTML = html;
+
+        // Render the config form using Alpine.js FormRenderer or legacy
+        renderConfigFormIntoContainer(p, 'proposed-config-form');
+        bindTestSection('proposed');
+    } else {
+        if (state.chain.length === 0) {
+            empty.innerHTML = '&larr; Click policies to build a chain';
+            empty.style.display = ''; content.style.display = 'none';
+            return;
+        }
+        empty.style.display = 'none'; content.style.display = '';
+        let html = `<div style="font-size:13px;color:#71717a;margin-bottom:8px;">Policy Chain (${state.chain.length})</div>`;
+        html += '<ul class="chain-list">';
+        for (let i = 0; i < state.chain.length; i++) {
+            const item = state.chain[i];
+            const p = getPolicy(item.classRef);
+            if (!p) continue;
+            html += '<li class="chain-item">';
+            html += '<div class="chain-item-header">';
+            html += `<span class="chain-num">${i + 1}</span>`;
+            html += `<span class="chain-item-name">${esc(p.name)}</span>`;
+            html += '<span class="chain-actions">';
+            if (i > 0) html += `<button class="chain-btn" onclick="event.stopPropagation();moveChain(${i},-1)" title="Move up">&uarr;</button>`;
+            if (i < state.chain.length - 1) html += `<button class="chain-btn" onclick="event.stopPropagation();moveChain(${i},1)" title="Move down">&darr;</button>`;
+            html += `<button class="chain-btn" onclick="event.stopPropagation();removeChain(${i})" title="Remove">&times;</button>`;
+            html += '</span></div>';
+            html += `<div class="chain-item-desc">${esc((p.description || '').split('.')[0])}</div>`;
+            if (configParamCount(p) > 0) {
+                html += `<div class="config-form">${renderLegacyConfigFormInner(p, item.config, 'chain-' + i)}</div>`;
+            }
+            html += '</li>';
+            if (i < state.chain.length - 1) html += '<div class="chain-divider">&darr;</div>';
+        }
+        html += '</ul>';
+        html += `<div id="proposed-status"></div>`;
+        const chainLabel = state.chain.length > 1
+            ? `Activate Chain (${state.chain.length} policies)`
+            : 'Activate';
+        html += `<button class="btn-activate" id="btn-activate" onclick="handleActivateChain()">${chainLabel}</button>`;
+        html += renderTestSection('proposed');
+        content.innerHTML = html;
+        for (let i = 0; i < state.chain.length; i++) bindLegacyConfigInputs('chain-' + i);
+        bindTestSection('proposed');
+    }
+}
+
+function moveChain(i, dir) {
+    const j = i + dir;
+    if (j < 0 || j >= state.chain.length) return;
+    [state.chain[i], state.chain[j]] = [state.chain[j], state.chain[i]];
+    renderProposed();
+}
+
+function removeChain(i) {
+    state.chain.splice(i, 1);
+    renderAll();
+}
+
+// ============================================================
+// Config form rendering (Alpine.js FormRenderer or legacy)
+// ============================================================
+function renderConfigFormIntoContainer(policy, containerId) {
+    const container = document.getElementById(containerId);
     if (!container) return;
 
     const schema = policy.config_schema || {};
     const example = policy.example_config || {};
 
-    // Check if any parameter schema has Pydantic structure (properties or $defs)
-    // Schema is {paramName: paramSchema, ...} so we check each parameter
+    if (Object.keys(schema).length === 0) {
+        container.innerHTML = '<div class="no-config">No configuration needed</div>';
+        return;
+    }
+
+    // Check if any parameter has Pydantic structure
     const hasPydanticSchema = Object.values(schema).some(
         paramSchema => paramSchema && (
-            paramSchema.properties ||
-            paramSchema.$defs ||
-            paramSchema['x-sub-policy-list'] ||
-            // Nested arrays (e.g. list[list[str]]) need FormRenderer's pair-input handling
+            paramSchema.properties || paramSchema.$defs || paramSchema['x-sub-policy-list'] ||
             (paramSchema.type === 'array' && paramSchema.items?.type === 'array')
         )
     );
 
     if (hasPydanticSchema && window.FormRenderer) {
-        // Use new recursive renderer for Pydantic schemas
         renderWithAlpine(container, schema, example);
     } else {
-        // Fallback to legacy rendering for non-Pydantic configs
         renderLegacyForm(container, schema, example);
     }
 }
 
 function renderWithAlpine(container, schema, initialData) {
-    // Initialize form data with defaults from schema
     const formData = window.FormRenderer.getDefaultValue(schema, schema);
-    // Merge initial data, but skip null values that would overwrite defaults
     for (const [key, value] of Object.entries(initialData || {})) {
-        if (value !== null) {
-            formData[key] = value;
-        }
+        if (value !== null) formData[key] = value;
     }
 
-    // Store in state for submission
+    // Merge current config values if editing active policy
+    for (const [key, value] of Object.entries(state.configValues || {})) {
+        if (value !== null && value !== undefined) formData[key] = value;
+    }
+
     state.currentFormData = formData;
-    // Also sync to configValues for consistency with existing code paths
     state.configValues = formData;
 
-    // Generate form HTML
     const formHtml = window.FormRenderer.generateForm(schema);
+    const escapedFormData = JSON.stringify(formData)
+        .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-    // Escape JSON for HTML attribute embedding (replace quotes with HTML entities)
-    const escapedFormData = JSON.stringify(formData).replace(/"/g, '&quot;');
-
-    // Create Alpine component
     container.innerHTML = `
-        <div x-data="{ formData: ${escapedFormData} }"
+        <div class="config-form" x-data="{ formData: ${escapedFormData} }"
              x-init="window.__alpineData = $data; $watch('formData', value => window.updateFormData(value)); window.initSubPolicyForms()">
             ${formHtml}
         </div>
     `;
 
-    // Re-init Alpine on new content
-    if (window.Alpine) {
-        Alpine.initTree(container);
-    }
+    if (window.Alpine) Alpine.initTree(container);
 }
 
 // Global callback for Alpine data binding
@@ -435,369 +546,507 @@ window.updateFormData = function(data) {
     state.currentFormData = data;
     state.configValues = data;
     updateActivateButton();
-    updateConfigStatus();
 };
 
 function renderLegacyForm(container, schema, example) {
-    const keys = Object.keys(schema);
-
-    if (keys.length === 0) {
-        container.innerHTML = '<p class="no-config-message">This policy has no configuration options.</p>';
-        return;
-    }
-
-    // Clear Alpine form data since we're using legacy rendering
     state.currentFormData = null;
+    const html = `<div class="config-form">${renderLegacyConfigFormInner({ config_schema: schema }, state.configValues, 'single')}</div>`;
+    container.innerHTML = html;
+    bindLegacyConfigInputs('single');
+}
 
-    container.innerHTML = '';
+function renderLegacyConfigFormInner(policy, config, prefix) {
+    const schema = policy.config_schema || {};
+    const keys = Object.keys(schema);
+    if (keys.length === 0) return '';
 
-    keys.forEach(key => {
-        const paramSchema = schema[key];
-        const fieldDiv = document.createElement('div');
-        fieldDiv.className = 'config-field';
+    let html = '';
+    for (const key of keys) {
+        const ps = schema[key];
+        const val = config[key] ?? ps.default ?? '';
+        const isComplex = ps.type === 'object' || ps.type === 'array';
+        const isPassword = ps.type === 'string' && key.toLowerCase().includes('key');
 
-        const label = document.createElement('label');
-        label.textContent = key;
-        label.setAttribute('for', `config-${key}`);
-
-        const isComplex = paramSchema.type === 'object' || paramSchema.type === 'array';
-
-        if (isComplex) {
-            const textarea = document.createElement('textarea');
-            textarea.id = `config-${key}`;
-            textarea.className = 'config-input config-json';
-            textarea.value = JSON.stringify(state.configValues[key] ?? example[key] ?? paramSchema.default ?? null, null, 2);
-
-            // Error message element (hidden by default)
-            const errorMsg = document.createElement('div');
-            errorMsg.className = 'config-error-message';
-            errorMsg.textContent = 'Invalid JSON - use double quotes for strings, e.g. [["hello", "world"]]';
-
-            textarea.addEventListener('input', () => {
-                try {
-                    state.configValues[key] = JSON.parse(textarea.value);
-                    textarea.classList.remove('invalid');
-                    errorMsg.classList.remove('visible');
-                    state.invalidFields.delete(key);
-                } catch {
-                    textarea.classList.add('invalid');
-                    errorMsg.classList.add('visible');
-                    state.invalidFields.add(key);
-                }
-                updateActivateButton();
-                updateConfigStatus();
-            });
-            fieldDiv.appendChild(label);
-            fieldDiv.appendChild(textarea);
-            fieldDiv.appendChild(errorMsg);
-        } else if (paramSchema.type === 'boolean') {
-            const checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.id = `config-${key}`;
-            checkbox.className = 'config-checkbox';
-            checkbox.checked = state.configValues[key] ?? example[key] ?? paramSchema.default ?? false;
-            checkbox.addEventListener('change', () => {
-                state.configValues[key] = checkbox.checked;
-                updateConfigStatus();
-            });
-            const checkboxWrapper = document.createElement('div');
-            checkboxWrapper.className = 'checkbox-wrapper';
-            checkboxWrapper.appendChild(checkbox);
-            checkboxWrapper.appendChild(label);
-            fieldDiv.appendChild(checkboxWrapper);
-        } else if (paramSchema.type === 'number' || paramSchema.type === 'integer') {
-            const input = document.createElement('input');
-            input.type = 'number';
-            input.id = `config-${key}`;
-            input.className = 'config-input';
-            input.value = state.configValues[key] ?? example[key] ?? paramSchema.default ?? '';
-            if (paramSchema.type === 'number') {
-                input.step = 'any';
-            }
-            input.addEventListener('input', () => {
-                const val = input.value === '' ? null : Number(input.value);
-                state.configValues[key] = val;
-                updateConfigStatus();
-            });
-            fieldDiv.appendChild(label);
-            fieldDiv.appendChild(input);
+        if (ps.type === 'boolean') {
+            const checked = (config[key] ?? ps.default ?? false) ? 'checked' : '';
+            html += `<div class="checkbox-row">
+                <input type="checkbox" data-prefix="${prefix}" data-key="${key}" ${checked}>
+                <label>${esc(key)}</label>
+            </div>`;
+        } else if (ps.type === 'number' || ps.type === 'integer') {
+            const step = ps.type === 'number' ? ' step="any"' : '';
+            html += `<label>${esc(key)}</label>`;
+            html += `<input type="number"${step} data-prefix="${prefix}" data-key="${key}" value="${esc(val)}">`;
+            if (ps.nullable) html += `<span class="config-hint">${esc(ps.type)} (optional)</span>`;
+        } else if (isComplex) {
+            html += `<label>${esc(key)}</label>`;
+            const jsonVal = JSON.stringify(config[key] ?? ps.default ?? null, null, 2);
+            html += `<textarea data-prefix="${prefix}" data-key="${key}" data-json="true">${esc(jsonVal)}</textarea>`;
+            html += `<div class="config-error-msg" data-error-for="${prefix}-${key}">Invalid JSON</div>`;
+            html += `<span class="config-hint">${esc(ps.type)}</span>`;
         } else {
-            const input = document.createElement('input');
-            input.type = paramSchema.nullable && key.toLowerCase().includes('key') ? 'password' : 'text';
-            input.id = `config-${key}`;
-            input.className = 'config-input';
-            input.value = state.configValues[key] ?? example[key] ?? paramSchema.default ?? '';
-            input.placeholder = paramSchema.nullable ? '(optional)' : '';
-            input.addEventListener('input', () => {
-                state.configValues[key] = input.value || (paramSchema.nullable ? null : '');
-                updateConfigStatus();
-            });
-            fieldDiv.appendChild(label);
-            fieldDiv.appendChild(input);
+            html += `<label>${esc(key)}</label>`;
+            const inputType = isPassword ? 'password' : 'text';
+            const placeholder = ps.nullable ? '(optional)' : '';
+            html += `<input type="${inputType}" data-prefix="${prefix}" data-key="${key}" value="${esc(val)}" placeholder="${placeholder}">`;
+            if (ps.nullable) html += `<span class="config-hint">${esc(ps.type)} (optional)</span>`;
         }
+    }
+    return html;
+}
 
-        const hint = document.createElement('span');
-        hint.className = 'config-hint';
-        hint.textContent = paramSchema.nullable ? `${paramSchema.type} (optional)` : paramSchema.type;
-        fieldDiv.appendChild(hint);
+function bindLegacyConfigInputs(prefix) {
+    document.querySelectorAll(`[data-prefix="${prefix}"][data-key]`).forEach(el => {
+        el.addEventListener('input', () => {
+            const key = el.dataset.key;
+            const isJson = el.dataset.json === 'true';
+            const isCheckbox = el.type === 'checkbox';
+            const isNumber = el.type === 'number';
+            const fieldId = `${prefix}-${key}`;
 
-        container.appendChild(fieldDiv);
+            let val;
+            if (isCheckbox) {
+                val = el.checked;
+            } else if (isJson) {
+                try {
+                    val = JSON.parse(el.value);
+                    el.classList.remove('invalid');
+                    const errEl = document.querySelector(`[data-error-for="${fieldId}"]`);
+                    if (errEl) errEl.classList.remove('visible');
+                    state.invalidFields.delete(fieldId);
+                } catch {
+                    el.classList.add('invalid');
+                    const errEl = document.querySelector(`[data-error-for="${fieldId}"]`);
+                    if (errEl) errEl.classList.add('visible');
+                    state.invalidFields.add(fieldId);
+                    updateActivateButton();
+                    return;
+                }
+            } else if (isNumber) {
+                val = el.value === '' ? null : Number(el.value);
+            } else {
+                val = el.value;
+            }
+
+            if (prefix === 'single') {
+                state.configValues[key] = val;
+            } else if (prefix.startsWith('chain-')) {
+                const idx = parseInt(prefix.split('-')[1]);
+                state.chain[idx].config[key] = val;
+            }
+            updateActivateButton();
+        });
+
+        if (el.type === 'checkbox') {
+            el.addEventListener('change', () => el.dispatchEvent(new Event('input')));
+        }
     });
 }
 
-// Global functions needed by FormRenderer
-window.openDrawer = function(path, index) {
-    if (window.Alpine) {
-        Alpine.store('drawer').open = true;
-        Alpine.store('drawer').path = path;
-        Alpine.store('drawer').index = index;
-    }
-};
-
-window.closeDrawer = function() {
-    if (window.Alpine) {
-        Alpine.store('drawer').open = false;
-    }
-};
-
-window.validateJson = function(event, path) {
-    // JSON validation for freeform objects
-    try {
-        JSON.parse(event.target.value);
-        event.target.classList.remove('invalid');
-    } catch (e) {
-        event.target.classList.add('invalid');
-    }
-};
-
-window.onUnionTypeChange = function(path, newType) {
-    // TODO: Reset stale form fields when union type changes.
-    // When the discriminator changes, fields from the previous variant remain
-    // in formData. This should clear those and populate defaults for newType.
-};
-
 function updateActivateButton() {
-    // Deactivate button doesn't need validation updates
-    const deactivateBtn = document.getElementById('deactivate-btn');
-    if (deactivateBtn) {
-        deactivateBtn.disabled = state.isActivating;
-        deactivateBtn.textContent = state.isActivating ? 'Deactivating...' : 'Deactivate Policy';
+    const btn = document.getElementById('btn-activate');
+    if (!btn) return;
+
+    const hasErrors = state.invalidFields.size > 0;
+    if (hasErrors) {
+        btn.disabled = true;
+        btn.textContent = 'Fix errors to activate';
+        btn.classList.add('error-state');
+        return;
+    }
+    btn.classList.remove('error-state');
+
+    if (state.mode === 'single' && state.selectedClassRef) {
+        const matchesActive = isCurrentActive(state.selectedClassRef) &&
+            configEqual(state.currentPolicy.config || {}, state.configValues);
+        btn.disabled = matchesActive || state.isActivating;
+        btn.textContent = state.isActivating ? 'Activating...' : (matchesActive ? 'Already Active' : 'Activate');
+    } else {
+        btn.disabled = state.isActivating;
+        btn.textContent = state.isActivating ? 'Activating...' : 'Activate Chain';
+    }
+}
+
+// ============================================================
+// Render: Active column
+// ============================================================
+function renderActive() {
+    const body = document.getElementById('active-body');
+    if (!state.currentPolicy) {
+        body.innerHTML = '<div class="empty-state">No active policy</div>';
         return;
     }
 
-    const btn = document.getElementById('activate-btn');
-    if (!btn) return;
+    const cp = state.currentPolicy;
+    const p = getPolicy(cp.class_ref);
+    const name = p ? p.name : cp.policy;
+    const desc = p ? p.description : '';
 
-    const hasInvalidFields = state.invalidFields.size > 0;
-    btn.disabled = hasInvalidFields || state.isActivating;
+    let html = '<div class="active-label">Currently Running</div>';
+    html += `<div class="active-name">${esc(name)}</div>`;
+    html += `<div class="active-desc">${esc(desc)}</div>`;
 
-    if (hasInvalidFields) {
-        btn.textContent = 'Fix errors to activate';
-        btn.classList.add('disabled-error');
-    } else {
-        btn.classList.remove('disabled-error');
-        btn.textContent = state.isActivating ? 'Activating...' : 'Activate Policy';
+    const config = cp.config || {};
+    const configKeys = Object.keys(config);
+    if (configKeys.length > 0) {
+        html += '<div class="active-config">';
+        html += formatConfigHtml(config);
+        html += '</div>';
+    }
+
+    const parts = [];
+    if (cp.enabled_by) parts.push(`by ${esc(cp.enabled_by)}`);
+    if (cp.enabled_at) {
+        const d = new Date(cp.enabled_at);
+        parts.push(d.toLocaleString());
+    }
+    if (parts.length > 0) {
+        html += `<div class="active-meta">${parts.join(' &middot; ')}</div>`;
+    }
+
+    if (cp.class_ref !== NOOP_CLASS_REF) {
+        html += `<button class="deactivate-link" onclick="handleDeactivate()">Deactivate</button>`;
+    }
+    html += `<div id="active-status"></div>`;
+
+    html += renderTestSection('active');
+    body.innerHTML = html;
+    bindTestSection('active');
+}
+
+function formatConfigHtml(config) {
+    const entries = Object.entries(config);
+    if (entries.length === 0) return '';
+    let html = '';
+    for (const [key, val] of entries) {
+        html += `<div class="cfg-row"><span class="cfg-key">${esc(key)}:</span>`;
+        html += `<span class="cfg-val">${formatValue(val)}</span></div>`;
+    }
+    return html;
+}
+
+function formatValue(val) {
+    if (val === null || val === undefined) return 'null';
+    if (typeof val === 'boolean') return `<span class="cfg-val-bool">${val}</span>`;
+    if (typeof val === 'number') return `<span class="cfg-val-number">${val}</span>`;
+    if (typeof val === 'string') {
+        const display = val.length > 60 ? val.slice(0, 60) + '...' : val;
+        return `<span class="cfg-val-string">"${esc(display)}"</span>`;
+    }
+    if (Array.isArray(val)) return esc(JSON.stringify(val));
+    if (typeof val === 'object') return esc(JSON.stringify(val));
+    return esc(String(val));
+}
+
+// ============================================================
+// Credential management
+// ============================================================
+function timeSince(timestamp) {
+    const seconds = Math.floor(Date.now() / 1000 - timestamp);
+    if (seconds < 60) return 'just now';
+    if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+    if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
+    return Math.floor(seconds / 86400) + 'd ago';
+}
+
+function onCredSourceChange(side, value) {
+    state.credentialSource = value;
+    // Sync both selects
+    ['proposed', 'active'].forEach(s => {
+        const sel = document.getElementById(`cred-select-${s}`);
+        if (sel) sel.value = value;
+    });
+    renderAll();
+}
+
+// ============================================================
+// Test section
+// ============================================================
+function renderTestSection(side) {
+    const hasAnyCreds = state.cachedCredentials.length > 0 || state.credentialSource === 'custom';
+    let html = '<div class="test-section">';
+    html += '<div class="test-section-title">Test This Policy</div>';
+
+    // Credential source selector
+    // Only "server" and "custom" are functional — cached credentials are hashed
+    // and can't be retrieved for direct test requests
+    html += '<div class="test-cred-row">';
+    html += '<label class="test-cred-label">Credentials:</label>';
+    html += `<select class="test-cred-select" id="cred-select-${side}" onchange="onCredSourceChange('${side}', this.value)">`;
+    html += '<option value="server"' + (state.credentialSource === 'server' ? ' selected' : '') + '>Server API Key</option>';
+    html += '<option value="custom"' + (state.credentialSource === 'custom' ? ' selected' : '') + '>Enter API key...</option>';
+    html += '</select>';
+    html += '</div>';
+
+    if (state.credentialSource === 'custom') {
+        html += `<div class="test-cred-custom">
+            <input type="password" class="credential-input" id="cred-input-${side}"
+                placeholder="sk-ant-... or OAuth token">
+        </div>`;
+    }
+
+    html += `<div id="test-inner-${side}">`;
+    html += `<div class="test-model-row">
+        <input type="text" class="test-model-input" id="test-model-${side}"
+            placeholder="Model..." value="${esc(state.selectedModel)}"
+            list="model-list-${side}">
+        <datalist id="model-list-${side}">
+            ${state.availableModels.map(m => `<option value="${esc(m)}">`).join('')}
+        </datalist>
+    </div>
+    <div class="test-mock-row">
+        <label class="test-mock-label">
+            <input type="checkbox" id="test-mock-${side}" class="test-mock-checkbox">
+            <span>Mock</span>
+            <span class="test-mock-info" title="Skip the real LLM call. The server echoes your message back as the response (no API credits used). Note: the policy pipeline does not currently run on mock responses — this shows the raw echo only.">&#9432;</span>
+        </label>
+    </div>
+    <div class="test-input-row">
+        <textarea class="test-textarea" id="test-input-${side}" placeholder="Enter test message..." rows="2"
+            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();runTest('${side}');}"></textarea>
+        <button class="test-run-btn" id="test-btn-${side}" onclick="runTest('${side}')">Send</button>
+    </div>
+    <div class="test-results" id="test-results-${side}">
+        <div>
+            <div class="test-box-label">Input</div>
+            <div class="test-box test-box-input" id="test-box-in-${side}"></div>
+        </div>
+        <div>
+            <div class="test-box-label">Output</div>
+            <div class="test-box test-box-output" id="test-box-out-${side}"></div>
+        </div>
+    </div>
+    <div class="test-meta" id="test-meta-${side}"></div>`;
+    html += '</div>';
+    html += '</div>';
+    return html;
+}
+
+function bindTestSection(side) {
+    const input = document.getElementById(`test-input-${side}`);
+    const results = document.getElementById(`test-results-${side}`);
+    const boxIn = document.getElementById(`test-box-in-${side}`);
+    const boxOut = document.getElementById(`test-box-out-${side}`);
+    if (!input || !results) return;
+    if (testState[side] && testState[side].inputText) {
+        input.value = testState[side].inputText;
+    }
+    if (testState[side] && testState[side].ran) {
+        boxIn.textContent = testState[side].originalInput;
+        boxOut.innerHTML = testState[side].outputHtml;
+        results.classList.add('visible');
+        const meta = document.getElementById(`test-meta-${side}`);
+        if (meta && testState[side].metaText) meta.textContent = testState[side].metaText;
     }
 }
 
-function updateConfigStatus() {
-    const statusEl = document.querySelector('.config-status');
-    if (!statusEl) return;
+async function runTest(side) {
+    const input = document.getElementById(`test-input-${side}`);
+    const results = document.getElementById(`test-results-${side}`);
+    const boxIn = document.getElementById(`test-box-in-${side}`);
+    const boxOut = document.getElementById(`test-box-out-${side}`);
+    const meta = document.getElementById(`test-meta-${side}`);
+    const btn = document.getElementById(`test-btn-${side}`);
+    const modelInput = document.getElementById(`test-model-${side}`);
+    const msg = input.value.trim();
+    if (!msg) return;
 
-    const isActiveType = isEditingActiveType();
-    const isMatchingActive = isConfigMatchingActive();
+    const model = modelInput ? modelInput.value.trim() : state.selectedModel;
 
-    // Update status classes and content
-    statusEl.classList.remove('config-status-active', 'config-status-modified', 'config-status-different');
+    btn.disabled = true;
+    btn.textContent = '...';
+    boxIn.textContent = msg;
+    boxOut.textContent = 'Sending...';
+    results.classList.add('visible');
+    meta.textContent = '';
 
-    if (isActiveType) {
-        if (isMatchingActive) {
-            statusEl.classList.add('config-status-active');
-            statusEl.innerHTML = '<span class="config-status-icon">✓</span> Viewing active policy configuration';
-        } else {
-            statusEl.classList.add('config-status-modified');
-            statusEl.innerHTML = '<span class="config-status-icon">●</span> Configuration differs from active policy';
+    try {
+        const mockCheckbox = document.getElementById(`test-mock-${side}`);
+        const useMock = mockCheckbox ? mockCheckbox.checked : false;
+        const testPayload = {
+            model: model || state.selectedModel,
+            message: msg,
+            stream: false,
+            use_mock: useMock,
+        };
+        // Read API key from DOM at send time (avoids persisting in global state)
+        if (state.credentialSource === 'custom') {
+            const credInput = document.getElementById(`cred-input-${side}`);
+            const key = credInput ? credInput.value.trim() : '';
+            if (key) testPayload.api_key = key;
         }
-    } else {
-        statusEl.classList.add('config-status-different');
-        statusEl.innerHTML = '<span class="config-status-icon">○</span> Different policy type from active';
-    }
+        const result = await apiCall('/api/admin/test/chat', {
+            method: 'POST',
+            body: JSON.stringify(testPayload)
+        });
 
-    // Also update activate button text
-    updateActivateButton();
+        if (!result.success) throw new Error(result.error || 'Request failed');
+
+        const content = result.content || '(empty response)';
+        boxOut.textContent = content;
+        boxOut.style.color = '';
+
+        let metaText = `Model: ${result.model || model}`;
+        if (result.usage) {
+            metaText += ` | ${result.usage.prompt_tokens} in / ${result.usage.completion_tokens} out`;
+        }
+        meta.textContent = metaText;
+
+        testState[side] = {
+            inputText: input.value,
+            originalInput: msg,
+            outputHtml: esc(content),
+            metaText: metaText,
+            ran: true,
+        };
+    } catch (err) {
+        boxOut.textContent = `Error: ${err.message}`;
+        boxOut.style.color = '#fca5a5';
+        testState[side] = {
+            inputText: input.value,
+            originalInput: msg,
+            outputHtml: `<span style="color:#fca5a5">${esc('Error: ' + err.message)}</span>`,
+            metaText: '',
+            ran: true,
+        };
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Send';
+    }
 }
 
-async function activatePolicy(classRef, config, {btnId, progressLabel, successMessage, retryLabel}) {
-    if (state.isActivating) return;
-
-    const btn = document.getElementById(btnId);
-    const statusContainer = document.getElementById('status-container');
+// ============================================================
+// Activate / Deactivate
+// ============================================================
+async function handleActivate() {
+    if (state.isActivating || !state.selectedClassRef) return;
+    if (state.invalidFields.size > 0) {
+        showStatus('proposed-status', 'error', 'Fix errors before activating');
+        return;
+    }
 
     state.isActivating = true;
-    btn.disabled = true;
-    btn.textContent = `${progressLabel}...`;
-    statusContainer.innerHTML = `<div class="status-message info">${progressLabel}...</div>`;
+    updateActivateButton();
+    showStatus('proposed-status', 'info', 'Activating...');
 
     try {
         const result = await apiCall('/api/admin/policy/set', {
             method: 'POST',
             body: JSON.stringify({
-                policy_class_ref: classRef,
-                config: config,
+                policy_class_ref: state.selectedClassRef,
+                config: state.configValues,
                 enabled_by: 'ui'
             })
         });
 
         if (result.success) {
-            state.isActivating = false;
             await loadCurrentPolicy();
-            renderPolicyList();
-            renderConfigPanel();
-
-            const newStatusContainer = document.getElementById('status-container');
-            if (newStatusContainer) {
-                newStatusContainer.innerHTML = `<div class="status-message success">✓ ${successMessage}</div>`;
-            }
+            state.selectedClassRef = null;
+            testState.proposed = {};
+            testState.active = {};
+            renderAll();
         } else {
+            const errMsg = result.error || 'Activation failed';
             if (result.validation_errors && result.validation_errors.length > 0) {
-                highlightValidationErrors(result.validation_errors);
-                statusContainer.innerHTML = '<div class="status-message error">Validation errors - check highlighted fields</div>';
+                showStatus('proposed-status', 'error', 'Validation errors — check highlighted fields');
             } else {
-                statusContainer.innerHTML = `<div class="status-message error">Error: ${escapeHtml(result.error || retryLabel)}</div>`;
+                showStatus('proposed-status', 'error', errMsg);
             }
-            btn.textContent = retryLabel;
         }
     } catch (err) {
-        statusContainer.innerHTML = `<div class="status-message error">Error: ${escapeHtml(err.message)}</div>`;
-        btn.textContent = retryLabel;
+        showStatus('proposed-status', 'error', err.message);
+    } finally {
+        state.isActivating = false;
+        updateActivateButton();
+    }
+}
+
+const MULTI_SERIAL_CLASS_REF = 'luthien_proxy.policies.multi_serial_policy:MultiSerialPolicy';
+
+async function handleActivateChain() {
+    if (state.chain.length === 0) return;
+
+    // Single-item chain — activate directly as a single policy
+    if (state.chain.length === 1) {
+        state.selectedClassRef = state.chain[0].classRef;
+        state.configValues = state.chain[0].config;
+        state.mode = 'single';
+        await handleActivate();
+        return;
+    }
+
+    // Multi-item chain — wrap in MultiSerialPolicy
+    if (state.isActivating) return;
+    state.isActivating = true;
+    updateActivateButton();
+    showStatus('proposed-status', 'info', 'Activating chain...');
+
+    try {
+        const subPolicies = state.chain.map(item => ({
+            class: item.classRef,
+            config: item.config,
+        }));
+
+        const result = await apiCall('/api/admin/policy/set', {
+            method: 'POST',
+            body: JSON.stringify({
+                policy_class_ref: MULTI_SERIAL_CLASS_REF,
+                config: { policies: subPolicies },
+                enabled_by: 'ui'
+            })
+        });
+
+        if (result.success) {
+            await loadCurrentPolicy();
+            state.chain = [];
+            state.mode = 'single';
+            testState.proposed = {};
+            testState.active = {};
+            renderAll();
+        } else {
+            showStatus('proposed-status', 'error', result.error || 'Chain activation failed');
+        }
+    } catch (err) {
+        showStatus('proposed-status', 'error', err.message);
+    } finally {
+        state.isActivating = false;
+        updateActivateButton();
+    }
+}
+
+async function handleDeactivate() {
+    state.isActivating = true;
+    try {
+        const result = await apiCall('/api/admin/policy/set', {
+            method: 'POST',
+            body: JSON.stringify({
+                policy_class_ref: NOOP_CLASS_REF,
+                config: {},
+                enabled_by: 'ui'
+            })
+        });
+        if (result.success) {
+            await loadCurrentPolicy();
+            testState.active = {};
+            renderAll();
+        } else {
+            showStatus('active-status', 'error', result.error || 'Deactivation failed');
+        }
+    } catch (err) {
+        showStatus('active-status', 'error', `Deactivation failed: ${err.message}`);
     } finally {
         state.isActivating = false;
     }
 }
 
-async function handleActivate() {
-    if (!state.selectedPolicy) return;
-
-    if (state.invalidFields.size > 0) {
-        const statusContainer = document.getElementById('status-container');
-        statusContainer.innerHTML = '<div class="status-message error">Please fix JSON errors before activating</div>';
-        return;
-    }
-
-    clearValidationErrors();
-    const policyName = escapeHtml(state.selectedPolicy.name);
-    await activatePolicy(state.selectedPolicy.class_ref, state.configValues, {
-        btnId: 'activate-btn',
-        progressLabel: 'Activating',
-        successMessage: `${policyName} activated successfully`,
-        retryLabel: 'Retry Activation',
-    });
+function showStatus(containerId, type, message) {
+    const el = document.getElementById(containerId);
+    if (el) el.innerHTML = `<div class="status-msg ${type}">${esc(message)}</div>`;
 }
 
-async function handleDeactivate() {
-    await activatePolicy(NOOP_CLASS_REF, {}, {
-        btnId: 'deactivate-btn',
-        progressLabel: 'Deactivating',
-        successMessage: 'Policy deactivated (switched to NoOpPolicy)',
-        retryLabel: 'Retry Deactivation',
-    });
-}
-
-function clearValidationErrors() {
-    document.querySelectorAll('.field-error').forEach(el => el.remove());
-    document.querySelectorAll('.form-field.has-error').forEach(el => {
-        el.classList.remove('has-error');
-    });
-    document.querySelectorAll('.config-field.has-error').forEach(el => {
-        el.classList.remove('has-error');
-    });
-}
-
-function highlightValidationErrors(errors) {
-    clearValidationErrors();
-
-    for (const error of errors) {
-        const path = error.loc.join('.');
-        // Find field by path (data attribute or name or id).
-        // Use [id="..."] instead of #id because paths like "replacements.0"
-        // contain dots which are invalid in CSS ID selectors.
-        const field = document.querySelector(
-            `[data-path="${path}"], [name="${path}"], [id="config-${path}"]`
-        );
-        if (field) {
-            // Find the container - could be .form-field (Alpine) or .config-field (legacy)
-            const container = field.closest('.form-field') || field.closest('.config-field');
-            if (container) {
-                container.classList.add('has-error');
-                const errorEl = document.createElement('span');
-                errorEl.className = 'field-error';
-                errorEl.textContent = error.msg;
-                container.appendChild(errorEl);
-            }
-        }
-    }
-}
-
-async function handleSendChat() {
-    if (state.isSending) return;
-
-    const messageEl = document.getElementById('test-message');
-    const responseEl = document.getElementById('test-response');
-    const metaEl = document.getElementById('test-meta');
-    const sendBtn = document.getElementById('send-btn');
-
-    const message = messageEl.value.trim();
-    if (!message) {
-        responseEl.className = 'test-response error';
-        responseEl.textContent = 'Please enter a message';
-        return;
-    }
-
-    state.isSending = true;
-    sendBtn.disabled = true;
-    sendBtn.textContent = 'Sending...';
-    responseEl.className = 'test-response empty';
-    responseEl.textContent = 'Sending request...';
-    metaEl.textContent = '';
-
-    try {
-        const useRealLlm = document.getElementById('use-real-llm')?.checked ?? false;
-        const result = await apiCall('/api/admin/test/chat', {
-            method: 'POST',
-            body: JSON.stringify({
-                model: state.selectedModel,
-                message: message,
-                stream: false,
-                use_mock: !useRealLlm,
-            })
-        });
-
-        if (!result.success) {
-            throw new Error(result.error || 'Request failed');
-        }
-
-        responseEl.className = 'test-response success';
-        responseEl.textContent = result.content || '(empty response)';
-
-        if (result.usage) {
-            metaEl.textContent = `Model: ${result.model} • Tokens: ${result.usage.prompt_tokens} in / ${result.usage.completion_tokens} out`;
-        } else {
-            metaEl.textContent = `Model: ${result.model}`;
-        }
-    } catch (err) {
-        responseEl.className = 'test-response error';
-        responseEl.textContent = `Error: ${err.message}`;
-    } finally {
-        state.isSending = false;
-        sendBtn.disabled = false;
-        sendBtn.textContent = 'Send Message';
-    }
-}
-
-// =========================================================================
-// Sub-policy list management
-// =========================================================================
-
+// ============================================================
+// Sub-policy list management (for Alpine.js FormRenderer)
+// ============================================================
 function getNestedValue(obj, path) {
     return path.split(/[.\[\]]/).filter(Boolean).reduce((o, k) => o?.[k], obj);
 }
@@ -825,11 +1074,8 @@ window.renderAllSubPolicies = function(path) {
     });
     container.innerHTML = html;
 
-    if (window.Alpine) {
-        Alpine.initTree(container);
-    }
+    if (window.Alpine) Alpine.initTree(container);
 
-    // Recursively initialize nested sub-policy lists (multi-policy inside multi-policy)
     container.querySelectorAll('[id^="sub-policy-cards-"]').forEach(nested => {
         const nestedPath = nested.id.replace('sub-policy-cards-', '');
         if (nestedPath !== path && nested.children.length === 0) {
@@ -861,21 +1107,22 @@ function renderSubPolicyCardHtml(path, index, subPolicy) {
         }
     }
 
+    const safePath = esc(path);
     return `
-        <div class="sub-policy-card" data-path="${path}" data-index="${index}">
+        <div class="sub-policy-card" data-path="${safePath}" data-index="${index}">
             <div class="sub-policy-card-header">
                 <select class="sub-policy-select"
                         x-model="formData.${path}[${index}].class"
-                        @change="window.onSubPolicyClassChange('${path}', ${index}, $event.target.value)">
+                        @change="window.onSubPolicyClassChange('${safePath}', ${index}, $event.target.value)">
                     ${options}
                 </select>
                 <div class="sub-policy-card-actions">
-                    <button type="button" class="btn-move" onclick="window.moveSubPolicy('${path}', ${index}, -1)" title="Move up">&uarr;</button>
-                    <button type="button" class="btn-move" onclick="window.moveSubPolicy('${path}', ${index}, 1)" title="Move down">&darr;</button>
-                    <button type="button" class="btn-remove-sub" onclick="window.removeSubPolicy('${path}', ${index})" title="Remove">&times;</button>
+                    <button type="button" class="btn-move" onclick="window.moveSubPolicy('${safePath}', ${index}, -1)" title="Move up">&uarr;</button>
+                    <button type="button" class="btn-move" onclick="window.moveSubPolicy('${safePath}', ${index}, 1)" title="Move down">&darr;</button>
+                    <button type="button" class="btn-remove-sub" onclick="window.removeSubPolicy('${safePath}', ${index})" title="Remove">&times;</button>
                 </div>
             </div>
-            <div class="sub-policy-config" id="sub-policy-config-${path}-${index}">
+            <div class="sub-policy-config" id="sub-policy-config-${safePath}-${index}">
                 ${configHtml}
             </div>
         </div>
@@ -890,7 +1137,6 @@ window.onSubPolicyClassChange = function(path, index, classRef) {
     if (!policies || !policies[index]) return;
 
     policies[index].class = classRef;
-
     const policyList = window.__policyList || [];
     const policyInfo = policyList.find(p => p.class_ref === classRef);
     policies[index].config = policyInfo ? { ...(policyInfo.example_config || {}) } : {};
@@ -902,9 +1148,7 @@ window.onSubPolicyClassChange = function(path, index, classRef) {
         configContainer.innerHTML = window.FormRenderer.generateForm(
             policyInfo.config_schema, null, `${path}[${index}].config`
         );
-        if (window.Alpine) {
-            Alpine.initTree(configContainer);
-        }
+        if (window.Alpine) Alpine.initTree(configContainer);
     } else {
         configContainer.innerHTML = '';
     }
@@ -913,10 +1157,8 @@ window.onSubPolicyClassChange = function(path, index, classRef) {
 window.addSubPolicy = function(path) {
     const data = window.__alpineData;
     if (!data) return;
-
     const policies = getNestedValue(data.formData, path);
     if (!policies) return;
-
     policies.push({ class: '', config: {} });
     window.renderAllSubPolicies(path);
 };
@@ -924,10 +1166,8 @@ window.addSubPolicy = function(path) {
 window.removeSubPolicy = function(path, index) {
     const data = window.__alpineData;
     if (!data) return;
-
     const policies = getNestedValue(data.formData, path);
     if (!policies) return;
-
     policies.splice(index, 1);
     window.renderAllSubPolicies(path);
 };
@@ -935,59 +1175,44 @@ window.removeSubPolicy = function(path, index) {
 window.moveSubPolicy = function(path, index, direction) {
     const data = window.__alpineData;
     if (!data) return;
-
     const policies = getNestedValue(data.formData, path);
     if (!policies) return;
-
     const newIndex = index + direction;
     if (newIndex < 0 || newIndex >= policies.length) return;
-
     [policies[index], policies[newIndex]] = [policies[newIndex], policies[index]];
     window.renderAllSubPolicies(path);
 };
 
-// Shared HTML escaper — also used by FormRenderer
-window.escapeHtml = function(text) {
-    if (typeof text !== 'string') return text;
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+window.openDrawer = function(path, index) {
+    if (window.Alpine) {
+        Alpine.store('drawer').open = true;
+        Alpine.store('drawer').path = path;
+        Alpine.store('drawer').index = index;
+    }
 };
 
-// === Gateway Settings ===
+window.closeDrawer = function() {
+    if (window.Alpine) Alpine.store('drawer').open = false;
+};
 
-async function loadGatewaySettings() {
+window.validateJson = function(event) {
     try {
-        const data = await apiCall('/api/admin/gateway/settings');
-        document.getElementById('inject-policy-context').checked = data.inject_policy_context;
-        document.getElementById('dogfood-mode').checked = data.dogfood_mode;
-    } catch (e) {
-        console.warn('Failed to load gateway settings:', e);
+        JSON.parse(event.target.value);
+        event.target.classList.remove('invalid');
+    } catch {
+        event.target.classList.add('invalid');
     }
+};
+
+window.onUnionTypeChange = function() {
+    // TODO: Reset stale form fields when union type changes
+};
+
+// ============================================================
+// Render all
+// ============================================================
+function renderAll() {
+    renderAvailable();
+    renderProposed();
+    renderActive();
 }
-
-async function saveGatewaySetting(field, value) {
-    try {
-        await apiCall('/api/admin/gateway/settings', {
-            method: 'PUT',
-            body: JSON.stringify({ [field]: value })
-        });
-    } catch (e) {
-        console.error('Failed to save gateway setting:', e);
-        // Revert checkbox on failure
-        document.getElementById(field === 'inject_policy_context' ? 'inject-policy-context' : 'dogfood-mode').checked = !value;
-    }
-}
-
-// Wire up gateway settings checkboxes
-document.addEventListener('DOMContentLoaded', () => {
-    loadGatewaySettings();
-
-    document.getElementById('inject-policy-context').addEventListener('change', (e) => {
-        saveGatewaySetting('inject_policy_context', e.target.checked);
-    });
-
-    document.getElementById('dogfood-mode').addEventListener('change', (e) => {
-        saveGatewaySetting('dogfood_mode', e.target.checked);
-    });
-});

@@ -276,8 +276,8 @@ class TestSendChatRoute:
 
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.get_settings")
-    async def test_missing_proxy_api_key(self, mock_get_settings):
-        """Test send_chat returns error when PROXY_API_KEY is not configured."""
+    async def test_missing_proxy_api_key_and_no_custom(self, mock_get_settings):
+        """Test send_chat returns error when no API key is available."""
         mock_settings = MagicMock()
         mock_settings.proxy_api_key = None
         mock_get_settings.return_value = mock_settings
@@ -288,8 +288,39 @@ class TestSendChatRoute:
 
         assert isinstance(result, ChatResponse)
         assert result.success is False
-        assert "PROXY_API_KEY not configured" in result.error
+        assert "No API key available" in result.error
         assert result.model == "gpt-4o"
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_settings")
+    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
+    async def test_custom_key_works_without_proxy_key(self, mock_client_class, mock_get_settings):
+        """Custom api_key works even when PROXY_API_KEY is not configured."""
+        mock_settings = MagicMock()
+        mock_settings.proxy_api_key = None
+        mock_settings.gateway_port = 8000
+        mock_get_settings.return_value = mock_settings
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "msg_123",
+            "content": [{"type": "text", "text": "OK"}],
+        }
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client
+
+        request = ChatRequest(model="claude-3-haiku-20240307", message="Hello!", api_key="custom-key")
+
+        result = await send_chat(body=request, _=AUTH_TOKEN)
+
+        assert result.success is True
+        call_args = mock_client.post.call_args
+        assert call_args[1]["headers"]["x-api-key"] == "custom-key"
 
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.get_settings")
@@ -444,7 +475,144 @@ class TestSendChatRoute:
 
         assert isinstance(result, ChatResponse)
         assert result.success is True
-        assert "Mock response" in result.content
+        assert result.content == "Hello!"
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_settings")
+    async def test_mock_mode_works_without_any_api_key(self, mock_get_settings):
+        """Mock mode bypasses API key validation entirely."""
+        mock_settings = MagicMock()
+        mock_settings.proxy_api_key = None
+        mock_settings.gateway_port = 8000
+        mock_get_settings.return_value = mock_settings
+
+        request = ChatRequest(model="claude-3-haiku-20240307", message="test echo", use_mock=True)
+
+        result = await send_chat(body=request, _=AUTH_TOKEN)
+
+        assert result.success is True
+        assert result.content == "test echo"
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_settings")
+    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
+    async def test_custom_api_key_overrides_proxy_key(self, mock_client_class, mock_get_settings):
+        """When api_key is provided, it's used instead of the server's proxy key."""
+        mock_settings = MagicMock()
+        mock_settings.proxy_api_key = "server-proxy-key"
+        mock_settings.gateway_port = 8000
+        mock_get_settings.return_value = mock_settings
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"id": "msg_123", "content": [{"type": "text", "text": "OK"}]}
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client
+
+        request = ChatRequest(model="claude-3-haiku-20240307", message="Hello!", api_key="custom-key-123")
+
+        await send_chat(body=request, _=AUTH_TOKEN)
+
+        call_args = mock_client.post.call_args
+        assert call_args[1]["headers"]["x-api-key"] == "custom-key-123"
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_settings")
+    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
+    async def test_none_api_key_uses_proxy_key(self, mock_client_class, mock_get_settings):
+        """When api_key is None (default), the server's proxy key is used."""
+        mock_settings = MagicMock()
+        mock_settings.proxy_api_key = "server-proxy-key"
+        mock_settings.gateway_port = 8000
+        mock_get_settings.return_value = mock_settings
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"id": "msg_123", "content": [{"type": "text", "text": "OK"}]}
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client
+
+        request = ChatRequest(model="claude-3-haiku-20240307", message="Hello!")
+
+        await send_chat(body=request, _=AUTH_TOKEN)
+
+        call_args = mock_client.post.call_args
+        assert call_args[1]["headers"]["x-api-key"] == "server-proxy-key"
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_settings")
+    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
+    async def test_empty_api_key_uses_proxy_key(self, mock_client_class, mock_get_settings):
+        """An empty string api_key falls back to the server's proxy key."""
+        mock_settings = MagicMock()
+        mock_settings.proxy_api_key = "server-proxy-key"
+        mock_settings.gateway_port = 8000
+        mock_get_settings.return_value = mock_settings
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"id": "msg_123", "content": [{"type": "text", "text": "OK"}]}
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client
+
+        request = ChatRequest(model="claude-3-haiku-20240307", message="Hello!", api_key="")
+
+        await send_chat(body=request, _=AUTH_TOKEN)
+
+        call_args = mock_client.post.call_args
+        assert call_args[1]["headers"]["x-api-key"] == "server-proxy-key"
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.get_settings")
+    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
+    async def test_whitespace_api_key_uses_proxy_key(self, mock_client_class, mock_get_settings):
+        """A whitespace-only api_key falls back to the server's proxy key."""
+        mock_settings = MagicMock()
+        mock_settings.proxy_api_key = "server-proxy-key"
+        mock_settings.gateway_port = 8000
+        mock_get_settings.return_value = mock_settings
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "msg_123",
+            "content": [{"type": "text", "text": "OK"}],
+        }
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client
+
+        request = ChatRequest(model="claude-3-haiku-20240307", message="Hello!", api_key="   ")
+
+        await send_chat(body=request, _=AUTH_TOKEN)
+
+        call_args = mock_client.post.call_args
+        assert call_args[1]["headers"]["x-api-key"] == "server-proxy-key"
+
+    def test_chat_request_api_key_defaults_to_none(self):
+        """ChatRequest.api_key defaults to None when not provided."""
+        request = ChatRequest(model="claude-3-haiku-20240307", message="Hello!")
+        assert request.api_key is None
+
+    def test_chat_request_accepts_api_key(self):
+        """ChatRequest accepts api_key parameter."""
+        request = ChatRequest(model="claude-3-haiku-20240307", message="Hello!", api_key="sk-test")
+        assert request.api_key == "sk-test"
 
 
 class TestAuthConfigUpdateRequestValidation:

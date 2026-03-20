@@ -87,6 +87,11 @@ class ChatRequest(BaseModel):
         "The policy pipeline still runs on both the request and the mock response. "
         "Set to True to skip the real LLM call (useful when no server-side LLM credentials are configured).",
     )
+    api_key: str | None = Field(
+        default=None,
+        description="Optional API key to use for this test request. "
+        "Overrides the server's proxy key as the credential sent to the gateway.",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -288,26 +293,33 @@ async def send_chat(
 ):
     """Send a test message through the proxy with the active policy.
 
-    This endpoint acts as an injection point, forwarding the request to
-    /v1/messages with the server's PROXY_API_KEY. This ensures
-    the test goes through the full policy pipeline (on_request, LLM call,
-    on_response) exactly as real client requests do.
+    Forwards the request to the gateway's /v1/messages endpoint using either
+    the server's PROXY_API_KEY or a custom API key. In mock mode, returns the
+    user's message as an echo without calling the LLM or running the policy
+    pipeline (useful for quick checks without API credits).
 
     Requires admin authentication.
     """
     settings = get_settings()
-    if not settings.proxy_api_key:
-        return ChatResponse(
-            success=False,
-            error="PROXY_API_KEY not configured on server",
-            model=body.model,
-        )
 
-    # When mock mode is enabled, return a synthetic response without calling the gateway
+    # Mock mode: echo the user's message back as if the LLM responded with it.
+    # Useful for testing how a policy transforms text without spending API credits.
     if body.use_mock:
         return ChatResponse(
             success=True,
-            content="[Mock response] Hello! I am a simulated response for policy testing.",
+            content=body.message,
+            model=body.model,
+        )
+
+    # Determine which API key to use: custom key takes precedence over server proxy key
+    test_api_key = settings.proxy_api_key
+    if body.api_key is not None and body.api_key.strip():
+        test_api_key = body.api_key.strip()
+
+    if not test_api_key:
+        return ChatResponse(
+            success=False,
+            error="No API key available — set PROXY_API_KEY on the server or provide a custom key",
             model=body.model,
         )
 
@@ -328,7 +340,7 @@ async def send_chat(
             response = await client.post(
                 f"{base_url}/v1/messages",
                 json=payload,
-                headers={"x-api-key": settings.proxy_api_key},
+                headers={"x-api-key": test_api_key},
             )
 
         if response.status_code != 200:

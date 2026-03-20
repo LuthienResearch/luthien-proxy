@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Activity Monitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/nav.css">
     <style>
         * {
@@ -331,13 +334,14 @@
 <body>
     <nav x-data="luthienNav" class="luthien-nav">
         <a href="/" class="nav-brand">Luthien</a>
-        <template x-for="link in links" :key="link.href">
-            <a :href="link.href" class="nav-link" :class="{ active: isActive(link.href) }" x-text="link.label"></a>
-        </template>
-        <div class="nav-spacer"></div>
-        <template x-if="isAuthenticated()">
-            <a href="/auth/logout" class="nav-signout">Sign Out</a>
-        </template>
+        <div class="nav-right">
+            <template x-for="link in links" :key="link.href">
+                <a :href="link.href" class="nav-link" :class="{ active: isActive(link.href) }" x-text="link.label"></a>
+            </template>
+            <template x-if="isAuthenticated()">
+                <a href="/auth/logout" class="nav-signout">Sign Out</a>
+            </template>
+        </div>
     </nav>
 
     <div class="container">
