@@ -88,6 +88,7 @@ const state = {
     currentFormData: null,
     showHidden: false,
     expandedChainIndex: -1,
+    expandedAvailablePolicy: null,
 };
 
 // Order-insensitive deep equality for config objects
@@ -217,6 +218,15 @@ function isCurrentActive(classRef) {
     return state.currentPolicy && state.currentPolicy.class_ref === classRef;
 }
 
+function isInActiveChain(classRef) {
+    if (!state.currentPolicy) return false;
+    const cp = state.currentPolicy;
+    if (cp.class_ref !== MULTI_SERIAL_CLASS_REF) return false;
+    const policies = cp.config && cp.config.policies;
+    if (!Array.isArray(policies)) return false;
+    return policies.some(sub => (sub.class || sub.class_ref) === classRef);
+}
+
 function defaultConfigFor(policy) {
     return { ...(policy.example_config || {}) };
 }
@@ -277,9 +287,15 @@ function toggleShowHidden() {
 }
 
 // ============================================================
-// Select policy — always adds to chain
+// Policy interaction — expand details or add to chain
 // ============================================================
-function selectPolicy(classRef) {
+function togglePolicyExpand(classRef) {
+    state.expandedAvailablePolicy = (state.expandedAvailablePolicy === classRef) ? null : classRef;
+    renderAvailable();
+}
+
+function addToChain(classRef, event) {
+    if (event) event.stopPropagation();
     const p = getPolicy(classRef);
     if (!p) return;
     state.chain.push({ classRef, config: defaultConfigFor(p) });
@@ -372,10 +388,14 @@ function renderPolicyCard(p, container) {
     div.className = 'policy-card';
     div.setAttribute('role', 'button');
     div.setAttribute('tabindex', '0');
-    if (isCurrentActive(p.class_ref)) div.className += ' is-active';
+    const inActiveChain = isInActiveChain(p.class_ref);
+    if (isCurrentActive(p.class_ref) || inActiveChain) div.className += ' is-active';
 
     const inChain = state.chain.some(c => c.classRef === p.class_ref);
     if (inChain) div.className += ' in-chain';
+
+    const isExpanded = state.expandedAvailablePolicy === p.class_ref;
+    if (isExpanded) div.className += ' expanded';
 
     const cc = configParamCount(p);
     const configHint = cc > 0 ? ` <span class="p-config-hint">(${cc} setting${cc > 1 ? 's' : ''})</span>` : '';
@@ -384,11 +404,19 @@ function renderPolicyCard(p, container) {
     const firstLine = (p.description || '').split('.')[0];
     const exampleHtml = renderExampleBlock(p.class_ref, false);
 
+    let expandedHtml = '';
+    if (isExpanded) {
+        const fullDesc = p.description || '';
+        expandedHtml = `<div class="p-full-desc">${esc(fullDesc)}</div>`;
+        expandedHtml += exampleHtml;
+        if (cc > 0) expandedHtml += `<div class="p-config-detail">${cc} configurable setting${cc > 1 ? 's' : ''}</div>`;
+    }
+
     div.innerHTML = `
-        <div class="p-name">${dot}${esc(p.name)}<span class="p-add-icon" title="Add to chain">+</span></div>
-        <div class="p-desc">${esc(firstLine)}.${configHint}</div>${exampleHtml}`;
-    div.onclick = () => selectPolicy(p.class_ref);
-    div.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectPolicy(p.class_ref); } };
+        <div class="p-name">${dot}${esc(p.name)}<button class="p-add-btn" onclick="addToChain('${esc(p.class_ref)}', event)" title="Add to policy chain">+</button></div>
+        <div class="p-desc">${esc(firstLine)}.${configHint}</div>${isExpanded ? expandedHtml : ''}`;
+    div.onclick = () => togglePolicyExpand(p.class_ref);
+    div.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePolicyExpand(p.class_ref); } };
     container.appendChild(div);
 }
 
@@ -455,7 +483,7 @@ function renderProposed() {
     }
     html += '</ul>';
 
-    html += '<button class="chain-add-btn" onclick="document.getElementById(\'filter-input\').focus()">+ Add Policy</button>';
+    html += '<div class="chain-add-hint">Press <strong>+</strong> on any policy in the Available panel to add it here</div>';
 
     html += '<div id="proposed-status"></div>';
     const activateLabel = state.chain.length > 1
