@@ -1,0 +1,58 @@
+name: Auto-tag CLI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/luthien_cli/**"
+
+concurrency:
+  group: auto-tag-cli
+  cancel-in-progress: false
+
+jobs:
+  auto-tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get latest CLI tag
+        id: latest
+        run: |
+          TAG=$(git tag -l 'cli-v*' --sort=-v:refname | head -1)
+          if [ -z "$TAG" ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check for changes since last tag
+        id: changes
+        run: |
+          if [ "${{ steps.latest.outputs.found }}" = "false" ]; then
+            echo "count=1" >> "$GITHUB_OUTPUT"
+          else
+            CHANGED=$(git diff --name-only "${{ steps.latest.outputs.tag }}"..HEAD -- src/luthien_cli/ | wc -l)
+            echo "count=$CHANGED" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump patch and tag
+        if: steps.changes.outputs.count != '0'
+        run: |
+          if [ "${{ steps.latest.outputs.found }}" = "false" ]; then
+            NEW="cli-v0.1.0"
+          else
+            TAG="${{ steps.latest.outputs.tag }}"
+            VERSION="${TAG#cli-v}"
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+            NEW="cli-v${MAJOR}.${MINOR}.$((PATCH + 1))"
+          fi
+          echo "Creating tag: $NEW"
+          git tag "$NEW"
+          git push origin "$NEW"
