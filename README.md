@@ -167,7 +167,8 @@ GATEWAY_PORT=8000
 POLICY_SOURCE=db-fallback-file
 
 # Path to YAML policy file (when POLICY_SOURCE includes "file")
-POLICY_CONFIG=/app/config/policy_config.yaml
+POLICY_CONFIG=./config/policy_config.yaml
+# Docker: use /app/config/policy_config.yaml
 ```
 
 ### LLM Judge Policies (Optional)
@@ -281,7 +282,7 @@ docker compose down && ./scripts/quick_start.sh
 
 ### Database connection issues
 
-Local mode uses SQLite — if the database file is corrupt, delete it and restart (`rm ~/.luthien/luthien.db && luthien up`).
+Local mode uses SQLite — if the database file is corrupt, delete it and restart (`rm ~/.luthien/local.db && luthien up`).
 
 For Docker Compose deployments:
 ```bash
