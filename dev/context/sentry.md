@@ -123,6 +123,7 @@ ENVIRONMENT=production
 **Railway SaaS** (`provisioner.py` sets these automatically):
 ```bash
 SENTRY_ENABLED=true
+# TODO(https://trello.com/c/N7rqkasZ): replace with LuthienResearch org DSN once set up
 SENTRY_DSN=https://178c87f543acaf02b3f154ee329679fa@o4511061292089344.ingest.us.sentry.io/4511061302575104
 SENTRY_SERVER_NAME=railway-{instance-name}
 # ENVIRONMENT is derived automatically from RAILWAY_SERVICE_NAME (injected by Railway)
@@ -252,4 +253,4 @@ SENTRY_DSN=https://your-key@your-org.ingest.sentry.io/your-project
 
 ### "Railway instance errors aren't showing up"
 
-Check that the Railway instance has `SENTRY_ENABLED=true` and `SENTRY_DSN` set. The provisioner sets both automatically along with `ENVIRONMENT=railway` and `SENTRY_SERVER_NAME=railway-{name}`.
+Check that the Railway instance has `SENTRY_ENABLED=true` and `SENTRY_DSN` set. The provisioner sets both automatically along with `SENTRY_SERVER_NAME=railway-{name}`. The environment tag is derived automatically from `RAILWAY_SERVICE_NAME` (injected by Railway).

@@ -5,10 +5,9 @@ and discoverability. Access settings via get_settings() which returns a cached
 Settings instance.
 """
 
-import os
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from luthien_proxy.credential_manager import AuthMode
@@ -51,7 +50,14 @@ class Settings(BaseSettings):
     tempo_url: str = "http://localhost:3200"
     service_name: str = "luthien-proxy"
     service_version: str = "2.0.0"
-    environment: str = Field(default_factory=lambda: os.environ.get("RAILWAY_SERVICE_NAME", "development"))
+    environment: str = "development"
+    railway_service_name: str = ""
+
+    @model_validator(mode="after")
+    def _set_environment_from_railway(self) -> "Settings":
+        if self.environment == "development" and self.railway_service_name:
+            self.environment = self.railway_service_name
+        return self
 
     # Request/response logging
     enable_request_logging: bool = False
