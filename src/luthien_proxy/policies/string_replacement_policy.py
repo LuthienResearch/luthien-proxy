@@ -326,16 +326,9 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
         if self._buffer_size <= 0:
             return []
         state = context.pop_request_state(self, _StreamBufferState)
-        if state and state.buffer:
-            flush_delta = TextDelta.model_construct(type="text_delta", text=state.buffer)
-            return [
-                RawContentBlockDeltaEvent.model_construct(
-                    type="content_block_delta",
-                    index=state.last_event_index,
-                    delta=flush_delta,
-                )
-            ]
-        return []
+        if state is None:
+            return []
+        return list(self._flush_buffer(state))
 
 
 __all__ = [

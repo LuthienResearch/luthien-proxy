@@ -792,3 +792,26 @@ class TestStreamingBufferBehavior:
         # stream_complete should return nothing — buffer already flushed
         complete_events = await policy.on_anthropic_stream_complete(ctx)
         assert complete_events == []
+
+    @pytest.mark.asyncio
+    async def test_replacement_target_at_exact_end_of_stream(self):
+        """Replacement target as the final chunk is correctly replaced on flush."""
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["hello", "goodbye"]]))
+        ctx = PolicyContext.for_testing()
+
+        events: list[Any] = [
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="say "),
+            ),
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="hello"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0),
+        ]
+
+        full_text = await _collect_stream_text(policy, ctx, events)
+        assert full_text == "say goodbye"
