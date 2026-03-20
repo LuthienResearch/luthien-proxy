@@ -122,20 +122,20 @@ def _ensure_docker_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
 
 def _write_policy(repo_path: str, gateway_url: str) -> None:
     """Write OnboardingPolicy config to the repo's config directory."""
-    import yaml
-
     config_dir = f"{repo_path}/config"
     os.makedirs(config_dir, exist_ok=True)
 
-    policy_config = {
-        "policy": {
-            "class": ONBOARDING_POLICY_CLASS,
-            "config": {"gateway_url": gateway_url},
-        }
-    }
+    # Write YAML directly to avoid dependency on pyyaml in the CLI venv.
+    # The structure is simple and static — no need for a YAML library.
+    yaml_content = textwrap.dedent(f"""\
+        policy:
+          class: "{ONBOARDING_POLICY_CLASS}"
+          config:
+            gateway_url: "{gateway_url}"
+    """)
 
     with open(f"{config_dir}/policy_config.yaml", "w") as f:
-        yaml.safe_dump(policy_config, f, default_flow_style=False)
+        f.write(yaml_content)
 
 
 def _show_results(
