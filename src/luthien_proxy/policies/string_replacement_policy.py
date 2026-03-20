@@ -278,6 +278,10 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
         replacement output matches another source (e.g., ["ab", "ba"]) may see
         extra replacements at chunk boundaries — this matches the sequential
         application behaviour of apply_replacements on full text.
+
+        A single buffer is shared across content blocks within one request.
+        This is safe because the Anthropic protocol sends blocks sequentially
+        (not interleaved), and content_block_stop flushes the buffer between blocks.
         """
         # Flush buffer before content_block_stop so the block is complete
         if isinstance(event, RawContentBlockStopEvent) and self._buffer_size > 0:

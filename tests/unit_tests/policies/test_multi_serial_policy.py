@@ -298,8 +298,9 @@ class TestMultiSerialAnthropicRunOrdering:
         emissions = [e async for e in policy.run_anthropic(io, ctx)]
 
         deltas = [e for e in emissions if isinstance(e, RawContentBlockDeltaEvent)]
-        assert len(deltas) == 1
-        assert deltas[0].delta.text == "GOODBYE"
+        # With buffered streaming, the text may arrive in multiple deltas
+        combined_text = "".join(d.delta.text for d in deltas)
+        assert combined_text == "GOODBYE"
 
     @pytest.mark.asyncio
     async def test_passthrough_with_empty_policy_list(self):

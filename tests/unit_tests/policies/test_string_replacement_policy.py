@@ -331,13 +331,20 @@ async def _collect_stream_text(
     ctx: PolicyContext,
     events: list[Any],
 ) -> str:
-    """Send events through the policy and collect all emitted text, including flush."""
+    """Send events through the policy and collect all emitted text.
+
+    Calls on_anthropic_stream_event for each event, then on_anthropic_stream_complete
+    to flush any remaining buffer.
+    """
     parts: list[str] = []
     for event in events:
         result = await policy.on_anthropic_stream_event(event, ctx)
         for ev in result:
             if isinstance(ev, RawContentBlockDeltaEvent) and isinstance(ev.delta, TextDelta):
                 parts.append(ev.delta.text)
+    for ev in await policy.on_anthropic_stream_complete(ctx):
+        if isinstance(ev, RawContentBlockDeltaEvent) and isinstance(ev.delta, TextDelta):
+            parts.append(ev.delta.text)
     return "".join(parts)
 
 
@@ -488,7 +495,7 @@ class TestAnthropicStreamEvent:
 
     @pytest.mark.asyncio
     async def test_on_anthropic_stream_event_passes_through_content_block_stop(self):
-        """on_anthropic_stream_event passes through content_block_stop events unchanged."""
+        """content_block_stop passes through when the buffer is empty (no prior text deltas)."""
         policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["test", "demo"]]))
         ctx = PolicyContext.for_testing()
 
@@ -763,3 +770,25 @@ class TestStreamingBufferBehavior:
 
         result = await policy.on_anthropic_stream_complete(ctx)
         assert result == []
+
+    @pytest.mark.asyncio
+    async def test_double_flush_does_not_double_emit(self):
+        """content_block_stop flush followed by stream_complete does not emit twice."""
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["hello", "hi"]]))
+        ctx = PolicyContext.for_testing()
+
+        # Send text + content_block_stop (flushes buffer)
+        events: list[Any] = [
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="hello"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0),
+        ]
+        full_text = await _collect_stream_text(policy, ctx, events)
+        assert full_text == "hi"
+
+        # stream_complete should return nothing — buffer already flushed
+        complete_events = await policy.on_anthropic_stream_complete(ctx)
+        assert complete_events == []
