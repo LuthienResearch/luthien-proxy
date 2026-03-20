@@ -45,9 +45,9 @@ jobs:
             echo "count=$CHANGED" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install uv and run tests
+      - name: Install uv
         if: steps.changes.outputs.count != '0'
-        uses: astral-sh/setup-uv@v2
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.13"
 
