@@ -209,14 +209,15 @@
         }
         .chain-item-name { font-weight: 600; font-size: 14px; flex: 1; }
         .chain-item-desc { font-size: 11px; color: #52525b; margin-top: 2px; }
-        .chain-actions { display: flex; gap: 2px; }
+        .chain-actions { display: flex; gap: 4px; }
         .chain-btn {
-            background: none; border: none; color: #52525b; cursor: pointer;
-            font-size: 14px; padding: 2px 4px; border-radius: 3px; font-family: inherit;
+            background: #27272a; border: 1px solid #3f3f46; color: #a1a1aa; cursor: pointer;
+            font-size: 14px; padding: 2px 6px; border-radius: 4px; font-family: inherit;
+            transition: all 0.15s;
         }
-        .chain-btn:hover { color: #e4e4e7; background: #27272a; }
+        .chain-btn:hover { color: #e4e4e7; background: #3f3f46; border-color: #52525b; }
         .chain-item .config-form { margin-top: 8px; padding-top: 8px; border-top: 1px solid #27272a; }
-        .chain-divider { text-align: center; color: #3f3f46; font-size: 11px; padding: 2px 0; }
+        .chain-divider { text-align: center; color: #6b9fff; font-size: 13px; padding: 4px 0; opacity: 0.6; }
 
         /* Active column */
         .active-label { font-size: 11px; color: #71717a; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
@@ -531,8 +532,8 @@
             padding-left: 26px; margin-top: 2px;
         }
         .chain-item-config-hint:hover { color: #6b9fff; }
-        .chain-btn:disabled { opacity: 0.2; cursor: default; }
-        .chain-btn-remove:hover { color: #f87171 !important; }
+        .chain-btn:disabled { opacity: 0.35; cursor: default; background: #1c1c1f; border-color: #27272a; color: #3f3f46; }
+        .chain-btn-remove:hover { color: #f87171 !important; border-color: #f87171 !important; }
 
         /* Add policy button at bottom of chain */
         .chain-add-btn {

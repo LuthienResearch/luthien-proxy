@@ -18,7 +18,8 @@ const SIMPLE_POLICIES = [
 const HIDDEN_POLICIES = new Set([
     'DebugLoggingPolicy',
     'NoOpPolicy',
-    'SimpleNoOp',
+    'SimpleNoOpPolicy',
+    'PlainDashesPolicy',
     'MultiParallelPolicy',
     'MultiSerialPolicy',
     'SimplePolicy',
