@@ -23,7 +23,9 @@ from pydantic import BaseModel, Field
 from luthien_proxy.policy_core import TextModifierPolicy
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator, AsyncIterator
+
+    from anthropic.lib.streaming import MessageStreamEvent
 
     from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
     from luthien_proxy.policy_core import (
@@ -109,7 +111,7 @@ class OnboardingPolicy(TextModifierPolicy):
 
         return self._passthrough(io)
 
-    async def _passthrough(self, io: AnthropicPolicyIOProtocol):
+    async def _passthrough(self, io: AnthropicPolicyIOProtocol) -> AsyncGenerator[AnthropicPolicyEmission, None]:
         """Stream or complete with zero modifications."""
         request = io.request
         if request.get("stream", False):
@@ -128,13 +130,15 @@ class OnboardingPolicy(TextModifierPolicy):
             return await super().on_anthropic_response(response, context)
         return response
 
-    async def on_anthropic_stream_event(self, event, context: PolicyContext):
+    async def on_anthropic_stream_event(
+        self, event: MessageStreamEvent, context: PolicyContext
+    ) -> list[MessageStreamEvent]:
         """For streaming in MultiSerialPolicy composition: passthrough (extra_text handles the append)."""
         if context.request and is_first_turn(context.request):
             return await super().on_anthropic_stream_event(event, context)
         return [event]
 
-    async def on_anthropic_stream_complete(self, context: PolicyContext):
+    async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
         """Emit welcome text block after stream ends, but only on first turn."""
         if context.request and is_first_turn(context.request):
             return await super().on_anthropic_stream_complete(context)
