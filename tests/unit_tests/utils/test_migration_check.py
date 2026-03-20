@@ -8,7 +8,11 @@ from unittest.mock import AsyncMock, MagicMock
 import asyncpg
 import pytest
 
-from luthien_proxy.utils.migration_check import check_migrations, compute_file_hash
+from luthien_proxy.utils.migration_check import (
+    _find_sqlite_schema,
+    check_migrations,
+    compute_file_hash,
+)
 
 
 class TestComputeFileHash:
@@ -282,3 +286,48 @@ class TestCheckMigrations:
         assert "_migrations" in error_msg
         assert "not found" in error_msg
         assert "docker compose up migrations" in error_msg
+
+
+class TestFindSqliteSchema:
+    """Tests for _find_sqlite_schema bundled path resolution."""
+
+    def test_finds_bundled_schema(self) -> None:
+        """Bundled sqlite_schema.sql next to migration_check.py should be found."""
+        result = _find_sqlite_schema()
+        assert result is not None
+        assert result.name == "sqlite_schema.sql"
+        assert result.exists()
+
+    def test_bundled_schema_contains_current_policy_table(self) -> None:
+        """Bundled schema must define the current_policy table (the crash trigger)."""
+        schema = _find_sqlite_schema()
+        assert schema is not None
+        content = schema.read_text()
+        assert "current_policy" in content
+
+
+class TestSchemaDrift:
+    """Verify that the bundled and source schema files stay in sync."""
+
+    def test_bundled_schema_matches_migrations_source(self) -> None:
+        """src/luthien_proxy/utils/sqlite_schema.sql must match migrations/sqlite_schema.sql.
+
+        Both files should have identical table definitions. The bundled copy
+        may have extra comment lines (the sync notice), so we compare only
+        the SQL content after stripping comment-only lines.
+        """
+        bundled = Path(__file__).resolve().parents[3] / "src" / "luthien_proxy" / "utils" / "sqlite_schema.sql"
+        source = Path(__file__).resolve().parents[3] / "migrations" / "sqlite_schema.sql"
+
+        if not source.exists():
+            pytest.skip("migrations/sqlite_schema.sql not found (running outside repo)")
+
+        def sql_lines(path: Path) -> list[str]:
+            """Return non-comment, non-empty lines."""
+            return [
+                line for line in path.read_text().splitlines() if line.strip() and not line.strip().startswith("--")
+            ]
+
+        assert sql_lines(bundled) == sql_lines(source), (
+            "Bundled schema has drifted from migrations/sqlite_schema.sql. Update both files to keep them in sync."
+        )

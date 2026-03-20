@@ -1,5 +1,9 @@
 -- SQLite schema representing the final state of all PostgreSQL migrations.
 -- Applied automatically when using SQLite (no Docker migration runner needed).
+--
+-- IMPORTANT: This is a bundled copy of migrations/sqlite_schema.sql.
+-- The source of truth is migrations/sqlite_schema.sql — update that file
+-- first, then copy it here. Both files must stay in sync.
 
 -- Migration tracking (matches the PostgreSQL _migrations table)
 CREATE TABLE IF NOT EXISTS _migrations (

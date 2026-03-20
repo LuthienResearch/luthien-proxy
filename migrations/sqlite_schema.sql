@@ -1,5 +1,8 @@
 -- SQLite schema representing the final state of all PostgreSQL migrations.
 -- Applied automatically when using SQLite (no Docker migration runner needed).
+--
+-- NOTE: A bundled copy lives at src/luthien_proxy/utils/sqlite_schema.sql
+-- for pip-installed environments. When updating this file, copy it there too.
 
 -- Migration tracking (matches the PostgreSQL _migrations table)
 CREATE TABLE IF NOT EXISTS _migrations (
