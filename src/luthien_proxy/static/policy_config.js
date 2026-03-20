@@ -14,7 +14,8 @@ const SIMPLE_POLICIES = [
     'ToolCallJudgePolicy',
 ];
 
-// Hidden from default view — internal/meta policies users don't pick directly
+// Hidden from default view — internal/meta policies users don't pick directly.
+// Names must match the `name` field from the /api/admin/policy/list discovery API.
 const HIDDEN_POLICIES = new Set([
     'DebugLoggingPolicy',
     'NoOpPolicy',
@@ -318,10 +319,9 @@ function renderAvailable() {
 
     for (const p of state.policies) {
         if (filter && !p.name.toLowerCase().includes(filter) && !(p.description || '').toLowerCase().includes(filter)) continue;
-        if (!state.showHidden && HIDDEN_POLICIES.has(p.name)) {
-            hiddenCount++;
-            continue;
-        }
+        const isHidden = HIDDEN_POLICIES.has(p.name);
+        if (isHidden) hiddenCount++;
+        if (!state.showHidden && isHidden) continue;
         if (SIMPLE_POLICIES.includes(p.name)) {
             simple.push(p);
         } else {
@@ -696,8 +696,9 @@ function renderActive() {
     if (isChain && config.policies && Array.isArray(config.policies)) {
         html += '<div class="active-chain-list">';
         config.policies.forEach((sub, i) => {
-            const subPolicy = getPolicy(sub.class || sub['class']);
-            const subName = subPolicy ? subPolicy.name : (sub.class || sub['class'] || 'Unknown');
+            const classRef = sub.class || sub.class_ref;
+            const subPolicy = getPolicy(classRef);
+            const subName = subPolicy ? subPolicy.name : (classRef || 'Unknown').split(':').pop();
             html += '<div class="active-chain-item">';
             html += `<span class="chain-num">${i + 1}</span>`;
             html += `<span>${esc(subName)}</span>`;
