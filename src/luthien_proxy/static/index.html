@@ -6,7 +6,7 @@
     <title>Luthien Proxy Gateway</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/nav.css">
     <style>
         * {
@@ -25,15 +25,15 @@
         .container {
             max-width: 1200px;
             margin: 0 auto;
-            padding: 24px;
+            padding: 0 24px;
         }
 
         header {
-            margin-bottom: 32px;
+            padding: 10px 0 4px;
         }
 
         h1 {
-            font-size: 24px;
+            font-size: clamp(1.3rem, 3vw, 1.8rem);
             font-weight: 600;
             color: #fafafa;
             margin-bottom: 4px;
@@ -45,43 +45,39 @@
             font-size: 14px;
         }
 
-        h2 {
-            font-size: 16px;
-            font-weight: 600;
-            color: #fafafa;
-            margin-bottom: 16px;
-            letter-spacing: -0.02em;
-        }
-
-        .section {
-            background: #18181b;
-            border: 1px solid #27272a;
-            border-radius: 8px;
-            padding: 20px;
+        .section-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.1rem;
+            font-weight: 700;
+            letter-spacing: 0.18em;
+            color: #a1a1aa;
             margin-bottom: 20px;
-            transition: border-color 0.2s;
         }
 
-        .section:hover {
-            border-color: #3f3f46;
+        /* Card list — stacked horizontal cards */
+        .card-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding: 6px 0;
         }
 
         .page-card {
-            display: block;
-            margin: 12px 0;
-            padding: 12px 16px;
-            background: #09090b;
+            display: flex;
+            align-items: stretch;
+            background: #18181b;
             border: 1px solid #27272a;
             border-radius: 8px;
             text-decoration: none;
             cursor: pointer;
-            transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+            overflow: hidden;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+            transition: border-color 0.2s, box-shadow 0.2s;
         }
 
         .page-card:hover {
             border-color: #3f3f46;
-            background: #111113;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
         }
 
         .page-card:focus-visible {
@@ -89,35 +85,59 @@
             outline-offset: 2px;
         }
 
+        .page-card .card-body {
+            width: 35%;
+            flex-shrink: 0;
+            padding: 20px 24px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .page-card .card-image {
+            width: 65%;
+            height: 264px;
+            flex-shrink: 0;
+            overflow: hidden;
+            border-left: 1px solid #27272a;
+        }
+
+        .page-card .card-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: top left;
+        }
+
         .page-card .page-name {
-            color: #6b9fff;
-            font-weight: 500;
-            font-size: 14px;
-            transition: color 0.2s;
+            color: #fafafa;
+            font-weight: 600;
+            font-size: 28px;
+            display: block;
+            margin-bottom: 8px;
         }
 
         .page-card:hover .page-name {
-            color: #93b4ff;
-        }
-
-        .page-card .page-path {
-            color: #52525b;
-            font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
-            font-size: 11px;
-            margin-left: 8px;
+            color: #6b9fff;
         }
 
         .page-card .page-desc {
-            color: #71717a;
-            margin-top: 4px;
-            font-size: 13px;
+            color: #a1a1aa;
+            font-size: 16px;
+            line-height: 1.5;
         }
 
-        details.section {
+        /* Developer Reference (collapsible) */
+        .dev-section {
+            padding: 10px 0;
+            border-top: 1px solid #27272a;
+        }
+
+        details.dev-details {
             cursor: default;
         }
 
-        details.section summary {
+        details.dev-details summary {
             cursor: pointer;
             list-style: none;
             display: flex;
@@ -127,16 +147,16 @@
             border-radius: 4px;
         }
 
-        details.section summary:focus-visible {
+        details.dev-details summary:focus-visible {
             outline: 2px solid #6b9fff;
             outline-offset: 2px;
         }
 
-        details.section summary::-webkit-details-marker {
+        details.dev-details summary::-webkit-details-marker {
             display: none;
         }
 
-        details.section summary::before {
+        details.dev-details summary::before {
             content: '';
             display: inline-block;
             width: 0;
@@ -148,31 +168,85 @@
             flex-shrink: 0;
         }
 
-        details.section summary:hover::before {
+        details.dev-details summary:hover::before {
             border-left-color: #a1a1aa;
         }
 
-        details.section[open] summary::before {
+        details.dev-details[open] summary::before {
             transform: rotate(90deg);
         }
 
-        details.section summary h2 {
+        details.dev-details summary .section-label {
             margin-bottom: 0;
         }
 
-        details.section summary:hover h2 {
-            color: #a1a1aa;
+        details.dev-details summary:hover .section-label {
+            color: #e4e4e7;
         }
 
-        details.section .details-content {
+        details.dev-details .details-content {
             margin-top: 16px;
-            border-top: 1px solid #27272a;
             padding-top: 16px;
+            border-top: 1px solid #27272a;
+        }
+
+        /* Developer Reference items */
+        .dev-subsection {
+            margin-bottom: 16px;
+        }
+
+        .dev-subsection:last-child {
+            margin-bottom: 0;
+        }
+
+        .dev-subsection h3 {
+            font-size: 14px;
+            font-weight: 500;
+            color: #a1a1aa;
+            margin-bottom: 8px;
+            letter-spacing: -0.02em;
+        }
+
+        .dev-subsection p {
+            color: #71717a;
+            font-size: 13px;
+            margin-bottom: 12px;
+        }
+
+        .dev-link {
+            display: block;
+            margin: 8px 0;
+            padding: 10px 14px;
+            background: #09090b;
+            border: 1px solid #27272a;
+            border-radius: 8px;
+            text-decoration: none;
+            transition: border-color 0.2s;
+        }
+
+        .dev-link:hover {
+            border-color: #3f3f46;
+        }
+
+        .dev-link .link-name {
+            color: #6b9fff;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .dev-link:hover .link-name {
+            text-decoration: underline;
+        }
+
+        .dev-link .link-desc {
+            color: #71717a;
+            font-size: 12px;
+            margin-top: 2px;
         }
 
         .endpoint {
-            margin: 12px 0;
-            padding: 12px 16px;
+            margin: 8px 0;
+            padding: 10px 14px;
             background: #09090b;
             border: 1px solid #27272a;
             border-radius: 8px;
@@ -198,8 +272,8 @@
 
         .endpoint .description {
             color: #71717a;
-            margin-top: 4px;
-            font-size: 13px;
+            margin-top: 2px;
+            font-size: 12px;
         }
 
         .method {
@@ -254,55 +328,38 @@
             font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
         }
 
-        .dev-subsection {
-            margin-bottom: 16px;
-        }
-
-        .dev-subsection:last-child {
-            margin-bottom: 0;
-        }
-
-        .dev-subsection h3 {
-            font-size: 14px;
-            font-weight: 500;
-            color: #a1a1aa;
-            margin-bottom: 8px;
-            letter-spacing: -0.02em;
-        }
-
-        .dev-subsection p {
-            color: #71717a;
-            font-size: 13px;
-            margin-bottom: 12px;
-        }
-
         @media (prefers-reduced-motion: reduce) {
             *, *::before, *::after {
                 transition-duration: 0.01ms !important;
             }
         }
 
-        @media (max-width: 768px) {
-            .container {
-                padding: 16px;
+        @media (max-width: 640px) {
+            header {
+                padding: 28px 0 20px;
             }
 
-            h1 {
-                font-size: 20px;
-            }
-
-            .section {
-                padding: 16px;
+            .card-list {
+                padding: 8px 0;
             }
 
             .page-card {
-                padding: 12px;
+                flex-direction: column;
             }
 
-            .page-card .page-path {
-                display: block;
-                margin-left: 0;
-                margin-top: 2px;
+            .page-card .card-body {
+                width: 100%;
+            }
+
+            .page-card .card-image {
+                width: 100%;
+                height: 100px;
+                border-left: none;
+                border-top: 1px solid #27272a;
+            }
+
+            .dev-section {
+                padding: 12px 0;
             }
         }
     </style>
@@ -324,109 +381,120 @@
             <h1>Luthien Proxy Gateway <span class="version">v0.1.0</span></h1>
         </header>
 
-        <div class="section">
-            <h2>Pages</h2>
-
+        <div class="card-list">
             <a href="/activity/monitor" class="page-card">
-                <span class="page-name">Activity</span>
-                <span class="page-path">/activity/monitor</span>
-                <div class="page-desc">Real-time activity monitor — view all gateway requests, policy events, and responses</div>
+                <div class="card-body">
+                    <span class="page-name">Activity</span>
+                    <div class="page-desc">Watch requests flow through the proxy in real time. See what Claude Code sent, what the active policy changed, and what came back.</div>
+                </div>
+                <div class="card-image">
+                    <img src="/static/screenshots/activity.png" alt="Activity Monitor" loading="lazy">
+                </div>
             </a>
 
             <a href="/history" class="page-card">
-                <span class="page-name">History</span>
-                <span class="page-path">/history</span>
-                <div class="page-desc">Browse past sessions with full message transcripts</div>
+                <div class="card-body">
+                    <span class="page-name">History</span>
+                    <div class="page-desc">Browse and review past conversations, including tool calls and policy actions. Filter by date, model, session length, or policy activity.</div>
+                </div>
+                <div class="card-image">
+                    <img src="/static/screenshots/history.png" alt="Conversation History" loading="lazy">
+                </div>
             </a>
 
             <a href="/policy-config" class="page-card">
-                <span class="page-name">Policies</span>
-                <span class="page-path">/policy-config</span>
-                <div class="page-desc">Activate, configure, and test policies</div>
+                <div class="card-body">
+                    <span class="page-name">Policies</span>
+                    <div class="page-desc">Pick which policies are active, tweak their settings, and test with a live message before committing.</div>
+                </div>
+                <div class="card-image">
+                    <img src="/static/screenshots/policies.png" alt="Policy Configuration" loading="lazy">
+                </div>
             </a>
 
             <a href="/diffs" class="page-card">
-                <span class="page-name">Diffs</span>
-                <span class="page-path">/diffs</span>
-                <div class="page-desc">Policy diff viewer — compare original vs modified requests and responses</div>
-            </a>
-
-            <a href="/credentials" class="page-card">
-                <span class="page-name">Credentials</span>
-                <span class="page-path">/credentials</span>
-                <div class="page-desc">Manage authentication modes and cached credentials</div>
-            </a>
-
-            <a href="/client-setup" class="page-card">
-                <span class="page-name">Client Setup</span>
-                <span class="page-path">/client-setup</span>
-                <div class="page-desc">Connect Claude Code to this proxy</div>
+                <div class="card-body">
+                    <span class="page-name">Diffs</span>
+                    <div class="page-desc">See exactly what the policy changed. Side-by-side view of the request or response before and after.</div>
+                </div>
+                <div class="card-image">
+                    <img src="/static/screenshots/diffs.png" alt="Policy Diff Viewer" loading="lazy">
+                </div>
             </a>
         </div>
 
-        <details class="section">
-            <summary><h2>Developer Reference</h2></summary>
-            <div class="details-content">
-                <div class="dev-subsection">
-                    <h3>API Endpoints</h3>
-                    <p>All API endpoints require admin authentication (ADMIN_API_KEY)</p>
+        <div class="dev-section">
+            <details class="dev-details">
+                <summary><span class="section-label">developer reference</span></summary>
+                <div class="details-content">
+                    <div class="dev-subsection">
+                        <h3>Pages</h3>
 
-                    <div class="endpoint">
-                        <span class="method">GET</span>
-                        <span>/api/debug/calls</span>
-                        <span class="badge api">API</span>
-                        <div class="description">List recent calls with event counts (supports <code>?limit=N</code>)</div>
+                        <a href="/credentials" class="dev-link">
+                            <span class="link-name">Credentials</span>
+                            <div class="link-desc">Choose auth mode, toggle credential validation, manage cache TTLs</div>
+                        </a>
+
+                        <a href="/client-setup" class="dev-link">
+                            <span class="link-name">Client Setup</span>
+                            <div class="link-desc">Copy-paste command to point Claude Code at this proxy</div>
+                        </a>
+
+                        <a href="/request-logs/viewer" class="dev-link" target="_blank">
+                            <span class="link-name">Request Logs</span>
+                            <div class="link-desc">HTTP-level request/response log viewer</div>
+                        </a>
                     </div>
 
-                    <div class="endpoint">
-                        <span class="method">GET</span>
-                        <span>/api/debug/calls/{call_id}/diff</span>
-                        <span class="badge api">API</span>
-                        <div class="description">JSON diff showing what the policy changed</div>
+                    <div class="dev-subsection">
+                        <h3>API Endpoints</h3>
+                        <p>All API endpoints require admin authentication (ADMIN_API_KEY)</p>
+
+                        <div class="endpoint">
+                            <span class="method">GET</span>
+                            <span>/api/debug/calls</span>
+                            <span class="badge api">API</span>
+                            <div class="description">List recent calls with event counts (supports <code>?limit=N</code>)</div>
+                        </div>
+
+                        <div class="endpoint">
+                            <span class="method">GET</span>
+                            <span>/api/debug/calls/{call_id}/diff</span>
+                            <span class="badge api">API</span>
+                            <div class="description">JSON diff showing what the policy changed</div>
+                        </div>
+
+                        <div class="endpoint">
+                            <span class="method">GET</span>
+                            <span>/api/activity/stream</span>
+                            <span class="badge api">SSE</span>
+                            <div class="description">Server-Sent Events stream of all gateway activity</div>
+                        </div>
                     </div>
 
-                    <div class="endpoint">
-                        <span class="method">GET</span>
-                        <span>/api/activity/stream</span>
-                        <span class="badge api">SSE</span>
-                        <div class="description">Server-Sent Events stream of all gateway activity</div>
+                    <div class="dev-subsection">
+                        <h3>LLM Gateway</h3>
+
+                        <div class="endpoint">
+                            <span class="method post">POST</span>
+                            <span>/v1/messages</span>
+                            <div class="description">Anthropic Messages API endpoint</div>
+                        </div>
+                    </div>
+
+                    <div class="dev-subsection">
+                        <h3>Utility</h3>
+
+                        <div class="endpoint">
+                            <span class="method">GET</span>
+                            <a href="/health">/health</a>
+                            <span class="badge">Public</span>
+                            <div class="description">Health check endpoint</div>
+                        </div>
                     </div>
                 </div>
-
-                <div class="dev-subsection">
-                    <h3>LLM Gateway</h3>
-
-                    <div class="endpoint">
-                        <span class="method post">POST</span>
-                        <span>/v1/messages</span>
-                        <div class="description">Anthropic Messages API endpoint</div>
-                    </div>
-                </div>
-
-                <div class="dev-subsection">
-                    <h3>Utility</h3>
-
-                    <div class="endpoint">
-                        <span class="method">GET</span>
-                        <a href="/health">/health</a>
-                        <span class="badge">Public</span>
-                        <div class="description">Health check endpoint</div>
-                    </div>
-                </div>
-
-                <div class="dev-subsection">
-                    <h3>Request Logs</h3>
-
-                    <div class="endpoint">
-                        <span class="method">GET</span>
-                        <a href="/request-logs/viewer" target="_blank">/request-logs/viewer</a>
-                        <span class="badge ui">UI</span>
-                        <span class="badge">Auth Required</span>
-                        <div class="description">HTTP-level request/response log viewer — inspect raw inbound and outbound traffic</div>
-                    </div>
-                </div>
-            </div>
-        </details>
+            </details>
+        </div>
     </div>
 
     <script defer src="/static/vendor/alpine.min.js"></script>
