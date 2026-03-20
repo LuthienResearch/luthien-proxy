@@ -35,7 +35,6 @@ from luthien_proxy.observability.event_publisher import (
 )
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.observability.sentry import init_sentry
-from luthien_proxy.pipeline.client_format import ClientFormat
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.request_log import router as request_log_router
 from luthien_proxy.session import login_page_router
