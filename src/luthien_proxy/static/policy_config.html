@@ -55,18 +55,22 @@
             grid-template-columns: 0.85fr 1.15fr 1.15fr;
             gap: 12px;
             padding: 12px 16px;
-            flex: 1;
-            min-height: 0;
+            align-items: start;
         }
         .column {
             background: #18181b; border: 1px solid #27272a; border-radius: 8px;
             display: flex; flex-direction: column;
-            min-height: calc(100vh - 80px);
+            min-height: 200px;
             overflow: hidden;
         }
+        /* Proposed and Active stick to top while scrolling Available */
+        #col-proposed, #col-active {
+            position: sticky; top: 12px;
+            max-height: calc(100vh - 24px);
+        }
         .col-header {
-            font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
-            color: #52525b; padding: 12px 16px 8px; flex-shrink: 0;
+            font-size: 16px; font-weight: 600; letter-spacing: 0.5px;
+            color: #a1a1aa; padding: 14px 16px 10px; flex-shrink: 0;
         }
         .col-body {
             flex: 1; overflow-y: auto; padding: 0 16px 16px;
@@ -145,18 +149,6 @@
         .proposed-name { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
         .proposed-desc { font-size: 13px; color: #a1a1aa; margin-bottom: 12px; }
 
-        /* Mode toggle */
-        .mode-toggle {
-            display: flex; gap: 0;
-            border: 1px solid #27272a; border-radius: 4px; overflow: hidden;
-        }
-        .mode-btn {
-            flex: 1; padding: 4px 10px; font-size: 12px; text-align: center;
-            background: transparent; color: #71717a; border: none; cursor: pointer;
-            transition: all 0.15s; font-family: inherit;
-        }
-        .mode-btn.active { background: #27272a; color: #e4e4e7; }
-
         /* Config form */
         .config-form label {
             display: block; font-size: 12px; color: #71717a; margin-bottom: 3px; margin-top: 10px;
@@ -213,6 +205,7 @@
         .chain-item {
             background: #09090b; border: 1px solid #27272a; border-radius: 6px;
             padding: 10px 12px; margin-bottom: 6px;
+            border-left: 3px solid #6b9fff;
         }
         .chain-item-header { display: flex; align-items: center; gap: 8px; }
         .chain-num {
@@ -221,14 +214,15 @@
         }
         .chain-item-name { font-weight: 600; font-size: 14px; flex: 1; }
         .chain-item-desc { font-size: 11px; color: #52525b; margin-top: 2px; }
-        .chain-actions { display: flex; gap: 2px; }
+        .chain-actions { display: flex; gap: 4px; }
         .chain-btn {
-            background: none; border: none; color: #52525b; cursor: pointer;
-            font-size: 14px; padding: 2px 4px; border-radius: 3px; font-family: inherit;
+            background: #27272a; border: 1px solid #3f3f46; color: #a1a1aa; cursor: pointer;
+            font-size: 14px; padding: 2px 6px; border-radius: 4px; font-family: inherit;
+            transition: all 0.15s;
         }
-        .chain-btn:hover { color: #e4e4e7; background: #27272a; }
+        .chain-btn:hover { color: #e4e4e7; background: #3f3f46; border-color: #52525b; }
         .chain-item .config-form { margin-top: 8px; padding-top: 8px; border-top: 1px solid #27272a; }
-        .chain-divider { text-align: center; color: #3f3f46; font-size: 11px; padding: 2px 0; }
+        .chain-divider { text-align: center; color: #6b9fff; font-size: 13px; padding: 4px 0; opacity: 0.6; }
 
         /* Active column */
         .active-label { font-size: 11px; color: #71717a; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
@@ -491,6 +485,110 @@
 
         [x-cloak] { display: none !important; }
 
+        /* Policy card add button */
+        .p-add-btn {
+            margin-left: auto; font-size: 20px; font-weight: 700; line-height: 1;
+            color: #a1a1aa; background: #27272a; border: 1px solid #3f3f46;
+            border-radius: 6px; width: 30px; height: 30px; cursor: pointer;
+            transition: all 0.15s; flex-shrink: 0; position: relative;
+        }
+        .p-add-btn:hover { color: #fff; background: #6b9fff; border-color: #6b9fff; }
+
+        /* Instant tooltip */
+        .p-add-tooltip {
+            position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%);
+            background: #27272a; border: 1px solid #3f3f46; color: #e4e4e7;
+            padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 400;
+            white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.1s;
+            z-index: 10;
+        }
+        .p-add-btn:hover .p-add-tooltip { opacity: 1; }
+        .policy-card.in-chain { border-left: 3px solid #6b9fff; }
+        .policy-card.in-chain .p-add-btn { color: #6b9fff; border-color: #6b9fff44; }
+        .policy-card.is-active { border-left: 3px solid #4ade80; }
+        /* Both proposed and active: split gradient border via pseudo-element */
+        .policy-card.in-chain.is-active {
+            border-left: 3px solid;
+            border-image: linear-gradient(to bottom, #6b9fff, #4ade80) 1;
+        }
+        .policy-card.expanded { background: #111114; border-color: #3f3f46; }
+        .p-full-desc { font-size: 12px; color: #a1a1aa; margin-top: 6px; line-height: 1.5; }
+        .p-config-detail { font-size: 11px; color: #52525b; margin-top: 4px; }
+
+        /* Available hint */
+        .available-hint {
+            font-size: 12px; color: #52525b; text-align: center;
+            padding: 8px 12px; margin-bottom: 4px;
+            border: 1px dashed #27272a; border-radius: 6px;
+        }
+
+        /* Show/hide internal policies */
+        .show-hidden-btn {
+            width: 100%; margin-top: 8px; padding: 6px 0;
+            background: none; border: none; color: #52525b;
+            font-size: 11px; cursor: pointer; font-family: inherit;
+        }
+        .show-hidden-btn:hover { color: #a1a1aa; }
+
+        /* Empty chain state */
+        .empty-chain-state { text-align: center; padding: 40px 20px; }
+        .empty-chain-icon {
+            font-size: 32px; font-weight: 700; color: #27272a;
+            width: 56px; height: 56px; line-height: 56px;
+            border: 2px dashed #27272a; border-radius: 50%;
+            margin: 0 auto 12px; transition: all 0.15s;
+        }
+        .empty-chain-title { font-size: 16px; font-weight: 600; color: #a1a1aa; margin-bottom: 6px; }
+        .empty-chain-desc { font-size: 13px; color: #52525b; line-height: 1.5; }
+
+        /* Chain header */
+        .chain-header-row {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .chain-title { font-size: 14px; font-weight: 600; color: #e4e4e7; }
+        .chain-count { font-size: 12px; color: #52525b; }
+
+        /* Chain items — improved */
+        .chain-item.expanded { background: #111114; border-color: #3f3f46; }
+        .chain-item-name { cursor: pointer; }
+        .chain-item-name:hover { color: #6b9fff; }
+        .chain-item-config-hint {
+            font-size: 11px; color: #52525b; cursor: pointer;
+            padding-left: 26px; margin-top: 2px;
+        }
+        .chain-item-config-hint:hover { color: #6b9fff; }
+        .chain-btn:disabled { opacity: 0.35; cursor: default; background: #1c1c1f; border-color: #27272a; color: #3f3f46; }
+        .chain-btn-remove:hover { color: #f87171; border-color: #f87171; background: #2a1a1a; }
+
+        /* Hint at bottom of chain */
+        .chain-add-hint {
+            text-align: center; padding: 10px 12px; margin-top: 8px;
+            color: #52525b; font-size: 12px;
+        }
+        .chain-add-hint strong { color: #6b9fff; }
+
+        /* Active chain display */
+        .active-chain-list {
+            background: #0d150d; border-radius: 6px; padding: 8px 12px;
+            margin-bottom: 8px;
+        }
+        .active-chain-item {
+            display: flex; align-items: center; gap: 8px;
+            padding: 8px 10px;
+            font-size: 14px; font-weight: 500;
+            border-left: 3px solid #4ade80;
+            margin-bottom: 4px; border-radius: 4px;
+        }
+        .active-chain-item + .active-chain-item {
+            border-top: 1px solid #1a3a1a;
+        }
+        .active-chain-item-config {
+            padding: 4px 0 8px 26px;
+            font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+            font-size: 11px;
+        }
+
         /* Reduced motion */
         @media (prefers-reduced-motion: reduce) {
             *, *::before, *::after { transition-duration: 0.01ms !important; }
@@ -500,6 +598,7 @@
         @media (max-width: 1000px) {
             .columns { grid-template-columns: 1fr; gap: 8px; }
             .column { min-height: 350px; }
+            #col-proposed, #col-active { position: static; max-height: none; }
             .test-results.visible { grid-template-columns: 1fr; }
         }
     </style>
@@ -552,15 +651,9 @@
 
     <!-- Proposed -->
     <div class="column" id="col-proposed">
-        <div class="col-header" style="display:flex;align-items:center;justify-content:space-between;">
-            <span>Proposed</span>
-            <div class="mode-toggle" id="mode-toggle">
-                <button class="mode-btn active" data-mode="single">Single</button>
-                <button class="mode-btn" data-mode="chain">Chain</button>
-            </div>
-        </div>
+        <div class="col-header">Proposed</div>
         <div class="col-body" id="proposed-body">
-            <div class="empty-state" id="proposed-empty">&larr; Select a policy to configure</div>
+            <div class="empty-state" id="proposed-empty"></div>
             <div id="proposed-content" style="display:none;"></div>
         </div>
     </div>
