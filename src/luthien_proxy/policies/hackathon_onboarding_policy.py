@@ -15,24 +15,9 @@ Example config:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pydantic import Field
 
-from pydantic import BaseModel, Field
-
-from luthien_proxy.policies.onboarding_policy import is_first_turn
-from luthien_proxy.policy_core import TextModifierPolicy
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, AsyncIterator
-
-    from anthropic.lib.streaming import MessageStreamEvent
-
-    from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
-    from luthien_proxy.policy_core import (
-        AnthropicPolicyEmission,
-        AnthropicPolicyIOProtocol,
-    )
-    from luthien_proxy.policy_core.policy_context import PolicyContext
+from luthien_proxy.policies.onboarding_policy import OnboardingPolicy, OnboardingPolicyConfig
 
 
 WELCOME_MESSAGE = """
@@ -71,13 +56,13 @@ view conversation events, diffs, and policy execution traces.
 ---"""
 
 
-class HackathonOnboardingPolicyConfig(BaseModel):
+class HackathonOnboardingPolicyConfig(OnboardingPolicyConfig):
     """Configuration for HackathonOnboardingPolicy."""
 
     gateway_url: str = Field(default="http://localhost:8000", description="Gateway URL for config UI links")
 
 
-class HackathonOnboardingPolicy(TextModifierPolicy):
+class HackathonOnboardingPolicy(OnboardingPolicy):
     """Appends a hackathon-focused welcome message to the first response in a conversation.
 
     On subsequent turns (when the request contains prior assistant messages),
@@ -91,54 +76,8 @@ class HackathonOnboardingPolicy(TextModifierPolicy):
         self._welcome = WELCOME_MESSAGE.format(gateway_url=self._gateway_url)
 
     def extra_text(self) -> str | None:
-        """Return the welcome message. All callers are gated by is_first_turn()."""
+        """Return the hackathon welcome message."""
         return self._welcome
-
-    def run_anthropic(
-        self, io: AnthropicPolicyIOProtocol, context: PolicyContext
-    ) -> AsyncIterator[AnthropicPolicyEmission]:
-        """Only apply text modification on the first turn; passthrough otherwise.
-
-        Intentionally a plain def (not async def) — both branches return
-        async iterators directly.
-        """
-        if is_first_turn(io.request):
-            return super().run_anthropic(io, context)
-
-        return self._passthrough(io)
-
-    async def _passthrough(self, io: AnthropicPolicyIOProtocol) -> AsyncGenerator[AnthropicPolicyEmission, None]:
-        """Stream or complete with zero modifications."""
-        request = io.request
-        if request.get("stream", False):
-            async for event in io.stream(request):
-                yield event
-        else:
-            yield await io.complete(request)
-
-    async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
-        """Pass through request unchanged."""
-        return request
-
-    async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
-        """For non-streaming in MultiSerialPolicy composition: only modify on first turn."""
-        if context.request and is_first_turn(context.request):
-            return await super().on_anthropic_response(response, context)
-        return response
-
-    async def on_anthropic_stream_event(
-        self, event: MessageStreamEvent, context: PolicyContext
-    ) -> list[MessageStreamEvent]:
-        """For streaming in MultiSerialPolicy composition: passthrough (extra_text handles the append)."""
-        if context.request and is_first_turn(context.request):
-            return await super().on_anthropic_stream_event(event, context)
-        return [event]
-
-    async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
-        """Emit welcome text block after stream ends, but only on first turn."""
-        if context.request and is_first_turn(context.request):
-            return await super().on_anthropic_stream_complete(context)
-        return []
 
 
 __all__ = ["HackathonOnboardingPolicy", "HackathonOnboardingPolicyConfig"]

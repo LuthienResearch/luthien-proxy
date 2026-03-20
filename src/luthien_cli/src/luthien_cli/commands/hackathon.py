@@ -236,7 +236,6 @@ def _start_hackathon_gateway(console: Console, repo_path: Path, port: int) -> in
         raise RuntimeError("uv not found")
 
     log_path = repo_path / LOG_FILE
-    log_handle = open(log_path, "a")
 
     env = os.environ.copy()
     env_file = repo_path / ".env"
@@ -250,7 +249,7 @@ def _start_hackathon_gateway(console: Console, repo_path: Path, port: int) -> in
                 env[key.strip()] = _parse_env_value(value.strip())
     env["GATEWAY_PORT"] = str(port)
 
-    try:
+    with open(log_path, "a") as log_handle:
         proc = subprocess.Popen(
             [uv, "run", "python", "-m", "luthien_proxy.main"],
             stdout=log_handle,
@@ -259,11 +258,6 @@ def _start_hackathon_gateway(console: Console, repo_path: Path, port: int) -> in
             env=env,
             cwd=str(repo_path),
         )
-    except Exception:
-        log_handle.close()
-        raise
-
-    log_handle.close()
 
     try:
         pid_path.write_text(str(proc.pid))
@@ -279,7 +273,6 @@ def _show_hackathon_guide(
     gateway_url: str,
     repo_path: Path,
     policy_name: str,
-    admin_key: str,
 ) -> None:
     """Print the hackathon getting-started guide."""
 
@@ -295,9 +288,11 @@ def _show_hackathon_guide(
 
                 [bold]Hot-reload your policy (no restart needed):[/bold]
                   curl -X POST {gateway_url}/api/admin/policy/set \\
-                    -H "Authorization: Bearer {admin_key}" \\
+                    -H "Authorization: Bearer $ADMIN_API_KEY" \\
                     -H "Content-Type: application/json" \\
                     -d '{{"policy_class_ref": "luthien_proxy.policies.hackathon_policy_template:HackathonPolicy"}}'
+
+                [dim]Your ADMIN_API_KEY is in .env in the repo root.[/dim]
 
                 [bold]Or edit config/policy_config.yaml and restart the gateway.[/bold]"""),
             title="Cheatsheet",
@@ -388,22 +383,6 @@ def _show_hackathon_guide(
     )
 
 
-def _read_single_key() -> str:
-    """Read a single keypress without waiting for Enter (Unix/macOS only)."""
-    if not sys.stdin.isatty():
-        return sys.stdin.read(1) or "\n"
-
-    import termios
-    import tty
-
-    fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        ch = sys.stdin.read(1)
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-    return ch
 
 
 @click.command()
@@ -485,12 +464,12 @@ def hackathon(path: str, yes: bool) -> None:
         raise SystemExit(1)
 
     # 8. Show guide
-    _show_hackathon_guide(console, gateway_url, clone_path, policy_name, admin_key)
+    _show_hackathon_guide(console, gateway_url, clone_path, policy_name)
 
     # 9. Launch Claude Code
     console.print("[bold]Press any key to launch Claude Code through the proxy, or q to quit.[/bold]")
     try:
-        key = _read_single_key()
+        key = click.getchar()
         if key.lower() == "q":
             return
     except (KeyboardInterrupt, EOFError):
