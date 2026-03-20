@@ -45,6 +45,17 @@ jobs:
             echo "count=$CHANGED" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Install uv and run tests
+        if: steps.changes.outputs.count != '0'
+        uses: astral-sh/setup-uv@v2
+        with:
+          python-version: "3.13"
+
+      - name: Run CLI tests
+        if: steps.changes.outputs.count != '0'
+        working-directory: src/luthien_cli
+        run: uv run pytest tests/ -v
+
       - name: Bump patch and tag
         if: steps.changes.outputs.count != '0'
         env:
