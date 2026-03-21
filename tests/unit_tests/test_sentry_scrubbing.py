@@ -157,6 +157,22 @@ class TestBeforeSend:
         hint = {"exc_info": (SystemExit, SystemExit(0), None)}
         assert _sentry_before_send(event, hint) is None
 
+    def test_drops_keyboard_interrupt_with_real_exc_info(self):
+        import sys
+
+        try:
+            raise KeyboardInterrupt
+        except KeyboardInterrupt:
+            real_exc_info = sys.exc_info()
+
+        event = self._make_event()
+        assert _sentry_before_send(event, {"exc_info": real_exc_info}) is None
+
+    def test_non_tuple_exc_info_does_not_crash(self):
+        event = self._make_event()
+        result = _sentry_before_send(event, {"exc_info": "not-a-tuple"})
+        assert result is not None
+
     def test_strips_server_name(self):
         event = self._make_event()
         hint = {}

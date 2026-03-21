@@ -345,7 +345,7 @@ def onboard(use_docker: bool, yes: bool):
 
     proxy_key = _generate_key("sk-luthien")
     admin_key = _generate_key("admin")
-    sentry_enabled, sentry_dsn = _prompt_for_sentry(console)
+    sentry_enabled, sentry_dsn = (False, "") if yes else _prompt_for_sentry(console)
 
     if use_docker:
         _onboard_docker(console, config, proxy_key, admin_key, sentry_enabled, sentry_dsn)

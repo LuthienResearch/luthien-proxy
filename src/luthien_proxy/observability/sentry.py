@@ -90,10 +90,9 @@ def _sentry_before_send(event: Event, hint: Hint) -> Event | None:
     Mutates event in-place per Sentry's before_send contract. Return None to
     drop the event entirely, or the (mutated) event to send it.
     """
-    if "exc_info" in hint:
-        exc_type = hint["exc_info"][0]
-        if exc_type in {KeyboardInterrupt, SystemExit}:
-            return None
+    exc_info = hint.get("exc_info")
+    if isinstance(exc_info, tuple) and exc_info[0] in {KeyboardInterrupt, SystemExit}:
+        return None
 
     event.pop("server_name", None)
 
