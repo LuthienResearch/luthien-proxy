@@ -8,6 +8,7 @@ import shutil
 import click
 from rich.console import Console
 
+from luthien_cli.commands.up import ensure_gateway_up
 from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config
 
 
@@ -15,13 +16,17 @@ def _launch_claude(console: Console, extra_args: list[str] | None = None) -> Non
     """Launch Claude Code through the configured gateway.
 
     Called by both `luthien claude` and `luthien onboard` (after setup).
+    Automatically starts the gateway if it isn't running.
     """
-    config = load_config(DEFAULT_CONFIG_PATH)
-
     claude_path = shutil.which("claude")
     if not claude_path:
         console.print("[red]Claude Code CLI not found. Install: npm install -g @anthropic-ai/claude-cli[/red]")
         raise SystemExit(1)
+
+    # Ensure the gateway is running before handing off to Claude Code.
+    # ensure_gateway_up is idempotent — returns immediately if already healthy.
+    ensure_gateway_up(console)
+    config = load_config(DEFAULT_CONFIG_PATH)
 
     gateway_url = config.gateway_url.rstrip("/") + "/"
 
