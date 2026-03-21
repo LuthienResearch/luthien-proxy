@@ -47,7 +47,7 @@ _LLM_CONTENT_VARS = {
 _SAFE_REQUEST_KEYS = {"model", "stream", "max_tokens", "temperature", "top_p", "top_k"}
 _SAFE_HEADERS = {"content-type", "accept", "user-agent", "x-request-id"}
 
-_EXTRA_DENYLIST: tuple[str, ...] = (
+_EXTRA_DENYLIST: list[str] = [
     "anthropic_api_key",
     "openai_api_key",
     "proxy_api_key",
@@ -56,7 +56,7 @@ _EXTRA_DENYLIST: tuple[str, ...] = (
     "explicit_key",
     "bearer_token",
     "api_key_header",
-)
+]
 
 
 def _summarize(value: Any) -> Any:
@@ -139,6 +139,6 @@ def init_sentry(settings: Settings | None = None) -> None:
         server_name=settings.sentry_server_name or None,
         before_send=_sentry_before_send,
         in_app_include=["luthien_proxy"],
-        event_scrubber=EventScrubber(denylist=DEFAULT_DENYLIST + list(_EXTRA_DENYLIST)),
+        event_scrubber=EventScrubber(denylist=DEFAULT_DENYLIST + _EXTRA_DENYLIST),
     )
     logger.info("Sentry initialized (env=%s)", settings.environment)

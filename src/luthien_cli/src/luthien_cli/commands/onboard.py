@@ -54,12 +54,6 @@ def _generate_key(prefix: str) -> str:
     return f"{prefix}-{secrets.token_urlsafe(24)}"
 
 
-def _indent_instructions(text: str, indent: int = 6) -> str:
-    lines = text.strip().splitlines()
-    prefix = " " * indent
-    return "\n".join(f"{prefix}{line}" for line in lines)
-
-
 def _ensure_env(
     repo_path: str,
     proxy_key: str,
@@ -127,17 +121,6 @@ def _write_policy(repo_path: str, gateway_url: str) -> None:
 
     with open(f"{config_dir}/policy_config.yaml", "w") as f:
         f.write(yaml_content)
-
-
-def _prompt_for_policy(console: Console) -> str:
-    console.print("\n[bold]Describe the policy you'd like applied to LLM responses.[/bold]")
-    console.print(
-        "[dim]Examples:\n"
-        '  "Block any PII such as SSNs, credit card numbers, and email addresses"\n'
-        '  "Ensure responses are professional and appropriate for a workplace"\n'
-        '  "Redact any internal hostnames or IP addresses"[/dim]\n'
-    )
-    return click.prompt("Policy instructions")
 
 
 def _prompt_for_sentry(console: Console) -> tuple[bool, str]:
