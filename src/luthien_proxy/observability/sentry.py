@@ -37,7 +37,7 @@ _LLM_CONTENT_VARS = {
     "final_request_dict",
     "anthropic_request",
     "initial_request",
-    "response",
+    "backend_response",
     "final_response",
     "emitted",
     "accumulated_events",
