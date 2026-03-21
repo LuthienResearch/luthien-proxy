@@ -55,7 +55,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _set_environment_from_railway(self) -> "Settings":
-        if self.environment == "development" and self.railway_service_name:
+        if self.railway_service_name and self.environment in ("development", ""):
             self.environment = self.railway_service_name
         return self
 
