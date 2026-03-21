@@ -17,78 +17,61 @@ class TestSummarize:
     """Tests for _summarize() function."""
 
     def test_none_returns_none(self):
-        summarize = _summarize
-        assert summarize(None) is None
+        assert _summarize(None) is None
 
     def test_bool_preserved_true(self):
-        summarize = _summarize
-        assert summarize(True) is True
+        assert _summarize(True) is True
 
     def test_bool_preserved_false(self):
-        summarize = _summarize
-        assert summarize(False) is False
+        assert _summarize(False) is False
 
     def test_int_preserved_positive(self):
-        summarize = _summarize
-        assert summarize(42) == 42
+        assert _summarize(42) == 42
 
     def test_int_preserved_zero(self):
-        summarize = _summarize
-        assert summarize(0) == 0
+        assert _summarize(0) == 0
 
     def test_float_preserved(self):
-        summarize = _summarize
-        assert summarize(3.14) == 3.14
+        assert _summarize(3.14) == 3.14
 
     def test_str_replaced_with_length(self):
-        summarize = _summarize
-        assert summarize("hello") == "<str len=5>"
+        assert _summarize("hello") == "<str len=5>"
 
     def test_str_empty(self):
-        summarize = _summarize
-        assert summarize("") == "<str len=0>"
+        assert _summarize("") == "<str len=0>"
 
     def test_bytes_replaced_with_length(self):
-        summarize = _summarize
-        assert summarize(b"binary data") == "<bytes len=11>"
+        assert _summarize(b"binary data") == "<bytes len=11>"
 
     def test_bytes_empty(self):
-        summarize = _summarize
-        assert summarize(b"") == "<bytes len=0>"
+        assert _summarize(b"") == "<bytes len=0>"
 
     def test_list_replaced_with_length(self):
-        summarize = _summarize
-        assert summarize([1, 2, 3]) == "<list len=3>"
+        assert _summarize([1, 2, 3]) == "<list len=3>"
 
     def test_list_empty(self):
-        summarize = _summarize
-        assert summarize([]) == "<list len=0>"
+        assert _summarize([]) == "<list len=0>"
 
     def test_dict_shows_keys(self):
-        summarize = _summarize
-        result = summarize({"model": "claude", "messages": []})
+        result = _summarize({"model": "claude", "messages": []})
         assert result == "<dict keys=['model', 'messages']>"
 
     def test_dict_keys_truncated_at_8(self):
-        summarize = _summarize
         large_dict = {f"key_{i}": i for i in range(20)}
-        result = summarize(large_dict)
+        result = _summarize(large_dict)
         assert "key_7" in result
         assert "key_8" not in result
         assert "..." in result
 
     def test_dict_no_truncation_indicator_when_8_or_fewer(self):
-        summarize = _summarize
-        result = summarize({f"key_{i}": i for i in range(8)})
+        result = _summarize({f"key_{i}": i for i in range(8)})
         assert "..." not in result
 
     def test_unknown_type_object(self):
-        summarize = _summarize
-        assert summarize(object()) == "<object>"
+        assert _summarize(object()) == "<object>"
 
     def test_unknown_type_set(self):
-        summarize = _summarize
-        assert summarize(set()) == "<set>"
+        assert _summarize(set()) == "<set>"
 
 
 class TestBeforeSend:
@@ -165,36 +148,31 @@ class TestBeforeSend:
         return event
 
     def test_drops_keyboard_interrupt(self):
-        before_send = _sentry_before_send
         event = self._make_event()
         hint = {"exc_info": (KeyboardInterrupt, KeyboardInterrupt(), None)}
-        assert before_send(event, hint) is None
+        assert _sentry_before_send(event, hint) is None
 
     def test_drops_system_exit(self):
-        before_send = _sentry_before_send
         event = self._make_event()
         hint = {"exc_info": (SystemExit, SystemExit(0), None)}
-        assert before_send(event, hint) is None
+        assert _sentry_before_send(event, hint) is None
 
     def test_strips_server_name(self):
-        before_send = _sentry_before_send
         event = self._make_event()
         hint = {}
-        result = before_send(event, hint)
+        result = _sentry_before_send(event, hint)
         assert "server_name" not in result
 
     def test_strips_cookies(self):
-        before_send = _sentry_before_send
         event = self._make_event()
         hint = {}
-        result = before_send(event, hint)
+        result = _sentry_before_send(event, hint)
         assert "cookies" not in result["request"]
 
     def test_keeps_safe_headers(self):
-        before_send = _sentry_before_send
         event = self._make_event()
         hint = {}
-        result = before_send(event, hint)
+        result = _sentry_before_send(event, hint)
         headers = result["request"]["headers"]
         assert headers["content-type"] == "application/json"
         assert headers["x-request-id"] == "req-123"
@@ -202,19 +180,17 @@ class TestBeforeSend:
         assert headers["user-agent"] == "Claude/1.0"
 
     def test_redacts_auth_headers(self):
-        before_send = _sentry_before_send
         event = self._make_event()
         hint = {}
-        result = before_send(event, hint)
+        result = _sentry_before_send(event, hint)
         headers = result["request"]["headers"]
         assert headers["authorization"] == "[REDACTED]"
         assert headers["x-api-key"] == "[REDACTED]"
 
     def test_keeps_safe_request_body_keys(self):
-        before_send = _sentry_before_send
         event = self._make_event()
         hint = {}
-        result = before_send(event, hint)
+        result = _sentry_before_send(event, hint)
         data = result["request"]["data"]
         assert data["model"] == "claude-sonnet-4"
         assert data["max_tokens"] == 1024
@@ -222,36 +198,37 @@ class TestBeforeSend:
         assert data["temperature"] == 0.7
 
     def test_summarizes_llm_content_in_request_body(self):
-        before_send = _sentry_before_send
         event = self._make_event()
         hint = {}
-        result = before_send(event, hint)
+        result = _sentry_before_send(event, hint)
         data = result["request"]["data"]
         assert data["messages"] == "<list len=1>"
         assert data["system"] == "<str len=15>"
 
     def test_summarizes_string_request_body(self):
-        before_send = _sentry_before_send
         event = self._make_event()
         event["request"]["data"] = '{"model": "claude", "messages": [{"role": "user", "content": "secret prompt"}]}'
-        hint = {}
-        result = before_send(event, hint)
+        result = _sentry_before_send(event, hint={})
         assert result["request"]["data"] == "<str len=79>"
 
     def test_non_dict_non_string_request_data_does_not_crash(self):
-        before_send = _sentry_before_send
-        for value in (None, 42, b"raw bytes", ["list", "data"], 3.14):
+        for value in (None, 42, b"raw bytes", 3.14):
             event = self._make_event()
             event["request"]["data"] = value
-            result = before_send(event, hint={})
+            result = _sentry_before_send(event, hint={})
             assert result is not None
             assert result["request"]["data"] == value
 
+    def test_list_request_data_is_summarized(self):
+        event = self._make_event()
+        event["request"]["data"] = ["item1", "item2"]
+        result = _sentry_before_send(event, hint={})
+        assert result["request"]["data"] == "<list len=2>"
+
     def test_keeps_safe_frame_vars(self):
-        before_send = _sentry_before_send
         event = self._make_event()
         hint = {}
-        result = before_send(event, hint)
+        result = _sentry_before_send(event, hint)
         frame_vars = result["exception"]["values"][0]["stacktrace"]["frames"][0]["vars"]
         assert frame_vars["call_id"] == "uuid-123"
         assert frame_vars["chunk_count"] == 42
@@ -259,54 +236,79 @@ class TestBeforeSend:
         assert frame_vars["model"] == "claude-sonnet"
 
     def test_summarizes_llm_content_vars(self):
-        before_send = _sentry_before_send
         event = self._make_event()
         hint = {}
-        result = before_send(event, hint)
+        result = _sentry_before_send(event, hint)
         frame_vars = result["exception"]["values"][0]["stacktrace"]["frames"][0]["vars"]
         assert "dict keys=" in frame_vars["body"]
         assert "dict keys=" in frame_vars["final_response"]
         assert frame_vars["messages"] == "<list len=1>"
 
     def test_handles_missing_request(self):
-        before_send = _sentry_before_send
         event = self._make_event(include_request=False)
         hint = {}
-        result = before_send(event, hint)
+        result = _sentry_before_send(event, hint)
         assert "request" not in result
         assert "server_name" not in result
 
     def test_handles_missing_exception(self):
-        before_send = _sentry_before_send
         event = self._make_event(include_exception=False)
         hint = {}
-        result = before_send(event, hint)
+        result = _sentry_before_send(event, hint)
         assert "exception" not in result
         assert "server_name" not in result
 
     def test_handles_empty_frame_vars(self):
-        before_send = _sentry_before_send
         event = self._make_event(frame_vars_empty=True)
         hint = {}
-        result = before_send(event, hint)
+        result = _sentry_before_send(event, hint)
         frame_vars = result["exception"]["values"][0]["stacktrace"]["frames"][0]["vars"]
         assert frame_vars == {}
 
     def test_handles_no_frame_vars_key(self):
-        before_send = _sentry_before_send
         event = self._make_event(include_frame_vars=False)
         hint = {}
-        result = before_send(event, hint)
+        result = _sentry_before_send(event, hint)
         frame = result["exception"]["values"][0]["stacktrace"]["frames"][0]
         assert "vars" not in frame
 
     def test_handles_non_dict_headers(self):
-        before_send = _sentry_before_send
         event = self._make_event()
         event["request"]["headers"] = "raw-header-string"
-        hint = {}
-        result = before_send(event, hint)
+        result = _sentry_before_send(event, hint={})
         assert result["request"]["headers"] == "raw-header-string"
+
+    def test_missing_stacktrace_does_not_crash(self):
+        event = self._make_event()
+        event["exception"]["values"][0].pop("stacktrace", None)
+        result = _sentry_before_send(event, hint={})
+        assert result is not None
+
+    def test_non_exception_event_passes_through(self):
+        event = {"message": "a log capture", "level": "info"}
+        result = _sentry_before_send(event, hint={})
+        assert result is not None
+        assert result["message"] == "a log capture"
+
+    def test_ignore_logger_called_on_init(self, monkeypatch):
+        monkeypatch.setenv("SENTRY_ENABLED", "true")
+        monkeypatch.setenv("SENTRY_DSN", "https://fake@sentry.io/0")
+
+        from unittest.mock import patch
+
+        from luthien_proxy.observability.sentry import init_sentry
+        from luthien_proxy.settings import Settings, clear_settings_cache
+
+        clear_settings_cache()
+        settings = Settings(_env_file=None)
+
+        with (
+            patch("luthien_proxy.observability.sentry.sentry_sdk.init"),
+            patch("luthien_proxy.observability.sentry.ignore_logger") as mock_ignore,
+        ):
+            init_sentry(settings)
+
+        mock_ignore.assert_called_once_with("opentelemetry.sdk.trace.export")
 
 
 class TestSentryDisabledInTests:
