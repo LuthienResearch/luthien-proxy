@@ -238,6 +238,15 @@ class TestBeforeSend:
         result = before_send(event, hint)
         assert result["request"]["data"] == "<str len=79>"
 
+    def test_non_dict_non_string_request_data_does_not_crash(self):
+        before_send = _sentry_before_send
+        for value in (None, 42, b"raw bytes", ["list", "data"], 3.14):
+            event = self._make_event()
+            event["request"]["data"] = value
+            result = before_send(event, hint={})
+            assert result is not None
+            assert result["request"]["data"] == value
+
     def test_keeps_safe_frame_vars(self):
         before_send = _sentry_before_send
         event = self._make_event()
@@ -334,3 +343,29 @@ class TestSentryDisabledInTests:
         settings = Settings(_env_file=None)
         init_sentry(settings)
         assert not sentry_sdk.is_initialized()
+
+
+class TestInitSentryHappyPath:
+    def test_init_sentry_calls_sdk_init_with_expected_kwargs(self, monkeypatch):
+        monkeypatch.setenv("SENTRY_ENABLED", "true")
+        monkeypatch.setenv("SENTRY_DSN", "https://fake@sentry.io/0")
+        monkeypatch.setenv("ENVIRONMENT", "production")
+
+        from unittest.mock import patch
+
+        from luthien_proxy.observability.sentry import init_sentry
+        from luthien_proxy.settings import Settings, clear_settings_cache
+
+        clear_settings_cache()
+        settings = Settings(_env_file=None)
+
+        with patch("luthien_proxy.observability.sentry.sentry_sdk.init") as mock_init:
+            init_sentry(settings)
+
+        mock_init.assert_called_once()
+        kwargs = mock_init.call_args.kwargs
+        assert kwargs["dsn"] == "https://fake@sentry.io/0"
+        assert kwargs["send_default_pii"] is False
+        assert kwargs["environment"] == "production"
+        assert kwargs["before_send"] is not None
+        assert kwargs["in_app_include"] == ["luthien_proxy"]
