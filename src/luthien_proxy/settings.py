@@ -7,7 +7,7 @@ Settings instance.
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from luthien_proxy.credential_manager import AuthMode
@@ -51,6 +51,15 @@ class Settings(BaseSettings):
     service_name: str = "luthien-proxy"
     service_version: str = "2.0.0"
     environment: str = "development"
+    railway_service_name: str = ""
+
+    @model_validator(mode="after")
+    def _set_environment_from_railway(self) -> "Settings":
+        # Only override when environment is still the default ("development").
+        # Explicit ENVIRONMENT= settings (e.g. "production", "staging") are preserved.
+        if self.railway_service_name and self.environment == "development":
+            self.environment = self.railway_service_name
+        return self
 
     # Request/response logging
     enable_request_logging: bool = False
@@ -76,6 +85,12 @@ class Settings(BaseSettings):
     # Dogfood mode — auto-compose DogfoodSafetyPolicy to prevent agents
     # from killing the proxy they communicate through
     dogfood_mode: bool = False
+
+    # Sentry error tracking (opt-in: set SENTRY_ENABLED=true to enable)
+    sentry_enabled: bool = False
+    sentry_dsn: str = ""
+    sentry_traces_sample_rate: float = 0.0
+    sentry_server_name: str = ""
 
 
 @lru_cache

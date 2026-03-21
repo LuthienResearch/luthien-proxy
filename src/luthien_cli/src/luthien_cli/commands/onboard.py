@@ -9,7 +9,6 @@ import subprocess
 import sys
 import textwrap
 import webbrowser
-from pathlib import Path
 
 import click
 from rich.console import Console
@@ -55,30 +54,13 @@ def _generate_key(prefix: str) -> str:
     return f"{prefix}-{secrets.token_urlsafe(24)}"
 
 
-def _write_local_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
-    """Write .env for local mode (SQLite, no Redis)."""
-    db_path = str(Path(repo_path) / "luthien.db")
-    policy_path = str(Path(repo_path) / "config" / "policy_config.yaml")
-
-    env_content = (
-        f"DATABASE_URL=sqlite:///{db_path}\n"
-        f"PROXY_API_KEY={proxy_key}\n"
-        f"ADMIN_API_KEY={admin_key}\n"
-        f"POLICY_SOURCE=file\n"
-        f"POLICY_CONFIG={policy_path}\n"
-        f"AUTH_MODE=both\n"
-        f"OTEL_ENABLED=false\n"
-        f"USAGE_TELEMETRY=true\n"
-    )
-
-    env_path = f"{repo_path}/.env"
-    with open(env_path, "w") as f:
-        f.write(env_content)
-    os.chmod(env_path, 0o600)
-
-
-def _ensure_docker_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
-    """Create or update .env with Docker onboard settings."""
+def _ensure_env(
+    repo_path: str,
+    proxy_key: str,
+    admin_key: str,
+    sentry_enabled: bool = False,
+    sentry_dsn: str = "",
+) -> None:
     env_path = f"{repo_path}/.env"
     env_example = f"{repo_path}/.env.example"
 
@@ -92,12 +74,15 @@ def _ensure_docker_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
         except FileNotFoundError:
             env_content = ""
 
-    overrides = {
+    overrides: dict[str, str] = {
         "PROXY_API_KEY": proxy_key,
         "ADMIN_API_KEY": admin_key,
         "AUTH_MODE": "both",
         "POLICY_SOURCE": "file",
+        "SENTRY_ENABLED": str(sentry_enabled).lower(),
     }
+    if sentry_dsn:
+        overrides["SENTRY_DSN"] = sentry_dsn
 
     for key, value in overrides.items():
         pattern = rf"^#?\s*{key}=.*$"
@@ -138,14 +123,24 @@ def _write_policy(repo_path: str, gateway_url: str) -> None:
         f.write(yaml_content)
 
 
+def _prompt_for_sentry(console: Console) -> tuple[bool, str]:
+    console.print(
+        "\n[bold]Enable Sentry error tracking?[/bold]\n"
+        "[dim]Sends error reports (with sensitive data scrubbed) to help debug gateway issues.[/dim]"
+    )
+    sentry_enabled = click.confirm("Enable Sentry", default=False)
+    sentry_dsn = ""
+    if sentry_enabled:
+        sentry_dsn = click.prompt("Sentry DSN", default="")
+    return sentry_enabled, sentry_dsn
+
+
 def _show_results(
     console: Console,
     gateway_url: str,
     mode: str,
 ) -> None:
-    """Show the final success panel and prompt user to launch Claude Code."""
     config_url = f"{gateway_url}/policy-config"
-
     console.print()
     console.print(
         Panel(
@@ -198,7 +193,9 @@ def _show_results(
     _launch_claude(console, [ONBOARDING_PROMPT])
 
 
-def _onboard_local(console: Console, config, proxy_key: str, admin_key: str) -> None:
+def _onboard_local(
+    console: Console, config, proxy_key: str, admin_key: str, sentry_enabled: bool = False, sentry_dsn: str = ""
+) -> None:
     """Onboard in local mode: SQLite + in-process event publisher, no Docker."""
     # 1. Install gateway package
     console.print("[blue]Installing luthien-proxy...[/blue]")
@@ -212,7 +209,7 @@ def _onboard_local(console: Console, config, proxy_key: str, admin_key: str) -> 
     # 3. Write config files
     console.print("\n[blue]Configuring gateway...[/blue]")
     _write_policy(config.repo_path, actual_gateway_url)
-    _write_local_env(config.repo_path, proxy_key, admin_key)
+    _ensure_env(config.repo_path, proxy_key, admin_key, sentry_enabled, sentry_dsn)
 
     # 4. Stop any existing gateway
     stop_gateway(config.repo_path)
@@ -239,7 +236,9 @@ def _onboard_local(console: Console, config, proxy_key: str, admin_key: str) -> 
     _show_results(console, actual_gateway_url.rstrip("/"), "local")
 
 
-def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str) -> None:
+def _onboard_docker(
+    console: Console, config, proxy_key: str, admin_key: str, sentry_enabled: bool = False, sentry_dsn: str = ""
+) -> None:
     """Onboard in Docker mode: PostgreSQL + Redis via docker compose."""
     # 1. Ensure proxy files
     if not config.repo_path:
@@ -247,7 +246,9 @@ def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str) ->
 
     # 2. Write env config
     console.print("\n[blue]Configuring gateway...[/blue]")
-    _ensure_docker_env(config.repo_path, proxy_key, admin_key)
+    actual_gateway_url = f"http://localhost:{find_free_port(8000)}"
+    _write_policy(config.repo_path, actual_gateway_url)
+    _ensure_env(config.repo_path, proxy_key, admin_key, sentry_enabled, sentry_dsn)
 
     # 3. Start Docker stack
     console.print("\n[blue]Starting gateway...[/blue]")
@@ -344,8 +345,9 @@ def onboard(use_docker: bool, yes: bool):
 
     proxy_key = _generate_key("sk-luthien")
     admin_key = _generate_key("admin")
+    sentry_enabled, sentry_dsn = (False, "") if yes else _prompt_for_sentry(console)
 
     if use_docker:
-        _onboard_docker(console, config, proxy_key, admin_key)
+        _onboard_docker(console, config, proxy_key, admin_key, sentry_enabled, sentry_dsn)
     else:
-        _onboard_local(console, config, proxy_key, admin_key)
+        _onboard_local(console, config, proxy_key, admin_key, sentry_enabled, sentry_dsn)

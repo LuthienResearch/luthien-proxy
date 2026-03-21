@@ -94,6 +94,12 @@ class Provisioner:
                     "PROXY_API_KEY": proxy_api_key,
                     "ADMIN_API_KEY": admin_api_key,
                     "PYTHONUNBUFFERED": "1",
+                    "SENTRY_ENABLED": "true",
+                    # TODO(https://trello.com/c/N7rqkasZ): replace with LuthienResearch org DSN once set up
+                    "SENTRY_DSN": "https://178c87f543acaf02b3f154ee329679fa@o4511061292089344.ingest.us.sentry.io/4511061302575104",
+                    # SENTRY_SERVER_NAME is a Sentry display label (separate from
+                    # RAILWAY_SERVICE_NAME which sets the Sentry environment bucket).
+                    "SENTRY_SERVER_NAME": f"railway-{name}",
                 },
             )
 
