@@ -55,6 +55,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _set_environment_from_railway(self) -> "Settings":
+        # Only override when environment is still the default ("development").
+        # Explicit ENVIRONMENT= settings (e.g. "production", "staging") are preserved.
         if self.railway_service_name and self.environment == "development":
             self.environment = self.railway_service_name
         return self

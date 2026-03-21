@@ -86,6 +86,9 @@ def _sentry_before_send(event: Event, hint: Hint) -> Event | None:
     Keeps variable names, types, and safe values (call_id, model, chunk_count).
     Strips: LLM content values, request bodies (keeps keys), cookies.
     The built-in EventScrubber handles API key/token/auth scrubbing by key name.
+
+    Mutates event in-place per Sentry's before_send contract. Return None to
+    drop the event entirely, or the (mutated) event to send it.
     """
     if "exc_info" in hint:
         exc_type = hint["exc_info"][0]
@@ -103,7 +106,7 @@ def _sentry_before_send(event: Event, hint: Hint) -> Event | None:
     if "data" in request:
         if isinstance(request["data"], dict):
             request["data"] = {k: v if k in _SAFE_REQUEST_KEYS else _summarize(v) for k, v in request["data"].items()}
-        elif isinstance(request["data"], str):
+        elif isinstance(request["data"], (str, list)):
             request["data"] = _summarize(request["data"])
 
     for exc_entry in event.get("exception", {}).get("values", []):
