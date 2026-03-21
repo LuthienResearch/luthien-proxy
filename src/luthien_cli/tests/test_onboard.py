@@ -9,7 +9,6 @@ from click.testing import CliRunner
 
 from luthien_cli.commands.onboard import (
     _ensure_env,
-    _indent_instructions,
     _write_policy,
 )
 from luthien_cli.local_process import find_docker_ports as _find_docker_ports

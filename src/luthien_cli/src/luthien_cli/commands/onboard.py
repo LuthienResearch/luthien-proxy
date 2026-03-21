@@ -9,7 +9,6 @@ import subprocess
 import sys
 import textwrap
 import webbrowser
-from pathlib import Path
 
 import click
 from rich.console import Console
