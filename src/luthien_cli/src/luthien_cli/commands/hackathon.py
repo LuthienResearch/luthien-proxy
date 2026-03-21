@@ -11,7 +11,6 @@ import textwrap
 from pathlib import Path
 
 import click
-import yaml
 from rich.console import Console
 from rich.panel import Panel
 
@@ -222,17 +221,24 @@ def _write_policy_config(repo_path: Path, policy_class_ref: str, gateway_url: st
     config_dir = repo_path / "config"
     config_dir.mkdir(exist_ok=True)
 
+    # Write YAML directly to avoid dependency on pyyaml in the CLI venv.
     needs_gateway_url = "hackathon_onboarding_policy" in policy_class_ref
-    policy_config_data: dict = {"gateway_url": gateway_url} if needs_gateway_url else {}
+    if needs_gateway_url:
+        yaml_content = textwrap.dedent(f"""\
+            policy:
+              class: "{policy_class_ref}"
+              config:
+                gateway_url: "{gateway_url}"
+        """)
+    else:
+        yaml_content = textwrap.dedent(f"""\
+            policy:
+              class: "{policy_class_ref}"
+              config: {{}}
+        """)
 
-    policy_config = {
-        "policy": {
-            "class": policy_class_ref,
-            "config": policy_config_data,
-        }
-    }
     with open(config_dir / "policy_config.yaml", "w") as f:
-        yaml.safe_dump(policy_config, f, default_flow_style=False)
+        f.write(yaml_content)
 
 
 def _parse_env_value(value: str) -> str:
