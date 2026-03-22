@@ -2,7 +2,7 @@
 
 Subclasses override one or two methods:
 - modify_text(text) -> text: transform text content in-place
-- extra_text() -> str | None: append additional text after all content
+- extra_text() -> str | None: append additional text to the last text block
 
 The base class handles all format-specific plumbing across 2 code paths:
 Anthropic non-streaming and Anthropic streaming.
@@ -23,6 +23,7 @@ from anthropic.types import (
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
+    TextBlock,
     TextDelta,
     ToolUseBlock,
 )
@@ -83,7 +84,7 @@ class TextModifierPolicy(BasePolicy, AnthropicExecutionInterface):
 
                 async for event in io.stream(request):
                     if isinstance(event, RawContentBlockStartEvent):
-                        if not isinstance(event.content_block, ToolUseBlock):
+                        if isinstance(event.content_block, TextBlock):
                             last_text_index = event.index
 
                     if isinstance(event, RawContentBlockStopEvent) and event.index == last_text_index:
@@ -181,7 +182,7 @@ class TextModifierPolicy(BasePolicy, AnthropicExecutionInterface):
                     )
                     return [suffix_delta, state.held_stop, event]
 
-            if not isinstance(event.content_block, ToolUseBlock):
+            if isinstance(event.content_block, TextBlock):
                 state.last_text_index = event.index
             return [event]
 
