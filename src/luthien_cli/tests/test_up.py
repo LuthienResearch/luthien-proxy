@@ -303,3 +303,25 @@ def test_up_local_with_pr_ref(tmp_path):
         assert result.exit_code == 0
         mock_resolve.assert_called_once_with("#42")
         mock_venv.assert_called_once_with(proxy_ref="feature/pr-branch")
+
+
+def test_up_local_with_proxy_ref_reinstalls_even_when_repo_path_exists(tmp_path):
+    """--proxy-ref should call ensure_gateway_venv even if repo_path is already configured."""
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f'[gateway]\nurl = "http://localhost:8000"\n\n[local]\nrepo_path = "{tmp_path}"\nmode = "local"\n'
+    )
+
+    with (
+        patch("luthien_cli.commands.up.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.up.is_gateway_healthy", return_value=False),
+        patch("luthien_cli.commands.up.resolve_proxy_ref", return_value="feature/x") as mock_resolve,
+        patch("luthien_cli.commands.up.ensure_gateway_venv", return_value=str(tmp_path)) as mock_venv,
+        patch("luthien_cli.commands.up.is_gateway_running", return_value=None),
+        patch("luthien_cli.commands.up.start_gateway", return_value=12345),
+        patch("luthien_cli.commands.up.wait_for_healthy", return_value=True),
+    ):
+        result = runner.invoke(cli, ["up", "--proxy-ref", "#99"])
+        assert result.exit_code == 0
+        mock_venv.assert_called_once_with(proxy_ref="feature/x")

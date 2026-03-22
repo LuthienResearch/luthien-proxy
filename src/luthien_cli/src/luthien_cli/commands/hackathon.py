@@ -494,10 +494,16 @@ def hackathon(path: str, proxy_ref: str | None, yes: bool) -> None:
         raise SystemExit(1)
 
     # 1.5 Checkout specific ref if requested
+    # Unlike onboard/up (which pip-install from a git URL and use resolve_proxy_ref()),
+    # hackathon clones the full repo, so we fetch the PR ref directly via git.
     if proxy_ref:
         pr_number = None
         if proxy_ref.startswith("#"):
-            pr_number = int(proxy_ref[1:])
+            try:
+                pr_number = int(proxy_ref[1:])
+            except ValueError:
+                console.print(f"[red]Invalid PR ref '{proxy_ref}' — expected #<number>[/red]")
+                raise SystemExit(1)
             ref_branch = f"pr-{pr_number}"
         else:
             ref_branch = proxy_ref

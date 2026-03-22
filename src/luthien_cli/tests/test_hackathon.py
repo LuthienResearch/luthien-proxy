@@ -433,3 +433,15 @@ class TestHackathonProxyRef:
         runner = CliRunner()
         result = runner.invoke(hackathon, ["--help"])
         assert "--proxy-ref" in result.output
+
+    def test_hackathon_invalid_pr_ref_errors(self):
+        """Non-numeric PR ref like '#abc' should error, not crash."""
+        runner = CliRunner()
+        with (
+            patch("luthien_cli.commands.hackathon.shutil.which", return_value="/usr/bin/gh"),
+            patch("luthien_cli.commands.hackathon.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0)
+            result = runner.invoke(hackathon, ["--proxy-ref", "#abc", "-y"])
+        assert result.exit_code != 0
+        assert "invalid" in result.output.lower() or "Invalid" in result.output

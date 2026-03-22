@@ -63,7 +63,7 @@ def ensure_gateway_up(console: Console, proxy_ref: str | None = None) -> None:
         return
 
     if config.mode == "local":
-        if not config.repo_path:
+        if not config.repo_path or proxy_ref:
             config.repo_path = ensure_gateway_venv(proxy_ref=proxy_ref)
             save_config(config, DEFAULT_CONFIG_PATH)
 
