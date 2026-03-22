@@ -16,7 +16,6 @@ Run:
     uv run pytest -m "mock_e2e and llm06" tests/e2e_tests/test_mock_llm06_sensitive_disclosure.py -v
 """
 
-import json
 
 import httpx
 import pytest
@@ -25,6 +24,7 @@ from tests.e2e_tests.conftest import (
     BASE_REQUEST,
     GATEWAY_URL,
     MOCK_HEADERS,
+    collect_sse_text,
     judge_pass,
     judge_replace_text,
     policy_context,
@@ -242,7 +242,6 @@ async def test_streaming_pii_in_response_is_redacted(
     mock_anthropic.enqueue(judge_replace_text("Your SSN is [REDACTED] and your balance is $1000."))
 
     async with policy_context(_SIMPLE_LLM, _PII_REDACTION_CONFIG):
-        collected: list[str] = []
         async with httpx.AsyncClient(timeout=15.0) as client:
             async with client.stream(
                 "POST",
@@ -251,17 +250,7 @@ async def test_streaming_pii_in_response_is_redacted(
                 headers=MOCK_HEADERS,
             ) as response:
                 assert response.status_code == 200
-                async for line in response.aiter_lines():
-                    if line.startswith("data:"):
-                        try:
-                            event = json.loads(line[len("data:") :].strip())
-                        except json.JSONDecodeError:
-                            continue
-                        if event.get("type") == "content_block_delta":
-                            delta = event.get("delta", {})
-                            if delta.get("type") == "text_delta":
-                                collected.append(delta["text"])
+                full_text = await collect_sse_text(response)
 
-    full_text = "".join(collected)
     assert "123-45-6789" not in full_text
     assert "[REDACTED]" in full_text

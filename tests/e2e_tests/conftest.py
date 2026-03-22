@@ -372,3 +372,20 @@ BASE_REQUEST: dict = {
     "max_tokens": 100,
     "stream": False,
 }
+
+
+async def collect_sse_text(response: "httpx.Response") -> str:
+    """Collect all text_delta values from an SSE streaming response into a single string."""
+    parts: list[str] = []
+    async for line in response.aiter_lines():
+        if not line.startswith("data:"):
+            continue
+        try:
+            event = json.loads(line[len("data:") :].strip())
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") == "content_block_delta":
+            delta = event.get("delta", {})
+            if delta.get("type") == "text_delta":
+                parts.append(delta.get("text", ""))
+    return "".join(parts)

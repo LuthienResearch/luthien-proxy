@@ -84,7 +84,7 @@ def _safe_name(raw: str) -> str:
 def _render_test(entry: dict, index: int) -> str:
     base_name = _safe_name(entry.get("test_name", f"failure_{index}"))
     fn_name = f"test_mock_regression_{index:03d}_{base_name}"
-    scenario = entry.get("scenario", "unknown scenario")
+    scenario = entry.get("scenario", "unknown scenario").replace("\n", " ").replace("\r", "")
     expected = entry.get("expected", "")
     actual = entry.get("actual_response", "")
     policy_config = entry.get("policy_config", {})

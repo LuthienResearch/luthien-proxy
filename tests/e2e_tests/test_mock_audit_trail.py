@@ -16,6 +16,7 @@ Run:
 """
 
 import asyncio
+import time
 import uuid
 
 import httpx
@@ -74,8 +75,8 @@ async def _poll_for_session(
     timeout: float = 5.0,
 ) -> httpx.Response:
     """Poll the session history endpoint until the session appears or timeout expires."""
-    deadline = asyncio.get_event_loop().time() + timeout
-    while asyncio.get_event_loop().time() < deadline:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         resp = await _get_session(client, session_uuid)
         if resp.status_code == 200:
             return resp
@@ -134,9 +135,7 @@ async def test_session_stored_after_blocked_request(
         f"Blocked request session not found (session_uuid={session_uuid}): {history_resp.text}"
     )
     data = history_resp.json()
-    assert data.get("session_id") == session_uuid, (
-        f"Session ID not found in response: {data}"
-    )
+    assert data.get("session_id") == session_uuid, f"Session ID not found in response: {data}"
 
 
 @pytest.mark.asyncio

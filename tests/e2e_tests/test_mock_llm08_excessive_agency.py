@@ -17,8 +17,6 @@ Run:
     uv run pytest -m "mock_e2e and llm08" tests/e2e_tests/test_mock_llm08_excessive_agency.py -v
 """
 
-import json
-
 import httpx
 import pytest
 from tests.e2e_tests.conftest import (
@@ -26,6 +24,7 @@ from tests.e2e_tests.conftest import (
     BASE_REQUEST,
     GATEWAY_URL,
     MOCK_HEADERS,
+    collect_sse_text,
     judge_pass,
     judge_replace_text,
     policy_context,
@@ -449,7 +448,6 @@ async def test_streaming_git_push_force_is_blocked(
         )
     )
 
-    collected_text: list[str] = []
     async with policy_context(_BLOCK_DANGEROUS, {}):
         async with httpx.AsyncClient(timeout=15.0) as client:
             async with client.stream(
@@ -459,16 +457,6 @@ async def test_streaming_git_push_force_is_blocked(
                 headers=MOCK_HEADERS,
             ) as response:
                 assert response.status_code == 200
-                async for line in response.aiter_lines():
-                    if line.startswith("data:"):
-                        try:
-                            event = json.loads(line[len("data:") :].strip())
-                        except json.JSONDecodeError:
-                            continue
-                        if event.get("type") == "content_block_delta":
-                            delta = event.get("delta", {})
-                            if delta.get("type") == "text_delta":
-                                collected_text.append(delta.get("text", ""))
+                full_text = await collect_sse_text(response)
 
-    full_text = "".join(collected_text)
     assert "[BLOCKED]" in full_text, f"Expected [BLOCKED] in streaming response, got: {full_text!r}"
