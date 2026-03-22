@@ -10,10 +10,14 @@ Anthropic non-streaming and Anthropic streaming.
 When extra_text is used and the response contains tool_use blocks, the text
 is appended to the last text block before any tool_use — preserving the
 Anthropic API invariant that text blocks must precede tool_use blocks.
+
+If the response contains no text blocks at all (e.g. tool_use only), the
+extra_text suffix is dropped and an error is logged.
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -39,6 +43,8 @@ if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
     from luthien_proxy.policy_core.policy_context import PolicyContext
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class _StreamState:
@@ -53,10 +59,12 @@ class TextModifierPolicy(BasePolicy, AnthropicExecutionInterface):
     """Base class for policies that modify text content in Anthropic responses.
 
     Override modify_text() to transform text in-place across streaming and non-streaming.
-    Override extra_text() to append content after all response text.
+    Override extra_text() to append to the last text block in the response.
     Both are optional — the base class passes through unchanged by default.
 
-    Tool calls, thinking blocks, and images are always passed through unchanged.
+    If a response has no text blocks (e.g. tool_use only), extra_text is
+    dropped and an error is logged. Tool calls, thinking blocks, and images
+    are always passed through unchanged.
     """
 
     def modify_text(self, text: str) -> str:
@@ -64,7 +72,7 @@ class TextModifierPolicy(BasePolicy, AnthropicExecutionInterface):
         return text
 
     def extra_text(self) -> str | None:
-        """Return text to append after all content, or None. Default: None."""
+        """Return text to append to the last text block, or None. Default: None."""
         return None
 
     # -- Anthropic execution ---------------------------------------------------
@@ -87,7 +95,12 @@ class TextModifierPolicy(BasePolicy, AnthropicExecutionInterface):
                         if isinstance(event.content_block, TextBlock):
                             last_text_index = event.index
 
-                    if isinstance(event, RawContentBlockStopEvent) and event.index == last_text_index:
+                    # Only hold back text block stops when we have a suffix to inject
+                    if (
+                        suffix is not None
+                        and isinstance(event, RawContentBlockStopEvent)
+                        and event.index == last_text_index
+                    ):
                         if held_stop is not None:
                             yield held_stop
                         held_stop = event
@@ -121,6 +134,12 @@ class TextModifierPolicy(BasePolicy, AnthropicExecutionInterface):
                         delta=TextDelta(type="text_delta", text=suffix),
                     )
                     yield held_stop
+                elif suffix is not None and held_stop is None:
+                    logger.error(
+                        "%s.extra_text() returned content but response had no text blocks — "
+                        "suffix dropped. Response contained only non-text content blocks.",
+                        type(self).__name__,
+                    )
                 elif held_stop is not None:
                     yield held_stop
                 return
@@ -147,6 +166,13 @@ class TextModifierPolicy(BasePolicy, AnthropicExecutionInterface):
         suffix = self.extra_text()
         if suffix is not None and last_text_block is not None:
             last_text_block["text"] += suffix
+        elif suffix is not None:
+            logger.error(
+                "%s.extra_text() returned content but response had no text blocks — "
+                "suffix dropped. Content types present: %s",
+                type(self).__name__,
+                [b.get("type") if isinstance(b, dict) else type(b).__name__ for b in content],
+            )
 
     # -- Anthropic hook interface (for composition via MultiSerialPolicy) -------
 
@@ -186,8 +212,13 @@ class TextModifierPolicy(BasePolicy, AnthropicExecutionInterface):
                 state.last_text_index = event.index
             return [event]
 
-        # Hold back content_block_stop for text blocks
-        if isinstance(event, RawContentBlockStopEvent) and event.index == state.last_text_index:
+        # Only hold back text block stops when extra_text might need injection
+        if (
+            isinstance(event, RawContentBlockStopEvent)
+            and event.index == state.last_text_index
+            and self.extra_text() is not None
+            and not state.extra_text_emitted
+        ):
             result: list[MessageStreamEvent] = []
             if state.held_stop is not None:
                 result.append(state.held_stop)
@@ -203,6 +234,13 @@ class TextModifierPolicy(BasePolicy, AnthropicExecutionInterface):
         """Flush held stop and inject suffix if no tool_use was seen."""
         state = context.get_request_state(self, _StreamState, _StreamState)
         if state.held_stop is None:
+            suffix = self.extra_text()
+            if suffix is not None and not state.extra_text_emitted:
+                logger.error(
+                    "%s.extra_text() returned content but response had no text blocks — "
+                    "suffix dropped. Stream contained only non-text content blocks.",
+                    type(self).__name__,
+                )
             return []
 
         result: list[AnthropicPolicyEmission] = []
