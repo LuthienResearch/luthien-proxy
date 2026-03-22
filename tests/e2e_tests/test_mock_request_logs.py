@@ -129,7 +129,16 @@ def _compose_up_gateway(extra_env: dict[str, str] | None = None) -> None:
 
 @pytest.fixture(scope="module")
 def _enable_request_logging():
-    """Restart gateway with ENABLE_REQUEST_LOGGING=true for this module."""
+    """Ensure the gateway runs with ENABLE_REQUEST_LOGGING=true for this module.
+
+    When the env var is already set (CI / dockerless mode), the gateway was
+    started with logging enabled — no restart needed.  Otherwise, restart the
+    gateway container via docker compose.
+    """
+    already_enabled = os.getenv("ENABLE_REQUEST_LOGGING", "").lower() == "true"
+    if already_enabled:
+        yield
+        return
     _compose_up_gateway(extra_env={"ENABLE_REQUEST_LOGGING": "true"})
     yield
     _compose_up_gateway(extra_env={"ENABLE_REQUEST_LOGGING": "false"})
@@ -231,14 +240,6 @@ async def test_request_logs_offset_param(mock_anthropic: MockAnthropicServer, _e
         )
 
 
-@pytest.mark.skip(
-    reason=(
-        "⚠️  UNSKIP WHEN PR #361 MERGES — "
-        "_enable_request_logging fixture requires restarting the gateway container "
-        "with ENABLE_REQUEST_LOGGING=true, which is not possible in local/CI mode. "
-        "After merging: remove this skip and the matching -k flag in dev-checks.yaml."
-    )
-)
 @pytest.mark.asyncio
 async def test_request_log_transaction_detail(
     mock_anthropic: MockAnthropicServer, _enable_request_logging, gateway_healthy
