@@ -425,7 +425,7 @@ async def test_multi_turn_blocked_then_safe_passes(
         # Turn 1: dangerous command → blocked
         mock_anthropic.enqueue(tool_response("Bash", {"command": "docker compose down"}))
         turn1 = await session.send("Stop the services")
-        assert "[BLOCKED]" in turn1.text
+        assert "BLOCKED" in turn1.text  # DogfoodSafetyPolicy: "⛔ BLOCKED by DogfoodSafetyPolicy:"
         assert len(turn1.tool_calls) == 0
 
         # Turn 2: safe command → passes through
