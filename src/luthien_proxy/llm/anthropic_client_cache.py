@@ -24,6 +24,7 @@ MAX_CACHE_SIZE = 64
 
 _cache: OrderedDict[str, AnthropicClient] = OrderedDict()
 _lock = asyncio.Lock()
+_background_tasks: set[asyncio.Task[None]] = set()
 
 
 def _make_key(credential_hash: str, auth_type: str, base_url: str | None) -> str:
@@ -62,7 +63,9 @@ async def get_client(
 
         if len(_cache) >= MAX_CACHE_SIZE:
             evicted_key, evicted_client = _cache.popitem(last=False)
-            asyncio.create_task(_safe_close(evicted_client, evicted_key))
+            task = asyncio.create_task(_safe_close(evicted_client, evicted_key))
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
             logger.debug(f"Evicted AnthropicClient from cache: {evicted_key[:32]}...")
 
         _cache[key] = client

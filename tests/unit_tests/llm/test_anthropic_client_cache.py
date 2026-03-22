@@ -5,6 +5,7 @@ instead of creating a new AnthropicClient (and underlying TCP connection)
 per request.
 """
 
+import asyncio
 from unittest.mock import patch
 
 import pytest
@@ -92,6 +93,25 @@ class TestLRUEviction:
 
         refetched = await anthropic_client_cache.get_client("key-0", auth_type="api_key")
         assert refetched is not clients[0]
+
+    async def test_eviction_calls_close_on_evicted_client(self):
+        closed = []
+
+        async def fake_close(self):
+            closed.append(id(self))
+
+        with patch.object(AnthropicClient, "close", fake_close):
+            max_size = anthropic_client_cache.MAX_CACHE_SIZE
+            for i in range(max_size):
+                await anthropic_client_cache.get_client(f"key-{i}", auth_type="api_key")
+
+            await anthropic_client_cache.get_client("key-overflow", auth_type="api_key")
+
+            # Drain background tasks so fake_close runs before the patch exits
+            if anthropic_client_cache._background_tasks:
+                await asyncio.gather(*list(anthropic_client_cache._background_tasks), return_exceptions=True)
+
+        assert len(closed) == 1
 
     async def test_cache_hit_refreshes_lru_position(self):
         max_size = anthropic_client_cache.MAX_CACHE_SIZE

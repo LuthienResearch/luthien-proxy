@@ -26,8 +26,8 @@ from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.gateway_routes import router as gateway_router
 from luthien_proxy.history import routes as history_routes
-from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm import anthropic_client_cache
+from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.observability.emitter import EventEmitter
 from luthien_proxy.observability.event_publisher import (
     EventPublisherProtocol,
