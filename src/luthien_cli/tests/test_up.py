@@ -248,3 +248,58 @@ def test_ensure_gateway_up_returns_early_when_healthy(tmp_path):
     ):
         ensure_gateway_up(console)
         mock_start.assert_not_called()
+
+
+def test_up_local_with_proxy_ref(tmp_path):
+    """--proxy-ref is passed to ensure_gateway_venv when bootstrapping."""
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('[gateway]\nurl = "http://localhost:8000"\n\n[local]\nmode = "local"\n')
+
+    with (
+        patch("luthien_cli.commands.up.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.up.is_gateway_healthy", return_value=False),
+        patch("luthien_cli.commands.up.ensure_gateway_venv", return_value=str(tmp_path)) as mock_venv,
+        patch("luthien_cli.commands.up.is_gateway_running", return_value=None),
+        patch("luthien_cli.commands.up.start_gateway", return_value=12345),
+        patch("luthien_cli.commands.up.wait_for_healthy", return_value=True),
+    ):
+        result = runner.invoke(cli, ["up", "--proxy-ref", "abc123"])
+        assert result.exit_code == 0
+        mock_venv.assert_called_once_with(proxy_ref="abc123")
+
+
+def test_up_docker_with_proxy_ref_errors(tmp_path):
+    """--proxy-ref with docker mode should error."""
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f'[gateway]\nurl = "http://localhost:8000"\n\n[local]\nrepo_path = "{tmp_path}"\nmode = "docker"\n'
+    )
+
+    with patch("luthien_cli.commands.up.DEFAULT_CONFIG_PATH", config_path):
+        result = runner.invoke(cli, ["up", "--proxy-ref", "abc123"])
+
+    assert result.exit_code != 0
+    assert "docker" in result.output.lower()
+
+
+def test_up_local_with_pr_ref(tmp_path):
+    """--proxy-ref '#42' resolves PR before passing to venv."""
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('[gateway]\nurl = "http://localhost:8000"\n\n[local]\nmode = "local"\n')
+
+    with (
+        patch("luthien_cli.commands.up.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.up.is_gateway_healthy", return_value=False),
+        patch("luthien_cli.commands.up.resolve_proxy_ref", return_value="feature/pr-branch") as mock_resolve,
+        patch("luthien_cli.commands.up.ensure_gateway_venv", return_value=str(tmp_path)) as mock_venv,
+        patch("luthien_cli.commands.up.is_gateway_running", return_value=None),
+        patch("luthien_cli.commands.up.start_gateway", return_value=12345),
+        patch("luthien_cli.commands.up.wait_for_healthy", return_value=True),
+    ):
+        result = runner.invoke(cli, ["up", "--proxy-ref", "#42"])
+        assert result.exit_code == 0
+        mock_resolve.assert_called_once_with("#42")
+        mock_venv.assert_called_once_with(proxy_ref="feature/pr-branch")

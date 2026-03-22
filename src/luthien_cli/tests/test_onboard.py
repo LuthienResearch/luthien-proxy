@@ -325,3 +325,63 @@ def test_onboard_opens_browser(tmp_path):
 
     assert result.exit_code == 0, result.output
     mock_browser.assert_called_once_with("http://localhost:8000/policy-config")
+
+
+def test_onboard_local_with_proxy_ref(tmp_path):
+    """--proxy-ref is passed through to ensure_gateway_venv."""
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    repo_path = tmp_path / "managed-repo"
+    repo_path.mkdir()
+    (repo_path / "config").mkdir()
+
+    with (
+        patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.onboard.ensure_gateway_venv", return_value=str(repo_path)) as mock_venv,
+        patch("luthien_cli.commands.onboard.stop_gateway"),
+        patch("luthien_cli.commands.onboard.start_gateway", return_value=12345),
+        patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
+        patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
+        patch("luthien_cli.commands.onboard.webbrowser.open"),
+    ):
+        result = runner.invoke(cli, ["onboard", "--proxy-ref", "abc123"], input="y\nq\n")
+
+    assert result.exit_code == 0, result.output
+    mock_venv.assert_called_once_with(proxy_ref="abc123")
+
+
+def test_onboard_docker_with_proxy_ref_errors(tmp_path):
+    """--proxy-ref with --docker should error."""
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+
+    with patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path):
+        result = runner.invoke(cli, ["onboard", "--docker", "--proxy-ref", "abc123", "-y"])
+
+    assert result.exit_code != 0
+    assert "docker" in result.output.lower()
+
+
+def test_onboard_local_with_pr_ref(tmp_path):
+    """--proxy-ref '#123' resolves PR before passing to ensure_gateway_venv."""
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    repo_path = tmp_path / "managed-repo"
+    repo_path.mkdir()
+    (repo_path / "config").mkdir()
+
+    with (
+        patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.onboard.resolve_proxy_ref", return_value="feature/cool") as mock_resolve,
+        patch("luthien_cli.commands.onboard.ensure_gateway_venv", return_value=str(repo_path)) as mock_venv,
+        patch("luthien_cli.commands.onboard.stop_gateway"),
+        patch("luthien_cli.commands.onboard.start_gateway", return_value=12345),
+        patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
+        patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
+        patch("luthien_cli.commands.onboard.webbrowser.open"),
+    ):
+        result = runner.invoke(cli, ["onboard", "--proxy-ref", "#123"], input="y\nq\n")
+
+    assert result.exit_code == 0, result.output
+    mock_resolve.assert_called_once_with("#123")
+    mock_venv.assert_called_once_with(proxy_ref="feature/cool")

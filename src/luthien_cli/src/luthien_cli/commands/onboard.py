@@ -18,7 +18,7 @@ from rich.panel import Panel
 from luthien_cli.commands.up import wait_for_healthy
 from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config, save_config
 from luthien_cli.local_process import find_docker_ports, find_free_port, start_gateway, stop_gateway
-from luthien_cli.repo import ensure_gateway_venv, ensure_repo
+from luthien_cli.repo import ensure_gateway_venv, ensure_repo, resolve_proxy_ref
 
 
 def _read_single_key() -> str:
@@ -197,11 +197,11 @@ def _show_results(
     _launch_claude(console, [ONBOARDING_PROMPT])
 
 
-def _onboard_local(console: Console, config, proxy_key: str, admin_key: str) -> None:
+def _onboard_local(console: Console, config, proxy_key: str, admin_key: str, proxy_ref: str | None = None) -> None:
     """Onboard in local mode: SQLite + in-process event publisher, no Docker."""
     # 1. Install gateway package
     console.print("[blue]Installing luthien-proxy...[/blue]")
-    config.repo_path = ensure_gateway_venv()
+    config.repo_path = ensure_gateway_venv(proxy_ref=proxy_ref)
     console.print("[green]luthien CLI and proxy installed.[/green]")
 
     # 2. Find a free port (needed before writing policy config)
@@ -312,10 +312,19 @@ def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str) ->
 
 @click.command()
 @click.option("--docker", "use_docker", is_flag=True, help="Use Docker (PostgreSQL + Redis) instead of local mode")
+@click.option("--proxy-ref", default=None, help="Git ref (branch, commit, or #PR) of luthien-proxy to install")
 @click.option("-y", "--yes", is_flag=True, help="Skip confirmation prompt")
-def onboard(use_docker: bool, yes: bool):
+def onboard(use_docker: bool, proxy_ref: str | None, yes: bool):
     """Set up a local Luthien gateway and start it with the onboarding policy."""
     console = Console()
+
+    if use_docker and proxy_ref:
+        console.print("[red]--proxy-ref is not supported with --docker mode.[/red]")
+        raise SystemExit(1)
+
+    if proxy_ref:
+        proxy_ref = resolve_proxy_ref(proxy_ref)
+
     config = load_config(DEFAULT_CONFIG_PATH)
 
     mode_label = "Docker (PostgreSQL + Redis)" if use_docker else "local (SQLite, no Docker required)"
@@ -347,4 +356,4 @@ def onboard(use_docker: bool, yes: bool):
     if use_docker:
         _onboard_docker(console, config, proxy_key, admin_key)
     else:
-        _onboard_local(console, config, proxy_key, admin_key)
+        _onboard_local(console, config, proxy_key, admin_key, proxy_ref=proxy_ref)
