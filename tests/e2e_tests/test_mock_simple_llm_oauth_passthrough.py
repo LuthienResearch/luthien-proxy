@@ -15,6 +15,8 @@ Run:
     uv run pytest -m mock_e2e tests/e2e_tests/test_mock_simple_llm_oauth_passthrough.py -v
 """
 
+import os
+
 import httpx
 import pytest
 from tests.e2e_tests.conftest import GATEWAY_URL, auth_config_context, policy_context
@@ -29,10 +31,14 @@ _SIMPLE_LLM_POLICY = "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
 # so _judge_oauth_headers() treats it as OAuth and adds the beta header.
 _OAUTH_TOKEN = "claude-oauth-bearer-token-for-e2e-testing"
 
+# MOCK_ANTHROPIC_HOST: host.docker.internal inside Docker containers,
+# localhost when the gateway runs as a local process (CI / dockerless dev).
+_MOCK_HOST = os.getenv("MOCK_ANTHROPIC_HOST", "host.docker.internal")
+
 _JUDGE_CONFIG = {
     "instructions": "Pass all content through",
     "model": "claude-haiku-4-5",
-    "api_base": f"http://host.docker.internal:{DEFAULT_MOCK_PORT}",
+    "api_base": f"http://{_MOCK_HOST}:{DEFAULT_MOCK_PORT}",
     "on_error": "pass",
 }
 

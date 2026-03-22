@@ -129,7 +129,16 @@ def _compose_up_gateway(extra_env: dict[str, str] | None = None) -> None:
 
 @pytest.fixture(scope="module")
 def _enable_request_logging():
-    """Restart gateway with ENABLE_REQUEST_LOGGING=true for this module."""
+    """Ensure the gateway runs with ENABLE_REQUEST_LOGGING=true for this module.
+
+    When the env var is already set (CI / dockerless mode), the gateway was
+    started with logging enabled — no restart needed.  Otherwise, restart the
+    gateway container via docker compose.
+    """
+    already_enabled = os.getenv("ENABLE_REQUEST_LOGGING", "").lower() == "true"
+    if already_enabled:
+        yield
+        return
     _compose_up_gateway(extra_env={"ENABLE_REQUEST_LOGGING": "true"})
     yield
     _compose_up_gateway(extra_env={"ENABLE_REQUEST_LOGGING": "false"})
