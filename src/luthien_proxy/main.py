@@ -27,6 +27,7 @@ from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.gateway_routes import router as gateway_router
 from luthien_proxy.history import routes as history_routes
 from luthien_proxy.llm.anthropic_client import AnthropicClient
+from luthien_proxy.llm import anthropic_client_cache
 from luthien_proxy.observability.emitter import EventEmitter
 from luthien_proxy.observability.event_publisher import (
     EventPublisherProtocol,
@@ -270,6 +271,7 @@ def create_app(
         if _telemetry_sender is not None:
             await _telemetry_sender.stop()
         await _credential_manager.close()
+        await anthropic_client_cache.close_all()
         # Note: db_pool and redis_client are NOT closed here - they are owned by
         # the caller who passed them in. The caller is responsible for cleanup.
         logger.info("Luthien Gateway shutdown complete")

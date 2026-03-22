@@ -134,3 +134,23 @@ class TestCacheManagement:
         await anthropic_client_cache.get_client("key-1", auth_type="api_key")
         await anthropic_client_cache.get_client("key-1", auth_type="api_key")
         assert anthropic_client_cache.cache_size() == 1
+
+    async def test_close_all_closes_clients_and_clears_cache(self):
+        closed = []
+
+        async def fake_close(self):
+            closed.append(id(self))
+
+        with patch.object(AnthropicClient, "close", fake_close):
+            await anthropic_client_cache.get_client("key-1", auth_type="api_key")
+            await anthropic_client_cache.get_client("key-2", auth_type="api_key")
+            assert anthropic_client_cache.cache_size() == 2
+
+            count = await anthropic_client_cache.close_all()
+
+        assert count == 2
+        assert anthropic_client_cache.cache_size() == 0
+        assert len(closed) == 2
+
+    async def test_close_all_on_empty_returns_zero(self):
+        assert await anthropic_client_cache.close_all() == 0

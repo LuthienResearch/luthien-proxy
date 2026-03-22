@@ -72,10 +72,11 @@ async def get_client(
 
 async def close_all() -> int:
     """Close all cached clients and clear the cache. Returns count closed."""
-    count = len(_cache)
-    for client in _cache.values():
-        asyncio.create_task(_safe_close(client, "shutdown"))
-    _cache.clear()
+    async with _lock:
+        count = len(_cache)
+        clients = list(_cache.values())
+        _cache.clear()
+    await asyncio.gather(*[_safe_close(c, "shutdown") for c in clients], return_exceptions=True)
     return count
 
 
