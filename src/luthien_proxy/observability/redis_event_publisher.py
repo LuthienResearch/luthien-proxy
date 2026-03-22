@@ -81,7 +81,7 @@ class RedisEventPublisher:
             await self.redis.publish(self.channel, json.dumps(event))
             logger.debug(f"Published event: {event_type} for call {call_id}")
         except Exception as e:
-            logger.error(f"Failed to publish event to Redis: {e}")
+            logger.error(f"Failed to publish event to Redis: {repr(e)}")
             # Don't raise - event publishing failures shouldn't break requests
 
     async def stream_events(

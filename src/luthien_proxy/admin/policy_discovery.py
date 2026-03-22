@@ -415,7 +415,7 @@ def discover_policies() -> list[dict[str, Any]]:
     try:
         package_path = policies_package.__path__
     except AttributeError as e:
-        logger.error(f"Failed to get policies package path: {e}")
+        logger.error(f"Failed to get policies package path: {repr(e)}")
         return policies
 
     policies_prefix = "luthien_proxy.policies."
@@ -438,7 +438,7 @@ def discover_policies() -> list[dict[str, Any]]:
         try:
             module = importlib.import_module(full_module_name)
         except ImportError as e:
-            logger.warning(f"Failed to import module {full_module_name}: {e}")
+            logger.warning(f"Failed to import module {full_module_name}: {repr(e)}")
             continue
 
         # Find policy classes in this module

@@ -144,7 +144,7 @@ class PolicyManager:
             await self._initialize_from_file()
             return
         except FileNotFoundError as e:
-            logger.info(f"Config file not found ({e}), falling back to database")
+            logger.info(f"Config file not found ({repr(e)}), falling back to database")
         policy = await self._load_from_db()
         if policy:
             self._current_policy = policy
@@ -174,7 +174,7 @@ class PolicyManager:
         except Exception as e:
             logger.error(
                 f"DATABASE ERROR loading policy — falling back to file config. "
-                f"If a policy was set via admin API, it may not be active! Error: {e}",
+                f"If a policy was set via admin API, it may not be active! Error: {repr(e)}",
                 exc_info=True,
             )
             return None
@@ -222,7 +222,7 @@ class PolicyManager:
                 return PolicyEnableResult(success=True, policy=policy_class_ref, restart_duration_ms=duration_ms)
 
             except Exception as e:
-                logger.error(f"Failed to enable policy: {e}", exc_info=True)
+                logger.error(f"Failed to enable policy: {repr(e)}", exc_info=True)
                 return PolicyEnableResult(
                     success=False, error=str(e), troubleshooting=self._generate_troubleshooting(e)
                 )
@@ -278,7 +278,7 @@ class PolicyManager:
                 enabled_by_value = row["enabled_by"]
                 enabled_by = str(enabled_by_value) if enabled_by_value else None
         except Exception as e:
-            logger.warning(f"Could not fetch policy metadata from DB: {e}")
+            logger.warning(f"Could not fetch policy metadata from DB: {repr(e)}")
 
         config = self._current_policy.get_config()
 
@@ -341,7 +341,7 @@ class PolicyManager:
             try:
                 await lock.release()
             except Exception as e:
-                logger.warning(f"Failed to release lock: {e}")
+                logger.warning(f"Failed to release lock: {repr(e)}")
 
     def _maybe_compose_dogfood(self, policy: BasePolicy) -> BasePolicy:
         """If DOGFOOD_MODE is set, compose DogfoodSafetyPolicy into the chain."""
