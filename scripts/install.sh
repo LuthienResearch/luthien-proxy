@@ -15,7 +15,7 @@ fi
 
 # --- luthien-cli -------------------------------------------------------
 echo "Installing luthien-cli..."
-uv tool install --force luthien-cli
+uv tool install --force luthien-cli --from "git+https://github.com/LuthienResearch/luthien-proxy.git#subdirectory=src/luthien_cli"
 
 # --- onboard -----------------------------------------------------------
 echo ""

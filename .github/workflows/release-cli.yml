@@ -26,7 +26,7 @@ jobs:
 
       - name: Run tests
         working-directory: src/luthien_cli
-        run: uv run pytest tests/ -v
+        run: uv run --extra dev pytest tests/ -v
 
       - name: Build luthien-cli
         working-directory: src/luthien_cli
