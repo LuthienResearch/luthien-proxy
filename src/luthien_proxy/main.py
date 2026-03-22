@@ -442,8 +442,8 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
     if settings.proxy_api_key is None:
         raise ValueError("PROXY_API_KEY environment variable required")
 
-    if settings.admin_api_key is None:
-        raise ValueError("ADMIN_API_KEY environment variable required")
+    # admin_api_key is optional — admin endpoints return 500 if not set,
+    # but the gateway still serves proxy traffic without it.
 
     database_url = settings.database_url
     if not database_url:
@@ -472,7 +472,7 @@ def configure_local_mode() -> dict[str, str]:
     can pre-set them intentionally.
 
     Returns:
-        Dict with proxy_api_key and admin_api_key (whether generated or existing).
+        Dict with proxy_api_key (whether generated or existing).
     """
     data_dir = os.path.join(os.path.expanduser("~"), ".luthien")
     os.makedirs(data_dir, exist_ok=True)
@@ -486,11 +486,8 @@ def configure_local_mode() -> dict[str, str]:
         key = f"sk-local-{secrets.token_urlsafe(16)}"
         os.environ["PROXY_API_KEY"] = key
 
-    os.environ.setdefault("ADMIN_API_KEY", os.environ["PROXY_API_KEY"])
-
     return {
         "proxy_api_key": os.environ["PROXY_API_KEY"],
-        "admin_api_key": os.environ["ADMIN_API_KEY"],
     }
 
 
@@ -515,7 +512,6 @@ if __name__ == "__main__":
             clear_settings_cache()
             print(f"[local mode] DATABASE_URL={os.environ['DATABASE_URL']}")
             print(f"[local mode] PROXY_API_KEY={keys['proxy_api_key']}")
-            print(f"[local mode] ADMIN_API_KEY={keys['admin_api_key']}")
 
         config = load_config_from_env()
 

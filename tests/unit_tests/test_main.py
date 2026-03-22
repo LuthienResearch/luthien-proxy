@@ -21,16 +21,17 @@ class TestLoadConfigFromEnv:
     file loading and test validation logic in isolation.
     """
 
-    def test_missing_admin_api_key_raises_error(self, monkeypatch):
-        """Test that missing ADMIN_API_KEY raises ValueError."""
+    def test_missing_admin_api_key_is_allowed(self, monkeypatch):
+        """Test that missing ADMIN_API_KEY does not crash — admin endpoints
+        handle the None gracefully at request time instead."""
         from luthien_proxy.settings import Settings
 
         monkeypatch.setenv("PROXY_API_KEY", "test-proxy-key")
         monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
         monkeypatch.delenv("ADMIN_API_KEY", raising=False)
 
-        with pytest.raises(ValueError, match="ADMIN_API_KEY environment variable required"):
-            load_config_from_env(settings=Settings(_env_file=None))
+        config = load_config_from_env(settings=Settings(_env_file=None))
+        assert config["admin_key"] is None
 
     def test_missing_proxy_api_key_raises_error(self, monkeypatch):
         """Test that missing PROXY_API_KEY raises ValueError."""
