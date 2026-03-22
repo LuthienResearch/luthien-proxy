@@ -21,7 +21,16 @@ from tests.e2e_tests.conftest import GATEWAY_URL, auth_config_context, policy_co
 from tests.e2e_tests.mock_anthropic.responses import text_response
 from tests.e2e_tests.mock_anthropic.server import DEFAULT_MOCK_PORT, MockAnthropicServer
 
-pytestmark = pytest.mark.mock_e2e
+_SKIP_PR361 = pytest.mark.skip(
+    reason=(
+        "⚠️  UNSKIP WHEN PR #361 MERGES — "
+        "judge api_base=host.docker.internal:{port} is unreachable in local/CI mode; "
+        "passthrough auth feature is incomplete until PR #361 lands. "
+        "After merging: remove this skip and the matching --ignore in dev-checks.yaml."
+    )
+)
+
+pytestmark = [pytest.mark.mock_e2e, _SKIP_PR361]
 
 _SIMPLE_LLM_POLICY = "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
 

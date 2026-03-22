@@ -107,17 +107,9 @@ jobs:
             || { echo "Gateway failed to start:"; cat /tmp/gateway.log; exit 1; }
 
       - name: Run mock_e2e tests
-        # 8 tests excluded — pre-existing failures being fixed in PR #361 (Jai):
-        #   test_mock_simple_llm_oauth_passthrough.py  (4 tests — judge passthrough auth)
-        #   test_mock_simple_llm_passthrough_auth.py   (3 tests — judge passthrough auth)
-        #   test_request_log_transaction_detail        (1 test  — needs Docker restart)
-        # Remove these exclusions once PR #361 merges.
         run: |
           uv run pytest -m mock_e2e tests/e2e_tests/ \
-            --timeout=120 --no-cov -v \
-            --ignore=tests/e2e_tests/test_mock_simple_llm_oauth_passthrough.py \
-            --ignore=tests/e2e_tests/test_mock_simple_llm_passthrough_auth.py \
-            -k "not test_request_log_transaction_detail"
+            --timeout=120 --no-cov -v
 
       - name: Show gateway logs on failure
         if: failure()

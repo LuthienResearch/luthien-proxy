@@ -231,6 +231,14 @@ async def test_request_logs_offset_param(mock_anthropic: MockAnthropicServer, _e
         )
 
 
+@pytest.mark.skip(
+    reason=(
+        "⚠️  UNSKIP WHEN PR #361 MERGES — "
+        "_enable_request_logging fixture requires restarting the gateway container "
+        "with ENABLE_REQUEST_LOGGING=true, which is not possible in local/CI mode. "
+        "After merging: remove this skip and the matching -k flag in dev-checks.yaml."
+    )
+)
 @pytest.mark.asyncio
 async def test_request_log_transaction_detail(
     mock_anthropic: MockAnthropicServer, _enable_request_logging, gateway_healthy
