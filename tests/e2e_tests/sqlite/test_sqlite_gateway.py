@@ -37,6 +37,8 @@ from tests.e2e_tests.test_mock_error_handling import (
 from tests.e2e_tests.test_mock_onboarding_policy import (
     test_first_turn_appends_welcome,
     test_first_turn_streaming_appends_welcome,
+    test_first_turn_streaming_tool_use_no_crash,
+    test_first_turn_tool_use_no_crash,
     test_second_turn_passthrough,
 )
 
@@ -131,4 +133,6 @@ __all__ = [
     "test_first_turn_appends_welcome",
     "test_second_turn_passthrough",
     "test_first_turn_streaming_appends_welcome",
+    "test_first_turn_tool_use_no_crash",
+    "test_first_turn_streaming_tool_use_no_crash",
 ]

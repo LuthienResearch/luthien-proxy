@@ -118,9 +118,9 @@ class TestNonStreamingResponse:
         }
         result = await policy.on_anthropic_response(response, context)
         content_blocks = result["content"]
-        assert len(content_blocks) == 2
-        assert content_blocks[0]["text"] == "Hello!"
-        assert "Hackathon" in content_blocks[1]["text"]
+        assert len(content_blocks) == 1
+        assert content_blocks[0]["text"].startswith("Hello!")
+        assert "Hackathon" in content_blocks[0]["text"]
 
     @pytest.mark.asyncio
     async def test_subsequent_turn_passthrough(self, policy, context):
@@ -150,22 +150,34 @@ class TestNonStreamingResponse:
 class TestStreamingHooks:
     @pytest.mark.asyncio
     async def test_stream_complete_emits_welcome_on_first_turn(self, policy, context):
-        """on_anthropic_stream_complete emits welcome block events on first turn."""
+        """on_anthropic_stream_complete injects suffix delta + flushes held stop."""
         context.request = {"messages": [{"role": "user", "content": "hi"}]}
 
-        # Simulate a content block start so TextModifierPolicy tracks max_index
-        from anthropic.types import RawContentBlockStartEvent, TextBlock
+        from anthropic.types import (
+            RawContentBlockDeltaEvent,
+            RawContentBlockStartEvent,
+            RawContentBlockStopEvent,
+            TextBlock,
+            TextDelta,
+        )
 
         start_event = RawContentBlockStartEvent(
             type="content_block_start",
             index=0,
             content_block=TextBlock(type="text", text=""),
         )
+        stop_event = RawContentBlockStopEvent(type="content_block_stop", index=0)
+
         await policy.on_anthropic_stream_event(start_event, context)
+        await policy.on_anthropic_stream_event(stop_event, context)
 
         events = await policy.on_anthropic_stream_complete(context)
-        # TextModifierPolicy emits 3 events: block_start, delta, block_stop
-        assert len(events) == 3
+        # suffix text_delta + held content_block_stop
+        assert len(events) == 2
+        assert isinstance(events[0], RawContentBlockDeltaEvent)
+        assert isinstance(events[0].delta, TextDelta)
+        assert "Hackathon" in events[0].delta.text
+        assert isinstance(events[1], RawContentBlockStopEvent)
 
     @pytest.mark.asyncio
     async def test_stream_complete_empty_on_subsequent_turn(self, policy, context):

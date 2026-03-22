@@ -14,7 +14,7 @@ import json
 import httpx
 import pytest
 from tests.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
-from tests.e2e_tests.mock_anthropic.responses import text_response
+from tests.e2e_tests.mock_anthropic.responses import text_response, tool_response
 from tests.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
 pytestmark = pytest.mark.mock_e2e
@@ -126,3 +126,81 @@ async def test_first_turn_streaming_appends_welcome(
 
     assert "Hello from streaming!" in all_text
     assert "Welcome to Luthien" in all_text
+
+
+@pytest.mark.asyncio
+async def test_first_turn_tool_use_no_crash(
+    mock_anthropic: MockAnthropicServer,
+    gateway_healthy,
+):
+    """First turn with tool_use response does not crash (non-streaming).
+
+    Regression test: appending text after tool_use blocks broke the Anthropic
+    API contract, causing a 400 on the next turn.
+    """
+    mock_anthropic.enqueue(tool_response("calculator", {"expression": "2+2"}))
+
+    async with policy_context(_ONBOARDING_POLICY, _ONBOARDING_CONFIG):
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"{GATEWAY_URL}/v1/messages",
+                headers=_HEADERS,
+                json=_FIRST_TURN_REQUEST,
+            )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    content = body["content"]
+    types = [b["type"] for b in content]
+
+    # tool_use must be present
+    assert "tool_use" in types
+
+    # No text block after tool_use — the API invariant
+    if "text" in types:
+        last_text = max(i for i, t in enumerate(types) if t == "text")
+        first_tool = min(i for i, t in enumerate(types) if t == "tool_use")
+        assert last_text < first_tool, f"Text after tool_use would cause 400: {types}"
+
+
+@pytest.mark.asyncio
+async def test_first_turn_streaming_tool_use_no_crash(
+    mock_anthropic: MockAnthropicServer,
+    gateway_healthy,
+):
+    """First turn streaming with tool_use does not crash.
+
+    Regression test: the original bug was that streaming tool_use responses
+    got a text block appended after the tool_use, breaking conversation history.
+    """
+    mock_anthropic.enqueue(tool_response("calculator", {"expression": "2+2"}))
+
+    async with policy_context(_ONBOARDING_POLICY, _ONBOARDING_CONFIG):
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"{GATEWAY_URL}/v1/messages",
+                headers=_HEADERS,
+                json={**_FIRST_TURN_REQUEST, "stream": True},
+            )
+
+    assert resp.status_code == 200
+
+    # Parse SSE events and verify no text block appears after tool_use
+    block_types_in_order = []
+    for line in resp.text.split("\n"):
+        if line.startswith("data: ") and line.strip() != "data: [DONE]":
+            try:
+                event = json.loads(line[6:])
+                if event.get("type") == "content_block_start":
+                    block = event.get("content_block", {})
+                    block_types_in_order.append(block.get("type"))
+            except json.JSONDecodeError:
+                pass
+
+    assert "tool_use" in block_types_in_order
+
+    # If text blocks exist, they must all precede tool_use blocks
+    if "text" in block_types_in_order:
+        last_text = max(i for i, t in enumerate(block_types_in_order) if t == "text")
+        first_tool = min(i for i, t in enumerate(block_types_in_order) if t == "tool_use")
+        assert last_text < first_tool, f"Text after tool_use: {block_types_in_order}"

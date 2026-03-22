@@ -6,21 +6,25 @@ Subclasses override one or two methods:
 
 The base class handles all format-specific plumbing across 2 code paths:
 Anthropic non-streaming and Anthropic streaming.
+
+When extra_text is used and the response contains tool_use blocks, the text
+is appended to the last text block before any tool_use — preserving the
+Anthropic API invariant that text blocks must precede tool_use blocks.
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
-    TextBlock,
     TextDelta,
+    ToolUseBlock,
 )
 
 from luthien_proxy.policy_core import (
@@ -39,7 +43,9 @@ if TYPE_CHECKING:
 class _StreamState:
     """Per-policy, per-request streaming state for TextModifierPolicy hook methods."""
 
-    max_index: int = field(default=-1)
+    last_text_index: int = field(default=-1)
+    held_stop: MessageStreamEvent | None = field(default=None)
+    extra_text_emitted: bool = field(default=False)
 
 
 class TextModifierPolicy(BasePolicy, AnthropicExecutionInterface):
@@ -71,10 +77,35 @@ class TextModifierPolicy(BasePolicy, AnthropicExecutionInterface):
             request = io.request
 
             if request.get("stream", False):
-                max_index = -1
+                suffix = self.extra_text()
+                last_text_index = -1
+                held_stop: MessageStreamEvent | None = None
+
                 async for event in io.stream(request):
                     if isinstance(event, RawContentBlockStartEvent):
-                        max_index = max(max_index, event.index)
+                        if not isinstance(event.content_block, ToolUseBlock):
+                            last_text_index = event.index
+
+                    if isinstance(event, RawContentBlockStopEvent) and event.index == last_text_index:
+                        if held_stop is not None:
+                            yield held_stop
+                        held_stop = event
+                        continue
+
+                    if (
+                        isinstance(event, RawContentBlockStartEvent)
+                        and isinstance(event.content_block, ToolUseBlock)
+                        and suffix is not None
+                        and held_stop is not None
+                    ):
+                        yield RawContentBlockDeltaEvent(
+                            type="content_block_delta",
+                            index=last_text_index,
+                            delta=TextDelta(type="text_delta", text=suffix),
+                        )
+                        yield held_stop
+                        held_stop = None
+                        suffix = None
 
                     if isinstance(event, RawContentBlockDeltaEvent) and isinstance(event.delta, TextDelta):
                         new_delta = event.delta.model_copy(update={"text": self.modify_text(event.delta.text)})
@@ -82,32 +113,15 @@ class TextModifierPolicy(BasePolicy, AnthropicExecutionInterface):
                     else:
                         yield event
 
-                suffix = self.extra_text()
-                if suffix is not None:
-                    new_index = max_index + 1
-                    yield cast(
-                        MessageStreamEvent,
-                        RawContentBlockStartEvent(
-                            type="content_block_start",
-                            index=new_index,
-                            content_block=TextBlock(type="text", text=""),
-                        ),
+                if suffix is not None and held_stop is not None:
+                    yield RawContentBlockDeltaEvent(
+                        type="content_block_delta",
+                        index=last_text_index,
+                        delta=TextDelta(type="text_delta", text=suffix),
                     )
-                    yield cast(
-                        MessageStreamEvent,
-                        RawContentBlockDeltaEvent(
-                            type="content_block_delta",
-                            index=new_index,
-                            delta=TextDelta(type="text_delta", text=suffix),
-                        ),
-                    )
-                    yield cast(
-                        MessageStreamEvent,
-                        RawContentBlockStopEvent(
-                            type="content_block_stop",
-                            index=new_index,
-                        ),
-                    )
+                    yield held_stop
+                elif held_stop is not None:
+                    yield held_stop
                 return
 
             # Non-streaming
@@ -118,20 +132,20 @@ class TextModifierPolicy(BasePolicy, AnthropicExecutionInterface):
         return _run()
 
     def _modify_anthropic_response(self, response: AnthropicResponse) -> None:
-        """Apply modify_text to text blocks and append extra_text if present."""
+        """Apply modify_text to text blocks and append extra_text to the last one."""
         content = response.get("content", [])
 
+        last_text_block = None
         for block in content:
             if isinstance(block, dict) and block.get("type") == "text" and "text" in block:
                 text = block.get("text")
                 if isinstance(text, str):
                     block["text"] = self.modify_text(text)
+                    last_text_block = block
 
         suffix = self.extra_text()
-        if suffix is not None:
-            new_content = list(content)
-            new_content.append({"type": "text", "text": suffix})
-            response["content"] = new_content  # type: ignore[typeddict-item]
+        if suffix is not None and last_text_block is not None:
+            last_text_block["text"] += suffix
 
     # -- Anthropic hook interface (for composition via MultiSerialPolicy) -------
 
@@ -147,48 +161,61 @@ class TextModifierPolicy(BasePolicy, AnthropicExecutionInterface):
     async def on_anthropic_stream_event(
         self, event: MessageStreamEvent, context: PolicyContext
     ) -> list[MessageStreamEvent]:
-        """Modify text deltas in-stream; track the max content block index for extra_text."""
+        """Modify text deltas in-stream; hold back text block stops for suffix injection."""
+        state = context.get_request_state(self, _StreamState, _StreamState)
+
         if isinstance(event, RawContentBlockStartEvent):
-            state = context.get_request_state(self, _StreamState, _StreamState)
-            state.max_index = max(state.max_index, event.index)
+            # Tool_use block starting — flush suffix into the held text block
+            if (
+                isinstance(event.content_block, ToolUseBlock)
+                and not state.extra_text_emitted
+                and state.held_stop is not None
+            ):
+                suffix = self.extra_text()
+                if suffix is not None:
+                    state.extra_text_emitted = True
+                    suffix_delta = RawContentBlockDeltaEvent(
+                        type="content_block_delta",
+                        index=state.last_text_index,
+                        delta=TextDelta(type="text_delta", text=suffix),
+                    )
+                    return [suffix_delta, state.held_stop, event]
+
+            if not isinstance(event.content_block, ToolUseBlock):
+                state.last_text_index = event.index
             return [event]
+
+        # Hold back content_block_stop for text blocks
+        if isinstance(event, RawContentBlockStopEvent) and event.index == state.last_text_index:
+            result: list[MessageStreamEvent] = []
+            if state.held_stop is not None:
+                result.append(state.held_stop)
+            state.held_stop = event
+            return result
+
         if isinstance(event, RawContentBlockDeltaEvent) and isinstance(event.delta, TextDelta):
             new_delta = event.delta.model_copy(update={"text": self.modify_text(event.delta.text)})
             return [event.model_copy(update={"delta": new_delta})]
         return [event]
 
     async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
-        """Emit extra_text as a new content block after the stream ends, if configured."""
-        suffix = self.extra_text()
-        if suffix is None:
-            return []
+        """Flush held stop and inject suffix if no tool_use was seen."""
         state = context.get_request_state(self, _StreamState, _StreamState)
-        new_index = state.max_index + 1
-        return [
-            cast(
-                MessageStreamEvent,
-                RawContentBlockStartEvent(
-                    type="content_block_start",
-                    index=new_index,
-                    content_block=TextBlock(type="text", text=""),
-                ),
-            ),
-            cast(
-                MessageStreamEvent,
+        if state.held_stop is None:
+            return []
+
+        result: list[AnthropicPolicyEmission] = []
+        suffix = self.extra_text()
+        if suffix is not None and not state.extra_text_emitted:
+            result.append(
                 RawContentBlockDeltaEvent(
                     type="content_block_delta",
-                    index=new_index,
+                    index=state.last_text_index,
                     delta=TextDelta(type="text_delta", text=suffix),
-                ),
-            ),
-            cast(
-                MessageStreamEvent,
-                RawContentBlockStopEvent(
-                    type="content_block_stop",
-                    index=new_index,
-                ),
-            ),
-        ]
+                )
+            )
+        result.append(state.held_stop)
+        return result
 
 
 __all__ = ["TextModifierPolicy"]
