@@ -7,10 +7,13 @@ This module provides common infrastructure for E2E tests including:
 """
 
 import asyncio
+import json
+import logging
 import os
 import shutil
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -242,3 +245,98 @@ async def auth_config_context(auth_mode: str, validate_credentials: bool = False
                     "validate_credentials": original["validate_credentials"],
                 },
             )
+
+
+# =============================================================================
+# Failure Capture Infrastructure
+# =============================================================================
+# When real-API tests fail due to unexpected LLM responses, FailureCapture
+# writes the actual response to failure_registry/.  Run
+# scripts/generate_mock_from_failures.py to turn those captures into
+# deterministic mock regression tests.
+
+_FAILURE_REGISTRY_DIR = Path(__file__).parent / "failure_registry"
+_logger = logging.getLogger(__name__)
+
+
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Store each test phase outcome on the item so fixtures can inspect it."""
+    outcome = yield
+    rep = outcome.get_result()
+    setattr(item, f"rep_{rep.when}", rep)
+
+
+class FailureCapture:
+    """Records actual LLM responses during a test for post-failure analysis.
+
+    On test failure the fixture flushes all recorded entries to
+    ``tests/e2e_tests/failure_registry/<test_name>_<timestamp>.json``.
+    Each entry contains the scenario description, policy config, what was
+    expected, and what the LLM actually returned — enough context to
+    reproduce the failure as a deterministic mock test.
+
+    Usage::
+
+        async def test_pii_redacted(failure_capture):
+            response_text = await call_gateway(...)
+            failure_capture.record(
+                scenario="SSN in response",
+                policy_config=_PII_CONFIG,
+                expected="[REDACTED]",
+                actual_response=response_text,
+                input_messages=[{"role": "user", "content": "..."}],
+            )
+            assert "[REDACTED]" in response_text
+    """
+
+    def __init__(self, test_name: str) -> None:
+        self._test_name = test_name
+        self._entries: list[dict] = []
+
+    def record(
+        self,
+        scenario: str,
+        policy_config: dict,
+        expected: str,
+        actual_response: str,
+        input_messages: list[dict] | None = None,
+    ) -> None:
+        """Append one observation.  Call this before the assertion."""
+        self._entries.append(
+            {
+                "test_name": self._test_name,
+                "scenario": scenario,
+                "policy_config": policy_config,
+                "expected": expected,
+                "actual_response": actual_response,
+                "input_messages": input_messages or [],
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+
+    def flush(self) -> Path | None:
+        """Write entries to the registry.  Returns the path written, or None."""
+        if not self._entries:
+            return None
+        _FAILURE_REGISTRY_DIR.mkdir(exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = _FAILURE_REGISTRY_DIR / f"{self._test_name}_{ts}.json"
+        path.write_text(json.dumps(self._entries, indent=2))
+        _logger.info("Failure captured → %s", path)
+        return path
+
+
+@pytest.fixture
+def failure_capture(request):
+    """Persists actual LLM responses to failure_registry/ when a real-API test fails.
+
+    Run scripts/generate_mock_from_failures.py to convert captures into mock tests.
+    """
+    capture = FailureCapture(request.node.name)
+    yield capture
+    rep = getattr(request.node, "rep_call", None)
+    if rep is not None and rep.failed:
+        path = capture.flush()
+        if path:
+            _logger.info("Failure registry entry → %s", path)
