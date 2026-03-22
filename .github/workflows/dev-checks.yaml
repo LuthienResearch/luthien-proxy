@@ -72,3 +72,57 @@ jobs:
 
       - name: Ensure working tree is clean
         run: git diff --exit-code
+
+  mock-e2e:
+    name: Mock E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.13"
+
+      - name: Sync project dependencies
+        run: uv sync --all-groups --locked
+
+      - name: Start gateway (SQLite, mock Anthropic backend)
+        run: |
+          UV_NO_ENV_FILE=1 \
+          ANTHROPIC_BASE_URL=http://localhost:18888 \
+          ANTHROPIC_API_KEY=mock-key \
+          PROXY_API_KEY=sk-luthien-dev-key \
+          ADMIN_API_KEY=admin-dev-key \
+          OTEL_ENABLED=false \
+          PYTHONPATH=src \
+          uv run python -m luthien_proxy.main --local > /tmp/gateway.log 2>&1 &
+          echo $! > /tmp/gateway.pid
+
+      - name: Wait for gateway to be healthy
+        run: |
+          timeout 30 bash -c 'until curl -sf http://localhost:8000/health; do sleep 1; done' \
+            || { echo "Gateway failed to start:"; cat /tmp/gateway.log; exit 1; }
+
+      - name: Run mock_e2e tests
+        # 8 tests excluded — pre-existing failures being fixed in PR #361 (Jai):
+        #   test_mock_simple_llm_oauth_passthrough.py  (4 tests — judge passthrough auth)
+        #   test_mock_simple_llm_passthrough_auth.py   (3 tests — judge passthrough auth)
+        #   test_request_log_transaction_detail        (1 test  — needs Docker restart)
+        # Remove these exclusions once PR #361 merges.
+        run: |
+          uv run pytest -m mock_e2e tests/e2e_tests/ \
+            --timeout=120 --no-cov -v \
+            --ignore=tests/e2e_tests/test_mock_simple_llm_oauth_passthrough.py \
+            --ignore=tests/e2e_tests/test_mock_simple_llm_passthrough_auth.py \
+            -k "not test_request_log_transaction_detail"
+
+      - name: Show gateway logs on failure
+        if: failure()
+        run: cat /tmp/gateway.log
+
+      - name: Stop gateway
+        if: always()
+        run: kill "$(cat /tmp/gateway.pid)" 2>/dev/null || true
