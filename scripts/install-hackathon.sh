@@ -28,4 +28,4 @@ uv tool install --force luthien-cli --from "git+https://github.com/LuthienResear
 
 # --- hackathon ---------------------------------------------------------
 echo ""
-luthien hackathon
+luthien hackathon </dev/tty
