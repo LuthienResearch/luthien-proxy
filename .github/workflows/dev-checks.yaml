@@ -109,6 +109,9 @@ jobs:
             || { echo "Gateway failed to start:"; cat /tmp/gateway.log; exit 1; }
 
       - name: Run mock_e2e tests
+        env:
+          MOCK_ANTHROPIC_HOST: localhost
+          ENABLE_REQUEST_LOGGING: "true"
         run: |
           uv run pytest -m mock_e2e tests/e2e_tests/ \
             --timeout=120 --no-cov -v
