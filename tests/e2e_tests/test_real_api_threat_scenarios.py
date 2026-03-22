@@ -301,7 +301,7 @@ async def test_real_api_direct_injection_is_blocked(
         actual_response=content_text,
         input_messages=messages,
     )
-    assert "[BLOCKED]" in content_text or "Ignore previous instructions" not in content_text
+    assert "[BLOCKED]" in content_text
 
 
 @pytest.mark.llm01

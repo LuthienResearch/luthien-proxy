@@ -27,8 +27,9 @@ import json
 import sys
 from pathlib import Path
 
-REGISTRY_DIR = Path("tests/e2e_tests/failure_registry")
-DEFAULT_OUTPUT = Path("tests/e2e_tests/test_mock_from_failures.py")
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+REGISTRY_DIR = _REPO_ROOT / "tests/e2e_tests/failure_registry"
+DEFAULT_OUTPUT = _REPO_ROOT / "tests/e2e_tests/test_mock_from_failures.py"
 
 _FILE_HEADER = '''\
 """Mock regression tests auto-generated from real-API failure captures.

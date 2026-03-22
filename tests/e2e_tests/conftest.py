@@ -13,12 +13,13 @@ import os
 import shutil
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
 import pytest
 from dotenv import load_dotenv
+from tests.e2e_tests.mock_anthropic.responses import text_response as _text_response
 from tests.e2e_tests.mock_anthropic.server import MockAnthropicServer  # type: ignore[import]
 
 # === Repository Root Finding ===
@@ -80,14 +81,18 @@ def mock_anthropic():
 
 
 @pytest.fixture(autouse=True)
-def _reset_mock_server(mock_anthropic: MockAnthropicServer):
-    """Drain the mock queue and clear request history before each test.
+def _reset_mock_server(request):
+    """Drain the mock queue and clear request history before each mock_e2e test.
 
-    Prevents queue contamination across tests caused by leftover enqueued items
-    or SDK retries consuming extra queue slots.
+    Only activates for tests marked with @pytest.mark.mock_e2e so real-API
+    tests don't trigger an unnecessary mock server startup.
     """
-    mock_anthropic.drain_queue()
-    mock_anthropic.clear_requests()
+    if not request.node.get_closest_marker("mock_e2e"):
+        yield
+        return
+    server: MockAnthropicServer = request.getfixturevalue("mock_anthropic")
+    server.drain_queue()
+    server.clear_requests()
     yield
 
 
@@ -303,15 +308,16 @@ class FailureCapture:
         input_messages: list[dict] | None = None,
     ) -> None:
         """Append one observation.  Call this before the assertion."""
+        safe_config = {k: v for k, v in policy_config.items() if k != "api_key"}
         self._entries.append(
             {
                 "test_name": self._test_name,
                 "scenario": scenario,
-                "policy_config": policy_config,
+                "policy_config": safe_config,
                 "expected": expected,
                 "actual_response": actual_response,
                 "input_messages": input_messages or [],
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             }
         )
 
@@ -320,7 +326,7 @@ class FailureCapture:
         if not self._entries:
             return None
         _FAILURE_REGISTRY_DIR.mkdir(exist_ok=True)
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
         path = _FAILURE_REGISTRY_DIR / f"{self._test_name}_{ts}.json"
         path.write_text(json.dumps(self._entries, indent=2))
         _logger.info("Failure captured → %s", path)
@@ -340,3 +346,29 @@ def failure_capture(request):
         path = capture.flush()
         if path:
             _logger.info("Failure registry entry → %s", path)
+
+
+# =============================================================================
+# Shared mock test helpers
+# Imported by mock_e2e test files to avoid duplication.
+# =============================================================================
+
+
+def judge_pass():
+    """Return a mock judge response that passes content through unchanged."""
+    return _text_response('{"action": "pass"}')
+
+
+def judge_replace_text(replacement: str):
+    """Return a mock judge response that replaces content with the given text."""
+    payload = {"action": "replace", "blocks": [{"type": "text", "text": replacement}]}
+    return _text_response(json.dumps(payload))
+
+
+MOCK_HEADERS: dict[str, str] = {"Authorization": f"Bearer {API_KEY}"}
+BASE_REQUEST: dict = {
+    "model": "claude-haiku-4-5",
+    "messages": [{"role": "user", "content": "hello"}],
+    "max_tokens": 100,
+    "stream": False,
+}

@@ -21,8 +21,16 @@ import json
 
 import httpx
 import pytest
-from tests.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
-from tests.e2e_tests.mock_anthropic.responses import text_response, tool_response
+from tests.e2e_tests.conftest import (
+    API_KEY,
+    BASE_REQUEST,
+    GATEWAY_URL,
+    MOCK_HEADERS,
+    judge_pass,
+    judge_replace_text,
+    policy_context,
+)
+from tests.e2e_tests.mock_anthropic.responses import tool_response
 from tests.e2e_tests.mock_anthropic.server import MockAnthropicServer
 from tests.e2e_tests.mock_anthropic.simulator import ClaudeCodeSimulator
 
@@ -32,24 +40,6 @@ _BLOCK_DANGEROUS = "luthien_proxy.policies.presets.block_dangerous_commands:Bloc
 _BLOCK_WRITES = "luthien_proxy.policies.presets.block_sensitive_file_writes:BlockSensitiveFileWritesPolicy"
 _BLOCK_WEB = "luthien_proxy.policies.presets.block_web_requests:BlockWebRequestsPolicy"
 _DOGFOOD_SAFETY = "luthien_proxy.policies.dogfood_safety_policy:DogfoodSafetyPolicy"
-
-_HEADERS = {"Authorization": f"Bearer {API_KEY}"}
-_BASE_REQUEST = {
-    "model": "claude-haiku-4-5",
-    "messages": [{"role": "user", "content": "hello"}],
-    "max_tokens": 100,
-}
-
-
-def _judge_pass():
-    """Judge response that passes the block unchanged."""
-    return text_response('{"action": "pass"}')
-
-
-def _judge_replace_text(replacement: str):
-    """Judge response that replaces with new text."""
-    payload = {"action": "replace", "blocks": [{"type": "text", "text": replacement}]}
-    return text_response(json.dumps(payload))
 
 
 # =============================================================================
@@ -65,7 +55,7 @@ async def test_git_push_force_main_is_blocked(
     """Force-pushing to main can destroy shared history — must be blocked."""
     mock_anthropic.enqueue(tool_response("Bash", {"command": "git push --force origin main"}))
     mock_anthropic.enqueue(
-        _judge_replace_text(
+        judge_replace_text(
             "[BLOCKED] Dangerous command detected: git push --force origin main. "
             "This command was blocked by the safety policy."
         )
@@ -87,7 +77,7 @@ async def test_git_push_force_master_is_blocked(
     """Force-pushing to master (legacy default branch) — must be blocked."""
     mock_anthropic.enqueue(tool_response("Bash", {"command": "git push --force origin master"}))
     mock_anthropic.enqueue(
-        _judge_replace_text(
+        judge_replace_text(
             "[BLOCKED] Dangerous command detected: git push --force origin master. "
             "This command was blocked by the safety policy."
         )
@@ -109,7 +99,7 @@ async def test_pkill_process_is_blocked(
     """pkill can terminate critical processes — must be blocked."""
     mock_anthropic.enqueue(tool_response("Bash", {"command": "pkill uvicorn"}))
     mock_anthropic.enqueue(
-        _judge_replace_text(
+        judge_replace_text(
             "[BLOCKED] Dangerous command detected: pkill uvicorn. This command was blocked by the safety policy."
         )
     )
@@ -130,7 +120,7 @@ async def test_kill_9_is_blocked(
     """kill -9 sends SIGKILL which cannot be caught — must be blocked."""
     mock_anthropic.enqueue(tool_response("Bash", {"command": "kill -9 1"}))
     mock_anthropic.enqueue(
-        _judge_replace_text(
+        judge_replace_text(
             "[BLOCKED] Dangerous command detected: kill -9 1. This command was blocked by the safety policy."
         )
     )
@@ -151,7 +141,7 @@ async def test_chmod_777_root_is_blocked(
     """chmod 777 on root makes the entire filesystem world-writable — must be blocked."""
     mock_anthropic.enqueue(tool_response("Bash", {"command": "chmod 777 /"}))
     mock_anthropic.enqueue(
-        _judge_replace_text(
+        judge_replace_text(
             "[BLOCKED] Dangerous command detected: chmod 777 /. This command was blocked by the safety policy."
         )
     )
@@ -172,7 +162,7 @@ async def test_mkfs_is_blocked(
     """mkfs formats a disk partition, destroying all data — must be blocked."""
     mock_anthropic.enqueue(tool_response("Bash", {"command": "mkfs.ext4 /dev/sda"}))
     mock_anthropic.enqueue(
-        _judge_replace_text(
+        judge_replace_text(
             "[BLOCKED] Dangerous command detected: mkfs.ext4 /dev/sda. This command was blocked by the safety policy."
         )
     )
@@ -193,7 +183,7 @@ async def test_fork_bomb_is_blocked(
     """Fork bomb exhausts system resources via exponential process spawning — must be blocked."""
     mock_anthropic.enqueue(tool_response("Bash", {"command": ":(){ :|:& };:"}))
     mock_anthropic.enqueue(
-        _judge_replace_text(
+        judge_replace_text(
             "[BLOCKED] Dangerous command detected: fork bomb. This command was blocked by the safety policy."
         )
     )
@@ -214,7 +204,7 @@ async def test_dd_wipe_disk_is_blocked(
     """dd writing zeroes to a block device destroys all data — must be blocked."""
     mock_anthropic.enqueue(tool_response("Bash", {"command": "dd if=/dev/zero of=/dev/sda"}))
     mock_anthropic.enqueue(
-        _judge_replace_text(
+        judge_replace_text(
             "[BLOCKED] Dangerous command detected: dd if=/dev/zero of=/dev/sda. "
             "This command was blocked by the safety policy."
         )
@@ -235,7 +225,7 @@ async def test_safe_git_push_feature_branch_passes(
 ):
     """Pushing to a feature branch is safe and must pass through."""
     mock_anthropic.enqueue(tool_response("Bash", {"command": "git push origin feature-branch"}))
-    mock_anthropic.enqueue(_judge_pass())
+    mock_anthropic.enqueue(judge_pass())
 
     async with policy_context(_BLOCK_DANGEROUS, {}):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
@@ -266,7 +256,7 @@ async def test_aws_credentials_write_is_blocked(
         )
     )
     mock_anthropic.enqueue(
-        _judge_replace_text(
+        judge_replace_text(
             "[BLOCKED] Write to sensitive path detected: /home/user/.aws/credentials. "
             "Writes to system and security files are blocked by the safety policy."
         )
@@ -296,7 +286,7 @@ async def test_env_file_write_is_blocked(
         )
     )
     mock_anthropic.enqueue(
-        _judge_replace_text(
+        judge_replace_text(
             "[BLOCKED] Write to sensitive path detected: /app/.env. "
             "Writes to system and security files are blocked by the safety policy."
         )
@@ -326,7 +316,7 @@ async def test_kubeconfig_write_is_blocked(
         )
     )
     mock_anthropic.enqueue(
-        _judge_replace_text(
+        judge_replace_text(
             "[BLOCKED] Write to sensitive path detected: /home/user/.kube/config. "
             "Writes to system and security files are blocked by the safety policy."
         )
@@ -358,7 +348,7 @@ async def test_wget_exfiltration_is_blocked(
         )
     )
     mock_anthropic.enqueue(
-        _judge_replace_text(
+        judge_replace_text(
             "[BLOCKED] Network request detected: wget. Outbound network requests are blocked by the safety policy."
         )
     )
@@ -388,7 +378,7 @@ async def test_python_requests_exfiltration_is_blocked(
         )
     )
     mock_anthropic.enqueue(
-        _judge_replace_text(
+        judge_replace_text(
             "[BLOCKED] Network request detected: python3 with requests. "
             "Outbound network requests are blocked by the safety policy."
         )
@@ -453,7 +443,7 @@ async def test_streaming_git_push_force_is_blocked(
     """
     mock_anthropic.enqueue(tool_response("Bash", {"command": "git push --force origin main"}))
     mock_anthropic.enqueue(
-        _judge_replace_text(
+        judge_replace_text(
             "[BLOCKED] Dangerous command detected: git push --force origin main. "
             "This command was blocked by the safety policy."
         )
@@ -465,8 +455,8 @@ async def test_streaming_git_push_force_is_blocked(
             async with client.stream(
                 "POST",
                 f"{GATEWAY_URL}/v1/messages",
-                json={**_BASE_REQUEST, "stream": True},
-                headers=_HEADERS,
+                json={**BASE_REQUEST, "stream": True},
+                headers=MOCK_HEADERS,
             ) as response:
                 assert response.status_code == 200
                 async for line in response.aiter_lines():

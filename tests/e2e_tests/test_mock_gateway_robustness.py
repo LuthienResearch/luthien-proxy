@@ -244,7 +244,12 @@ async def test_invalid_auth_token_returns_401(
             headers={"Authorization": "Bearer invalid-token-xyz"},
         )
 
-    assert response.status_code in (200, 401, 502)  # depends on AUTH_MODE
+    assert response.status_code != 500  # gateway must not crash
+    assert response.status_code in (200, 401, 502), (
+        f"Unexpected status {response.status_code}. "
+        "In AUTH_MODE=both (default) unknown tokens are treated as passthrough keys "
+        "(returns 200 via mock server). Use AUTH_MODE=proxy_key for strict enforcement."
+    )
 
 
 # ======================================================================

@@ -88,10 +88,10 @@ markers = [
     "mock_e2e: marks e2e tests that use the mock Anthropic server (no real API calls)",
     "sqlite_e2e: marks e2e tests running the gateway in-process with SQLite (no Docker)",
     "llm01: OWASP LLM01 - Prompt Injection scenarios",
-    "llm02: OWASP LLM02 - Insecure Output Handling scenarios",
-    "llm04: OWASP LLM04 - Model Denial of Service scenarios",
+    "llm02: OWASP LLM02 - Insecure Output Handling scenarios (reserved, no tests yet)",
+    "llm04: OWASP LLM04 - Model Denial of Service scenarios (reserved, no tests yet)",
     "llm06: OWASP LLM06 - Sensitive Information Disclosure scenarios",
-    "llm07: OWASP LLM07 - Insecure Plugin Design / Tool Call scenarios",
+    "llm07: OWASP LLM07 - Insecure Plugin Design / Tool Call scenarios (reserved, no tests yet)",
     "llm08: OWASP LLM08 - Excessive Agency scenarios",
 ]
 timeout_func_only = false

@@ -8,6 +8,7 @@ wheels/
 .coverage
 .coverage.cavil.*
 coverage.json
+tests/e2e_tests/failure_registry/*.json
 
 # Virtual environments
 .venv

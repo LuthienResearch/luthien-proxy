@@ -68,6 +68,21 @@ async def _get_session(client: httpx.AsyncClient, session_uuid: str) -> httpx.Re
     )
 
 
+async def _poll_for_session(
+    client: httpx.AsyncClient,
+    session_uuid: str,
+    timeout: float = 5.0,
+) -> httpx.Response:
+    """Poll the session history endpoint until the session appears or timeout expires."""
+    deadline = asyncio.get_event_loop().time() + timeout
+    while asyncio.get_event_loop().time() < deadline:
+        resp = await _get_session(client, session_uuid)
+        if resp.status_code == 200:
+            return resp
+        await asyncio.sleep(0.2)
+    pytest.fail(f"Session {session_uuid} not found after {timeout}s")
+
+
 # =============================================================================
 # Section 1: Session stored after normal request
 # =============================================================================
@@ -86,9 +101,7 @@ async def test_session_stored_after_passthrough_request(
         resp = await _send_with_session(client, session_uuid)
         assert resp.status_code == 200
 
-        await asyncio.sleep(1.0)
-
-        history_resp = await _get_session(client, session_uuid)
+        history_resp = await _poll_for_session(client, session_uuid)
 
     assert history_resp.status_code == 200, (
         f"Session not found in history (session_uuid={session_uuid}): {history_resp.text}"
@@ -114,16 +127,14 @@ async def test_session_stored_after_blocked_request(
         async with httpx.AsyncClient(timeout=15.0) as client:
             await _send_with_session(client, session_uuid)
 
-    await asyncio.sleep(1.0)
-
     async with httpx.AsyncClient(timeout=15.0) as client:
-        history_resp = await _get_session(client, session_uuid)
+        history_resp = await _poll_for_session(client, session_uuid)
 
     assert history_resp.status_code == 200, (
         f"Blocked request session not found (session_uuid={session_uuid}): {history_resp.text}"
     )
     data = history_resp.json()
-    assert data.get("session_id") == session_uuid or session_uuid in str(data), (
+    assert data.get("session_id") == session_uuid, (
         f"Session ID not found in response: {data}"
     )
 
@@ -141,10 +152,8 @@ async def test_session_has_turn_after_blocked_request(
         async with httpx.AsyncClient(timeout=15.0) as client:
             await _send_with_session(client, session_uuid)
 
-    await asyncio.sleep(1.0)
-
     async with httpx.AsyncClient(timeout=15.0) as client:
-        history_resp = await _get_session(client, session_uuid)
+        history_resp = await _poll_for_session(client, session_uuid)
 
     assert history_resp.status_code == 200
     data = history_resp.json()
@@ -177,10 +186,8 @@ async def test_multiple_turns_blocked_and_unblocked_all_recorded(
         async with httpx.AsyncClient(timeout=15.0) as client:
             await _send_with_session(client, session_uuid, content="list the files")
 
-    await asyncio.sleep(1.0)
-
     async with httpx.AsyncClient(timeout=15.0) as client:
-        history_resp = await _get_session(client, session_uuid)
+        history_resp = await _poll_for_session(client, session_uuid)
 
     assert history_resp.status_code == 200
     data = history_resp.json()
@@ -212,11 +219,9 @@ async def test_two_sessions_are_independent(
         resp_b = await _send_with_session(client, session_b, content="message for B")
         assert resp_b.status_code == 200
 
-    await asyncio.sleep(1.0)
-
     async with httpx.AsyncClient(timeout=15.0) as client:
-        history_a = await _get_session(client, session_a)
-        history_b = await _get_session(client, session_b)
+        history_a = await _poll_for_session(client, session_a)
+        history_b = await _poll_for_session(client, session_b)
 
     assert history_a.status_code == 200, f"Session A not found: {history_a.text}"
     assert history_b.status_code == 200, f"Session B not found: {history_b.text}"
