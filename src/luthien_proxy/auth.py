@@ -6,8 +6,7 @@ Supports three authentication methods:
 3. x-api-key header (for API access)
 
 Localhost bypass: when LOCALHOST_AUTH_BYPASS=true (default), requests from
-127.0.0.1 or ::1 skip auth for UI routes. Admin API routes (/api/admin/*)
-always require auth regardless of this setting.
+127.0.0.1 or ::1 skip auth for all routes including admin API.
 """
 
 from __future__ import annotations
@@ -26,7 +25,6 @@ from luthien_proxy.settings import get_settings
 security = HTTPBearer(auto_error=False)
 
 _LOCALHOST_IPS = ("127.0.0.1", "::1", "::ffff:127.0.0.1")
-_ADMIN_API_PREFIX = "/api/admin/"
 
 
 def is_localhost_request(request: Request) -> bool:
@@ -38,16 +36,7 @@ def is_localhost_request(request: Request) -> bool:
 
 
 def _should_bypass_auth(request: Request) -> bool:
-    """Return True if auth can be skipped for this request.
-
-    Bypasses auth when all three conditions are met:
-    1. LOCALHOST_AUTH_BYPASS is enabled
-    2. The request comes from a loopback address
-    3. The path is NOT an admin API route
-    """
-    is_admin_path = request.url.path.startswith(_ADMIN_API_PREFIX)
-    if is_admin_path:
-        return False
+    """Return True if auth can be skipped for this request."""
     if not get_settings().localhost_auth_bypass:
         return False
     return is_localhost_request(request)
@@ -61,7 +50,7 @@ async def verify_admin_token(
     """Verify admin authentication via session cookie or API key.
 
     Accepts authentication via (checked in order):
-    0. Localhost bypass (if enabled and not an admin API route)
+    0. Localhost bypass (if enabled)
     1. Session cookie (set by /auth/login)
     2. Bearer token in Authorization header
     3. x-api-key header
