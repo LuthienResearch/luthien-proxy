@@ -55,6 +55,21 @@ class TestLoadConfigFromEnv:
         with pytest.raises(ValueError, match="DATABASE_URL environment variable required"):
             load_config_from_env(settings=Settings(_env_file=None))
 
+    def test_multiple_missing_vars_reported_at_once(self, monkeypatch):
+        """Test that all missing env vars are reported in a single error."""
+        from luthien_proxy.settings import Settings
+
+        monkeypatch.delenv("PROXY_API_KEY", raising=False)
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.delenv("ADMIN_API_KEY", raising=False)
+
+        with pytest.raises(ValueError, match="Missing required configuration") as exc_info:
+            load_config_from_env(settings=Settings(_env_file=None))
+
+        message = str(exc_info.value)
+        assert "PROXY_API_KEY" in message
+        assert "DATABASE_URL" in message
+
     def test_valid_config_returns_dict(self, monkeypatch):
         """Test that valid configuration returns expected dictionary."""
         from luthien_proxy.settings import Settings

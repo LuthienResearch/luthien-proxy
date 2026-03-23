@@ -423,6 +423,11 @@ async def connect_redis(redis_url: str) -> Redis:
 def load_config_from_env(settings: Settings | None = None) -> dict:
     """Load and validate configuration from environment variables.
 
+    Collects missing-required-field errors and reports them at once, so
+    operators can fix every missing variable in a single deploy cycle.
+    Pydantic structural errors (type mismatches on settings fields) are
+    still raised immediately.
+
     Args:
         settings: Optional Settings instance for testing. Uses get_settings() if None.
 
@@ -431,8 +436,10 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
         redis_url, startup_policy_path)
 
     Raises:
-        ValueError: If required environment variables are missing or invalid
+        ValueError: If required environment variables are missing or invalid.
     """
+    errors: list[str] = []
+
     try:
         if settings is None:
             settings = get_settings()
@@ -440,14 +447,18 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
         raise ValueError(f"Invalid configuration: {e}")
 
     if settings.proxy_api_key is None:
-        raise ValueError("PROXY_API_KEY environment variable required")
+        errors.append("PROXY_API_KEY environment variable required")
 
     # admin_api_key is optional — admin endpoints return 500 if not set,
     # but the gateway still serves proxy traffic without it.
 
     database_url = settings.database_url
     if not database_url:
-        raise ValueError("DATABASE_URL environment variable required")
+        errors.append("DATABASE_URL environment variable required")
+
+    if errors:
+        bullet = "\n  - "
+        raise ValueError(f"Missing required configuration:{bullet}{bullet.join(errors)}")
 
     redis_url = settings.redis_url
 
