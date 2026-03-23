@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Pre-commit hook: auto-format staged Python files, warn on lint/type issues.
+# Install: ./scripts/install-hooks.sh
+set -uo pipefail
+
+# Only act on Python files that are staged (Added, Modified, Copied, Renamed)
+mapfile -t staged_py < <(git diff --cached --name-only --diff-filter=ACMR -- '*.py')
+[ "${#staged_py[@]}" -eq 0 ] && exit 0
+
+echo "pre-commit: formatting ${#staged_py[@]} staged Python file(s)..."
+
+# Auto-fix: format and lint-fix staged files only
+uv run ruff format "${staged_py[@]}"
+uv run ruff check --fix "${staged_py[@]}" 2>/dev/null || true
+
+# Re-stage any files that formatting changed
+for f in "${staged_py[@]}"; do
+    [ -f "$f" ] && git add "$f"
+done
+
+# Warn on remaining lint issues (non-auto-fixable)
+lint_output=$(uv run ruff check "${staged_py[@]}" 2>&1) || true
+if [ -n "$lint_output" ]; then
+    echo ""
+    echo "⚠ Lint warnings (not auto-fixable):"
+    echo "$lint_output"
+    echo ""
+fi
+
+# Warn on type errors in changed files
+type_output=$(uv run pyright "${staged_py[@]}" 2>&1) || true
+if echo "$type_output" | grep -q "error:"; then
+    echo ""
+    echo "⚠ Type check warnings:"
+    echo "$type_output" | grep "error:"
+    echo ""
+fi
+
+exit 0
