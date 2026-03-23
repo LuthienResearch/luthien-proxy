@@ -13,22 +13,20 @@ jobs:
       contents: read
       pull-requests: write
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Check for modified migrations
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
-          CHANGED_FILES=$(gh pr diff "$PR_NUMBER" --repo "$REPO" --name-only)
-          MODIFIED=$(echo "$CHANGED_FILES" | grep '^migrations/' || true)
-
-          if [ -z "$MODIFIED" ]; then
-            echo "No migration files changed."
-            exit 0
-          fi
-
-          # Check which migration files were modified (not just added)
-          MODIFIED_EXISTING=$(gh pr diff "$PR_NUMBER" --repo "$REPO" --name-status \
+          # Use git diff to detect modified (not added) migration files
+          BASE_SHA=${{ github.event.pull_request.base.sha }}
+          MODIFIED_EXISTING=$(git diff --name-status "$BASE_SHA"...HEAD \
             | grep '^M' | awk '{print $2}' | grep '^migrations/' || true)
 
           if [ -z "$MODIFIED_EXISTING" ]; then
@@ -44,14 +42,11 @@ jobs:
 
           if [ "$EXISTING" -eq 0 ]; then
             FILE_LIST=$(echo "$MODIFIED_EXISTING" | sed 's/^/- `/' | sed 's/$/`/')
-            gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$(cat <<EOF
-          **Migration safety warning** — This PR modifies existing migration files:
+            gh pr comment "$PR_NUMBER" --repo "$REPO" --body "**Migration safety warning** — This PR modifies existing migration files:
 
           $FILE_LIST
 
           Applied migrations are tracked by content hash. Modifying them will break deployments unless a hash fixup is added to \`docker/run-migrations.sh\`.
 
-          If the change is comment-only or formatting, add a fixup entry. If the schema changed, create a new migration file instead.
-          EOF
-            )"
+          If the change is comment-only or formatting, add a fixup entry. If the schema changed, create a new migration file instead."
           fi
