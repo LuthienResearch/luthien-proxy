@@ -132,6 +132,11 @@ echo "✅ Migration validation passed"
 for migration in "$MIGRATIONS_DIR"/*.sql; do
     filename=$(basename "$migration")
 
+    # sqlite_schema.sql is only for SQLite — skip it in Postgres migrations
+    if [ "$filename" = "sqlite_schema.sql" ]; then
+        continue
+    fi
+
     # Check if already applied
     applied=$(psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -t <<EOF | tr -d ' '
 SELECT COUNT(*) FROM _migrations WHERE filename = '$filename';
