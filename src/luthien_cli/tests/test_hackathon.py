@@ -402,7 +402,7 @@ class TestCheckoutProxyRef:
         assert result is True
         mock_run.assert_called_once()
         cmd = mock_run.call_args.args[0]
-        assert cmd == ["git", "checkout", "feature/foo"]
+        assert cmd == ["git", "checkout", "--", "feature/foo"]
 
     def test_checkout_pr(self, tmp_path):
         """PR number fetches the PR ref and checks it out."""
@@ -414,7 +414,7 @@ class TestCheckoutProxyRef:
         assert result is True
         assert mock_run.call_count == 2
         fetch_cmd = mock_run.call_args_list[0].args[0]
-        assert "pull/123/head:pr-123" in " ".join(fetch_cmd)
+        assert "+pull/123/head:pr-123" in " ".join(fetch_cmd)
 
     def test_checkout_failure(self, tmp_path):
         """Failed checkout returns False."""
