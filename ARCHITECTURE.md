@@ -179,7 +179,7 @@ This starts the gateway in local mode (SQLite + in-process pub/sub). The activit
 For e2e tests from a worktree, use `sqlite_e2e` markers which start an in-process gateway automatically:
 
 ```bash
-uv run pytest -m sqlite_e2e tests/e2e_tests/ --no-cov
+uv run pytest -m sqlite_e2e tests/luthien_proxy/e2e_tests/ --no-cov
 ```
 
 ## Key Abstractions

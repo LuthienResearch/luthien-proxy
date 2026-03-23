@@ -319,8 +319,8 @@ def _show_hackathon_guide(
                 [bold]Scripts:[/bold]
                   ./scripts/start_gateway.sh          Start gateway (no Docker)
                   ./scripts/dev_checks.sh             Format + lint + typecheck + test
-                  uv run pytest tests/unit_tests/ -x  Quick unit tests (stop on first failure)
-                  uv run pytest tests/unit_tests/policies/test_hackathon_policy_template.py -v
+                  uv run pytest tests/luthien_proxy/unit_tests/ -x  Quick unit tests (stop on first failure)
+                  uv run pytest tests/luthien_proxy/unit_tests/policies/test_hackathon_policy_template.py -v
 
                 [bold]Hot-reload your policy (no restart needed):[/bold]
                   curl -X POST {gateway_url}/api/admin/policy/set \\

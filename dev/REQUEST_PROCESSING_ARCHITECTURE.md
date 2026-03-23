@@ -281,9 +281,9 @@ Policies can intercept at these points:
 
 ### Tests
 
-- **PolicyExecutor tests**: `tests/unit_tests/streaming/policy_executor/` (55 tests)
-- **ClientFormatter tests**: `tests/unit_tests/streaming/client_formatter/` (12 tests)
-- **E2E tests**: `tests/e2e_tests/test_api_compatibility.py`
+- **PolicyExecutor tests**: `tests/luthien_proxy/unit_tests/streaming/policy_executor/` (55 tests)
+- **ClientFormatter tests**: `tests/luthien_proxy/unit_tests/streaming/client_formatter/` (12 tests)
+- **E2E tests**: `tests/luthien_proxy/e2e_tests/test_api_compatibility.py`
 
 ---
 
