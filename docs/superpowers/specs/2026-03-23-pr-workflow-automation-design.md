@@ -49,9 +49,10 @@ Phase 2: Gate
 
 **Current behavior:** Agents forget. CI posts a reminder comment that often goes unaddressed.
 
-**New behavior:** After `gh pr create` returns the PR number, generate `changelog.d/pr-<NUMBER>.md` with content inferred from commits.
+**New behavior:** After `gh pr create` returns the PR number, generate a changelog fragment with content inferred from commits.
 
 **Mechanics:**
+- Filename: `changelog.d/<branch-name>.md` (consistent with existing convention). Falls back to `pr-<NUMBER>.md` if branch name is unavailable.
 - Infer category from commit prefixes: `feat`→Features, `fix`→Fixes, `refactor`→Refactors, else→Chores & Docs
 - Summarize from commit messages on the branch
 - If a fragment already exists for this branch, skip
@@ -152,6 +153,7 @@ done
 **Limitations:**
 - If context gets compacted, the monitor notification may be lost. For most PRs the feedback loop is <30 minutes, well within a session.
 - Only one monitor per session. If the agent opens multiple PRs, only the latest is monitored.
+- The loop should cap at ~80 iterations (~2 hours). If no event occurs by then, exit with `INFO:TIMEOUT` so the process doesn't run indefinitely.
 
 **Integration:** The monitor logic is documented as a reusable pattern in the skills, not a separate script file. Each skill (`/dev` Stage 7, `/finish-ticket` Phase 3, `/pr` new final step) includes the inline monitor launch.
 
