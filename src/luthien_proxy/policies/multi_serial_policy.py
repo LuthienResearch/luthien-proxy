@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from anthropic.lib.streaming import MessageStreamEvent
 
@@ -191,14 +191,35 @@ class MultiSerialPolicy(BasePolicy, AnthropicExecutionInterface):
         return events
 
     async def on_anthropic_stream_complete(self, context: "PolicyContext") -> list[AnthropicPolicyEmission]:
-        """Collect post-stream events from each sub-policy in list order."""
+        """Collect post-stream events from each sub-policy, chaining through the rest.
+
+        When policy A emits stream_complete events, those events pass through
+        policies B, C, ... via on_anthropic_stream_event so the full chain applies.
+        """
         all_events: list[AnthropicPolicyEmission] = []
-        for policy in self._sub_policies:
+        for i, policy in enumerate(self._sub_policies):
             hook = getattr(policy, "on_anthropic_stream_complete", None)
-            if hook is not None:
-                events = await hook(context)
-                if events:
-                    all_events.extend(events)
+            if hook is None:
+                continue
+            events = await hook(context)
+            if not events:
+                continue
+            # Stream events pass through downstream hooks; dict responses (TypedDicts)
+            # skip stream_event since they're a different emission type.
+            remaining = self._sub_policies[i + 1 :]
+            for downstream in remaining:
+                next_events: list[AnthropicPolicyEmission] = []
+                for evt in events:
+                    if not isinstance(evt, dict):
+                        next_events.extend(
+                            await downstream.on_anthropic_stream_event(evt, context)  # type: ignore[attr-defined]
+                        )
+                    else:
+                        next_events.append(cast("AnthropicPolicyEmission", evt))
+                events = next_events
+                if not events:
+                    break
+            all_events.extend(events)
         return all_events
 
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:

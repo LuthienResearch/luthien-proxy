@@ -148,7 +148,8 @@ class TestNonStreamingResponse:
     @pytest.mark.asyncio
     async def test_first_turn_appends_welcome(self, policy, context):
         """On first turn, welcome text is appended to the last text block."""
-        context.request = {"messages": [{"role": "user", "content": "hi"}]}
+        request = {"messages": [{"role": "user", "content": "hi"}]}
+        await policy.on_anthropic_request(request, context)
         response = {
             "content": [{"type": "text", "text": "Hello!"}],
             "model": "test",
@@ -163,13 +164,14 @@ class TestNonStreamingResponse:
     @pytest.mark.asyncio
     async def test_subsequent_turn_passthrough(self, policy, context):
         """On subsequent turns, response passes through unchanged."""
-        context.request = {
+        request = {
             "messages": [
                 {"role": "user", "content": "hi"},
                 {"role": "assistant", "content": "hello"},
                 {"role": "user", "content": "how are you"},
             ]
         }
+        await policy.on_anthropic_request(request, context)
         response = {
             "content": [{"type": "text", "text": "I'm fine!"}],
             "model": "test",
@@ -178,6 +180,22 @@ class TestNonStreamingResponse:
         result = await policy.on_anthropic_response(response, context)
         assert len(result["content"]) == 1
         assert result["content"][0]["text"] == "I'm fine!"
+
+    @pytest.mark.asyncio
+    async def test_first_turn_works_without_context_request(self, policy, context):
+        """Hook methods work when context.request is None (the MultiSerialPolicy bug)."""
+        assert context.request is None
+        request = {"messages": [{"role": "user", "content": "hi"}]}
+        await policy.on_anthropic_request(request, context)
+        response = {
+            "content": [{"type": "text", "text": "Hello!"}],
+            "model": "test",
+            "role": "assistant",
+        }
+        result = await policy.on_anthropic_response(response, context)
+        assert len(result["content"]) == 1
+        assert result["content"][0]["text"].startswith("Hello!")
+        assert "Luthien" in result["content"][0]["text"]
 
 
 # =============================================================================
@@ -189,7 +207,8 @@ class TestStreamingHooks:
     @pytest.mark.asyncio
     async def test_stream_complete_emits_welcome_on_first_turn(self, policy, context):
         """on_anthropic_stream_complete injects suffix delta + flushes held stop."""
-        context.request = {"messages": [{"role": "user", "content": "hi"}]}
+        request = {"messages": [{"role": "user", "content": "hi"}]}
+        await policy.on_anthropic_request(request, context)
 
         start_event = RawContentBlockStartEvent(
             type="content_block_start",
@@ -214,13 +233,30 @@ class TestStreamingHooks:
     @pytest.mark.asyncio
     async def test_stream_complete_empty_on_subsequent_turn(self, policy, context):
         """on_anthropic_stream_complete returns empty on subsequent turns."""
-        context.request = {
+        request = {
             "messages": [
                 {"role": "user", "content": "hi"},
                 {"role": "assistant", "content": "hello"},
                 {"role": "user", "content": "more"},
             ]
         }
+        await policy.on_anthropic_request(request, context)
+        events = await policy.on_anthropic_stream_complete(context)
+        assert events == []
+
+    @pytest.mark.asyncio
+    async def test_hooks_inert_without_on_anthropic_request(self, policy, context):
+        """If on_anthropic_request was never called, hooks are inert (no crash)."""
+        assert context.request is None
+        response = {
+            "content": [{"type": "text", "text": "Hello!"}],
+            "model": "test",
+            "role": "assistant",
+        }
+        result = await policy.on_anthropic_response(response, context)
+        assert result["content"][0]["text"] == "Hello!"
+        assert len(result["content"]) == 1
+
         events = await policy.on_anthropic_stream_complete(context)
         assert events == []
 
@@ -275,7 +311,8 @@ class TestToolUseInterleaving:
     @pytest.mark.asyncio
     async def test_non_streaming_appends_to_last_text_block(self, policy, context):
         """Welcome text is appended to the last text block, not added as a new block."""
-        context.request = {"messages": [{"role": "user", "content": "hi"}]}
+        request = {"messages": [{"role": "user", "content": "hi"}]}
+        await policy.on_anthropic_request(request, context)
         response = {
             "content": [
                 {"type": "text", "text": "Let me check."},
@@ -296,7 +333,8 @@ class TestToolUseInterleaving:
     @pytest.mark.asyncio
     async def test_streaming_injects_suffix_before_tool_use(self, policy, context):
         """In streaming, suffix delta is injected into the text block before tool_use starts."""
-        context.request = {"messages": [{"role": "user", "content": "hi"}]}
+        request = {"messages": [{"role": "user", "content": "hi"}]}
+        await policy.on_anthropic_request(request, context)
 
         events_in = [
             RawContentBlockStartEvent(

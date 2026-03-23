@@ -357,6 +357,51 @@ class TestMultiSerialAnthropicStreamLifecycle:
 
         assert tracking.cleanup_calls == 1
 
+    @pytest.mark.asyncio
+    async def test_stream_complete_events_chain_through_remaining_policies(self):
+        """Events emitted by stream_complete pass through remaining policies' stream_event hooks.
+
+        Regression test: OnboardingPolicy + AllCapsPolicy — the welcome message must
+        be uppercased by AllCapsPolicy even though it's emitted in stream_complete.
+        """
+        from luthien_proxy.policies.all_caps_policy import AllCapsPolicy
+        from luthien_proxy.policies.onboarding_policy import OnboardingPolicy
+
+        onboarding = OnboardingPolicy({"gateway_url": "http://localhost:9999"})
+        allcaps = AllCapsPolicy()
+        serial = MultiSerialPolicy.from_instances([onboarding, allcaps])
+        ctx = PolicyContext.for_testing()
+
+        # Simulate what MultiSerialPolicy.run_anthropic does: call on_anthropic_request
+        # so OnboardingPolicy stashes the first-turn request.
+        first_turn_request: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 100,
+            "stream": True,
+        }
+        await serial.on_anthropic_request(first_turn_request, ctx)
+
+        # Feed a text block start + stop so TextModifierPolicy holds the stop for suffix injection
+        start_event = RawContentBlockStartEvent(
+            type="content_block_start",
+            index=0,
+            content_block=TextBlock(type="text", text=""),
+        )
+        stop_event = RawContentBlockStopEvent(type="content_block_stop", index=0)
+        await serial.on_anthropic_stream_event(start_event, ctx)
+        await serial.on_anthropic_stream_event(stop_event, ctx)
+
+        # Now collect stream_complete events
+        emissions = await serial.on_anthropic_stream_complete(ctx)
+
+        # The welcome message should have been uppercased by AllCaps
+        deltas = [e for e in emissions if isinstance(e, RawContentBlockDeltaEvent)]
+        assert deltas, "Expected at least one text delta from OnboardingPolicy's welcome message"
+        welcome_text = "".join(d.delta.text for d in deltas if isinstance(d.delta, TextDelta))
+        assert "LUTHIEN" in welcome_text, f"Welcome text should be uppercased, got: {welcome_text}"
+        assert welcome_text == welcome_text.upper(), f"Expected all caps, got: {welcome_text}"
+
 
 # =============================================================================
 # Composability (Nested MultiSerialPolicy)
