@@ -54,7 +54,7 @@ We reworked the conversation trace system to expose a debug-friendly, canonical 
 - Similar pattern: hydrate via `/api/hooks/conversation`, append deltas per stream as they arrive, refresh snapshot on completion to capture diffs.
 
 ### 8. Tests
-- `tests/unit_tests/control_plane/test_hooks_routes.py` verifies event lists, message diffs, chunk arrays, and indices (via `ConversationMessageDiff` and `ConversationCallSnapshot`).
+- `tests/luthien_proxy/unit_tests/control_plane/test_hooks_routes.py` verifies event lists, message diffs, chunk arrays, and indices (via `ConversationMessageDiff` and `ConversationCallSnapshot`).
 
 ## Design Choices
 1. **Append-only buffers per call/stream**
