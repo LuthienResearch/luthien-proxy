@@ -11,7 +11,7 @@ Requires:
       docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
 
 Run:
-    uv run pytest -m mock_e2e tests/e2e_tests/test_mock_dogfood_safety.py -v
+    uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_dogfood_safety.py -v
 """
 
 import json

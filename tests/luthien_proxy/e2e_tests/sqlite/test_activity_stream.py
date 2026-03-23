@@ -4,7 +4,7 @@ Boots a SQLite-backed gateway with redis_client=None and verifies that:
 1. The /api/activity/stream SSE endpoint returns events
 2. Events are delivered when a request flows through the gateway
 
-Run:  uv run pytest tests/e2e_tests/sqlite/test_activity_stream.py -v --timeout=30
+Run:  uv run pytest tests/luthien_proxy/e2e_tests/sqlite/test_activity_stream.py -v --timeout=30
 """
 
 import asyncio

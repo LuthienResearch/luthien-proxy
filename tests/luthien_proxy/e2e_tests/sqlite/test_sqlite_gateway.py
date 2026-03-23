@@ -4,7 +4,7 @@ Each test function is imported from the original mock e2e test modules.
 The conftest in this directory starts an in-process SQLite gateway and
 patches GATEWAY_URL/API_KEY so the imported tests hit it transparently.
 
-Run:  uv run pytest tests/e2e_tests/sqlite/ -v --timeout=30
+Run:  uv run pytest tests/luthien_proxy/e2e_tests/sqlite/ -v --timeout=30
 """
 
 import pytest

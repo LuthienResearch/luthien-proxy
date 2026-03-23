@@ -12,7 +12,7 @@ How this works in the mock_e2e setup:
 - We verify the judge request headers contain the client's key, not mock-key
 
 Run:
-    uv run pytest -m mock_e2e tests/e2e_tests/test_mock_simple_llm_passthrough_auth.py -v
+    uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_simple_llm_passthrough_auth.py -v
 """
 
 import httpx

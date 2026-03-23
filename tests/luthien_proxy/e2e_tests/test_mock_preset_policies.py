@@ -14,7 +14,7 @@ Requires:
 
 Run:
     docker compose -f docker-compose.yaml -f docker-compose.mock.yaml up -d
-    uv run pytest -m mock_e2e tests/e2e_tests/test_mock_preset_policies.py -v
+    uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_preset_policies.py -v
 """
 
 import json

@@ -3,7 +3,7 @@
 This conftest patches the parent conftest's GATEWAY_URL/API_KEY so the
 existing mock e2e test files work without modification. To run:
 
-    uv run pytest tests/e2e_tests/sqlite/ -v --timeout=30
+    uv run pytest tests/luthien_proxy/e2e_tests/sqlite/ -v --timeout=30
 
 The test files in this directory import from the mock e2e tests and re-run
 them against the SQLite gateway.

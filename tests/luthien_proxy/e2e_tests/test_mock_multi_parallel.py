@@ -15,7 +15,7 @@ Requires:
       docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
 
 Run:
-    uv run pytest -m mock_e2e tests/e2e_tests/test_mock_multi_parallel.py -v
+    uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_multi_parallel.py -v
 """
 
 import httpx

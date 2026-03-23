@@ -12,7 +12,7 @@ Setup:
 - Mock server receives both requests and we inspect their headers.
 
 Run:
-    uv run pytest -m mock_e2e tests/e2e_tests/test_mock_simple_llm_oauth_passthrough.py -v
+    uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_simple_llm_oauth_passthrough.py -v
 """
 
 import httpx
