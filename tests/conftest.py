@@ -24,11 +24,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-@pytest.fixture(scope="session")
-def repo_root() -> Path:
-    """Repo root path, available to all tests without path arithmetic."""
-    return REPO_ROOT
-
 
 def pytest_sessionstart(session):
     # Avoid accidental reliance on production defaults during unit tests.
