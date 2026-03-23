@@ -1,7 +1,7 @@
 # docker-compose override for mock-based e2e testing (Linux).
 #
 # Redirects the gateway's Anthropic backend to a mock server running on
-# the host machine at port 18888 (tests/e2e_tests/mock_anthropic/server.py).
+# the host machine at port 18888 (tests/luthien_proxy/e2e_tests/mock_anthropic/server.py).
 #
 # Uses network_mode: host so the gateway container shares the host's network
 # namespace and can reach the mock server on 127.0.0.1. This also requires
@@ -10,7 +10,7 @@
 #
 # Usage:
 #   docker compose -f docker-compose.yaml -f docker-compose.mock.yaml up -d
-#   uv run pytest -m mock_e2e tests/e2e_tests/test_mock_*.py -v
+#   uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_*.py -v
 
 services:
   gateway:

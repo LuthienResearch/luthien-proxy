@@ -15,7 +15,7 @@ from tests.luthien_proxy.e2e_tests.test_mock_admin_api import (
 )
 
 # The conftest patches GATEWAY_URL/API_KEY at the module level in
-# tests.e2e_tests.conftest AND in each test module, so these imported
+# tests.luthien_proxy.e2e_tests.conftest AND in each test module, so these imported
 # tests use the SQLite gateway.
 # --- Basic passthrough ---
 from tests.luthien_proxy.e2e_tests.test_mock_basic import (
