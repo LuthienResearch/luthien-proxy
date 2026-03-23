@@ -316,7 +316,7 @@ def test_up_local_with_proxy_ref_reinstalls_even_when_repo_path_exists(tmp_path)
     with (
         patch("luthien_cli.commands.up.DEFAULT_CONFIG_PATH", config_path),
         patch("luthien_cli.commands.up.is_gateway_healthy", return_value=False),
-        patch("luthien_cli.commands.up.resolve_proxy_ref", return_value="feature/x") as mock_resolve,
+        patch("luthien_cli.commands.up.resolve_proxy_ref", return_value="feature/x"),
         patch("luthien_cli.commands.up.ensure_gateway_venv", return_value=str(tmp_path)) as mock_venv,
         patch("luthien_cli.commands.up.is_gateway_running", return_value=None),
         patch("luthien_cli.commands.up.start_gateway", return_value=12345),
