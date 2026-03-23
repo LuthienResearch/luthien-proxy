@@ -7,35 +7,43 @@ set -e
 # Parse DATABASE_URL into individual components if set
 # Format: postgresql://user:password@host:port/database
 if [ -n "$DATABASE_URL" ]; then
-    # Extract components using bash string manipulation
-    # Remove protocol prefix
-    DB_STRING="${DATABASE_URL#*://}"
+    # SQLite URLs are handled by the Python app itself — skip Postgres migrations
+    case "$DATABASE_URL" in
+        sqlite*)
+            echo "SQLite DATABASE_URL detected, skipping Postgres migrations."
+            ;;
+        *)
+            # Extract components using bash string manipulation
+            # Remove protocol prefix
+            DB_STRING="${DATABASE_URL#*://}"
 
-    # Extract user:password@host:port/database
-    USERPASS="${DB_STRING%%@*}"
-    HOSTPORTDB="${DB_STRING#*@}"
+            # Extract user:password@host:port/database
+            USERPASS="${DB_STRING%%@*}"
+            HOSTPORTDB="${DB_STRING#*@}"
 
-    export PGUSER="${USERPASS%%:*}"
-    export PGPASSWORD="${USERPASS#*:}"
+            export PGUSER="${USERPASS%%:*}"
+            export PGPASSWORD="${USERPASS#*:}"
 
-    HOSTPORT="${HOSTPORTDB%%/*}"
-    DBPART="${HOSTPORTDB#*/}"
+            HOSTPORT="${HOSTPORTDB%%/*}"
+            DBPART="${HOSTPORTDB#*/}"
 
-    # Strip query parameters from database name (e.g., ?sslmode=require)
-    export PGDATABASE="${DBPART%%\?*}"
+            # Strip query parameters from database name (e.g., ?sslmode=require)
+            export PGDATABASE="${DBPART%%\?*}"
 
-    export PGHOST="${HOSTPORT%%:*}"
-    export PGPORT="${HOSTPORT#*:}"
+            export PGHOST="${HOSTPORT%%:*}"
+            export PGPORT="${HOSTPORT#*:}"
 
-    # Handle case where port is not specified
-    if [ "$PGPORT" = "$PGHOST" ]; then
-        export PGPORT="5432"
-    fi
+            # Handle case where port is not specified
+            if [ "$PGPORT" = "$PGHOST" ]; then
+                export PGPORT="5432"
+            fi
 
-    echo "Running database migrations..."
-    export MIGRATIONS_DIR=/app/migrations
-    /app/docker/run-migrations.sh
-    echo "Migrations complete."
+            echo "Running database migrations..."
+            export MIGRATIONS_DIR=/app/migrations
+            /app/docker/run-migrations.sh
+            echo "Migrations complete."
+            ;;
+    esac
 fi
 
 # PaaS platforms (Railway, Heroku, Render) inject PORT at runtime.
