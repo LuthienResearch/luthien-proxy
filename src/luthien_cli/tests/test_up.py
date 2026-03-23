@@ -266,7 +266,7 @@ def test_up_local_with_proxy_ref(tmp_path):
     ):
         result = runner.invoke(cli, ["up", "--proxy-ref", "abc123"])
         assert result.exit_code == 0
-        mock_venv.assert_called_once_with(proxy_ref="abc123")
+        mock_venv.assert_called_once_with(proxy_ref="abc123", force_reinstall=False)
 
 
 def test_up_docker_with_proxy_ref_errors(tmp_path):
@@ -302,7 +302,41 @@ def test_up_local_with_pr_ref(tmp_path):
         result = runner.invoke(cli, ["up", "--proxy-ref", "#42"])
         assert result.exit_code == 0
         mock_resolve.assert_called_once_with("#42")
-        mock_venv.assert_called_once_with(proxy_ref="feature/pr-branch")
+        mock_venv.assert_called_once_with(proxy_ref="feature/pr-branch", force_reinstall=False)
+
+
+def test_up_latest_forces_reinstall(tmp_path):
+    """--latest passes force_reinstall=True to ensure_gateway_venv."""
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('[gateway]\nurl = "http://localhost:8000"\n\n[local]\nmode = "local"\n')
+
+    with (
+        patch("luthien_cli.commands.up.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.up.is_gateway_healthy", return_value=False),
+        patch("luthien_cli.commands.up.ensure_gateway_venv", return_value=str(tmp_path)) as mock_venv,
+        patch("luthien_cli.commands.up.is_gateway_running", return_value=None),
+        patch("luthien_cli.commands.up.start_gateway", return_value=12345),
+        patch("luthien_cli.commands.up.wait_for_healthy", return_value=True),
+    ):
+        result = runner.invoke(cli, ["up", "--latest"])
+        assert result.exit_code == 0
+        mock_venv.assert_called_once_with(proxy_ref=None, force_reinstall=True)
+
+
+def test_up_latest_docker_mode_errors(tmp_path):
+    """--latest with Docker mode should error."""
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f'[gateway]\nurl = "http://localhost:8000"\n\n[local]\nrepo_path = "{tmp_path}"\nmode = "docker"\n'
+    )
+
+    with patch("luthien_cli.commands.up.DEFAULT_CONFIG_PATH", config_path):
+        result = runner.invoke(cli, ["up", "--latest"])
+
+    assert result.exit_code != 0
+    assert "--latest" in result.output
 
 
 def test_up_local_with_proxy_ref_reinstalls_even_when_repo_path_exists(tmp_path):
@@ -324,4 +358,4 @@ def test_up_local_with_proxy_ref_reinstalls_even_when_repo_path_exists(tmp_path)
     ):
         result = runner.invoke(cli, ["up", "--proxy-ref", "#99"])
         assert result.exit_code == 0
-        mock_venv.assert_called_once_with(proxy_ref="feature/x")
+        mock_venv.assert_called_once_with(proxy_ref="feature/x", force_reinstall=False)

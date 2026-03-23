@@ -203,7 +203,7 @@ def _onboard_local(console: Console, config, proxy_key: str, admin_key: str, pro
     """Onboard in local mode: SQLite + in-process event publisher, no Docker."""
     # 1. Install gateway package
     console.print("[blue]Installing luthien-proxy...[/blue]")
-    config.repo_path = ensure_gateway_venv(proxy_ref=proxy_ref)
+    config.repo_path = ensure_gateway_venv(proxy_ref=proxy_ref, force_reinstall=True)
     console.print("[green]luthien CLI and proxy installed.[/green]")
 
     # 2. Find a free port (needed before writing policy config)

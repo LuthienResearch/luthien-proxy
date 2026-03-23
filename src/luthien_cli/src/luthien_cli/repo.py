@@ -176,11 +176,19 @@ def _run_uv(*args: str, console: Console) -> None:
         raise SystemExit(1)
 
 
-def ensure_gateway_venv(proxy_ref: str | None = None) -> str:
+def ensure_gateway_venv(
+    proxy_ref: str | None = None,
+    *,
+    force_reinstall: bool = False,
+) -> str:
     """Create a managed venv and install luthien-proxy. Returns repo path.
 
     Creates ~/.luthien/venv/ with luthien-proxy installed, and ensures
     the ~/.luthien/luthien-proxy/ directory exists for config/data files.
+
+    Args:
+        proxy_ref: Git ref (branch, tag, SHA) to install from.
+        force_reinstall: Always re-fetch from GitHub, even if already installed.
     """
     console = Console(stderr=True)
     venv_dir = MANAGED_VENV_DIR
@@ -207,12 +215,20 @@ def ensure_gateway_venv(proxy_ref: str | None = None) -> str:
         "install",
         "--python",
         str(venv_python),
-        "--reinstall-package",
-        "luthien-proxy",
-        github_source,
     ]
 
-    label = "Installing latest luthien-proxy..." if needs_install else "Updating luthien-proxy..."
+    # Force a fresh fetch when explicitly requested, when a specific ref
+    # is given, or on first install. Without this, uv sees "already installed"
+    # for git sources and skips the fetch even if upstream has new commits.
+    if force_reinstall or proxy_ref is not None or needs_install:
+        install_args += ["--reinstall-package", "luthien-proxy"]
+        label = "Installing latest luthien-proxy..."
+    else:
+        install_args.append("--upgrade")
+        label = "Checking luthien-proxy..."
+
+    install_args.append(github_source)
+
     with console.status(label):
         _run_uv(*install_args, console=console)
 
