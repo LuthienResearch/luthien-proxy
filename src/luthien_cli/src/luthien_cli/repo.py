@@ -13,6 +13,7 @@ from rich.console import Console
 
 GITHUB_RAW_BASE = "https://raw.githubusercontent.com/LuthienResearch/luthien-proxy/main/"
 GITHUB_SHA_URL = "https://api.github.com/repos/LuthienResearch/luthien-proxy/commits/main"
+GITHUB_PR_URL = "https://api.github.com/repos/LuthienResearch/luthien-proxy/pulls/{number}"
 MANAGED_REPO_DIR = Path.home() / ".luthien" / "luthien-proxy"
 MANAGED_VENV_DIR = Path.home() / ".luthien" / "venv"
 
@@ -20,6 +21,33 @@ FILES_TO_DOWNLOAD = ("docker-compose.yaml", ".env.example")
 
 # Matches the ./src volume mount line
 _SRC_MOUNT_RE = re.compile(r"^ *- \./src:/app/src.*\n", re.MULTILINE)
+
+
+def resolve_proxy_ref(ref: str) -> str:
+    """Resolve a proxy ref string to a git ref.
+
+    Plain strings (branches, tags, SHAs) pass through.
+    '#N' resolves PR N's head branch via GitHub API.
+    """
+    if not ref.startswith("#"):
+        return ref
+
+    pr_number = ref[1:]
+    console = Console(stderr=True)
+    url = GITHUB_PR_URL.format(number=pr_number)
+    try:
+        r = httpx.get(url, timeout=10.0)
+        r.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        console.print(f"[red]Could not find PR #{pr_number}: HTTP {e.response.status_code}[/red]")
+        raise SystemExit(1)
+    except httpx.HTTPError as e:
+        console.print(f"[red]Could not resolve PR #{pr_number}: {e!r}[/red]")
+        raise SystemExit(1)
+
+    branch = r.json()["head"]["ref"]
+    console.print(f"[blue]PR #{pr_number} → branch {branch}[/blue]")
+    return branch
 
 
 def _remove_build_blocks(content: str) -> str:
@@ -144,7 +172,7 @@ def _run_uv(*args: str, console: Console) -> None:
         raise SystemExit(1)
 
 
-def ensure_gateway_venv() -> str:
+def ensure_gateway_venv(proxy_ref: str | None = None) -> str:
     """Create a managed venv and install luthien-proxy. Returns repo path.
 
     Creates ~/.luthien/venv/ with luthien-proxy installed, and ensures
@@ -166,6 +194,10 @@ def ensure_gateway_venv() -> str:
             _run_uv("venv", str(venv_dir), "--python", "3.13", console=console)
 
     github_source = "git+https://github.com/LuthienResearch/luthien-proxy.git"
+    if proxy_ref is not None:
+        console.print(f"[blue]Using proxy ref: {proxy_ref}[/blue]")
+        github_source = f"{github_source}@{proxy_ref}"
+
     install_args = [
         "pip",
         "install",

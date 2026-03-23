@@ -2,7 +2,7 @@
 
 import io
 import stat
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import yaml
 from click.testing import CliRunner
@@ -10,6 +10,7 @@ from rich.console import Console
 
 from luthien_cli.commands.hackathon import (
     POLICY_CHOICES,
+    _checkout_proxy_ref,
     _clone_repo,
     _generate_key,
     _install_deps,
@@ -386,3 +387,61 @@ class TestHackathonCommand:
         result = runner.invoke(hackathon, ["--help"])
         assert result.exit_code == 0
         assert "hackathon" in result.output.lower() or "fork" in result.output.lower()
+
+
+class TestCheckoutProxyRef:
+    """Tests for _checkout_proxy_ref()."""
+
+    def test_checkout_branch(self, tmp_path):
+        """Plain branch ref does git checkout."""
+        console = Console(file=io.StringIO())
+        with patch("luthien_cli.commands.hackathon.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            result = _checkout_proxy_ref(console, tmp_path, "feature/foo")
+
+        assert result is True
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args.args[0]
+        assert cmd == ["git", "checkout", "feature/foo"]
+
+    def test_checkout_pr(self, tmp_path):
+        """PR number fetches the PR ref and checks it out."""
+        console = Console(file=io.StringIO())
+        with patch("luthien_cli.commands.hackathon.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            result = _checkout_proxy_ref(console, tmp_path, "pr-123", pr_number=123)
+
+        assert result is True
+        assert mock_run.call_count == 2
+        fetch_cmd = mock_run.call_args_list[0].args[0]
+        assert "+pull/123/head:pr-123" in " ".join(fetch_cmd)
+
+    def test_checkout_failure(self, tmp_path):
+        """Failed checkout returns False."""
+        console = Console(file=io.StringIO())
+        with patch("luthien_cli.commands.hackathon.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stderr="error")
+            result = _checkout_proxy_ref(console, tmp_path, "nonexistent")
+
+        assert result is False
+
+
+class TestHackathonProxyRef:
+    """Tests for --proxy-ref on hackathon command."""
+
+    def test_hackathon_help_shows_proxy_ref(self):
+        runner = CliRunner()
+        result = runner.invoke(hackathon, ["--help"])
+        assert "--proxy-ref" in result.output
+
+    def test_hackathon_invalid_pr_ref_errors(self):
+        """Non-numeric PR ref like '#abc' should error, not crash."""
+        runner = CliRunner()
+        with (
+            patch("luthien_cli.commands.hackathon.shutil.which", return_value="/usr/bin/gh"),
+            patch("luthien_cli.commands.hackathon.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0)
+            result = runner.invoke(hackathon, ["--proxy-ref", "#abc", "-y"])
+        assert result.exit_code != 0
+        assert "invalid" in result.output.lower() or "Invalid" in result.output

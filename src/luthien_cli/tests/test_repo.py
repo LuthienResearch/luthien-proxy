@@ -12,7 +12,9 @@ from luthien_cli.repo import (
     _get_remote_sha,
     _remove_build_blocks,
     _strip_dev_only_lines,
+    ensure_gateway_venv,
     ensure_repo,
+    resolve_proxy_ref,
 )
 
 
@@ -250,3 +252,94 @@ def test_ensure_repo_fresh_install_network_error(tmp_path, httpx_mock):
     with patch("luthien_cli.repo.MANAGED_REPO_DIR", managed):
         with pytest.raises(SystemExit):
             ensure_repo()
+
+
+def test_resolve_proxy_ref_plain_branch():
+    """Plain ref passes through unchanged."""
+    assert resolve_proxy_ref("feature/foo") == "feature/foo"
+
+
+def test_resolve_proxy_ref_commit_sha():
+    """Commit SHA passes through unchanged."""
+    assert resolve_proxy_ref("abc1234def") == "abc1234def"
+
+
+def test_resolve_proxy_ref_pr_number(httpx_mock):
+    """PR ref #123 resolves to the PR's head branch."""
+    httpx_mock.add_response(
+        url="https://api.github.com/repos/LuthienResearch/luthien-proxy/pulls/123",
+        json={"head": {"ref": "feature/cool-thing"}},
+    )
+    assert resolve_proxy_ref("#123") == "feature/cool-thing"
+
+
+def test_resolve_proxy_ref_pr_not_found(httpx_mock):
+    """PR ref for non-existent PR raises SystemExit."""
+    httpx_mock.add_response(
+        url="https://api.github.com/repos/LuthienResearch/luthien-proxy/pulls/999",
+        status_code=404,
+    )
+    with pytest.raises(SystemExit):
+        resolve_proxy_ref("#999")
+
+
+def test_resolve_proxy_ref_pr_network_error(httpx_mock):
+    """Network error resolving PR raises SystemExit."""
+    httpx_mock.add_exception(
+        httpx.ConnectError("offline"),
+        url="https://api.github.com/repos/LuthienResearch/luthien-proxy/pulls/42",
+    )
+    with pytest.raises(SystemExit):
+        resolve_proxy_ref("#42")
+
+
+def test_ensure_gateway_venv_with_proxy_ref(tmp_path):
+    """proxy_ref appends @ref to the git install URL."""
+    venv_dir = tmp_path / "venv"
+    repo_dir = tmp_path / "repo"
+
+    with (
+        patch("luthien_cli.repo.MANAGED_VENV_DIR", venv_dir),
+        patch("luthien_cli.repo.MANAGED_REPO_DIR", repo_dir),
+        patch("luthien_cli.repo._run_uv") as mock_uv,
+    ):
+        ensure_gateway_venv(proxy_ref="feature/cool")
+
+    install_call = [c for c in mock_uv.call_args_list if c.args[0] == "pip"][0]
+    install_args = list(install_call.args)
+    github_url = [a for a in install_args if "github.com" in a][0]
+    assert github_url.endswith("@feature/cool")
+
+
+def test_ensure_gateway_venv_without_proxy_ref(tmp_path):
+    """No proxy_ref uses bare git URL (no @suffix)."""
+    venv_dir = tmp_path / "venv"
+    repo_dir = tmp_path / "repo"
+
+    with (
+        patch("luthien_cli.repo.MANAGED_VENV_DIR", venv_dir),
+        patch("luthien_cli.repo.MANAGED_REPO_DIR", repo_dir),
+        patch("luthien_cli.repo._run_uv") as mock_uv,
+    ):
+        ensure_gateway_venv()
+
+    install_call = [c for c in mock_uv.call_args_list if c.args[0] == "pip"][0]
+    install_args = list(install_call.args)
+    github_url = [a for a in install_args if "github.com" in a][0]
+    assert github_url == "git+https://github.com/LuthienResearch/luthien-proxy.git"
+
+
+def test_ensure_gateway_venv_with_ref_shows_message(tmp_path, capsys):
+    """Using a ref prints a message about the ref being used."""
+    venv_dir = tmp_path / "venv"
+    repo_dir = tmp_path / "repo"
+
+    with (
+        patch("luthien_cli.repo.MANAGED_VENV_DIR", venv_dir),
+        patch("luthien_cli.repo.MANAGED_REPO_DIR", repo_dir),
+        patch("luthien_cli.repo._run_uv"),
+    ):
+        ensure_gateway_venv(proxy_ref="abc123")
+
+    captured = capsys.readouterr()
+    assert "abc123" in captured.err

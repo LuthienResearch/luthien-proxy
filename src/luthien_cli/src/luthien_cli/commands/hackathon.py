@@ -419,10 +419,42 @@ def _show_hackathon_guide(
     )
 
 
+def _checkout_proxy_ref(console: Console, repo_path: Path, ref: str, pr_number: int | None = None) -> bool:
+    """Checkout a specific ref in the cloned repo.
+
+    For PRs, fetches the PR head first. For branches/SHAs, does a plain checkout.
+    """
+    if pr_number is not None:
+        console.print(f"[blue]Fetching PR #{pr_number}...[/blue]")
+        fetch_result = subprocess.run(
+            ["git", "fetch", "origin", f"+pull/{pr_number}/head:{ref}"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+        )
+        if fetch_result.returncode != 0:
+            console.print(f"[red]Failed to fetch PR #{pr_number}:[/red]\n{fetch_result.stderr}")
+            return False
+
+    result = subprocess.run(
+        ["git", "checkout", ref],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        console.print(f"[red]Failed to checkout {ref}:[/red]\n{result.stderr}")
+        return False
+
+    console.print(f"[green]Checked out {ref}[/green]")
+    return True
+
+
 @click.command()
 @click.option("--path", default=str(DEFAULT_CLONE_PATH), help="Where to clone the repo")
+@click.option("--proxy-ref", default=None, help="Git ref (branch, commit, or #PR) of luthien-proxy to use")
 @click.option("-y", "--yes", is_flag=True, help="Skip confirmation prompts")
-def hackathon(path: str, yes: bool) -> None:
+def hackathon(path: str, proxy_ref: str | None, yes: bool) -> None:
     """Set up for the AI Control Hackathon — fork, clone, install, and start hacking."""
     console = Console()
     clone_path = Path(path).expanduser().resolve()
@@ -460,6 +492,23 @@ def hackathon(path: str, yes: bool) -> None:
     # 1. Clone/fork
     if not _clone_repo(console, clone_path):
         raise SystemExit(1)
+
+    # 1.5 Checkout specific ref if requested
+    # Unlike onboard/up (which pip-install from a git URL and use resolve_proxy_ref()),
+    # hackathon clones the full repo, so we fetch the PR ref directly via git.
+    if proxy_ref:
+        pr_number = None
+        if proxy_ref.startswith("#"):
+            try:
+                pr_number = int(proxy_ref[1:])
+            except ValueError:
+                console.print(f"[red]Invalid PR ref '{proxy_ref}' — expected #<number>[/red]")
+                raise SystemExit(1)
+            ref_branch = f"pr-{pr_number}"
+        else:
+            ref_branch = proxy_ref
+        if not _checkout_proxy_ref(console, clone_path, ref_branch, pr_number=pr_number):
+            raise SystemExit(1)
 
     # 2. Install deps
     if not _install_deps(console, clone_path):
