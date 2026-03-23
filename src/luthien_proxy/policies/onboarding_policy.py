@@ -16,6 +16,7 @@ Example config:
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
@@ -81,6 +82,13 @@ def is_first_turn(request: Mapping[str, Any]) -> bool:
     return len(user_messages) == 1 and len(assistant_messages) == 0
 
 
+@dataclass
+class _OnboardingState:
+    """Request-scoped state: caches the Anthropic request for hook methods."""
+
+    request: Mapping[str, Any] | None = field(default=None)
+
+
 class OnboardingPolicy(TextModifierPolicy):
     """Appends a welcome message to the first response in a conversation.
 
@@ -120,13 +128,20 @@ class OnboardingPolicy(TextModifierPolicy):
         else:
             yield await io.complete(request)
 
+    def _is_first_turn(self, context: PolicyContext) -> bool:
+        """Check first-turn from request stashed by on_anthropic_request."""
+        state = context.get_request_state(self, _OnboardingState, _OnboardingState)
+        return state.request is not None and is_first_turn(state.request)
+
     async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
-        """Pass through request unchanged."""
+        """Stash request so downstream hooks can check first-turn."""
+        state = context.get_request_state(self, _OnboardingState, _OnboardingState)
+        state.request = request
         return request
 
     async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
         """For non-streaming in MultiSerialPolicy composition: only modify on first turn."""
-        if context.request and is_first_turn(context.request):
+        if self._is_first_turn(context):
             return await super().on_anthropic_response(response, context)
         return response
 
@@ -134,13 +149,13 @@ class OnboardingPolicy(TextModifierPolicy):
         self, event: MessageStreamEvent, context: PolicyContext
     ) -> list[MessageStreamEvent]:
         """For streaming in MultiSerialPolicy composition: passthrough (extra_text handles the append)."""
-        if context.request and is_first_turn(context.request):
+        if self._is_first_turn(context):
             return await super().on_anthropic_stream_event(event, context)
         return [event]
 
     async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
         """Emit welcome text block after stream ends, but only on first turn."""
-        if context.request and is_first_turn(context.request):
+        if self._is_first_turn(context):
             return await super().on_anthropic_stream_complete(context)
         return []
 

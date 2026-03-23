@@ -110,7 +110,8 @@ class TestNonStreamingResponse:
     @pytest.mark.asyncio
     async def test_first_turn_appends_welcome(self, policy, context):
         """On first turn, welcome text is appended to response content."""
-        context.request = {"messages": [{"role": "user", "content": "hi"}]}
+        request = {"messages": [{"role": "user", "content": "hi"}]}
+        await policy.on_anthropic_request(request, context)
         response = {
             "content": [{"type": "text", "text": "Hello!"}],
             "model": "test",
@@ -125,13 +126,14 @@ class TestNonStreamingResponse:
     @pytest.mark.asyncio
     async def test_subsequent_turn_passthrough(self, policy, context):
         """On subsequent turns, response passes through unchanged."""
-        context.request = {
+        request = {
             "messages": [
                 {"role": "user", "content": "hi"},
                 {"role": "assistant", "content": "hello"},
                 {"role": "user", "content": "how are you"},
             ]
         }
+        await policy.on_anthropic_request(request, context)
         response = {
             "content": [{"type": "text", "text": "I'm fine!"}],
             "model": "test",
@@ -151,7 +153,8 @@ class TestStreamingHooks:
     @pytest.mark.asyncio
     async def test_stream_complete_emits_welcome_on_first_turn(self, policy, context):
         """on_anthropic_stream_complete injects suffix delta + flushes held stop."""
-        context.request = {"messages": [{"role": "user", "content": "hi"}]}
+        request = {"messages": [{"role": "user", "content": "hi"}]}
+        await policy.on_anthropic_request(request, context)
 
         from anthropic.types import (
             RawContentBlockDeltaEvent,
@@ -182,13 +185,14 @@ class TestStreamingHooks:
     @pytest.mark.asyncio
     async def test_stream_complete_empty_on_subsequent_turn(self, policy, context):
         """on_anthropic_stream_complete returns empty on subsequent turns."""
-        context.request = {
+        request = {
             "messages": [
                 {"role": "user", "content": "hi"},
                 {"role": "assistant", "content": "hello"},
                 {"role": "user", "content": "more"},
             ]
         }
+        await policy.on_anthropic_request(request, context)
         events = await policy.on_anthropic_stream_complete(context)
         assert events == []
 
