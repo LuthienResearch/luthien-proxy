@@ -23,7 +23,6 @@ Run:
     uv run pytest -m "mock_e2e and llm01" tests/e2e_tests/test_mock_llm01_prompt_injection.py -v
 """
 
-
 import httpx
 import pytest
 from tests.e2e_tests.conftest import (
