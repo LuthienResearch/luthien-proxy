@@ -69,9 +69,7 @@ def ensure_gateway_up(
 
     if config.mode == "local":
         if not config.repo_path or proxy_ref or force_reinstall:
-            config.repo_path = ensure_gateway_venv(
-                proxy_ref=proxy_ref, force_reinstall=force_reinstall
-            )
+            config.repo_path = ensure_gateway_venv(proxy_ref=proxy_ref, force_reinstall=force_reinstall)
             save_config(config, DEFAULT_CONFIG_PATH)
 
         console.print("[blue]Starting gateway (local mode)...[/blue]")
