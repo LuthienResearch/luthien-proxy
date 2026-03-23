@@ -448,7 +448,7 @@ await emit_event(
 ### Step 4: Add tests
 
 ```python
-# tests/unit_tests/test_observability_events.py
+# tests/luthien_proxy/unit_tests/test_observability_events.py
 
 async def test_emit_event_adds_to_span_and_redis():
     """Verify emit_event() publishes to both OTel and Redis."""

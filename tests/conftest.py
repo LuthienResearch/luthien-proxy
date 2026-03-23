@@ -24,6 +24,12 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
+@pytest.fixture(scope="session")
+def repo_root() -> Path:
+    """Repo root path, available to all tests without path arithmetic."""
+    return REPO_ROOT
+
+
 def pytest_sessionstart(session):
     # Avoid accidental reliance on production defaults during unit tests.
     os.environ.setdefault("POLICY_CONFIG", str(REPO_ROOT / "config" / "policy_config.yaml"))
@@ -31,20 +37,6 @@ def pytest_sessionstart(session):
     # Disable OpenTelemetry export during tests to avoid noisy errors
     # (OTel tries to export to tempo:4317 which doesn't exist in test environment)
     os.environ.setdefault("OTEL_ENABLED", "false")
-
-
-@pytest.fixture(autouse=True)
-def clear_settings_cache():
-    """Clear the settings cache before each test.
-
-    This ensures that tests that modify environment variables get fresh
-    settings instances instead of stale cached values.
-    """
-    from luthien_proxy.settings import clear_settings_cache
-
-    clear_settings_cache()
-    yield
-    clear_settings_cache()
 
 
 def pytest_configure(config):

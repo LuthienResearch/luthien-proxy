@@ -77,7 +77,7 @@ This project follows a structured workflow documented in the root [CLAUDE.md](..
 ./scripts/dev_checks.sh
 
 # Quick unit tests
-uv run pytest tests/unit_tests
+uv run pytest tests/luthien_proxy/unit_tests
 
 # E2E tests (slow, use sparingly)
 uv run pytest -m e2e
@@ -115,9 +115,9 @@ Client Response
 
 ## Testing Philosophy
 
-- **Unit tests** (`tests/unit_tests/`) - Fast, isolated component tests
-- **Integration tests** (`tests/integration_tests/`) - Test component interactions
-- **E2E tests** (`tests/e2e_tests/`) - Full system tests with real LLMs (slow, use sparingly)
+- **Unit tests** (`tests/luthien_proxy/unit_tests/`) - Fast, isolated component tests
+- **Integration tests** (`tests/luthien_proxy/integration_tests/`) - Test component interactions
+- **E2E tests** (`tests/luthien_proxy/e2e_tests/`) - Full system tests with real LLMs (slow, use sparingly)
 
 Run the full test suite before opening PRs for review: `./scripts/dev_checks.sh`
 

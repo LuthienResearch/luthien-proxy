@@ -35,7 +35,7 @@ saas_infra/
   models.py           — Data classes (InstanceInfo, ServiceInfo, ProvisioningResult, enums)
   utils.py            — Name validation, API key generation, project naming conventions, date formatting
 
-tests/unit_tests/test_saas_infra/
+tests/luthien_proxy/unit_tests/test_saas_infra/
   test_railway_client.py  — GraphQL mocking + CLI subprocess mocking
   test_provisioner.py     — Full provisioning flow with mocked client
   test_models.py          — Data model behavior
@@ -111,7 +111,7 @@ Deletion uses a 7-day grace period by default. The project's `description` field
 
 ```bash
 # Unit tests (fast, no network)
-uv run pytest tests/unit_tests/test_saas_infra/ -v
+uv run pytest tests/luthien_proxy/unit_tests/test_saas_infra/ -v
 
 # E2E against live Railway (creates real resources, costs money)
 set -a && source .env && set +a
