@@ -55,7 +55,7 @@ def _generate_key(prefix: str) -> str:
     return f"{prefix}-{secrets.token_urlsafe(24)}"
 
 
-def _write_local_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
+def _write_local_env(repo_path: str, proxy_key: str, admin_key: str | None = None) -> None:
     """Write .env for local mode (SQLite, no Redis)."""
     db_path = str(Path(repo_path) / "luthien.db")
     policy_path = str(Path(repo_path) / "config" / "policy_config.yaml")
@@ -69,6 +69,8 @@ def _write_local_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
         f"OTEL_ENABLED=false\n"
         f"USAGE_TELEMETRY=true\n"
     )
+    if admin_key:
+        env_content += f"ADMIN_API_KEY={admin_key}\n"
 
     env_path = f"{repo_path}/.env"
     with open(env_path, "w") as f:
@@ -211,7 +213,7 @@ def _onboard_local(console: Console, config, proxy_key: str, admin_key: str, pro
     # 3. Write config files
     console.print("\n[blue]Configuring gateway...[/blue]")
     _write_policy(config.repo_path, actual_gateway_url)
-    _write_local_env(config.repo_path, proxy_key, admin_key)
+    _write_local_env(config.repo_path, proxy_key)
 
     # 4. Stop any existing gateway
     stop_gateway(config.repo_path)

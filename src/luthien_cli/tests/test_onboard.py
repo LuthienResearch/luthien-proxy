@@ -27,17 +27,28 @@ def test_write_policy(tmp_path):
     assert "http://localhost:8000" in content
 
 
-def test_write_local_env(tmp_path):
+def test_write_local_env_without_admin_key(tmp_path):
+    """Default local env omits ADMIN_API_KEY so the gateway uses its default."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    _write_local_env(str(repo), "sk-test-key", "admin-test-key")
+    _write_local_env(str(repo), "sk-test-key")
     env_content = (repo / ".env").read_text()
     assert "PROXY_API_KEY=sk-test-key" in env_content
-    assert "ADMIN_API_KEY=admin-test-key" in env_content
+    assert "ADMIN_API_KEY" not in env_content
     assert "AUTH_MODE=both" in env_content
     assert "POLICY_SOURCE=file" in env_content
     assert "sqlite:///" in env_content
     assert "REDIS_URL" not in env_content
+
+
+def test_write_local_env_with_admin_key(tmp_path):
+    """When admin_key is provided, it's written to .env."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _write_local_env(str(repo), "sk-test-key", admin_key="admin-test-key")
+    env_content = (repo / ".env").read_text()
+    assert "PROXY_API_KEY=sk-test-key" in env_content
+    assert "ADMIN_API_KEY=admin-test-key" in env_content
 
 
 def test_ensure_docker_env_creates_from_scratch(tmp_path):
