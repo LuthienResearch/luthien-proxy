@@ -49,7 +49,12 @@ def _port_from_url(url: str) -> int:
     return parsed.port or 8000
 
 
-def ensure_gateway_up(console: Console, proxy_ref: str | None = None) -> None:
+def ensure_gateway_up(
+    console: Console,
+    proxy_ref: str | None = None,
+    *,
+    force_reinstall: bool = False,
+) -> None:
     """Ensure the gateway is running and healthy (idempotent).
 
     Returns immediately if the gateway is already healthy. Otherwise starts
@@ -63,8 +68,8 @@ def ensure_gateway_up(console: Console, proxy_ref: str | None = None) -> None:
         return
 
     if config.mode == "local":
-        if not config.repo_path or proxy_ref:
-            config.repo_path = ensure_gateway_venv(proxy_ref=proxy_ref)
+        if not config.repo_path or proxy_ref or force_reinstall:
+            config.repo_path = ensure_gateway_venv(proxy_ref=proxy_ref, force_reinstall=force_reinstall)
             save_config(config, DEFAULT_CONFIG_PATH)
 
         console.print("[blue]Starting gateway (local mode)...[/blue]")
@@ -146,18 +151,21 @@ def is_gateway_healthy(url: str) -> bool:
 @click.command()
 @click.option("--follow", "-f", is_flag=True, help="Tail gateway logs after startup")
 @click.option("--proxy-ref", default=None, help="Git ref (branch, commit, or #PR) of luthien-proxy to install")
-def up(follow: bool, proxy_ref: str | None):
+@click.option("--latest", is_flag=True, help="Force re-fetch of latest luthien-proxy from GitHub")
+def up(follow: bool, proxy_ref: str | None, latest: bool):
     """Start the gateway (auto-detects local or Docker mode)."""
     console = Console()
 
-    if proxy_ref:
+    if proxy_ref or latest:
         config = load_config(DEFAULT_CONFIG_PATH)
         if config.mode == "docker":
-            console.print("[red]--proxy-ref is not supported with Docker mode.[/red]")
+            flag = "--proxy-ref" if proxy_ref else "--latest"
+            console.print(f"[red]{flag} is not supported with Docker mode.[/red]")
             raise SystemExit(1)
-        proxy_ref = resolve_proxy_ref(proxy_ref)
+        if proxy_ref:
+            proxy_ref = resolve_proxy_ref(proxy_ref)
 
-    ensure_gateway_up(console, proxy_ref=proxy_ref)
+    ensure_gateway_up(console, proxy_ref=proxy_ref, force_reinstall=latest)
 
     if follow:
         config = load_config(DEFAULT_CONFIG_PATH)

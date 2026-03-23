@@ -312,9 +312,12 @@ def test_ensure_gateway_venv_with_proxy_ref(tmp_path):
 
 
 def test_ensure_gateway_venv_without_proxy_ref(tmp_path):
-    """No proxy_ref uses bare git URL (no @suffix)."""
+    """No proxy_ref uses bare git URL (no @suffix) and --upgrade (not --reinstall)."""
     venv_dir = tmp_path / "venv"
     repo_dir = tmp_path / "repo"
+    # Pre-create venv so needs_install=False
+    (venv_dir / "bin").mkdir(parents=True)
+    (venv_dir / "bin" / "python").touch()
 
     with (
         patch("luthien_cli.repo.MANAGED_VENV_DIR", venv_dir),
@@ -327,6 +330,71 @@ def test_ensure_gateway_venv_without_proxy_ref(tmp_path):
     install_args = list(install_call.args)
     github_url = [a for a in install_args if "github.com" in a][0]
     assert github_url == "git+https://github.com/LuthienResearch/luthien-proxy.git"
+    assert "--upgrade" in install_args
+    assert "--reinstall-package" not in install_args
+
+
+def test_ensure_gateway_venv_force_reinstall(tmp_path):
+    """force_reinstall=True uses --reinstall-package even without proxy_ref."""
+    venv_dir = tmp_path / "venv"
+    repo_dir = tmp_path / "repo"
+    (venv_dir / "bin").mkdir(parents=True)
+    (venv_dir / "bin" / "python").touch()
+
+    with (
+        patch("luthien_cli.repo.MANAGED_VENV_DIR", venv_dir),
+        patch("luthien_cli.repo.MANAGED_REPO_DIR", repo_dir),
+        patch("luthien_cli.repo._run_uv") as mock_uv,
+    ):
+        ensure_gateway_venv(force_reinstall=True)
+
+    install_call = [c for c in mock_uv.call_args_list if c.args[0] == "pip"][0]
+    install_args = list(install_call.args)
+    assert "--reinstall-package" in install_args
+    assert "luthien-proxy" in install_args
+
+
+def test_ensure_gateway_venv_proxy_ref_uses_reinstall(tmp_path):
+    """proxy_ref triggers --reinstall-package to force fresh fetch."""
+    venv_dir = tmp_path / "venv"
+    repo_dir = tmp_path / "repo"
+    (venv_dir / "bin").mkdir(parents=True)
+    (venv_dir / "bin" / "python").touch()
+
+    with (
+        patch("luthien_cli.repo.MANAGED_VENV_DIR", venv_dir),
+        patch("luthien_cli.repo.MANAGED_REPO_DIR", repo_dir),
+        patch("luthien_cli.repo._run_uv") as mock_uv,
+    ):
+        ensure_gateway_venv(proxy_ref="feature/x")
+
+    install_call = [c for c in mock_uv.call_args_list if c.args[0] == "pip"][0]
+    install_args = list(install_call.args)
+    assert "--reinstall-package" in install_args
+
+
+def test_ensure_repo_force_update_redownloads(tmp_path, httpx_mock):
+    """force_update=True re-downloads even when SHA matches."""
+    managed = tmp_path / "luthien-proxy"
+    managed.mkdir()
+    (managed / ".version").write_text("sha-current")
+    (managed / "docker-compose.yaml").write_text("existing")
+
+    httpx_mock.add_response(
+        url=f"{GITHUB_RAW_BASE}docker-compose.yaml",
+        text="services:\n",
+    )
+    httpx_mock.add_response(
+        url=f"{GITHUB_RAW_BASE}.env.example",
+        text="K=V\n",
+    )
+    httpx_mock.add_response(url=GITHUB_SHA_URL, text="sha-current")
+
+    with patch("luthien_cli.repo.MANAGED_REPO_DIR", managed):
+        result = ensure_repo(force_update=True)
+
+    assert result == str(managed)
+    assert (managed / "docker-compose.yaml").read_text() == "services:\n"
 
 
 def test_ensure_gateway_venv_with_ref_shows_message(tmp_path, capsys):

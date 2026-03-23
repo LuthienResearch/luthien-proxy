@@ -358,7 +358,7 @@ def test_onboard_local_with_proxy_ref(tmp_path):
         result = runner.invoke(cli, ["onboard", "--proxy-ref", "abc123"], input="y\nq\n")
 
     assert result.exit_code == 0, result.output
-    mock_venv.assert_called_once_with(proxy_ref="abc123")
+    mock_venv.assert_called_once_with(proxy_ref="abc123", force_reinstall=True)
 
 
 def test_onboard_docker_with_proxy_ref_errors(tmp_path):
@@ -395,4 +395,4 @@ def test_onboard_local_with_pr_ref(tmp_path):
 
     assert result.exit_code == 0, result.output
     mock_resolve.assert_called_once_with("#123")
-    mock_venv.assert_called_once_with(proxy_ref="feature/cool")
+    mock_venv.assert_called_once_with(proxy_ref="feature/cool", force_reinstall=True)
