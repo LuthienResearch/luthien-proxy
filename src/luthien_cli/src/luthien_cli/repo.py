@@ -125,15 +125,19 @@ def _download_files(dest: Path) -> None:
         (dest / ".version").write_text(sha)
 
 
-def ensure_repo() -> str:
-    """Ensure managed proxy directory exists and is up to date. Returns path."""
+def ensure_repo(*, force_update: bool = False) -> str:
+    """Ensure managed proxy directory exists and is up to date. Returns path.
+
+    Args:
+        force_update: Always re-download files, even if local SHA matches remote.
+    """
     console = Console(stderr=True)
     dest = MANAGED_REPO_DIR
 
     has_version = (dest / ".version").is_file()
     has_compose = (dest / "docker-compose.yaml").is_file()
 
-    if has_version and has_compose:
+    if has_version and has_compose and not force_update:
         local_sha = (dest / ".version").read_text().strip()
         try:
             with console.status("Checking for updates..."):
@@ -203,14 +207,12 @@ def ensure_gateway_venv(proxy_ref: str | None = None) -> str:
         "install",
         "--python",
         str(venv_python),
+        "--reinstall-package",
+        "luthien-proxy",
         github_source,
     ]
-    if needs_install:
-        label = "Installing luthien-proxy..."
-    else:
-        label = "Checking luthien-proxy..."
-        install_args.append("--upgrade")
 
+    label = "Installing latest luthien-proxy..." if needs_install else "Updating luthien-proxy..."
     with console.status(label):
         _run_uv(*install_args, console=console)
 
