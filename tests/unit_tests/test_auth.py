@@ -342,11 +342,11 @@ class TestLocalhostBypassCheckAuthOrRedirect:
         result = check_auth_or_redirect(request, admin_key="secret123")
         assert isinstance(result, RedirectResponse)
 
-    def test_admin_path_never_bypassed(self, monkeypatch):
+    def test_admin_path_bypassed_from_localhost(self, monkeypatch):
         monkeypatch.setenv("LOCALHOST_AUTH_BYPASS", "true")
         request = _make_localhost_request(path="/api/admin/policy")
         result = check_auth_or_redirect(request, admin_key="secret123")
-        assert isinstance(result, RedirectResponse)
+        assert result is None
 
 
 class TestLocalhostBypassVerifyAdminToken:
@@ -395,8 +395,9 @@ class TestLocalhostBypassVerifyAdminToken:
             assert response.status_code == 200
             assert response.json()["token"] == "localhost-bypass"
 
-    def test_localhost_does_not_bypass_admin_endpoint(self, app_localhost_bypass, monkeypatch):
+    def test_localhost_bypasses_admin_endpoint(self, app_localhost_bypass, monkeypatch):
         monkeypatch.setattr("luthien_proxy.auth.is_localhost_request", lambda r: True)
         with TestClient(app_localhost_bypass) as client:
             response = client.get("/api/admin/policy")
-            assert response.status_code == 403
+            assert response.status_code == 200
+            assert response.json()["token"] == "localhost-bypass"

@@ -63,7 +63,6 @@ def _write_local_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
     env_content = (
         f"DATABASE_URL=sqlite:///{db_path}\n"
         f"PROXY_API_KEY={proxy_key}\n"
-        f"ADMIN_API_KEY={admin_key}\n"
         f"POLICY_SOURCE=file\n"
         f"POLICY_CONFIG={policy_path}\n"
         f"AUTH_MODE=both\n"

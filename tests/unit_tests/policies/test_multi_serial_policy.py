@@ -382,13 +382,15 @@ class TestMultiSerialAnthropicStreamLifecycle:
         }
         await serial.on_anthropic_request(first_turn_request, ctx)
 
-        # Feed a content block start so TextModifierPolicy tracks max_index
+        # Feed a text block start + stop so TextModifierPolicy holds the stop for suffix injection
         start_event = RawContentBlockStartEvent(
             type="content_block_start",
             index=0,
             content_block=TextBlock(type="text", text=""),
         )
+        stop_event = RawContentBlockStopEvent(type="content_block_stop", index=0)
         await serial.on_anthropic_stream_event(start_event, ctx)
+        await serial.on_anthropic_stream_event(stop_event, ctx)
 
         # Now collect stream_complete events
         emissions = await serial.on_anthropic_stream_complete(ctx)
@@ -396,9 +398,8 @@ class TestMultiSerialAnthropicStreamLifecycle:
         # The welcome message should have been uppercased by AllCaps
         deltas = [e for e in emissions if isinstance(e, RawContentBlockDeltaEvent)]
         assert deltas, "Expected at least one text delta from OnboardingPolicy's welcome message"
-        welcome_text = "".join(d.delta.text for d in deltas)
+        welcome_text = "".join(d.delta.text for d in deltas if isinstance(d.delta, TextDelta))
         assert "LUTHIEN" in welcome_text, f"Welcome text should be uppercased, got: {welcome_text}"
-        # Verify it's actually all caps (no lowercase letters)
         assert welcome_text == welcome_text.upper(), f"Expected all caps, got: {welcome_text}"
 
 

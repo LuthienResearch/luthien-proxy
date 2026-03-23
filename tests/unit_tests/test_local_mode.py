@@ -34,17 +34,16 @@ class TestConfigureLocalMode:
 
     def test_generates_proxy_api_key_when_missing(self, monkeypatch):
         monkeypatch.delenv("PROXY_API_KEY", raising=False)
-        monkeypatch.delenv("ADMIN_API_KEY", raising=False)
         configure_local_mode()
         key = os.environ["PROXY_API_KEY"]
         assert key.startswith("sk-local-")
         assert len(key) > len("sk-local-")
 
-    def test_generates_admin_api_key_when_missing(self, monkeypatch):
+    def test_does_not_set_admin_api_key(self, monkeypatch):
         monkeypatch.delenv("PROXY_API_KEY", raising=False)
         monkeypatch.delenv("ADMIN_API_KEY", raising=False)
         configure_local_mode()
-        assert os.environ["ADMIN_API_KEY"] == os.environ["PROXY_API_KEY"]
+        assert "ADMIN_API_KEY" not in os.environ
 
     def test_force_overrides_existing_database_url(self, monkeypatch):
         """Infrastructure vars are force-set because litellm's dotenv pollutes os.environ."""
@@ -55,27 +54,16 @@ class TestConfigureLocalMode:
 
     def test_does_not_override_existing_proxy_api_key(self, monkeypatch):
         monkeypatch.setenv("PROXY_API_KEY", "my-custom-key")
-        monkeypatch.delenv("ADMIN_API_KEY", raising=False)
         configure_local_mode()
         assert os.environ["PROXY_API_KEY"] == "my-custom-key"
 
-    def test_does_not_override_existing_admin_api_key(self, monkeypatch):
-        monkeypatch.setenv("ADMIN_API_KEY", "my-admin-key")
+    def test_returns_generated_key(self, monkeypatch):
         monkeypatch.delenv("PROXY_API_KEY", raising=False)
-        configure_local_mode()
-        assert os.environ["ADMIN_API_KEY"] == "my-admin-key"
-
-    def test_returns_generated_keys(self, monkeypatch):
-        monkeypatch.delenv("PROXY_API_KEY", raising=False)
-        monkeypatch.delenv("ADMIN_API_KEY", raising=False)
         result = configure_local_mode()
         assert "proxy_api_key" in result
-        assert "admin_api_key" in result
         assert result["proxy_api_key"].startswith("sk-local-")
 
-    def test_returns_existing_keys(self, monkeypatch):
+    def test_returns_existing_key(self, monkeypatch):
         monkeypatch.setenv("PROXY_API_KEY", "existing-proxy")
-        monkeypatch.setenv("ADMIN_API_KEY", "existing-admin")
         result = configure_local_mode()
         assert result["proxy_api_key"] == "existing-proxy"
-        assert result["admin_api_key"] == "existing-admin"

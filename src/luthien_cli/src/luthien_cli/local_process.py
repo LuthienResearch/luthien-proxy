@@ -103,7 +103,7 @@ def start_gateway(
 
     try:
         proc = subprocess.Popen(
-            [python, "-m", "luthien_proxy.main"],
+            [python, "-m", "luthien_proxy.main", "--local"],
             stdout=log_handle,
             stderr=log_handle,
             start_new_session=True,

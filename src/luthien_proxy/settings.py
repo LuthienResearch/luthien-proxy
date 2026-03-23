@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     llm_judge_api_key: str | None = None
     litellm_master_key: str | None = None
 
-    # Skip auth for UI routes when accessed from localhost (127.0.0.1, ::1)
+    # Skip auth for all routes when accessed from localhost (127.0.0.1, ::1)
     localhost_auth_bypass: bool = True
 
     # Inject a system-level note telling the LLM which policies are active,
