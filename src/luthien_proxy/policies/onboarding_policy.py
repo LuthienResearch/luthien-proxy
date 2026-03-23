@@ -84,9 +84,9 @@ def is_first_turn(request: Mapping[str, Any]) -> bool:
 
 @dataclass
 class _OnboardingState:
-    """Request-scoped state: caches the Anthropic request for hook methods."""
+    """Request-scoped state: caches whether this is the first conversation turn."""
 
-    request: Mapping[str, Any] | None = field(default=None)
+    first_turn: bool = field(default=False)
 
 
 class OnboardingPolicy(TextModifierPolicy):
@@ -129,14 +129,12 @@ class OnboardingPolicy(TextModifierPolicy):
             yield await io.complete(request)
 
     def _is_first_turn(self, context: PolicyContext) -> bool:
-        """Check first-turn from request stashed by on_anthropic_request."""
-        state = context.get_request_state(self, _OnboardingState, _OnboardingState)
-        return state.request is not None and is_first_turn(state.request)
+        """Check first-turn from result cached by on_anthropic_request."""
+        return context.get_request_state(self, _OnboardingState, _OnboardingState).first_turn
 
     async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
-        """Stash request so downstream hooks can check first-turn."""
-        state = context.get_request_state(self, _OnboardingState, _OnboardingState)
-        state.request = request
+        """Cache first-turn check so downstream hooks don't recompute it per event."""
+        context.get_request_state(self, _OnboardingState, _OnboardingState).first_turn = is_first_turn(request)
         return request
 
     async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:

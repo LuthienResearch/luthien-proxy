@@ -196,19 +196,17 @@ class MultiSerialPolicy(BasePolicy, AnthropicExecutionInterface):
         When policy A emits stream_complete events, those events pass through
         policies B, C, ... via on_anthropic_stream_event so the full chain applies.
         """
-        policies = list(self._sub_policies)
         all_events: list[AnthropicPolicyEmission] = []
-        for i, policy in enumerate(policies):
+        for i, policy in enumerate(self._sub_policies):
             hook = getattr(policy, "on_anthropic_stream_complete", None)
             if hook is None:
                 continue
             events = await hook(context)
             if not events:
                 continue
-            # Pass this policy's emissions through the remaining policies' stream_event hooks.
-            # AnthropicPolicyEmission = AnthropicResponse | MessageStreamEvent;
-            # AnthropicResponse is a TypedDict (dict), stream events are not.
-            remaining = policies[i + 1 :]
+            # Stream events pass through downstream hooks; dict responses (TypedDicts)
+            # skip stream_event since they're a different emission type.
+            remaining = self._sub_policies[i + 1 :]
             for downstream in remaining:
                 next_events: list[AnthropicPolicyEmission] = []
                 for evt in events:
