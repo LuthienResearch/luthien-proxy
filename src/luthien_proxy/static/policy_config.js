@@ -144,7 +144,6 @@ document.addEventListener('alpine:init', () => {
 });
 
 document.addEventListener('DOMContentLoaded', async () => {
-    initSettingsPopover();
     initFilterInput();
     await Promise.all([loadPolicies(), loadCurrentPolicy(), loadModels(), loadGatewaySettings()]);
     renderAll();
@@ -229,35 +228,6 @@ function defaultConfigFor(policy) {
     return { ...(policy.example_config || {}) };
 }
 
-// ============================================================
-// Settings popover
-// ============================================================
-function initSettingsPopover() {
-    const btn = document.getElementById('settings-btn');
-    const popover = document.getElementById('settings-popover');
-    btn.addEventListener('click', e => {
-        e.stopPropagation();
-        popover.classList.toggle('open');
-    });
-    document.addEventListener('click', e => {
-        if (popover.classList.contains('open') && !e.target.closest('#settings-wrap')) {
-            popover.classList.remove('open');
-        }
-    });
-    document.addEventListener('keydown', e => {
-        if (e.key === 'Escape' && popover.classList.contains('open')) {
-            popover.classList.remove('open');
-            btn.focus();
-        }
-    });
-
-    document.getElementById('set-inject').addEventListener('change', e => {
-        saveGatewaySetting('inject_policy_context', e.target.checked);
-    });
-    document.getElementById('set-dogfood').addEventListener('change', e => {
-        saveGatewaySetting('dogfood_mode', e.target.checked);
-    });
-}
 
 async function saveGatewaySetting(field, value) {
     try {
