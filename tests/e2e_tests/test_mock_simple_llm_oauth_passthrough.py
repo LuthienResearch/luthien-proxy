@@ -15,30 +15,24 @@ Run:
     uv run pytest -m mock_e2e tests/e2e_tests/test_mock_simple_llm_oauth_passthrough.py -v
 """
 
-import os
-
 import httpx
 import pytest
-from tests.e2e_tests.conftest import GATEWAY_URL, auth_config_context, policy_context
+from tests.e2e_tests.conftest import GATEWAY_URL, MOCK_HOST, SIMPLE_LLM_POLICY, auth_config_context, policy_context
 from tests.e2e_tests.mock_anthropic.responses import text_response
 from tests.e2e_tests.mock_anthropic.server import DEFAULT_MOCK_PORT, MockAnthropicServer
 
 pytestmark = pytest.mark.mock_e2e
 
-_SIMPLE_LLM_POLICY = "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
+_SIMPLE_LLM_POLICY = SIMPLE_LLM_POLICY
 
 # Simulated OAuth bearer token — does NOT start with sk-ant-api,
 # so _judge_oauth_headers() treats it as OAuth and adds the beta header.
 _OAUTH_TOKEN = "claude-oauth-bearer-token-for-e2e-testing"
 
-# MOCK_ANTHROPIC_HOST: host.docker.internal inside Docker containers,
-# localhost when the gateway runs as a local process (CI / dockerless dev).
-_MOCK_HOST = os.getenv("MOCK_ANTHROPIC_HOST", "host.docker.internal")
-
 _JUDGE_CONFIG = {
     "instructions": "Pass all content through",
     "model": "claude-haiku-4-5",
-    "api_base": f"http://{_MOCK_HOST}:{DEFAULT_MOCK_PORT}",
+    "api_base": f"http://{MOCK_HOST}:{DEFAULT_MOCK_PORT}",
     "on_error": "pass",
 }
 

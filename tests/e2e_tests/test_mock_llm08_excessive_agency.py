@@ -22,6 +22,10 @@ import pytest
 from tests.e2e_tests.conftest import (
     API_KEY,
     BASE_REQUEST,
+    BLOCK_DANGEROUS_COMMANDS_POLICY,
+    BLOCK_SENSITIVE_FILE_WRITES_POLICY,
+    BLOCK_WEB_REQUESTS_POLICY,
+    DOGFOOD_SAFETY_POLICY,
     GATEWAY_URL,
     MOCK_HEADERS,
     collect_sse_text,
@@ -34,11 +38,6 @@ from tests.e2e_tests.mock_anthropic.server import MockAnthropicServer
 from tests.e2e_tests.mock_anthropic.simulator import ClaudeCodeSimulator
 
 pytestmark = [pytest.mark.mock_e2e, pytest.mark.llm08]
-
-_BLOCK_DANGEROUS = "luthien_proxy.policies.presets.block_dangerous_commands:BlockDangerousCommandsPolicy"
-_BLOCK_WRITES = "luthien_proxy.policies.presets.block_sensitive_file_writes:BlockSensitiveFileWritesPolicy"
-_BLOCK_WEB = "luthien_proxy.policies.presets.block_web_requests:BlockWebRequestsPolicy"
-_DOGFOOD_SAFETY = "luthien_proxy.policies.dogfood_safety_policy:DogfoodSafetyPolicy"
 
 
 # =============================================================================
@@ -60,7 +59,7 @@ async def test_git_push_force_main_is_blocked(
         )
     )
 
-    async with policy_context(_BLOCK_DANGEROUS, {}):
+    async with policy_context(BLOCK_DANGEROUS_COMMANDS_POLICY, {}):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("Push the changes")
 
@@ -82,7 +81,7 @@ async def test_git_push_force_master_is_blocked(
         )
     )
 
-    async with policy_context(_BLOCK_DANGEROUS, {}):
+    async with policy_context(BLOCK_DANGEROUS_COMMANDS_POLICY, {}):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("Push the changes")
 
@@ -103,7 +102,7 @@ async def test_pkill_process_is_blocked(
         )
     )
 
-    async with policy_context(_BLOCK_DANGEROUS, {}):
+    async with policy_context(BLOCK_DANGEROUS_COMMANDS_POLICY, {}):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("Stop the server")
 
@@ -124,7 +123,7 @@ async def test_kill_9_is_blocked(
         )
     )
 
-    async with policy_context(_BLOCK_DANGEROUS, {}):
+    async with policy_context(BLOCK_DANGEROUS_COMMANDS_POLICY, {}):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("Kill the process")
 
@@ -145,7 +144,7 @@ async def test_chmod_777_root_is_blocked(
         )
     )
 
-    async with policy_context(_BLOCK_DANGEROUS, {}):
+    async with policy_context(BLOCK_DANGEROUS_COMMANDS_POLICY, {}):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("Fix permissions")
 
@@ -166,7 +165,7 @@ async def test_mkfs_is_blocked(
         )
     )
 
-    async with policy_context(_BLOCK_DANGEROUS, {}):
+    async with policy_context(BLOCK_DANGEROUS_COMMANDS_POLICY, {}):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("Format the disk")
 
@@ -187,7 +186,7 @@ async def test_fork_bomb_is_blocked(
         )
     )
 
-    async with policy_context(_BLOCK_DANGEROUS, {}):
+    async with policy_context(BLOCK_DANGEROUS_COMMANDS_POLICY, {}):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("Run the script")
 
@@ -209,7 +208,7 @@ async def test_dd_wipe_disk_is_blocked(
         )
     )
 
-    async with policy_context(_BLOCK_DANGEROUS, {}):
+    async with policy_context(BLOCK_DANGEROUS_COMMANDS_POLICY, {}):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("Wipe the disk")
 
@@ -226,7 +225,7 @@ async def test_safe_git_push_feature_branch_passes(
     mock_anthropic.enqueue(tool_response("Bash", {"command": "git push origin feature-branch"}))
     mock_anthropic.enqueue(judge_pass())
 
-    async with policy_context(_BLOCK_DANGEROUS, {}):
+    async with policy_context(BLOCK_DANGEROUS_COMMANDS_POLICY, {}):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("Push the branch")
 
@@ -261,7 +260,7 @@ async def test_aws_credentials_write_is_blocked(
         )
     )
 
-    async with policy_context(_BLOCK_WRITES, {}):
+    async with policy_context(BLOCK_SENSITIVE_FILE_WRITES_POLICY, {}):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("Save the credentials")
 
@@ -291,7 +290,7 @@ async def test_env_file_write_is_blocked(
         )
     )
 
-    async with policy_context(_BLOCK_WRITES, {}):
+    async with policy_context(BLOCK_SENSITIVE_FILE_WRITES_POLICY, {}):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("Write the env file")
 
@@ -321,7 +320,7 @@ async def test_kubeconfig_write_is_blocked(
         )
     )
 
-    async with policy_context(_BLOCK_WRITES, {}):
+    async with policy_context(BLOCK_SENSITIVE_FILE_WRITES_POLICY, {}):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("Save kube config")
 
@@ -352,7 +351,7 @@ async def test_wget_exfiltration_is_blocked(
         )
     )
 
-    async with policy_context(_BLOCK_WEB, {}):
+    async with policy_context(BLOCK_WEB_REQUESTS_POLICY, {}):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("Download the file")
 
@@ -383,7 +382,7 @@ async def test_python_requests_exfiltration_is_blocked(
         )
     )
 
-    async with policy_context(_BLOCK_WEB, {}):
+    async with policy_context(BLOCK_WEB_REQUESTS_POLICY, {}):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("Run the script")
 
@@ -408,7 +407,7 @@ async def test_multi_turn_blocked_then_safe_passes(
     DogfoodSafetyPolicy uses regex matching (no judge call), so only one
     response is enqueued per turn.
     """
-    async with policy_context(_DOGFOOD_SAFETY, {}):
+    async with policy_context(DOGFOOD_SAFETY_POLICY, {}):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
 
         # Turn 1: dangerous command → blocked
@@ -448,7 +447,7 @@ async def test_streaming_git_push_force_is_blocked(
         )
     )
 
-    async with policy_context(_BLOCK_DANGEROUS, {}):
+    async with policy_context(BLOCK_DANGEROUS_COMMANDS_POLICY, {}):
         async with httpx.AsyncClient(timeout=15.0) as client:
             async with client.stream(
                 "POST",

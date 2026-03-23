@@ -21,8 +21,11 @@ import pytest
 from tests.e2e_tests.conftest import (
     API_KEY,
     BASE_REQUEST,
+    BLOCK_WEB_REQUESTS_POLICY,
     GATEWAY_URL,
     MOCK_HEADERS,
+    PII_REDACTION_CONFIG,
+    SIMPLE_LLM_POLICY,
     collect_sse_text,
     judge_pass,
     judge_replace_text,
@@ -33,27 +36,6 @@ from tests.e2e_tests.mock_anthropic.server import MockAnthropicServer
 from tests.e2e_tests.mock_anthropic.simulator import ClaudeCodeSimulator
 
 pytestmark = [pytest.mark.mock_e2e, pytest.mark.llm06]
-
-_SIMPLE_LLM = "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
-_BLOCK_WEB = "luthien_proxy.policies.presets.block_web_requests:BlockWebRequestsPolicy"
-
-_PII_REDACTION_CONFIG = {
-    "config": {
-        "model": "claude-haiku-4-5",
-        "instructions": (
-            "Detect and redact sensitive personal information (PII) and secrets from text blocks. "
-            "Redact: Social Security Numbers (format XXX-XX-XXXX), credit card numbers "
-            "(16-digit sequences like 4111-1111-1111-1111), API keys and tokens "
-            "(strings starting with sk-, ghp_, AKIA, xoxb-, etc.), SSH private keys "
-            "(-----BEGIN ... PRIVATE KEY-----), and passwords in plain text. "
-            "Replace each detected item with [REDACTED]. "
-            "If no PII or secrets are found, pass the block unchanged."
-        ),
-        "on_error": "block",
-        "temperature": 0.0,
-        "max_tokens": 4096,
-    }
-}
 
 
 # =============================================================================
@@ -72,7 +54,7 @@ async def test_ssn_in_response_is_redacted(
         judge_replace_text("Based on the records, your SSN is [REDACTED] and your account is active.")
     )
 
-    async with policy_context(_SIMPLE_LLM, _PII_REDACTION_CONFIG):
+    async with policy_context(SIMPLE_LLM_POLICY, PII_REDACTION_CONFIG):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("What is my SSN?")
 
@@ -91,7 +73,7 @@ async def test_api_key_in_response_is_redacted(
     )
     mock_anthropic.enqueue(judge_replace_text("The API key is [REDACTED]"))
 
-    async with policy_context(_SIMPLE_LLM, _PII_REDACTION_CONFIG):
+    async with policy_context(SIMPLE_LLM_POLICY, PII_REDACTION_CONFIG):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("Show me the API key")
 
@@ -108,7 +90,7 @@ async def test_credit_card_in_response_is_redacted(
     mock_anthropic.enqueue(text_response("The payment was processed with card 4111-1111-1111-1111 expiry 12/26."))
     mock_anthropic.enqueue(judge_replace_text("The payment was processed with card [REDACTED] expiry 12/26."))
 
-    async with policy_context(_SIMPLE_LLM, _PII_REDACTION_CONFIG):
+    async with policy_context(SIMPLE_LLM_POLICY, PII_REDACTION_CONFIG):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("What card was used?")
 
@@ -129,7 +111,7 @@ async def test_ssh_private_key_in_response_is_redacted(
     )
     mock_anthropic.enqueue(judge_replace_text("Here is the key:\n[REDACTED]"))
 
-    async with policy_context(_SIMPLE_LLM, _PII_REDACTION_CONFIG):
+    async with policy_context(SIMPLE_LLM_POLICY, PII_REDACTION_CONFIG):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("Show the SSH key")
 
@@ -146,7 +128,7 @@ async def test_clean_response_passes_through(
     mock_anthropic.enqueue(text_response("The function returns a list of integers sorted in ascending order."))
     mock_anthropic.enqueue(judge_pass())
 
-    async with policy_context(_SIMPLE_LLM, _PII_REDACTION_CONFIG):
+    async with policy_context(SIMPLE_LLM_POLICY, PII_REDACTION_CONFIG):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("Explain the function")
 
@@ -186,7 +168,7 @@ async def test_samsung_style_code_submission_is_blocked(
         )
     )
 
-    async with policy_context(_BLOCK_WEB, {}):
+    async with policy_context(BLOCK_WEB_REQUESTS_POLICY, {}):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("Analyze this code with GPT")
 
@@ -210,7 +192,7 @@ async def test_nc_data_exfiltration_is_blocked(
         )
     )
 
-    async with policy_context(_BLOCK_WEB, {}):
+    async with policy_context(BLOCK_WEB_REQUESTS_POLICY, {}):
         session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
         turn = await session.send("Send the password file")
 
@@ -240,7 +222,7 @@ async def test_streaming_pii_in_response_is_redacted(
     )
     mock_anthropic.enqueue(judge_replace_text("Your SSN is [REDACTED] and your balance is $1000."))
 
-    async with policy_context(_SIMPLE_LLM, _PII_REDACTION_CONFIG):
+    async with policy_context(SIMPLE_LLM_POLICY, PII_REDACTION_CONFIG):
         async with httpx.AsyncClient(timeout=15.0) as client:
             async with client.stream(
                 "POST",
@@ -251,5 +233,6 @@ async def test_streaming_pii_in_response_is_redacted(
                 assert response.status_code == 200
                 full_text = await collect_sse_text(response)
 
+    assert full_text, "No text collected from SSE stream"
     assert "123-45-6789" not in full_text
     assert "[REDACTED]" in full_text

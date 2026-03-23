@@ -53,7 +53,8 @@ async def test_malformed_json_returns_400(gateway_healthy):
             headers={**_HEADERS, "Content-Type": "application/json"},
         )
 
-    assert response.status_code >= 400  # 400 ideal; 500 until PR #336 merges
+    # TODO: tighten to == 400 once PR #336 merges (currently returns 500)
+    assert response.status_code >= 400
 
 
 @pytest.mark.asyncio
