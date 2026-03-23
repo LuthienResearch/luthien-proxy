@@ -437,7 +437,7 @@ def _checkout_proxy_ref(console: Console, repo_path: Path, ref: str, pr_number: 
             return False
 
     result = subprocess.run(
-        ["git", "checkout", "--", ref],
+        ["git", "checkout", ref],
         cwd=repo_path,
         capture_output=True,
         text=True,

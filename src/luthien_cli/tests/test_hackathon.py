@@ -402,7 +402,7 @@ class TestCheckoutProxyRef:
         assert result is True
         mock_run.assert_called_once()
         cmd = mock_run.call_args.args[0]
-        assert cmd == ["git", "checkout", "--", "feature/foo"]
+        assert cmd == ["git", "checkout", "feature/foo"]
 
     def test_checkout_pr(self, tmp_path):
         """PR number fetches the PR ref and checks it out."""
