@@ -74,9 +74,9 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 
    - Format everything with `./scripts/format_all.sh`.
    - Full lint + tests + type check: `./scripts/dev_checks.sh`.
-   - Quick unit pass: `uv run pytest tests/unit_tests`.
+   - Quick unit pass: `uv run pytest tests/luthien_proxy/unit_tests`.
    - *infrequently* run full e2e tests using `uv run pytest -m e2e`. This is SLOW and should be used sparingly to validate that core functionality remains intact.
-   - **Prefer targeted e2e tests**: Run specific test files first to identify issues before running the full suite: `uv run pytest tests/e2e_tests/test_specific_file.py -v`
+   - **Prefer targeted e2e tests**: Run specific test files first to identify issues before running the full suite: `uv run pytest tests/luthien_proxy/e2e_tests/test_specific_file.py -v`
    - Commit in small chunks with clear messages.
 
 3. **Wrap up the objective**
@@ -124,7 +124,12 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 - `scripts/`: developer helpers (`start_gateway.sh` for dockerless dev, `quick_start.sh` for Docker Compose, `quick_start_standalone.sh` for single-container)
 - `docker/` + `docker-compose.yaml`: multi-container stack for production deployments (db, redis, gateway)
 - `migrations/`: SQL database migrations (auto-applied for SQLite; run by a separate Docker service for Postgres deployments)
-- `tests/`: unit/integration tests
+- `tests/`: contains test suite organized by package
+  - `tests/luthien_proxy/`: Tests for the luthien_proxy package
+    - `unit_tests/`: Fast, focused unit tests
+    - `integration_tests/`: Integration tests against gateway endpoints
+    - `e2e_tests/`: End-to-end tests (slow, run sparingly)
+    - `fixtures/`: Shared test fixtures and utilities
 
 ## Build, Test, and Development Commands
 
@@ -169,7 +174,7 @@ Most near-term development work is dockerless. Prefer `start_gateway.sh` for day
 ## Testing Guidelines
 
 - Framework: `pytest`
-- Location: under `tests/unit_tests/`, `tests/integration_tests/`, `tests/e2e_tests/`
+- Location: under `tests/luthien_proxy/unit_tests/`, `tests/luthien_proxy/integration_tests/`, `tests/luthien_proxy/e2e_tests/`
 - Name files `test_*.py` and mirror package paths within the test-type directory.
 - Prefer fast unit tests for policies; add integration tests against gateway endpoints.
 - Use `pytest-cov` for coverage; include edge cases for streaming chunk logic.
@@ -178,7 +183,7 @@ Most near-term development work is dockerless. Prefer `start_gateway.sh` for day
 
 **IMPORTANT: Always write unit tests when adding or significantly modifying code.**
 
-- New modules MUST have corresponding test files in `tests/unit_tests/` mirroring the source structure
+- New modules MUST have corresponding test files in `tests/luthien_proxy/unit_tests/` mirroring the source structure
 - New functions/classes MUST have unit tests covering:
   - Happy path behavior
   - Edge cases and error conditions

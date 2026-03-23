@@ -98,13 +98,13 @@ Each event contains:
 #### Phase 1.1: Non-Streaming Events ✅
 - [x] Create `src/luthien_proxy/storage/events.py` with `emit_request_event()` and `emit_response_event()`
 - [x] Create `src/luthien_proxy/storage/__init__.py`
-- [x] Create `tests/unit_tests/test_storage_events.py`
+- [x] Create `tests/luthien_proxy/unit_tests/test_storage_events.py`
 - [x] Wire into `main.py` (startup/shutdown)
 
 **Files**:
 - `src/luthien_proxy/storage/events.py` - Event emission helpers
 - `src/luthien_proxy/main.py` - Wired db_pool, added event emission
-- `tests/unit_tests/test_storage_events.py` - Unit tests
+- `tests/luthien_proxy/unit_tests/test_storage_events.py` - Unit tests
 
 #### Phase 1.2: OpenTelemetry Integration ✅
 - [x] Add `call_id` as span attribute in all control plane operations
@@ -127,7 +127,7 @@ Each event contains:
 - `src/luthien_proxy/control/streaming.py` - Added `on_complete` callback
 - `src/luthien_proxy/control/local.py` - Added streaming event emission
 - `src/luthien_proxy/main.py` - Passed db_pool/redis_conn to streaming
-- `tests/unit_tests/test_storage_events.py` - Added 5 reconstruction tests
+- `tests/luthien_proxy/unit_tests/test_storage_events.py` - Added 5 reconstruction tests
 
 ### ✅ Phase 2: Query & Debug Endpoints (COMPLETE)
 
@@ -147,7 +147,7 @@ Each event contains:
 **Files Created**:
 - `src/luthien_proxy/debug/__init__.py` - Debug module exports
 - `src/luthien_proxy/debug/routes.py` - Debug REST endpoints (430 lines)
-- `tests/unit_tests/test_debug_routes.py` - Unit tests for debug endpoints (260 lines)
+- `tests/luthien_proxy/unit_tests/test_debug_routes.py` - Unit tests for debug endpoints (260 lines)
 
 **Files**:
 - `src/luthien_proxy/main.py` - Mounted debug router, wired db_pool

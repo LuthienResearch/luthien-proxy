@@ -1,0 +1,53 @@
+name: Migration Safety Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'migrations/**'
+
+jobs:
+  migration-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for modified migrations
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Detect modified or renamed (not just added) migration files
+          MODIFIED_EXISTING=$(git diff --name-status "$BASE_SHA"...HEAD \
+            | grep '^[MR]' | awk '{print $NF}' | grep '^migrations/' || true)
+
+          if [ -z "$MODIFIED_EXISTING" ]; then
+            echo "Only new migration files added — no issues."
+            exit 0
+          fi
+
+          echo "::warning::Existing migration files were modified: $MODIFIED_EXISTING"
+
+          # Avoid duplicate comments
+          EXISTING=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json comments \
+            --jq '[.comments[] | select(.body | contains("Migration safety warning"))] | length')
+
+          if [ "$EXISTING" -eq 0 ]; then
+            FILE_LIST=$(echo "$MODIFIED_EXISTING" | sed 's/^/- `/' | sed 's/$/`/')
+            BODY="**Migration safety warning** — This PR modifies existing migration files:
+
+$FILE_LIST
+
+Applied migrations are tracked by content hash. Modifying them will break deployments unless a hash fixup is added to \`docker/run-migrations.sh\`.
+
+If the change is comment-only or formatting, add a fixup entry. If the schema changed, create a new migration file instead."
+            gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$BODY"
+          fi

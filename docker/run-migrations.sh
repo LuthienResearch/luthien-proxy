@@ -59,6 +59,16 @@ UPDATE _migrations
    AND content_hash = '$OLD_008_HASH';
 EOF
 
+# PR #399 added a comment header to sqlite_schema.sql (no schema changes).
+OLD_SQLITE_HASH="ef93b393d0ed1bfe16619d1057e0f20e"
+NEW_SQLITE_HASH="f36eaacaf65b351436fa156e52c9d766"
+psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -q <<EOF
+UPDATE _migrations
+   SET content_hash = '$NEW_SQLITE_HASH'
+ WHERE filename = 'sqlite_schema.sql'
+   AND content_hash = '$OLD_SQLITE_HASH';
+EOF
+
 # ============================================================================
 # VALIDATION PHASE: Fail fast if migrations are inconsistent
 # ============================================================================
@@ -121,6 +131,11 @@ echo "✅ Migration validation passed"
 # Apply each migration in order
 for migration in "$MIGRATIONS_DIR"/*.sql; do
     filename=$(basename "$migration")
+
+    # sqlite_schema.sql is only for SQLite — skip it in Postgres migrations
+    if [ "$filename" = "sqlite_schema.sql" ]; then
+        continue
+    fi
 
     # Check if already applied
     applied=$(psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -t <<EOF | tr -d ' '

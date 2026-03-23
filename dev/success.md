@@ -70,6 +70,6 @@ A log of successfully completed debugging and implementation tasks.
 - `src/luthien_proxy/policies/utils.py` (fixed Delta object type and Choices type)
 
 **Tests added**:
-- `tests/unit_tests/policies/test_tool_call_judge_policy.py` - 8 regression tests covering all 4 bugs
+- `tests/luthien_proxy/unit_tests/policies/test_tool_call_judge_policy.py` - 8 regression tests covering all 4 bugs
 
 **Result**: Streaming works with complete Anthropic SSE event sequences. Blocked tool calls display explanation messages. All bugs would have been caught by the new unit tests.

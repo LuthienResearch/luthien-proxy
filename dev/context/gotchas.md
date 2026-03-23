@@ -253,7 +253,7 @@ if stream_state.finish_reason:
 - **Symptom**: Live view shows transformed output (e.g., ALL CAPS) but `original_*_messages` are missing and `*_was_modified=false`
 - **Cause**: Passing mutable objects directly to `record_request()` / `record_response()` without deep-copying before hook execution
 - **Fix**: In `PolicyOrchestrator`, snapshot with `model_copy(deep=True)` before calling policy hooks, then record `(original_snapshot, final_object)`
-- **Regression coverage**: `tests/unit_tests/orchestration/test_policy_orchestrator_request.py` includes in-place mutation tests for both request and response recording
+- **Regression coverage**: `tests/luthien_proxy/unit_tests/orchestration/test_policy_orchestrator_request.py` includes in-place mutation tests for both request and response recording
 
 ## Policy Config Validation Flags Public Mutable Attrs (2026-02-27)
 
@@ -322,7 +322,7 @@ if stream_state.finish_reason:
 
 - **Symptom**: `uv run pytest -m mock_e2e ... 2>&1 | tail -30` shows nothing but coverage table
 - **Fix**: Add `--no-cov` when running e2e, mock_e2e, or sqlite_e2e tests
-- **Example**: `uv run pytest -m sqlite_e2e tests/e2e_tests/ --no-cov -v`
+- **Example**: `uv run pytest -m sqlite_e2e tests/luthien_proxy/e2e_tests/ --no-cov -v`
 
 ---
 

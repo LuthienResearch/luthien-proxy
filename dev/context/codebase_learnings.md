@@ -58,7 +58,7 @@ if model_specific_params:
 
 **Self-contained test servers**: E2E tests manage their own V2 gateway instances.
 
-**V2GatewayManager** ([tests/e2e_tests/helpers/v2_gateway.py](../../tests/e2e_tests/helpers/v2_gateway.py)):
+**V2GatewayManager** ([tests/luthien_proxy/e2e_tests/helpers/v2_gateway.py](../../tests/luthien_proxy/e2e_tests/helpers/v2_gateway.py)):
 - Uses `multiprocessing.Process` to run V2 gateway in isolated subprocess
 - Runs on dedicated test port (8888) separate from dev (8000)
 - Handles startup, health checking, and cleanup automatically

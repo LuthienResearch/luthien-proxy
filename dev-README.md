@@ -12,10 +12,10 @@ Development reference for contributing to Luthien. For user-facing docs, see **[
 # docker compose restart gateway
 
 # Run unit tests
-uv run pytest tests/unit_tests
+uv run pytest tests/luthien_proxy/unit_tests
 
 # Run integration tests
-uv run pytest tests/integration_tests
+uv run pytest tests/luthien_proxy/integration_tests
 
 # Run e2e tests (slow, use sparingly)
 uv run pytest -m e2e
