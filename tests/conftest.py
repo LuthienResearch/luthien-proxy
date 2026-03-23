@@ -2,8 +2,6 @@ import os
 import sys
 from pathlib import Path
 
-import pytest
-
 # Ensure the src/ directory is importable in tests without extra tooling.
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,7 +20,6 @@ if str(SRC_DIR) not in sys.path:
 # Also add repo root for config/ imports
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-
 
 
 def pytest_sessionstart(session):
