@@ -50,6 +50,7 @@ from luthien_proxy.pipeline.session import (
     extract_session_id_from_anthropic_body,
     extract_session_id_from_headers,
 )
+from luthien_proxy.pipeline.stream_protocol_validator import validate_anthropic_event_ordering
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
     AnthropicPolicyEmission,
@@ -589,6 +590,31 @@ async def _handle_execution_streaming(
                             {"summary": "Execution policy emitted zero streaming events"},
                         )
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
+
+                    # Validate streaming protocol compliance (log-and-warn)
+                    if accumulated_events:
+                        validation = validate_anthropic_event_ordering(accumulated_events)
+                        if not validation.valid:
+                            violation_details = [
+                                {"rule": v.rule, "message": v.message, "event_index": v.event_index}
+                                for v in validation.violations
+                            ]
+                            logger.warning(
+                                "[%s] Streaming protocol violation detected: %s",
+                                call_id,
+                                violation_details,
+                            )
+                            policy_ctx.record_event(
+                                "streaming.protocol_violation",
+                                {
+                                    "summary": "Outbound stream violates Anthropic event ordering",
+                                    "violations": violation_details,
+                                },
+                            )
+                            response_span.set_attribute("streaming.protocol_valid", False)
+                        else:
+                            response_span.set_attribute("streaming.protocol_valid", True)
+
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
                     reconstructed = _reconstruct_response_from_stream_events(accumulated_events)
