@@ -1677,9 +1677,7 @@ class TestRunPolicyHooks:
         from luthien_proxy.policies.multi_serial_policy import MultiSerialPolicy
         from luthien_proxy.policies.string_replacement_policy import StringReplacementPolicy
 
-        replacement = StringReplacementPolicy(
-            config={"replacements": [["hello", "goodbye"]]}
-        )
+        replacement = StringReplacementPolicy(config={"replacements": [["hello", "goodbye"]]})
         allcaps = AllCapsPolicy()
         pipeline = MultiSerialPolicy.from_instances([replacement, allcaps])
 
