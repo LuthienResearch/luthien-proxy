@@ -34,7 +34,6 @@ from luthien_proxy.pipeline.anthropic_processor import (
 )
 from luthien_proxy.policies.noop_policy import NoOpPolicy
 from luthien_proxy.policy_core.anthropic_execution_interface import (
-    AnthropicExecutionInterface,
     AnthropicPolicyEmission,
 )
 from luthien_proxy.policy_core.policy_context import PolicyContext
@@ -936,9 +935,7 @@ class _InvalidStreamCompletePolicy:
     async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
         return request
 
-    async def on_anthropic_response(
-        self, response: AnthropicResponse, context: PolicyContext
-    ) -> AnthropicResponse:
+    async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
         return response
 
     async def on_anthropic_stream_event(self, event, context: PolicyContext):
@@ -965,9 +962,7 @@ class _GenericErrorPolicy:
     async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
         raise RuntimeError("policy logic failed unexpectedly")
 
-    async def on_anthropic_response(
-        self, response: AnthropicResponse, context: PolicyContext
-    ) -> AnthropicResponse:
+    async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
         return response
 
     async def on_anthropic_stream_event(self, event, context: PolicyContext):

@@ -193,5 +193,3 @@ class TestStreamingHooks:
         await policy.on_anthropic_request(request, context)
         events = await policy.on_anthropic_stream_complete(context)
         assert events == []
-
-

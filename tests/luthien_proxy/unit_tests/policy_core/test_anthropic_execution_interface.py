@@ -3,7 +3,6 @@
 from typing import cast
 
 import pytest
-
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import RawContentBlockStartEvent
 
@@ -22,10 +21,14 @@ class TestAnthropicExecutionInterface:
             async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
                 return request
 
-            async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
+            async def on_anthropic_response(
+                self, response: AnthropicResponse, context: PolicyContext
+            ) -> AnthropicResponse:
                 return response
 
-            async def on_anthropic_stream_event(self, event: MessageStreamEvent, context: PolicyContext) -> list[MessageStreamEvent]:
+            async def on_anthropic_stream_event(
+                self, event: MessageStreamEvent, context: PolicyContext
+            ) -> list[MessageStreamEvent]:
                 return [event]
 
             async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
@@ -53,10 +56,14 @@ class TestAnthropicExecutionInterface:
                 request["modified"] = True
                 return request
 
-            async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
+            async def on_anthropic_response(
+                self, response: AnthropicResponse, context: PolicyContext
+            ) -> AnthropicResponse:
                 return response
 
-            async def on_anthropic_stream_event(self, event: MessageStreamEvent, context: PolicyContext) -> list[MessageStreamEvent]:
+            async def on_anthropic_stream_event(
+                self, event: MessageStreamEvent, context: PolicyContext
+            ) -> list[MessageStreamEvent]:
                 return [event]
 
             async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
@@ -74,10 +81,14 @@ class TestAnthropicExecutionInterface:
             async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
                 return request
 
-            async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
+            async def on_anthropic_response(
+                self, response: AnthropicResponse, context: PolicyContext
+            ) -> AnthropicResponse:
                 return response
 
-            async def on_anthropic_stream_event(self, event: MessageStreamEvent, context: PolicyContext) -> list[MessageStreamEvent]:
+            async def on_anthropic_stream_event(
+                self, event: MessageStreamEvent, context: PolicyContext
+            ) -> list[MessageStreamEvent]:
                 return [event]
 
             async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
@@ -103,10 +114,14 @@ class TestAnthropicExecutionInterface:
             async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
                 return request
 
-            async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
+            async def on_anthropic_response(
+                self, response: AnthropicResponse, context: PolicyContext
+            ) -> AnthropicResponse:
                 return response
 
-            async def on_anthropic_stream_event(self, event: MessageStreamEvent, context: PolicyContext) -> list[MessageStreamEvent]:
+            async def on_anthropic_stream_event(
+                self, event: MessageStreamEvent, context: PolicyContext
+            ) -> list[MessageStreamEvent]:
                 return [event, event]
 
             async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
@@ -127,10 +142,14 @@ class TestAnthropicExecutionInterface:
             async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
                 return request
 
-            async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
+            async def on_anthropic_response(
+                self, response: AnthropicResponse, context: PolicyContext
+            ) -> AnthropicResponse:
                 return response
 
-            async def on_anthropic_stream_event(self, event: MessageStreamEvent, context: PolicyContext) -> list[MessageStreamEvent]:
+            async def on_anthropic_stream_event(
+                self, event: MessageStreamEvent, context: PolicyContext
+            ) -> list[MessageStreamEvent]:
                 return [event]
 
             async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
