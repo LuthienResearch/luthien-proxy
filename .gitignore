@@ -69,8 +69,9 @@ debug_multitool_nonstreaming.json
 .worktrees/
 .claude/worktrees/
 
-# Superpowers plan docs (generated per-session)
+# Superpowers generated docs (per-session plans and specs)
 docs/superpowers/plans/
+docs/superpowers/specs/
 
 # Generated version files (hatch-vcs)
 src/luthien_cli/src/luthien_cli/_version.py
