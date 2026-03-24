@@ -11,8 +11,8 @@ Streaming plumbing is tested by TextModifierPolicy's own tests.
 from typing import cast
 
 import pytest
+from tests.constants import DEFAULT_TEST_MODEL
 
-from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.types.anthropic import (
     AnthropicResponse,
     AnthropicTextBlock,

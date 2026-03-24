@@ -7,7 +7,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 from anthropic.types import RawContentBlockDeltaEvent, TextDelta
-from multi_policy_helpers import (
+from tests.constants import DEFAULT_TEST_MODEL
+from tests.luthien_proxy.unit_tests.policies.multi_policy_helpers import (
     OpenAIOnlyPolicy,
     allcaps_config,
     make_anthropic_response,
@@ -15,7 +16,6 @@ from multi_policy_helpers import (
     replacement_config,
 )
 
-from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.types.anthropic import (
     AnthropicRequest,
     AnthropicTextBlock,

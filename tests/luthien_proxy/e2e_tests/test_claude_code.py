@@ -21,7 +21,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 import pytest
-from tests.conftest import DEFAULT_TEST_MODEL
+from tests.constants import DEFAULT_TEST_MODEL
 
 # Import shared fixtures and helpers from conftest
 from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context  # noqa: F401

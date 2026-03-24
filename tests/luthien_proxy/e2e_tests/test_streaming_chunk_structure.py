@@ -18,7 +18,7 @@ import os
 
 import httpx
 import pytest
-from tests.conftest import DEFAULT_TEST_MODEL
+from tests.constants import DEFAULT_TEST_MODEL
 
 # === Test Configuration ===
 

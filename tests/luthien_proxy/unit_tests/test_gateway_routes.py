@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.constants import DEFAULT_TEST_MODEL
 
-from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CredentialManager
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 

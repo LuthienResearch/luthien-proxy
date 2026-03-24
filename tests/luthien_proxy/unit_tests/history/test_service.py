@@ -8,8 +8,8 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from tests.constants import DEFAULT_TEST_MODEL
 
-from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.history.models import (
     ConversationMessage,
     ConversationTurn,

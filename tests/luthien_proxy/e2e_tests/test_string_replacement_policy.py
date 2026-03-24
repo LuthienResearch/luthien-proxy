@@ -8,7 +8,7 @@ import os
 
 import httpx
 import pytest
-from tests.conftest import DEFAULT_TEST_MODEL
+from tests.constants import DEFAULT_TEST_MODEL
 
 GATEWAY_URL = os.getenv("E2E_GATEWAY_URL", "http://localhost:8000")
 ADMIN_API_KEY = os.getenv("E2E_ADMIN_API_KEY", os.getenv("ADMIN_API_KEY", "admin-dev-key"))

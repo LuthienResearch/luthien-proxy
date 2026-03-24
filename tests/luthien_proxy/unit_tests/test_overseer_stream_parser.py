@@ -10,8 +10,7 @@ from scripts.overseer.stream_parser import (
     parse_stream_json,
     summarize_turn,
 )
-
-from conftest import DEFAULT_TEST_MODEL
+from tests.constants import DEFAULT_TEST_MODEL
 
 
 def _make_line(data: dict) -> str:
