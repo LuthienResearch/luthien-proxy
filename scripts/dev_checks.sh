@@ -34,17 +34,24 @@ else
     exit 1
 fi
 
+DIRTY_BEFORE=$(git diff --name-only 2>/dev/null)
+
 echo "== Ruff format (apply) =="
 uv run ruff format
 
 echo "== Ruff lint (autofix) =="
 uv run ruff check --fix
 
-if ! git diff --quiet 2>/dev/null; then
+DIRTY_AFTER=$(git diff --name-only 2>/dev/null)
+FORMATTER_CHANGED=$(comm -13 <(echo "$DIRTY_BEFORE" | sort) <(echo "$DIRTY_AFTER" | sort))
+
+if [ -n "$FORMATTER_CHANGED" ]; then
     echo ""
     echo "── Formatting/lint produced changes. Auto-staging: ──"
-    git diff --stat
-    git add -u
+    echo "$FORMATTER_CHANGED" | while read -r f; do
+        echo "  $f"
+        git add -- "$f"
+    done
     echo "── Staged. Include these in your next commit. ──"
     echo ""
 fi
