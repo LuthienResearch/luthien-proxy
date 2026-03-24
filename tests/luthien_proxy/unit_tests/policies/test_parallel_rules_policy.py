@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from typing import cast
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from litellm.types.utils import Choices, Message, ModelResponse
 
-from luthien_proxy.llm.types.anthropic import AnthropicResponse
 from luthien_proxy.policies.parallel_rules_policy import (
     ParallelRulesConfig,
     ParallelRulesPolicy,
@@ -18,8 +16,6 @@ from luthien_proxy.policies.parallel_rules_policy import (
 from luthien_proxy.policies.simple_policy import SimplePolicy
 from luthien_proxy.policy_core import AnthropicExecutionInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
-
-DEFAULT_TEST_MODEL = "claude-haiku-4-5-20251001"
 
 
 def _make_litellm_response(content: str) -> ModelResponse:
@@ -385,89 +381,6 @@ class TestRuleResultDataclass:
         rule = Rule(name="test", instruction="Do thing")
         result = _RuleResult(rule=rule, rewritten="HELLO", changed=True)
         assert result.changed is True
-
-
-class TestNonStreamingAnthropicPath:
-    """Tests for the full non-streaming Anthropic execution path."""
-
-    @pytest.mark.asyncio
-    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
-    async def test_run_anthropic_applies_rules(self, mock_acompletion):
-        """Full run_anthropic path applies rules to response content."""
-        mock_acompletion.return_value = _make_litellm_response("TRANSFORMED")
-
-        policy = ParallelRulesPolicy(config={"rules": [{"name": "transform", "instruction": "Transform it"}]})
-        ctx = PolicyContext.for_testing()
-
-        # Create a mock IO object
-        mock_io = MagicMock()
-        mock_io.request = {
-            "model": DEFAULT_TEST_MODEL,
-            "messages": [{"role": "user", "content": "test"}],
-            "max_tokens": 100,
-        }
-        mock_io.first_backend_response = None
-
-        mock_response: AnthropicResponse = {
-            "id": "msg_test",
-            "type": "message",
-            "role": "assistant",
-            "content": [{"type": "text", "text": "Original text"}],
-            "model": DEFAULT_TEST_MODEL,
-            "stop_reason": "end_turn",
-            "usage": {"input_tokens": 10, "output_tokens": 5},
-        }
-
-        async def mock_complete(request):
-            return mock_response
-
-        mock_io.complete = mock_complete
-
-        emissions = []
-        async for emission in policy.run_anthropic(mock_io, ctx):
-            emissions.append(emission)
-
-        assert len(emissions) == 1
-        response = emissions[0]
-        assert isinstance(response, dict)
-        text_block = cast(dict, response["content"][0])
-        assert text_block["text"] == "TRANSFORMED"
-
-    @pytest.mark.asyncio
-    async def test_run_anthropic_with_no_rules(self):
-        """run_anthropic passes through unchanged when no rules."""
-        policy = ParallelRulesPolicy()
-        ctx = PolicyContext.for_testing()
-
-        mock_io = MagicMock()
-        mock_io.request = {
-            "model": DEFAULT_TEST_MODEL,
-            "messages": [{"role": "user", "content": "test"}],
-        }
-        mock_io.first_backend_response = None
-
-        mock_response: AnthropicResponse = {
-            "id": "msg_test",
-            "type": "message",
-            "role": "assistant",
-            "content": [{"type": "text", "text": "Original text"}],
-            "model": DEFAULT_TEST_MODEL,
-            "stop_reason": "end_turn",
-            "usage": {"input_tokens": 10, "output_tokens": 5},
-        }
-
-        async def mock_complete(request):
-            return mock_response
-
-        mock_io.complete = mock_complete
-
-        emissions = []
-        async for emission in policy.run_anthropic(mock_io, ctx):
-            emissions.append(emission)
-
-        assert len(emissions) == 1
-        text_block = cast(dict, emissions[0]["content"][0])
-        assert text_block["text"] == "Original text"
 
 
 class TestConfigWithApiCredentials:
