@@ -111,7 +111,7 @@ class OnboardingPolicy(TextModifierPolicy):
         return request
 
     async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
-        """For non-streaming in MultiSerialPolicy composition: only modify on first turn."""
+        """Apply text modification only on first turn; passthrough otherwise."""
         if self._is_first_turn(context):
             return await super().on_anthropic_response(response, context)
         return response
@@ -119,7 +119,7 @@ class OnboardingPolicy(TextModifierPolicy):
     async def on_anthropic_stream_event(
         self, event: MessageStreamEvent, context: PolicyContext
     ) -> list[MessageStreamEvent]:
-        """For streaming in MultiSerialPolicy composition: passthrough (extra_text handles the append)."""
+        """Apply stream event modification only on first turn; passthrough otherwise."""
         if self._is_first_turn(context):
             return await super().on_anthropic_stream_event(event, context)
         return [event]
