@@ -50,5 +50,5 @@ fi
 # The app reads GATEWAY_PORT. Bridge here so deploys work without manual config.
 export GATEWAY_PORT="${GATEWAY_PORT:-$PORT}"
 
-# Start the gateway
-exec uv run python -m luthien_proxy.main
+# Start the gateway (--no-dev: don't install dev deps, which fail without .git)
+exec uv run --no-dev python -m luthien_proxy.main
