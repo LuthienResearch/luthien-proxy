@@ -18,7 +18,7 @@ from anthropic.types import (
 )
 from anthropic.types.raw_message_delta_event import Delta
 
-from conftest import DEFAULT_TEST_MODEL
+from tests.constants import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.types.anthropic import AnthropicRequest
 

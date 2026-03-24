@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from litellm.types.utils import Choices, Message, ModelResponse
 
-from conftest import DEFAULT_TEST_MODEL
+from tests.constants import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.types.anthropic import (
     AnthropicResponse,
     AnthropicTextBlock,

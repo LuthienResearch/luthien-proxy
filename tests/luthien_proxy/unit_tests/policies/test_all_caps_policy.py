@@ -12,7 +12,7 @@ from typing import cast
 
 import pytest
 
-from conftest import DEFAULT_TEST_MODEL
+from tests.constants import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.types.anthropic import (
     AnthropicResponse,
     AnthropicTextBlock,

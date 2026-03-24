@@ -7,7 +7,7 @@ from typing import cast
 
 import pytest
 
-from conftest import DEFAULT_TEST_MODEL
+from tests.constants import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.types.anthropic import AnthropicResponse
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,

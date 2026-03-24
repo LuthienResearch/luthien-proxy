@@ -21,7 +21,7 @@ from anthropic.types import (
     TextDelta,
 )
 
-from conftest import DEFAULT_TEST_MODEL
+from tests.constants import DEFAULT_TEST_MODEL
 from luthien_proxy.policies.noop_policy import NoOpPolicy
 from luthien_proxy.policy_core import (
     AnthropicExecutionInterface,

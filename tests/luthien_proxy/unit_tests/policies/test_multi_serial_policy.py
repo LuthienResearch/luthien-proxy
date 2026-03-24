@@ -23,7 +23,7 @@ from multi_policy_helpers import (
     replacement_config,
 )
 
-from conftest import DEFAULT_TEST_MODEL
+from tests.constants import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.types.anthropic import (
     AnthropicRequest,
     AnthropicResponse,

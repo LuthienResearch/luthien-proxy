@@ -10,7 +10,7 @@ Runs a simple request through the gateway for each policy to verify:
 """
 
 import pytest
-from tests.conftest import DEFAULT_TEST_MODEL
+from tests.constants import DEFAULT_TEST_MODEL
 from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
 
 # Policy configurations: (policy_class_ref, config, description)

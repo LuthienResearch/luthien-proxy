@@ -1,6 +1,7 @@
 import os
+from pathlib import Path
 
-from tests.constants import REPO_ROOT
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def pytest_sessionstart(session):
