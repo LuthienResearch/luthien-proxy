@@ -9,8 +9,6 @@ import pytest
 from litellm.types.utils import Choices, Message, ModelResponse
 
 from luthien_proxy.llm.types.anthropic import AnthropicResponse
-
-DEFAULT_TEST_MODEL = "claude-haiku-4-5-20251001"
 from luthien_proxy.policies.parallel_rules_policy import (
     ParallelRulesConfig,
     ParallelRulesPolicy,
@@ -20,6 +18,8 @@ from luthien_proxy.policies.parallel_rules_policy import (
 from luthien_proxy.policies.simple_policy import SimplePolicy
 from luthien_proxy.policy_core import AnthropicExecutionInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
+
+DEFAULT_TEST_MODEL = "claude-haiku-4-5-20251001"
 
 
 def _make_litellm_response(content: str) -> ModelResponse:
