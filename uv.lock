@@ -1032,7 +1032,7 @@ requires-dist = [
     { name = "beartype", specifier = ">=0.21.0" },
     { name = "click", specifier = ">=8.1.0" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "litellm", extras = ["proxy"], specifier = ">=1.81.0" },
+    { name = "litellm", extras = ["proxy"], specifier = ">=1.81.0,!=1.82.7,!=1.82.8" },
     { name = "opentelemetry-api", specifier = ">=1.20.0" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.20.0" },
     { name = "opentelemetry-instrumentation-fastapi", specifier = ">=0.41b0" },
