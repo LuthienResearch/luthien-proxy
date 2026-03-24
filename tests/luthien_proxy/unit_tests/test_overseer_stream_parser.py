@@ -10,7 +10,6 @@ from scripts.overseer.stream_parser import (
     parse_stream_json,
     summarize_turn,
 )
-
 from tests.constants import DEFAULT_TEST_MODEL
 
 

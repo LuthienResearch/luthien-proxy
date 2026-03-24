@@ -17,8 +17,8 @@ from anthropic.types import (
     TextDelta,
     ThinkingDelta,
 )
-
 from tests.constants import DEFAULT_TEST_MODEL
+
 from luthien_proxy.llm.types.anthropic import (
     AnthropicRequest,
     AnthropicResponse,

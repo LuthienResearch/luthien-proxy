@@ -20,8 +20,8 @@ from anthropic.types import (
     TextBlock,
     TextDelta,
 )
-
 from tests.constants import DEFAULT_TEST_MODEL
+
 from luthien_proxy.policies.noop_policy import NoOpPolicy
 from luthien_proxy.policy_core import (
     AnthropicExecutionInterface,

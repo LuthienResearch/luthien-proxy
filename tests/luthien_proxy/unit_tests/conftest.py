@@ -8,7 +8,6 @@ import warnings
 
 import pytest
 from litellm.types.utils import Choices, Message, ModelResponse
-
 from tests.constants import DEFAULT_TEST_MODEL
 
 _original_socket = socket.socket

@@ -14,6 +14,7 @@ from anthropic.types import (
     TextBlock,
     TextDelta,
 )
+from tests.constants import DEFAULT_TEST_MODEL
 from tests.luthien_proxy.unit_tests.policies.multi_policy_helpers import (
     AnthropicOnlyPolicy,
     OpenAIOnlyPolicy,
@@ -23,7 +24,6 @@ from tests.luthien_proxy.unit_tests.policies.multi_policy_helpers import (
     replacement_config,
 )
 
-from tests.constants import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.types.anthropic import (
     AnthropicRequest,
     AnthropicResponse,
