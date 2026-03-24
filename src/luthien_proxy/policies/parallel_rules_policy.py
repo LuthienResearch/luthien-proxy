@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from litellm import acompletion
 from litellm.types.utils import Choices, Message, ModelResponse
@@ -157,7 +157,7 @@ class ParallelRulesPolicy(SimplePolicy):
                 kwargs["api_key"] = self.config.api_key
 
             response = await acompletion(**kwargs)
-            response = ModelResponse(**response.model_dump()) if not isinstance(response, ModelResponse) else response
+            response = cast(ModelResponse, response)
             first_choice: Choices = response.choices[0]  # type: ignore[assignment]
             message: Message = first_choice.message  # type: ignore[assignment]
             rewritten = message.content or ""
@@ -208,7 +208,7 @@ class ParallelRulesPolicy(SimplePolicy):
                 kwargs["api_key"] = self.config.api_key
 
             response = await acompletion(**kwargs)
-            response = ModelResponse(**response.model_dump()) if not isinstance(response, ModelResponse) else response
+            response = cast(ModelResponse, response)
             first_choice: Choices = response.choices[0]  # type: ignore[assignment]
             message: Message = first_choice.message  # type: ignore[assignment]
             merged = message.content or ""

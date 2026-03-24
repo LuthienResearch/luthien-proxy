@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from litellm import acompletion
 from litellm.types.utils import Choices, Message, ModelResponse
@@ -126,6 +126,7 @@ class ClaudeMdRulesPolicy(BasePolicy, AnthropicExecutionInterface):
         self, io: AnthropicPolicyIOProtocol, context: "PolicyContext"
     ) -> AsyncIterator[AnthropicPolicyEmission]:
         """Ensure rules exist, then delegate to ParallelRulesPolicy."""
+
         async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
             rules = await self._ensure_rules(io, context)
 
@@ -164,7 +165,7 @@ class ClaudeMdRulesPolicy(BasePolicy, AnthropicExecutionInterface):
         logger.info("Extracted %d rules from CLAUDE.md for session %s", len(rules), session_id[:12])
         return rules
 
-    def _find_claude_md_content(self, request: dict[str, Any]) -> str | None:
+    def _find_claude_md_content(self, request: Any) -> str | None:
         """Search the request for CLAUDE.md content.
 
         Looks in the system prompt and message content for text that appears to
@@ -228,7 +229,7 @@ class ClaudeMdRulesPolicy(BasePolicy, AnthropicExecutionInterface):
                 kwargs["api_key"] = self.config.api_key
 
             response = await acompletion(**kwargs)
-            response = ModelResponse(**response.model_dump()) if not isinstance(response, ModelResponse) else response
+            response = cast(ModelResponse, response)
             first_choice: Choices = response.choices[0]  # type: ignore[assignment]
             message: Message = first_choice.message  # type: ignore[assignment]
             content = message.content or ""
