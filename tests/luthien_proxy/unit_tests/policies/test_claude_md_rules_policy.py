@@ -294,9 +294,7 @@ class TestExtractionFailure:
     @patch("luthien_proxy.policies.claude_md_rules_policy.has_rules", new_callable=AsyncMock, return_value=False)
     @patch("luthien_proxy.policies.claude_md_rules_policy.save_rules", new_callable=AsyncMock)
     @patch("luthien_proxy.policies.rules_llm_utils.acompletion", side_effect=RuntimeError("LLM down"))
-    async def test_extraction_failure_saves_empty_and_passes_through(
-        self, mock_acompletion, mock_save, mock_has_rules
-    ):
+    async def test_extraction_failure_saves_empty_and_passes_through(self, mock_acompletion, mock_save, mock_has_rules):
         """If the extraction LLM call fails, save empty rules and pass through."""
         policy = ClaudeMdRulesPolicy()
         request = {

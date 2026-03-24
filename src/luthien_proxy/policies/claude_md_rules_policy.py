@@ -31,9 +31,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from luthien_proxy.policies.rules_llm_utils import call_llm
-
 from luthien_proxy.policies.parallel_rules_policy import ParallelRulesPolicy
+from luthien_proxy.policies.rules_llm_utils import call_llm
 from luthien_proxy.policy_core import BasePolicy
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
