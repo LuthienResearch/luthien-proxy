@@ -591,8 +591,11 @@ async def _handle_execution_streaming(
                         )
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
 
-                    # Validate streaming protocol compliance (log-and-warn)
-                    if accumulated_events:
+                    # Validate streaming protocol compliance (log-and-warn).
+                    # Only validate complete streams — partial/error streams will
+                    # always fail completeness checks (missing message_stop, etc.)
+                    # and produce noisy false positives.
+                    if accumulated_events and final_status == 200:
                         validation = validate_anthropic_event_ordering(accumulated_events)
                         if not validation.valid:
                             violation_details = [
