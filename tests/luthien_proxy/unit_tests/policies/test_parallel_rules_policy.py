@@ -8,8 +8,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from litellm.types.utils import Choices, Message, ModelResponse
 
-from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.types.anthropic import AnthropicResponse
+
+DEFAULT_TEST_MODEL = "claude-haiku-4-5-20251001"
 from luthien_proxy.policies.parallel_rules_policy import (
     ParallelRulesConfig,
     ParallelRulesPolicy,
