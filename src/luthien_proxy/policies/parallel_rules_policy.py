@@ -31,7 +31,6 @@ from litellm.types.utils import Choices, Message, ModelResponse
 from pydantic import BaseModel, Field
 
 from luthien_proxy.policies.simple_policy import SimplePolicy
-from luthien_proxy.policy_core import BasePolicy
 from luthien_proxy.storage.session_rules import SessionRule
 
 if TYPE_CHECKING:
@@ -79,7 +78,7 @@ class _RuleResult:
     changed: bool
 
 
-class ParallelRulesPolicy(BasePolicy, SimplePolicy):
+class ParallelRulesPolicy(SimplePolicy):
     """Apply multiple rewriting rules in parallel with LLM-based refinement.
 
     For each response text block:
