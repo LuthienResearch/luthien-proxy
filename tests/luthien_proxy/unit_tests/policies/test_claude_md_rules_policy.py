@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from typing import cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from litellm.types.utils import Choices, Message, ModelResponse
@@ -237,9 +236,7 @@ class TestClaudeMdRulesPolicyExtraction:
         mock_save_rules.return_value = None
 
         # Extraction LLM returns rules
-        extraction_response = _make_litellm_response(
-            '[{"name": "concise", "instruction": "Be concise."}]'
-        )
+        extraction_response = _make_litellm_response('[{"name": "concise", "instruction": "Be concise."}]')
         # Rule application LLM
         application_response = _make_litellm_response("Concise text")
 

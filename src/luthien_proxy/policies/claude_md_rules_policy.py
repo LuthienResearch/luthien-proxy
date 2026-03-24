@@ -88,6 +88,7 @@ class ClaudeMdRulesPolicy(BasePolicy):
     """
 
     def __init__(self, config: ClaudeMdRulesConfig | dict[str, Any] | None = None) -> None:
+        """Initialize with extraction config and inner ParallelRulesPolicy."""
         self.config = self._init_config(config, ClaudeMdRulesConfig)
         self._parallel_rules = ParallelRulesPolicy(
             config={
@@ -101,6 +102,7 @@ class ClaudeMdRulesPolicy(BasePolicy):
 
     @property
     def short_policy_name(self) -> str:
+        """Human-readable policy name."""
         return "ClaudeMdRules"
 
     async def run_anthropic(
@@ -108,6 +110,7 @@ class ClaudeMdRulesPolicy(BasePolicy):
         io: "AnthropicPolicyIOProtocol",
         context: "PolicyContext",
     ) -> "AsyncIterator[AnthropicPolicyEmission]":
+        """Ensure rules are loaded/extracted, then delegate to ParallelRulesPolicy."""
         rules = await self._ensure_rules(io.request, context)
         if rules:
             self._parallel_rules.set_rules_for_request(
@@ -221,7 +224,7 @@ def _parse_extracted_rules(llm_output: str) -> list[SessionRule]:
     if text.startswith("```"):
         lines = text.split("\n")
         # Remove first and last fence lines
-        lines = [l for l in lines if not l.strip().startswith("```")]
+        lines = [line for line in lines if not line.strip().startswith("```")]
         text = "\n".join(lines).strip()
 
     # Find the JSON array in the output

@@ -33,9 +33,7 @@ async def save_rules(db_pool: "DatabasePool", session_id: str, rules: list[Sessi
     If rules is empty, inserts a sentinel row so has_rules() returns True
     (preventing repeated extraction attempts).
     """
-    rows_to_insert = [
-        (str(uuid.uuid4()), session_id, r.name, r.instruction) for r in rules
-    ]
+    rows_to_insert = [(str(uuid.uuid4()), session_id, r.name, r.instruction) for r in rules]
     if not rows_to_insert:
         rows_to_insert = [(str(uuid.uuid4()), session_id, SENTINEL_RULE_NAME, "")]
 
@@ -44,8 +42,7 @@ async def save_rules(db_pool: "DatabasePool", session_id: str, rules: list[Sessi
             if db_pool.is_sqlite:
                 for row_id, sid, name, instruction in rows_to_insert:
                     await conn.execute(
-                        "INSERT INTO session_rules (id, session_id, rule_name, rule_instruction) "
-                        "VALUES (?, ?, ?, ?)",
+                        "INSERT INTO session_rules (id, session_id, rule_name, rule_instruction) VALUES (?, ?, ?, ?)",
                         row_id,
                         sid,
                         name,
