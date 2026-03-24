@@ -23,7 +23,7 @@ import copy
 import json
 import logging
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Literal, TypedDict, TypeGuard, cast
 
 from anthropic import APIConnectionError as AnthropicConnectionError
@@ -477,6 +477,32 @@ async def _process_request(
         return anthropic_request, raw_http_request, session_id
 
 
+async def _run_policy_hooks(
+    policy: AnthropicExecutionInterface,
+    io: AnthropicPolicyIOProtocol,
+    ctx: PolicyContext,
+) -> AsyncGenerator[AnthropicPolicyEmission, None]:
+    """Call policy hooks around backend I/O.
+
+    The executor owns the stream-vs-complete branching and calls hooks at each
+    lifecycle point. This replaces the per-policy execution loops that were
+    previously duplicated across multiple policy classes.
+    """
+    request = await policy.on_anthropic_request(io.request, ctx)
+    io.set_request(request)
+
+    if request.get("stream", False):
+        async for event in io.stream(request):
+            for emitted in await policy.on_anthropic_stream_event(event, ctx):
+                yield emitted
+        for emitted in await policy.on_anthropic_stream_complete(ctx):
+            yield emitted
+        return
+
+    response = await io.complete(request)
+    yield await policy.on_anthropic_response(response, ctx)
+
+
 async def _execute_anthropic_policy(
     execution_policy: AnthropicExecutionInterface,
     initial_request: AnthropicRequest,
@@ -490,7 +516,7 @@ async def _execute_anthropic_policy(
     extra_headers: dict[str, str] | None = None,
     usage_collector: UsageCollector | None = None,
 ) -> FastAPIStreamingResponse | JSONResponse:
-    """Execute an Anthropic policy using the execution-oriented runtime."""
+    """Execute an Anthropic policy using the hook-based runtime."""
     io = _AnthropicPolicyIO(
         initial_request=initial_request,
         anthropic_client=anthropic_client,
@@ -501,7 +527,7 @@ async def _execute_anthropic_policy(
         is_streaming=is_streaming,
         extra_headers=extra_headers,
     )
-    emissions = execution_policy.run_anthropic(io, policy_ctx)
+    emissions = _run_policy_hooks(execution_policy, io, policy_ctx)
 
     if is_streaming:
         return await _handle_execution_streaming(

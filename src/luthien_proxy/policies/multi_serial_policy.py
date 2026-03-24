@@ -4,6 +4,9 @@ Each policy's output becomes the next policy's input, forming a pipeline.
 All sub-policies must implement AnthropicExecutionInterface; a TypeError is
 raised if any sub-policy is incompatible.
 
+The executor calls MultiSerialPolicy's hooks, which chain through sub-policy
+hooks in list order.
+
 Example config:
     policy:
       class: "luthien_proxy.policies.multi_serial_policy:MultiSerialPolicy"
@@ -18,7 +21,6 @@ Example config:
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, cast
 
 from anthropic.lib.streaming import MessageStreamEvent
@@ -27,7 +29,6 @@ from luthien_proxy.policies.multi_policy_utils import load_sub_policy, validate_
 from luthien_proxy.policy_core import (
     AnthropicExecutionInterface,
     AnthropicPolicyEmission,
-    AnthropicPolicyIOProtocol,
     BasePolicy,
 )
 
@@ -101,64 +102,8 @@ class MultiSerialPolicy(BasePolicy, AnthropicExecutionInterface):
         """Raise TypeError if any sub-policy doesn't implement the required interface."""
         validate_sub_policies_interface(self._sub_policies, interface, interface_name, "MultiSerialPolicy")
 
-    def _iter_execution_policies(self) -> list[AnthropicExecutionInterface]:
-        """Return sub-policies as AnthropicExecutionInterface after runtime validation."""
-        self._validate_interface(AnthropicExecutionInterface, "AnthropicExecutionInterface")
-        return [policy for policy in self._sub_policies if isinstance(policy, AnthropicExecutionInterface)]
-
     # =========================================================================
-    # Anthropic execution interface
-    # =========================================================================
-
-    def run_anthropic(
-        self, io: AnthropicPolicyIOProtocol, context: "PolicyContext"
-    ) -> AsyncIterator[AnthropicPolicyEmission]:
-        """Execute sub-policies serially in list order for both request and response phases.
-
-        Uses a two-phase model: all request transforms run in list order, then the backend
-        is called once, then all response transforms run in list order. This gives consistent
-        ordering for both request and response (unlike the onion/wrapping model which reverses
-        response order).
-        """
-        if not self._iter_execution_policies():
-            return self._passthrough_anthropic(io)
-
-        async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
-            # Phase 1: chain request transforms in list order
-            request = await self.on_anthropic_request(io.request, context)
-            io.set_request(request)
-
-            if request.get("stream", False):
-                # Phase 2+3a: stream backend and apply per-event transforms in list order
-                async for event in io.stream(request):
-                    for e in await self.on_anthropic_stream_event(event, context):
-                        yield e
-                # Phase 3b: post-stream additions from each sub-policy in list order
-                for e in await self.on_anthropic_stream_complete(context):
-                    yield e
-                return
-
-            # Non-streaming: call backend then chain response transforms in list order
-            response = await io.complete(request)
-            yield await self.on_anthropic_response(response, context)
-
-        return _run()
-
-    def _passthrough_anthropic(self, io: AnthropicPolicyIOProtocol) -> AsyncIterator[AnthropicPolicyEmission]:
-        """Run without sub-policies as a direct backend passthrough."""
-
-        async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
-            request = io.request
-            if request.get("stream", False):
-                async for event in io.stream(request):
-                    yield event
-                return
-            yield await io.complete(request)
-
-        return _run()
-
-    # =========================================================================
-    # Anthropic helper hooks (for policy-level unit tests)
+    # Anthropic lifecycle hooks
     # =========================================================================
 
     async def on_anthropic_request(self, request: AnthropicRequest, context: "PolicyContext") -> AnthropicRequest:

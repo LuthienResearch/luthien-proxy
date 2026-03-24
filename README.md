@@ -244,7 +244,6 @@ Base classes and building blocks in `src/luthien_proxy/policies/` — see **[doc
 
 **Composition**:
 - `MultiSerialPolicy` - Chain policies sequentially
-- `MultiParallelPolicy` - Run policies in parallel with consolidation
 
 ## Usage Telemetry
 

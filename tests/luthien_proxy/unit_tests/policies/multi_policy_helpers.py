@@ -10,7 +10,7 @@ from luthien_proxy.llm.types.anthropic import (
     AnthropicTextBlock,
 )
 from luthien_proxy.policy_core import (
-    AnthropicExecutionInterface,
+    AnthropicHookPolicy,
     BasePolicy,
 )
 
@@ -23,23 +23,12 @@ class OpenAIOnlyPolicy(BasePolicy):
         return "OpenAIOnly"
 
 
-class AnthropicOnlyPolicy(BasePolicy, AnthropicExecutionInterface):
-    """Stub policy implementing only AnthropicExecutionInterface (not OpenAI)."""
+class AnthropicOnlyPolicy(BasePolicy, AnthropicHookPolicy):
+    """Stub policy implementing only the Anthropic hooks (not OpenAI)."""
 
     @property
     def short_policy_name(self) -> str:
         return "AnthropicOnly"
-
-    def run_anthropic(self, io, context):
-        async def _run():
-            request = io.request
-            if request.get("stream", False):
-                async for event in io.stream(request):
-                    yield event
-                return
-            yield await io.complete(request)
-
-        return _run()
 
 
 def noop_config() -> dict:

@@ -369,9 +369,9 @@ section h2 .tag {
     <div class="card" style="border-top: 2px solid var(--policy);">
       <h3><span class="badge badge-anthropic">Anthropic</span> Execution-Driven</h3>
       <div class="pipeline" style="margin-top: 0.8rem;">
-        <div class="pipe-stage executor"><h4>Policy.run_anthropic()</h4><p>Policy drives the entire lifecycle</p></div>
-        <div class="pipe-arrow"><div class="shaft"></div><div class="label">io.stream() / io.complete()</div><div class="shaft2"></div></div>
-        <div class="pipe-stage backend"><h4>Backend (0..N calls)</h4><p>Policy decides when and how many times</p></div>
+        <div class="pipe-stage executor"><h4>Executor._run_policy_hooks()</h4><p>Executor drives I/O, calls policy hooks</p></div>
+        <div class="pipe-arrow"><div class="shaft"></div><div class="label">on_anthropic_request → backend → on_anthropic_response</div><div class="shaft2"></div></div>
+        <div class="pipe-stage backend"><h4>Backend (1 call)</h4><p>Executor handles stream/complete</p></div>
         <div class="pipe-arrow"><div class="shaft"></div><div class="label">yield AnthropicPolicyEmission</div><div class="shaft2"></div></div>
         <div class="pipe-stage client"><h4>Client</h4><p>Receives MessageStreamEvents as SSE</p></div>
       </div>
@@ -480,7 +480,10 @@ classDiagram
     }
 
     class AnthropicExecutionInterface {
-        +run_anthropic(io, context) AsyncIterator
+        +on_anthropic_request(request, context)
+        +on_anthropic_response(response, context)
+        +on_anthropic_stream_event(event, context)
+        +on_anthropic_stream_complete(context)
     }
 
     class SimplePolicy {
