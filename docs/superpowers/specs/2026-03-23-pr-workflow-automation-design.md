@@ -106,9 +106,11 @@ Skill instructions and CLAUDE.md references use `"$(git rev-parse --show-topleve
 PR=<number>
 PREV_COMMENTS=$(gh pr view $PR --json comments --jq '.comments | length')
 PREV_REVIEWS=$(gh pr view $PR --json reviews --jq '.reviews | length')
+ITER=0; MAX_ITER=80
 
-while true; do
+while [ "$ITER" -lt "$MAX_ITER" ]; do
     sleep 90
+    ITER=$((ITER + 1))
 
     # CI status
     CI=$(gh pr checks $PR --json state --jq '.[].state' 2>/dev/null | sort -u)
@@ -148,6 +150,7 @@ while true; do
         exit 0
     fi
 done
+echo "INFO:TIMEOUT"
 ```
 
 **Limitations:**
