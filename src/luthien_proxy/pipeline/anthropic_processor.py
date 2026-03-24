@@ -382,6 +382,7 @@ async def process_anthropic_request(
             emitter=emitter,
             raw_http_request=raw_http_request,
             session_id=session_id,
+            db_pool=db_pool,
         )
 
         # Set policy name on root span for easy identification

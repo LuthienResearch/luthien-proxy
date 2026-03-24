@@ -22,6 +22,8 @@ from luthien_proxy.types import RawHttpRequest
 if TYPE_CHECKING:
     from opentelemetry.trace import Span
 
+    from luthien_proxy.utils.db import DatabasePool
+
 _tracer = trace.get_tracer(__name__)
 T = TypeVar("T")
 
@@ -51,6 +53,7 @@ class PolicyContext:
         emitter: EventEmitterProtocol | None = None,
         raw_http_request: RawHttpRequest | None = None,
         session_id: str | None = None,
+        db_pool: "DatabasePool | None" = None,
     ) -> None:
         """Initialize policy context for a request.
 
@@ -62,11 +65,13 @@ class PolicyContext:
             raw_http_request: Optional raw HTTP request data before any processing.
                               Contains original headers, body, method, and path.
             session_id: Optional session identifier extracted from client request.
+            db_pool: Optional database pool for policies that need persistence.
         """
         self.transaction_id: str = transaction_id
         self.request: Any | None = request
         self.raw_http_request: RawHttpRequest | None = raw_http_request
         self.session_id: str | None = session_id
+        self.db_pool: "DatabasePool | None" = db_pool
         self._emitter: EventEmitterProtocol = emitter or NullEventEmitter()
         self._scratchpad: dict[str, Any] = {}
         self._request_state: dict[tuple[int, type[Any]], Any] = {}
@@ -217,6 +222,7 @@ class PolicyContext:
         new_ctx.session_id = self.session_id
         new_ctx.raw_http_request = self.raw_http_request  # read-only after creation
         new_ctx._emitter = self._emitter  # holds db/redis pool — share, not copy
+        new_ctx.db_pool = self.db_pool  # holds connection pool — share, not copy
 
         # Independently mutable: each sub-policy gets its own copy
         new_ctx.request = self.request.model_copy(deep=True) if self.request is not None else None
@@ -238,6 +244,7 @@ class PolicyContext:
         request: Any | None = None,
         raw_http_request: RawHttpRequest | None = None,
         session_id: str | None = None,
+        db_pool: "DatabasePool | None" = None,
     ) -> "PolicyContext":
         """Create a PolicyContext suitable for unit tests.
 
@@ -248,6 +255,7 @@ class PolicyContext:
             request: Optional request object
             raw_http_request: Optional raw HTTP request data
             session_id: Optional session ID
+            db_pool: Optional database pool
 
         Returns:
             PolicyContext with null implementations for external services
@@ -258,6 +266,7 @@ class PolicyContext:
             emitter=NullEventEmitter(),
             raw_http_request=raw_http_request,
             session_id=session_id,
+            db_pool=db_pool,
         )
 
 
