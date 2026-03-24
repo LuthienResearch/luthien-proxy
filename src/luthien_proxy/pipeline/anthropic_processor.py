@@ -477,6 +477,31 @@ async def _process_request(
         return anthropic_request, raw_http_request, session_id
 
 
+async def _run_policy_hooks(
+    policy: AnthropicExecutionInterface,
+    io: _AnthropicPolicyIO,
+    ctx: PolicyContext,
+) -> AsyncIterator[AnthropicPolicyEmission]:
+    """Call policy hooks around backend I/O.
+
+    This is the single execution loop that was previously duplicated across
+    AnthropicHookPolicy.run_anthropic, TextModifierPolicy.run_anthropic, etc.
+    """
+    request = await policy.on_anthropic_request(io.request, ctx)
+    io.set_request(request)
+
+    if request.get("stream", False):
+        async for event in io.stream(request):
+            for emitted in await policy.on_anthropic_stream_event(event, ctx):
+                yield emitted
+        for emitted in await policy.on_anthropic_stream_complete(ctx):
+            yield emitted
+        return
+
+    response = await io.complete(request)
+    yield await policy.on_anthropic_response(response, ctx)
+
+
 async def _execute_anthropic_policy(
     execution_policy: AnthropicExecutionInterface,
     initial_request: AnthropicRequest,
@@ -501,7 +526,7 @@ async def _execute_anthropic_policy(
         is_streaming=is_streaming,
         extra_headers=extra_headers,
     )
-    emissions = execution_policy.run_anthropic(io, policy_ctx)
+    emissions = _run_policy_hooks(execution_policy, io, policy_ctx)
 
     if is_streaming:
         return await _handle_execution_streaming(

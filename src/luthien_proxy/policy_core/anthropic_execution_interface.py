@@ -1,9 +1,13 @@
-"""Execution-oriented policy interface for Anthropic request handling.
+"""Hook-based policy interface for Anthropic request handling.
 
-This interface lets policies own request execution end-to-end:
-- they may call backend LLMs zero or more times
-- they may emit client-facing streaming events independently of backend chunking
-- they may emit a final non-streaming response without any backend call
+Policies implement four lifecycle hooks that the executor calls in sequence:
+- on_anthropic_request: transform request before sending to backend
+- on_anthropic_response: transform non-streaming response
+- on_anthropic_stream_event: transform/filter individual stream events
+- on_anthropic_stream_complete: emit additional events after stream ends
+
+The executor owns the backend call and stream iteration — policies only
+see hooks, never the IO layer.
 """
 
 from __future__ import annotations
@@ -24,12 +28,10 @@ type AnthropicPolicyEmission = AnthropicResponse | MessageStreamEvent
 
 
 class AnthropicPolicyIOProtocol(Protocol):
-    """Request-scoped I/O surface for Anthropic execution policies.
+    """Request-scoped I/O surface used by the executor (not by policies).
 
-    This is the stateful counterpart to a stateless policy: one instance is
-    created per request and holds the mutable request payload, accumulated
-    backend response, and methods for calling the backend (``complete()``,
-    ``stream()``). Session metadata is available via PolicyContext.
+    One instance is created per request; holds the mutable request payload,
+    accumulated backend response, and methods for calling the backend.
     """
 
     @property
@@ -57,18 +59,41 @@ class AnthropicPolicyIOProtocol(Protocol):
 
 @runtime_checkable
 class AnthropicExecutionInterface(Protocol):
-    """Execution-oriented Anthropic policy contract.
+    """Hook-based Anthropic policy contract.
 
-    Policies implementing this interface drive execution themselves and emit
-    outbound artifacts (stream events or a final response) for the client.
+    Policies implement these hooks; the executor calls them around backend
+    I/O. Policies never see the IO layer directly.
     """
 
-    def run_anthropic(
+    async def on_anthropic_request(
         self,
-        io: AnthropicPolicyIOProtocol,
+        request: "AnthropicRequest",
         context: "PolicyContext",
-    ) -> AsyncIterator[AnthropicPolicyEmission]:
-        """Run policy execution and emit outbound artifacts."""
+    ) -> "AnthropicRequest":
+        """Transform request before sending to backend. Default: passthrough."""
+        ...
+
+    async def on_anthropic_response(
+        self,
+        response: "AnthropicResponse",
+        context: "PolicyContext",
+    ) -> "AnthropicResponse":
+        """Transform non-streaming response. Default: passthrough."""
+        ...
+
+    async def on_anthropic_stream_event(
+        self,
+        event: MessageStreamEvent,
+        context: "PolicyContext",
+    ) -> list[MessageStreamEvent]:
+        """Transform/filter a single stream event. Default: passthrough."""
+        ...
+
+    async def on_anthropic_stream_complete(
+        self,
+        context: "PolicyContext",
+    ) -> list[AnthropicPolicyEmission]:
+        """Emit additional events after upstream stream ends. Default: none."""
         ...
 
 

@@ -6,7 +6,8 @@ circular dependencies.
 
 Policy Interfaces:
 - BasePolicy: Base class providing common functionality
-- AnthropicExecutionInterface: execution-oriented Anthropic policy contract
+- AnthropicExecutionInterface: hook-based Anthropic policy contract
+- AnthropicHookPolicy: mixin with passthrough defaults for all hooks
 """
 
 from luthien_proxy.policy_core.anthropic_execution_interface import (

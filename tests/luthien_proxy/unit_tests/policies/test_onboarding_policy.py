@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
 from anthropic.types import (
     InputJSONDelta,
@@ -21,7 +19,6 @@ from luthien_proxy.policies.onboarding_policy import (
     is_first_turn,
 )
 from luthien_proxy.policy_core import (
-    AnthropicExecutionInterface,
     BasePolicy,
     TextModifierPolicy,
 )
@@ -95,9 +92,6 @@ class TestProtocol:
 
     def test_inherits_base_policy(self, policy):
         assert isinstance(policy, BasePolicy)
-
-    def test_implements_anthropic_interface(self, policy):
-        assert isinstance(policy, AnthropicExecutionInterface)
 
 
 # =============================================================================
@@ -259,40 +253,6 @@ class TestStreamingHooks:
 
         events = await policy.on_anthropic_stream_complete(context)
         assert events == []
-
-
-# =============================================================================
-# run_anthropic (direct execution path)
-# =============================================================================
-
-
-class TestRunAnthropic:
-    @pytest.mark.asyncio
-    async def test_passthrough_on_subsequent_turn(self, policy, context):
-        """On subsequent turns, run_anthropic passes through without modification."""
-        io = MagicMock()
-        io.request = {
-            "stream": False,
-            "messages": [
-                {"role": "user", "content": "hi"},
-                {"role": "assistant", "content": "hello"},
-                {"role": "user", "content": "more"},
-            ],
-        }
-        io.complete = AsyncMock(
-            return_value={
-                "content": [{"type": "text", "text": "response"}],
-                "model": "test",
-                "role": "assistant",
-            }
-        )
-
-        results = []
-        async for emission in policy.run_anthropic(io, context):
-            results.append(emission)
-
-        assert len(results) == 1
-        assert results[0]["content"][0]["text"] == "response"
 
 
 # =============================================================================

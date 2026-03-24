@@ -4,8 +4,8 @@ Subclasses override one or two methods:
 - modify_text(text) -> text: transform text content in-place
 - extra_text() -> str | None: append additional text to the last text block
 
-The base class handles all format-specific plumbing across 2 code paths:
-Anthropic non-streaming and Anthropic streaming.
+The base class handles all format-specific plumbing for both streaming
+and non-streaming Anthropic responses via lifecycle hooks.
 
 When extra_text is used and the response contains tool_use blocks, the text
 is appended to the last text block before any tool_use — preserving the
@@ -18,7 +18,6 @@ extra_text suffix is dropped and an error is logged.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -33,9 +32,7 @@ from anthropic.types import (
 )
 
 from luthien_proxy.policy_core import (
-    AnthropicExecutionInterface,
     AnthropicPolicyEmission,
-    AnthropicPolicyIOProtocol,
     BasePolicy,
 )
 
@@ -55,7 +52,7 @@ class _StreamState:
     extra_text_emitted: bool = field(default=False)
 
 
-class TextModifierPolicy(BasePolicy, AnthropicExecutionInterface):
+class TextModifierPolicy(BasePolicy):
     """Base class for policies that modify text content in Anthropic responses.
 
     Override modify_text() to transform text in-place across streaming and non-streaming.
@@ -74,82 +71,6 @@ class TextModifierPolicy(BasePolicy, AnthropicExecutionInterface):
     def extra_text(self) -> str | None:
         """Return text to append to the last text block, or None. Default: None."""
         return None
-
-    # -- Anthropic execution ---------------------------------------------------
-
-    def run_anthropic(
-        self, io: AnthropicPolicyIOProtocol, context: PolicyContext
-    ) -> AsyncIterator[AnthropicPolicyEmission]:
-        """Apply modify_text and extra_text across Anthropic streaming and non-streaming."""
-
-        async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
-            request = io.request
-
-            if request.get("stream", False):
-                suffix = self.extra_text()
-                last_text_index = -1
-                held_stop: MessageStreamEvent | None = None
-
-                async for event in io.stream(request):
-                    if isinstance(event, RawContentBlockStartEvent):
-                        if isinstance(event.content_block, TextBlock):
-                            last_text_index = event.index
-
-                    # Only hold back text block stops when we have a suffix to inject
-                    if (
-                        suffix is not None
-                        and isinstance(event, RawContentBlockStopEvent)
-                        and event.index == last_text_index
-                    ):
-                        if held_stop is not None:
-                            yield held_stop
-                        held_stop = event
-                        continue
-
-                    if (
-                        isinstance(event, RawContentBlockStartEvent)
-                        and isinstance(event.content_block, ToolUseBlock)
-                        and suffix is not None
-                        and held_stop is not None
-                    ):
-                        yield RawContentBlockDeltaEvent(
-                            type="content_block_delta",
-                            index=last_text_index,
-                            delta=TextDelta(type="text_delta", text=suffix),
-                        )
-                        yield held_stop
-                        held_stop = None
-                        suffix = None
-
-                    if isinstance(event, RawContentBlockDeltaEvent) and isinstance(event.delta, TextDelta):
-                        new_delta = event.delta.model_copy(update={"text": self.modify_text(event.delta.text)})
-                        yield event.model_copy(update={"delta": new_delta})
-                    else:
-                        yield event
-
-                if suffix is not None and held_stop is not None:
-                    yield RawContentBlockDeltaEvent(
-                        type="content_block_delta",
-                        index=last_text_index,
-                        delta=TextDelta(type="text_delta", text=suffix),
-                    )
-                    yield held_stop
-                elif suffix is not None and held_stop is None:
-                    logger.error(
-                        "%s.extra_text() returned content but response had no text blocks — "
-                        "suffix dropped. Response contained only non-text content blocks.",
-                        type(self).__name__,
-                    )
-                elif held_stop is not None:
-                    yield held_stop
-                return
-
-            # Non-streaming
-            response = await io.complete(request)
-            self._modify_anthropic_response(response)
-            yield response
-
-        return _run()
 
     def _modify_anthropic_response(self, response: AnthropicResponse) -> None:
         """Apply modify_text to text blocks and append extra_text to the last one."""
@@ -174,7 +95,7 @@ class TextModifierPolicy(BasePolicy, AnthropicExecutionInterface):
                 [b.get("type") if isinstance(b, dict) else type(b).__name__ for b in content],
             )
 
-    # -- Anthropic hook interface (for composition via MultiSerialPolicy) -------
+    # -- Anthropic lifecycle hooks ------------------------------------------------
 
     async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
         """Pass through request unchanged."""

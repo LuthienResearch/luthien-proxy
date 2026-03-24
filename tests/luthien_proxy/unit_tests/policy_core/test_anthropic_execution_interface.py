@@ -1,65 +1,35 @@
-# ABOUTME: Unit tests for AnthropicExecutionInterface protocol
-
 """Unit tests for AnthropicExecutionInterface protocol."""
 
-from collections.abc import AsyncIterator
 from typing import cast
 
 import pytest
 
+from anthropic.lib.streaming import MessageStreamEvent
+from anthropic.types import RawContentBlockStartEvent
+
 from conftest import DEFAULT_TEST_MODEL
-from luthien_proxy.llm.types.anthropic import AnthropicResponse
+from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
-    AnthropicPolicyIOProtocol,
+    AnthropicPolicyEmission,
 )
-
-
-class _StubIO(AnthropicPolicyIOProtocol):
-    def __init__(self, request: dict):
-        self._request = request
-        self._first_backend_response: AnthropicResponse | None = None
-
-    @property
-    def request(self) -> dict:
-        return self._request
-
-    def set_request(self, request: dict) -> None:
-        self._request = request
-
-    @property
-    def first_backend_response(self) -> AnthropicResponse | None:
-        return self._first_backend_response
-
-    async def complete(self, request: dict | None = None) -> AnthropicResponse:
-        response: AnthropicResponse = {
-            "id": "msg_test",
-            "type": "message",
-            "role": "assistant",
-            "content": [{"type": "text", "text": "hello"}],
-            "model": DEFAULT_TEST_MODEL,
-            "stop_reason": "end_turn",
-            "usage": {"input_tokens": 1, "output_tokens": 1},
-        }
-        self._first_backend_response = response
-        return response
-
-    def stream(self, request: dict | None = None) -> AsyncIterator:
-        async def _stream() -> AsyncIterator:
-            if False:
-                yield None
-
-        return _stream()
+from luthien_proxy.policy_core.policy_context import PolicyContext
 
 
 class TestAnthropicExecutionInterface:
     def test_runtime_checkable_protocol_positive(self):
         class CompletePolicy:
-            def run_anthropic(self, io, context):
-                async def _run():
-                    yield await io.complete(io.request)
+            async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
+                return request
 
-                return _run()
+            async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
+                return response
+
+            async def on_anthropic_stream_event(self, event: MessageStreamEvent, context: PolicyContext) -> list[MessageStreamEvent]:
+                return [event]
+
+            async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
+                return []
 
         assert isinstance(CompletePolicy(), AnthropicExecutionInterface)
 
@@ -69,19 +39,103 @@ class TestAnthropicExecutionInterface:
 
         assert not isinstance(IncompletePolicy(), AnthropicExecutionInterface)
 
-    @pytest.mark.asyncio
-    async def test_run_anthropic_emits_response(self):
-        class TestPolicy:
-            def run_anthropic(self, io, context):
-                async def _run():
-                    yield await io.complete(io.request)
+    def test_runtime_checkable_protocol_partial_negative(self):
+        class PartialPolicy:
+            async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
+                return request
 
-                return _run()
+        assert not isinstance(PartialPolicy(), AnthropicExecutionInterface)
+
+    @pytest.mark.asyncio
+    async def test_on_anthropic_request_hook(self):
+        class TestPolicy:
+            async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
+                request["modified"] = True
+                return request
+
+            async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
+                return response
+
+            async def on_anthropic_stream_event(self, event: MessageStreamEvent, context: PolicyContext) -> list[MessageStreamEvent]:
+                return [event]
+
+            async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
+                return []
 
         policy = cast(AnthropicExecutionInterface, TestPolicy())
-        io = _StubIO(request={"model": DEFAULT_TEST_MODEL, "messages": [], "max_tokens": 1})
+        request: AnthropicRequest = {"model": DEFAULT_TEST_MODEL, "messages": [], "max_tokens": 1}
 
-        emissions = [emission async for emission in policy.run_anthropic(io, context={})]
-        assert len(emissions) == 1
-        assert isinstance(emissions[0], dict)
-        assert emissions[0]["type"] == "message"
+        result = await policy.on_anthropic_request(request, PolicyContext.for_testing())
+        assert result.get("modified") is True
+
+    @pytest.mark.asyncio
+    async def test_on_anthropic_response_hook(self):
+        class TestPolicy:
+            async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
+                return request
+
+            async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
+                return response
+
+            async def on_anthropic_stream_event(self, event: MessageStreamEvent, context: PolicyContext) -> list[MessageStreamEvent]:
+                return [event]
+
+            async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
+                return []
+
+        policy = cast(AnthropicExecutionInterface, TestPolicy())
+        response: AnthropicResponse = {
+            "id": "msg_test",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "hello"}],
+            "model": DEFAULT_TEST_MODEL,
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        }
+
+        result = await policy.on_anthropic_response(response, PolicyContext.for_testing())
+        assert result["type"] == "message"
+
+    @pytest.mark.asyncio
+    async def test_on_anthropic_stream_event_hook(self):
+        class TestPolicy:
+            async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
+                return request
+
+            async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
+                return response
+
+            async def on_anthropic_stream_event(self, event: MessageStreamEvent, context: PolicyContext) -> list[MessageStreamEvent]:
+                return [event, event]
+
+            async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
+                return []
+
+        policy = cast(AnthropicExecutionInterface, TestPolicy())
+        event = RawContentBlockStartEvent(
+            type="content_block_start", index=0, content_block={"type": "text", "text": ""}
+        )
+
+        result = await policy.on_anthropic_stream_event(event, PolicyContext.for_testing())
+        assert len(result) == 2
+        assert result[0].type == "content_block_start"
+
+    @pytest.mark.asyncio
+    async def test_on_anthropic_stream_complete_hook(self):
+        class TestPolicy:
+            async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
+                return request
+
+            async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
+                return response
+
+            async def on_anthropic_stream_event(self, event: MessageStreamEvent, context: PolicyContext) -> list[MessageStreamEvent]:
+                return [event]
+
+            async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
+                return []
+
+        policy = cast(AnthropicExecutionInterface, TestPolicy())
+        result = await policy.on_anthropic_stream_complete(PolicyContext.for_testing())
+        assert result == []
