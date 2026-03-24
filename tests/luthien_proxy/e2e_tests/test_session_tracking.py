@@ -19,7 +19,7 @@ import re
 
 import httpx
 import pytest
-from tests.conftest import DEFAULT_TEST_MODEL
+from tests.constants import DEFAULT_TEST_MODEL
 
 # Import shared config and helpers from conftest
 from tests.luthien_proxy.e2e_tests.conftest import (  # noqa: F401

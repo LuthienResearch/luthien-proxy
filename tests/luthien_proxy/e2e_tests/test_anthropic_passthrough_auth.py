@@ -29,7 +29,7 @@ import os
 
 import httpx
 import pytest
-from tests.conftest import DEFAULT_TEST_MODEL
+from tests.constants import DEFAULT_TEST_MODEL
 from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL
 from tests.luthien_proxy.e2e_tests.test_claude_code import (
     ClaudeCodeResult,

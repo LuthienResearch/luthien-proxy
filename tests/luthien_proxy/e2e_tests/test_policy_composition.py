@@ -12,7 +12,7 @@ import os
 
 import httpx
 import pytest
-from tests.conftest import DEFAULT_TEST_MODEL
+from tests.constants import DEFAULT_TEST_MODEL
 
 from luthien_proxy.policies.dogfood_safety_policy import DogfoodSafetyPolicy
 from luthien_proxy.policies.multi_serial_policy import MultiSerialPolicy
