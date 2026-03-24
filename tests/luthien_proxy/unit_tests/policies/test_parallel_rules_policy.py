@@ -13,12 +13,12 @@ from luthien_proxy.llm.types.anthropic import AnthropicResponse
 from luthien_proxy.policies.parallel_rules_policy import (
     ParallelRulesConfig,
     ParallelRulesPolicy,
+    Rule,
     _RuleResult,
 )
 from luthien_proxy.policies.simple_policy import SimplePolicy
 from luthien_proxy.policy_core import AnthropicExecutionInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
-from luthien_proxy.policies.parallel_rules_policy import Rule
 
 
 def _make_litellm_response(content: str) -> ModelResponse:
