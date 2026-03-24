@@ -113,16 +113,19 @@ class ClaudeMdRulesPolicy(BasePolicy, AnthropicExecutionInterface):
     """
 
     def __init__(self, config: ClaudeMdRulesConfig | dict[str, Any] | None = None) -> None:
+        """Initialize with extraction config and inner ParallelRulesPolicy."""
         self.config = self._init_config(config, ClaudeMdRulesConfig)
         self._parallel_policy = ParallelRulesPolicy(self.config.parallel_rules_config)
 
     @property
     def short_policy_name(self) -> str:
+        """Human-readable policy name."""
         return "ClaudeMdRules"
 
     def run_anthropic(
         self, io: AnthropicPolicyIOProtocol, context: "PolicyContext"
     ) -> AsyncIterator[AnthropicPolicyEmission]:
+        """Ensure rules exist, then delegate to ParallelRulesPolicy."""
         async def _run() -> AsyncIterator[AnthropicPolicyEmission]:
             rules = await self._ensure_rules(io, context)
 
@@ -134,9 +137,7 @@ class ClaudeMdRulesPolicy(BasePolicy, AnthropicExecutionInterface):
 
         return _run()
 
-    async def _ensure_rules(
-        self, io: AnthropicPolicyIOProtocol, context: "PolicyContext"
-    ) -> list[SessionRule]:
+    async def _ensure_rules(self, io: AnthropicPolicyIOProtocol, context: "PolicyContext") -> list[SessionRule]:
         """Load existing rules or extract new ones from CLAUDE.md content."""
         session_id = context.session_id
         db_pool = context.db_pool

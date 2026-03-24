@@ -52,12 +52,14 @@ class TestSaveAndLoadRules:
                         # PG style
                         session_id, rule_name, rule_instruction = args
                         rule_id = str(uuid.uuid4())
-                    self._storage.append({
-                        "id": rule_id,
-                        "session_id": session_id,
-                        "rule_name": rule_name,
-                        "rule_instruction": rule_instruction,
-                    })
+                    self._storage.append(
+                        {
+                            "id": rule_id,
+                            "session_id": session_id,
+                            "rule_name": rule_name,
+                            "rule_instruction": rule_instruction,
+                        }
+                    )
 
             async def __aenter__(self):
                 return self
@@ -68,6 +70,7 @@ class TestSaveAndLoadRules:
         class MockTransaction:
             async def __aenter__(self):
                 pass
+
             async def __aexit__(self, *args):
                 pass
 

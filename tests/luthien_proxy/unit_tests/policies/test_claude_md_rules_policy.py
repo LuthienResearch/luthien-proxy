@@ -11,7 +11,6 @@ from litellm.types.utils import Choices, Message, ModelResponse
 from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.types.anthropic import AnthropicResponse
 from luthien_proxy.policies.claude_md_rules_policy import (
-    ClaudeMdRulesConfig,
     ClaudeMdRulesPolicy,
 )
 from luthien_proxy.policy_core import AnthropicExecutionInterface, BasePolicy
@@ -65,6 +64,7 @@ class _StubIO:
         async def _gen():
             return
             yield
+
         return _gen()
 
 

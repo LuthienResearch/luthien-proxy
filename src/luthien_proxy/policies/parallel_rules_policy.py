@@ -90,14 +90,15 @@ class ParallelRulesPolicy(SimplePolicy):
     """
 
     def __init__(self, config: ParallelRulesConfig | dict[str, Any] | None = None) -> None:
+        """Initialize with config and convert static rules to immutable tuple."""
         self.config = self._init_config(config, ParallelRulesConfig)
-        # Convert static config rules to SessionRule objects (immutable tuple)
         self._static_rules: tuple[SessionRule, ...] = tuple(
             SessionRule(name=r["name"], instruction=r["instruction"]) for r in self.config.rules
         )
 
     @property
     def short_policy_name(self) -> str:
+        """Human-readable policy name."""
         return "ParallelRules"
 
     def _get_rules(self, context: "PolicyContext") -> list[SessionRule]:

@@ -76,9 +76,7 @@ class TestParallelRulesConfig:
 
     def test_static_rules_parsed(self):
         """Static rules from config are converted to SessionRule objects."""
-        policy = ParallelRulesPolicy(
-            config={"rules": [{"name": "r1", "instruction": "Do thing 1"}]}
-        )
+        policy = ParallelRulesPolicy(config={"rules": [{"name": "r1", "instruction": "Do thing 1"}]})
         assert len(policy._static_rules) == 1
         assert policy._static_rules[0].name == "r1"
         assert policy._static_rules[0].instruction == "Do thing 1"
@@ -115,9 +113,7 @@ class TestRuleApplication:
         """When one rule changes the text, its version is used."""
         mock_acompletion.return_value = _make_litellm_response("HELLO WORLD")
 
-        policy = ParallelRulesPolicy(
-            config={"rules": [{"name": "uppercase", "instruction": "Convert to uppercase"}]}
-        )
+        policy = ParallelRulesPolicy(config={"rules": [{"name": "uppercase", "instruction": "Convert to uppercase"}]})
         ctx = PolicyContext.for_testing()
         result = await policy.simple_on_response_content("Hello world", ctx)
         assert result == "HELLO WORLD"
@@ -129,9 +125,7 @@ class TestRuleApplication:
         """If rule returns text unchanged, passthrough."""
         mock_acompletion.return_value = _make_litellm_response("Hello world")
 
-        policy = ParallelRulesPolicy(
-            config={"rules": [{"name": "noop", "instruction": "Do nothing"}]}
-        )
+        policy = ParallelRulesPolicy(config={"rules": [{"name": "noop", "instruction": "Do nothing"}]})
         ctx = PolicyContext.for_testing()
         result = await policy.simple_on_response_content("Hello world", ctx)
         assert result == "Hello world"
@@ -225,9 +219,7 @@ class TestRuleApplication:
         """If a rule's LLM call fails, treat as no-change and continue."""
         mock_acompletion.side_effect = Exception("LLM error")
 
-        policy = ParallelRulesPolicy(
-            config={"rules": [{"name": "failing", "instruction": "Do thing"}]}
-        )
+        policy = ParallelRulesPolicy(config={"rules": [{"name": "failing", "instruction": "Do thing"}]})
         ctx = PolicyContext.for_testing()
         result = await policy.simple_on_response_content("Hello world", ctx)
         assert result == "Hello world"
@@ -269,7 +261,7 @@ class TestRuleApplication:
                 "rules": [
                     {"name": "r1", "instruction": "Rule 1"},
                     {"name": "r2", "instruction": "Rule 2"},
-                ]
+                ],
             }
         )
         ctx = PolicyContext.for_testing()
@@ -321,13 +313,9 @@ class TestDynamicRules:
         """Dynamic rules set via set_rules_for_request take precedence."""
         mock_acompletion.return_value = _make_litellm_response("dynamic result")
 
-        policy = ParallelRulesPolicy(
-            config={"rules": [{"name": "static", "instruction": "Static rule"}]}
-        )
+        policy = ParallelRulesPolicy(config={"rules": [{"name": "static", "instruction": "Static rule"}]})
         ctx = PolicyContext.for_testing()
-        policy.set_rules_for_request(
-            ctx, [SessionRule(name="dynamic", instruction="Dynamic rule")]
-        )
+        policy.set_rules_for_request(ctx, [SessionRule(name="dynamic", instruction="Dynamic rule")])
         result = await policy.simple_on_response_content("Hello", ctx)
 
         # Should use the dynamic rule
@@ -341,9 +329,7 @@ class TestDynamicRules:
         """If dynamic rules are empty list, fall back to static."""
         mock_acompletion.return_value = _make_litellm_response("static result")
 
-        policy = ParallelRulesPolicy(
-            config={"rules": [{"name": "static", "instruction": "Static rule"}]}
-        )
+        policy = ParallelRulesPolicy(config={"rules": [{"name": "static", "instruction": "Static rule"}]})
         ctx = PolicyContext.for_testing()
         policy.set_rules_for_request(ctx, [])
         result = await policy.simple_on_response_content("Hello", ctx)
@@ -409,9 +395,7 @@ class TestNonStreamingAnthropicPath:
         """Full run_anthropic path applies rules to response content."""
         mock_acompletion.return_value = _make_litellm_response("TRANSFORMED")
 
-        policy = ParallelRulesPolicy(
-            config={"rules": [{"name": "transform", "instruction": "Transform it"}]}
-        )
+        policy = ParallelRulesPolicy(config={"rules": [{"name": "transform", "instruction": "Transform it"}]})
         ctx = PolicyContext.for_testing()
 
         # Create a mock IO object
