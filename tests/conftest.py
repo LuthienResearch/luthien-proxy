@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+# Duplicated from tests.constants — conftest is loaded before pytest's
+# import hooks activate, so it can't import from tests.constants.
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
