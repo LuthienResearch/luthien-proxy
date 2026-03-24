@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from anthropic import APIConnectionError as AnthropicConnectionError
 from anthropic import APIStatusError as AnthropicStatusError
+from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
@@ -30,6 +31,7 @@ from luthien_proxy.pipeline.anthropic_processor import (
     _handle_anthropic_error,
     _process_request,
     _reconstruct_response_from_stream_events,
+    _run_policy_hooks,
     process_anthropic_request,
 )
 from luthien_proxy.policies.noop_policy import NoOpPolicy
@@ -938,7 +940,9 @@ class _InvalidStreamCompletePolicy:
     async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
         return response
 
-    async def on_anthropic_stream_event(self, event, context: PolicyContext):
+    async def on_anthropic_stream_event(
+        self, event: MessageStreamEvent, context: PolicyContext
+    ) -> list[MessageStreamEvent]:
         return [event]
 
     async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
@@ -965,7 +969,9 @@ class _GenericErrorPolicy:
     async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
         return response
 
-    async def on_anthropic_stream_event(self, event, context: PolicyContext):
+    async def on_anthropic_stream_event(
+        self, event: MessageStreamEvent, context: PolicyContext
+    ) -> list[MessageStreamEvent]:
         return [event]
 
     async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
@@ -1462,3 +1468,199 @@ class TestStreamingResponseRecording:
         payload = recorded_call.args[2]
         assert payload["final_response"]["id"] == "msg_ring_ding"
         assert payload["final_response"]["content"][0]["text"] == "Ring-ding-ding!"
+
+
+class _StubIO:
+    """Minimal IO stub for testing _run_policy_hooks directly."""
+
+    def __init__(self, request: AnthropicRequest, response: AnthropicResponse | None = None, stream_events=None):
+        self._request = request
+        self._response = response
+        self._stream_events = stream_events or []
+
+    @property
+    def request(self) -> AnthropicRequest:
+        return self._request
+
+    def set_request(self, request: AnthropicRequest) -> None:
+        self._request = request
+
+    @property
+    def first_backend_response(self) -> AnthropicResponse | None:
+        return self._response
+
+    async def complete(self, request: AnthropicRequest | None = None) -> AnthropicResponse:
+        assert self._response is not None
+        return self._response
+
+    async def stream(self, request: AnthropicRequest | None = None):
+        for event in self._stream_events:
+            yield event
+
+
+class TestRunPolicyHooks:
+    """Focused tests for _run_policy_hooks execution loop."""
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_calls_request_and_response_hooks(self):
+        """Non-streaming: on_anthropic_request then on_anthropic_response."""
+        request: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 10,
+            "stream": False,
+        }
+        response: AnthropicResponse = {
+            "id": "msg_test",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "hello"}],
+            "model": DEFAULT_TEST_MODEL,
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        }
+        io = _StubIO(request=request, response=response)
+        ctx = PolicyContext.for_testing()
+
+        emissions = []
+        async for emission in _run_policy_hooks(NoOpPolicy(), io, ctx):
+            emissions.append(emission)
+
+        assert len(emissions) == 1
+        assert emissions[0]["id"] == "msg_test"
+
+    @pytest.mark.asyncio
+    async def test_streaming_calls_stream_event_and_complete_hooks(self):
+        """Streaming: on_anthropic_request, then stream events, then on_anthropic_stream_complete."""
+        request: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 10,
+            "stream": True,
+        }
+        stream_events = [
+            RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_stream",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": DEFAULT_TEST_MODEL,
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 1, "output_tokens": 0},
+                },
+            ),
+            RawMessageStopEvent(type="message_stop"),
+        ]
+        io = _StubIO(request=request, stream_events=stream_events)
+        ctx = PolicyContext.for_testing()
+
+        emissions = []
+        async for emission in _run_policy_hooks(NoOpPolicy(), io, ctx):
+            emissions.append(emission)
+
+        assert len(emissions) == 2
+        assert isinstance(emissions[0], RawMessageStartEvent)
+        assert isinstance(emissions[1], RawMessageStopEvent)
+
+    @pytest.mark.asyncio
+    async def test_request_hook_transforms_are_applied(self):
+        """Verify on_anthropic_request can modify the request before backend call."""
+
+        class _AddMaxTokensPolicy:
+            async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
+                request["max_tokens"] = 999
+                return request
+
+            async def on_anthropic_response(
+                self, response: AnthropicResponse, context: PolicyContext
+            ) -> AnthropicResponse:
+                return response
+
+            async def on_anthropic_stream_event(
+                self, event: MessageStreamEvent, context: PolicyContext
+            ) -> list[MessageStreamEvent]:
+                return [event]
+
+            async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
+                return []
+
+        request: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 10,
+            "stream": False,
+        }
+        response: AnthropicResponse = {
+            "id": "msg_test",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "ok"}],
+            "model": DEFAULT_TEST_MODEL,
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        }
+        io = _StubIO(request=request, response=response)
+        ctx = PolicyContext.for_testing()
+
+        async for _ in _run_policy_hooks(_AddMaxTokensPolicy(), io, ctx):
+            pass
+
+        assert io.request["max_tokens"] == 999
+
+    @pytest.mark.asyncio
+    async def test_stream_complete_emissions_are_appended(self):
+        """on_anthropic_stream_complete events are yielded after stream events."""
+
+        class _AppendPolicy:
+            async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
+                return request
+
+            async def on_anthropic_response(
+                self, response: AnthropicResponse, context: PolicyContext
+            ) -> AnthropicResponse:
+                return response
+
+            async def on_anthropic_stream_event(
+                self, event: MessageStreamEvent, context: PolicyContext
+            ) -> list[MessageStreamEvent]:
+                return [event]
+
+            async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
+                return [RawMessageStopEvent(type="message_stop")]
+
+        request: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 10,
+            "stream": True,
+        }
+        stream_events = [
+            RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_s",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": DEFAULT_TEST_MODEL,
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 1, "output_tokens": 0},
+                },
+            ),
+        ]
+        io = _StubIO(request=request, stream_events=stream_events)
+        ctx = PolicyContext.for_testing()
+
+        emissions = []
+        async for emission in _run_policy_hooks(_AppendPolicy(), io, ctx):
+            emissions.append(emission)
+
+        assert len(emissions) == 2
+        assert isinstance(emissions[0], RawMessageStartEvent)
+        assert isinstance(emissions[1], RawMessageStopEvent)

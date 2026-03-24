@@ -479,7 +479,7 @@ async def _process_request(
 
 async def _run_policy_hooks(
     policy: AnthropicExecutionInterface,
-    io: _AnthropicPolicyIO,
+    io: AnthropicPolicyIOProtocol,
     ctx: PolicyContext,
 ) -> AsyncIterator[AnthropicPolicyEmission]:
     """Call policy hooks around backend I/O.

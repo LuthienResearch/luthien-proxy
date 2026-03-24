@@ -55,6 +55,8 @@ class _StreamState:
 class TextModifierPolicy(BasePolicy):
     """Base class for policies that modify text content in Anthropic responses.
 
+    Satisfies AnthropicExecutionInterface structurally via the four lifecycle hooks.
+
     Override modify_text() to transform text in-place across streaming and non-streaming.
     Override extra_text() to append to the last text block in the response.
     Both are optional — the base class passes through unchanged by default.
