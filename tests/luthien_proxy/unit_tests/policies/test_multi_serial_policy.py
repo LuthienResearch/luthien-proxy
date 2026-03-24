@@ -14,7 +14,7 @@ from anthropic.types import (
     TextBlock,
     TextDelta,
 )
-from multi_policy_helpers import (
+from tests.luthien_proxy.unit_tests.policies.multi_policy_helpers import (
     AnthropicOnlyPolicy,
     OpenAIOnlyPolicy,
     allcaps_config,
