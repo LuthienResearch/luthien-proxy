@@ -166,7 +166,8 @@ class ParallelRulesPolicy(SimplePolicy):
                     {"role": "user", "content": text},
                 ]
             )
-            changed = rewritten.strip() != text.strip()
+            rewritten = rewritten.strip()
+            changed = rewritten != text.strip()
             return _RuleResult(rule=rule, rewritten=rewritten, changed=changed)
 
         except Exception:

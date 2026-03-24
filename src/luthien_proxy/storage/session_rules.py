@@ -40,15 +40,16 @@ async def save_rules(db_pool: "DatabasePool", session_id: str, rules: list[Sessi
 
     if db_pool.is_sqlite:
         async with pool.acquire() as conn:
-            for rule in rows_to_insert:
-                rule_id = str(uuid.uuid4())
-                await conn.execute(
-                    "INSERT INTO session_rules (id, session_id, rule_name, rule_instruction) VALUES (?, ?, ?, ?)",
-                    rule_id,
-                    session_id,
-                    rule.name,
-                    rule.instruction,
-                )
+            async with conn.transaction():
+                for rule in rows_to_insert:
+                    rule_id = str(uuid.uuid4())
+                    await conn.execute(
+                        "INSERT INTO session_rules (id, session_id, rule_name, rule_instruction) VALUES (?, ?, ?, ?)",
+                        rule_id,
+                        session_id,
+                        rule.name,
+                        rule.instruction,
+                    )
     else:
         async with pool.acquire() as conn:
             async with conn.transaction():
