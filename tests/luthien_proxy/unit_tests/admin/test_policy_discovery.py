@@ -361,29 +361,6 @@ class TestSubPolicyListMarker:
         assert schema["policies"].get("x-sub-policy-list") is True
         assert schema["policies"]["type"] == "array"
 
-    def test_multi_parallel_policy_has_marker(self) -> None:
-        """MultiParallelPolicy's policies param should have x-sub-policy-list marker."""
-        from luthien_proxy.policies.multi_parallel_policy import MultiParallelPolicy
-
-        schema, _ = extract_config_schema(MultiParallelPolicy)
-        assert "policies" in schema
-        assert schema["policies"].get("x-sub-policy-list") is True
-        assert schema["policies"]["type"] == "array"
-
-    def test_multi_parallel_other_params_correct(self) -> None:
-        """MultiParallelPolicy's other params should be extracted correctly."""
-        from luthien_proxy.policies.multi_parallel_policy import MultiParallelPolicy
-
-        schema, example = extract_config_schema(MultiParallelPolicy)
-
-        assert "consolidation_strategy" in schema
-        assert schema["consolidation_strategy"]["type"] == "string"
-        assert schema["consolidation_strategy"]["default"] == "first_block"
-
-        assert "designated_policy_index" in schema
-        assert schema["designated_policy_index"]["type"] == "integer"
-        assert schema["designated_policy_index"]["nullable"] is True
-
     def test_string_annotation_resolved_not_fallback(self) -> None:
         """String annotations from __future__ should resolve to proper types."""
         from luthien_proxy.policies.multi_serial_policy import MultiSerialPolicy

@@ -21,7 +21,6 @@ const HIDDEN_POLICIES = new Set([
     'NoOpPolicy',
     'SimpleNoOpPolicy',
     'PlainDashesPolicy',
-    'MultiParallelPolicy',
     'MultiSerialPolicy',
     'SimplePolicy',
     'SamplePydanticPolicy',

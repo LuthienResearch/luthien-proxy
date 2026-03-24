@@ -326,40 +326,6 @@ policy:
 
 ---
 
-### MultiParallelPolicy
-
-Runs policies in parallel — each sees the original input independently. A consolidation strategy picks the winner.
-
-```yaml
-policy:
-  class: "luthien_proxy.policies.multi_parallel_policy:MultiParallelPolicy"
-  config:
-    consolidation_strategy: "first_block"
-    policies:
-      - class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
-        config:
-          model: "claude-haiku-4-5"
-          probability_threshold: 0.6
-      - class: "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
-        config:
-          model: "claude-haiku-4-5"
-          instructions: "Block any tool call that accesses the filesystem"
-```
-
-**Consolidation strategies:**
-
-| Strategy | Behavior |
-|----------|----------|
-| `first_block` | Use the first modified result; if none modify, pass through |
-| `most_restrictive` | Among modified results, pick the shortest (most restricted) |
-| `unanimous_pass` | Pass unchanged only if ALL policies leave it unchanged |
-| `majority_pass` | Pass unchanged if a strict majority leave it unchanged |
-| `designated` | Always use the result from a specific policy (set `designated_policy_index`) |
-
-**When to use:** You want independent safety checks that don't interfere with each other. Note: streaming is only supported with the `designated` strategy.
-
----
-
 ## Activating Policies
 
 ### Via YAML config file
