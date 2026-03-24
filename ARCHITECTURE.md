@@ -57,7 +57,7 @@ ClientFormatter: converts ModelResponse -> SSE strings
 Client receives SSE events
 ```
 
-**Streaming (Anthropic path):** The policy drives execution directly via `run_anthropic()`, yielding `MessageStreamEvent`s that are formatted as SSE and sent to the client.
+**Streaming (Anthropic path):** The executor calls policy hooks around backend I/O. Policies transform requests/responses via lifecycle hooks (`on_anthropic_request`, `on_anthropic_stream_event`, etc.) and the executor formats events as SSE for the client.
 
 ## Module Map
 
@@ -201,13 +201,16 @@ Plus streaming hooks that fire as chunks arrive: `on_chunk_received`, `on_conten
 
 ### AnthropicExecutionInterface
 
-An execution-oriented contract where the policy drives the entire request lifecycle:
+A hook-based contract where policies implement lifecycle hooks and the executor drives backend I/O:
 
 ```python
-def run_anthropic(self, io: AnthropicPolicyIOProtocol, context: PolicyContext) -> AsyncIterator[AnthropicPolicyEmission]:
+async def on_anthropic_request(self, request, context) -> AnthropicRequest
+async def on_anthropic_response(self, response, context) -> AnthropicResponse
+async def on_anthropic_stream_event(self, event, context) -> list[MessageStreamEvent]
+async def on_anthropic_stream_complete(self, context) -> list[AnthropicPolicyEmission]
 ```
 
-The policy receives an `io` object with `complete()` and `stream()` methods. It can call the backend zero or more times and yields outbound events for the client. This design supports multi-turn patterns (e.g., an overseer that calls the backend, inspects tool use, then decides whether to proceed).
+The executor calls `on_anthropic_request` before the backend call, then either `on_anthropic_response` (non-streaming) or `on_anthropic_stream_event` + `on_anthropic_stream_complete` (streaming). Policies never see the IO layer directly.
 
 ### PolicyContext
 

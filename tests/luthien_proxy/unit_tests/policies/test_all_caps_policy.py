@@ -89,7 +89,7 @@ class TestModifyText:
 
 
 class TestAllCapsPolicyAnthropicResponse:
-    """Tests for Anthropic non-streaming response transformation via run_anthropic."""
+    """Tests for Anthropic non-streaming response transformation."""
 
     @pytest.mark.asyncio
     async def test_transforms_text_to_uppercase(self):

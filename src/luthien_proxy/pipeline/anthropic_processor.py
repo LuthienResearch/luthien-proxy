@@ -484,8 +484,9 @@ async def _run_policy_hooks(
 ) -> AsyncIterator[AnthropicPolicyEmission]:
     """Call policy hooks around backend I/O.
 
-    This is the single execution loop that was previously duplicated across
-    AnthropicHookPolicy.run_anthropic, TextModifierPolicy.run_anthropic, etc.
+    The executor owns the stream-vs-complete branching and calls hooks at each
+    lifecycle point. This replaces the per-policy execution loops that were
+    previously duplicated across multiple policy classes.
     """
     request = await policy.on_anthropic_request(io.request, ctx)
     io.set_request(request)
