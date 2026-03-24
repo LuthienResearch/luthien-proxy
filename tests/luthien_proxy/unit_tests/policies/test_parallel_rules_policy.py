@@ -108,7 +108,7 @@ class TestRuleApplication:
         assert result == "Hello world"
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.policies.parallel_rules_policy.acompletion")
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_single_rule_applies(self, mock_acompletion):
         """When one rule changes the text, its version is used."""
         mock_acompletion.return_value = _make_litellm_response("HELLO WORLD")
@@ -120,7 +120,7 @@ class TestRuleApplication:
         mock_acompletion.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.policies.parallel_rules_policy.acompletion")
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_single_rule_no_change(self, mock_acompletion):
         """If rule returns text unchanged, passthrough."""
         mock_acompletion.return_value = _make_litellm_response("Hello world")
@@ -131,7 +131,7 @@ class TestRuleApplication:
         assert result == "Hello world"
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.policies.parallel_rules_policy.acompletion")
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_multiple_rules_no_changes(self, mock_acompletion):
         """When multiple rules don't change text, passthrough."""
         mock_acompletion.return_value = _make_litellm_response("Hello world")
@@ -150,7 +150,7 @@ class TestRuleApplication:
         assert mock_acompletion.call_count == 2
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.policies.parallel_rules_policy.acompletion")
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_multiple_rules_one_change_uses_that_version(self, mock_acompletion):
         """When 1 out of N rules changes text, use that version."""
 
@@ -177,7 +177,7 @@ class TestRuleApplication:
         assert result == "HELLO WORLD"
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.policies.parallel_rules_policy.acompletion")
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_multiple_rules_multiple_changes_triggers_refinement(self, mock_acompletion):
         """When 2+ rules change content, a refinement call merges them."""
         call_count = 0
@@ -214,7 +214,7 @@ class TestRuleApplication:
         assert result == "HELLO WORLD (concise)"
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.policies.parallel_rules_policy.acompletion")
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_rule_failure_treated_as_no_change(self, mock_acompletion):
         """If a rule's LLM call fails, treat as no-change and continue."""
         mock_acompletion.side_effect = Exception("LLM error")
@@ -225,7 +225,7 @@ class TestRuleApplication:
         assert result == "Hello world"
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.policies.parallel_rules_policy.acompletion")
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_partial_rule_failure_in_multiple_rules(self, mock_acompletion):
         """When one rule fails and another succeeds with change, use the success."""
 
@@ -250,7 +250,7 @@ class TestRuleApplication:
         assert result == "TRANSFORMED"
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.policies.parallel_rules_policy.acompletion")
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_refinement_respects_config_model(self, mock_acompletion):
         """Refinement call uses configured model."""
         mock_acompletion.return_value = _make_litellm_response("refined")
@@ -272,7 +272,7 @@ class TestRuleApplication:
             assert call.kwargs["model"] == "claude-opus"
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.policies.parallel_rules_policy.acompletion")
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_refinement_includes_rule_names_and_instructions(self, mock_acompletion):
         """Refinement call includes rule names and instructions."""
         mock_acompletion.return_value = _make_litellm_response("refined")
@@ -308,7 +308,7 @@ class TestDynamicRules:
     """Tests for dynamic rules via request state."""
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.policies.parallel_rules_policy.acompletion")
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_dynamic_rules_override_static(self, mock_acompletion):
         """Dynamic rules set via set_rules_for_request take precedence."""
         mock_acompletion.return_value = _make_litellm_response("dynamic result")
@@ -324,7 +324,7 @@ class TestDynamicRules:
         assert mock_acompletion.call_count == 1
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.policies.parallel_rules_policy.acompletion")
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_empty_dynamic_rules_fallback_to_static(self, mock_acompletion):
         """If dynamic rules are empty list, fall back to static."""
         mock_acompletion.return_value = _make_litellm_response("static result")
@@ -339,7 +339,7 @@ class TestDynamicRules:
         assert mock_acompletion.call_count == 1
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.policies.parallel_rules_policy.acompletion")
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_multiple_dynamic_rules(self, mock_acompletion):
         """Multiple dynamic rules are applied in parallel."""
 
@@ -390,7 +390,7 @@ class TestNonStreamingAnthropicPath:
     """Tests for the full non-streaming Anthropic execution path."""
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.policies.parallel_rules_policy.acompletion")
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_run_anthropic_applies_rules(self, mock_acompletion):
         """Full run_anthropic path applies rules to response content."""
         mock_acompletion.return_value = _make_litellm_response("TRANSFORMED")
@@ -483,7 +483,7 @@ class TestConfigWithApiCredentials:
         assert config.api_key == "sk-test"
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.policies.parallel_rules_policy.acompletion")
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_apply_rule_uses_api_credentials(self, mock_acompletion):
         """_apply_rule passes API credentials to acompletion."""
         mock_acompletion.return_value = _make_litellm_response("result")
@@ -502,3 +502,67 @@ class TestConfigWithApiCredentials:
         call_kwargs = mock_acompletion.call_args.kwargs
         assert call_kwargs.get("api_base") == "https://api.custom.com"
         assert call_kwargs.get("api_key") == "sk-test"
+
+
+class TestRefinementFailureFallback:
+    """Test that refinement failure falls back to first changed result."""
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
+    async def test_refine_failure_uses_first_result(self, mock_acompletion):
+        call_count = 0
+
+        async def side_effect(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            messages = kwargs.get("messages", [])
+            system_content = messages[0]["content"] if messages else ""
+
+            if "text editor merging" in system_content:
+                raise RuntimeError("LLM refinement failed")
+            elif call_count == 1:
+                return _make_litellm_response("VERSION A")
+            else:
+                return _make_litellm_response("VERSION B")
+
+        mock_acompletion.side_effect = side_effect
+
+        policy = ParallelRulesPolicy(
+            config={
+                "rules": [
+                    {"name": "rule-a", "instruction": "Apply A"},
+                    {"name": "rule-b", "instruction": "Apply B"},
+                ]
+            }
+        )
+        ctx = PolicyContext.for_testing()
+        result = await policy.simple_on_response_content("original", ctx)
+
+        # Should fall back to first changed result when refinement fails
+        assert result == "VERSION A"
+
+
+class TestMaxRules:
+    """Test that max_rules config caps the number of applied rules."""
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
+    async def test_max_rules_truncates(self, mock_acompletion):
+        # Return unchanged text so no refinement call is triggered
+        mock_acompletion.return_value = _make_litellm_response("text")
+
+        policy = ParallelRulesPolicy(
+            config={
+                "max_rules": 2,
+                "rules": [
+                    {"name": "r1", "instruction": "Rule 1"},
+                    {"name": "r2", "instruction": "Rule 2"},
+                    {"name": "r3", "instruction": "Rule 3"},
+                ],
+            }
+        )
+        ctx = PolicyContext.for_testing()
+        await policy.simple_on_response_content("text", ctx)
+
+        # Only 2 rule calls (max_rules=2), not 3
+        assert mock_acompletion.call_count == 2

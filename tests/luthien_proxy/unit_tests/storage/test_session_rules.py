@@ -121,10 +121,14 @@ class TestSaveAndLoadRules:
         assert loaded[1].name == "no-jargon"
 
     @pytest.mark.asyncio
-    async def test_save_empty_rules(self, mock_db_pool):
-        from luthien_proxy.storage.session_rules import load_rules, save_rules
+    async def test_save_empty_rules_still_marks_extracted(self, mock_db_pool):
+        """Saving empty rules inserts a sentinel so has_rules returns True."""
+        from luthien_proxy.storage.session_rules import has_rules, load_rules, save_rules
 
         await save_rules(mock_db_pool, "session-123", [])
+        # has_rules must return True (sentinel row exists)
+        assert await has_rules(mock_db_pool, "session-123") is True
+        # load_rules must filter out the sentinel and return empty
         loaded = await load_rules(mock_db_pool, "session-123")
         assert loaded == []
 

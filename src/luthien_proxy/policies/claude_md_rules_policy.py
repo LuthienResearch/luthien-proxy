@@ -27,11 +27,11 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
-from litellm import acompletion
-from litellm.types.utils import Choices, Message, ModelResponse
 from pydantic import BaseModel, Field
+
+from luthien_proxy.policies.rules_llm_utils import call_llm
 
 from luthien_proxy.policies.parallel_rules_policy import ParallelRulesPolicy
 from luthien_proxy.policy_core import BasePolicy
@@ -214,28 +214,17 @@ class ClaudeMdRulesPolicy(BasePolicy, AnthropicExecutionInterface):
     async def _extract_rules(self, claude_md_content: str) -> list[SessionRule]:
         """Call LLM to extract objective rules from CLAUDE.md content."""
         try:
-            kwargs: dict[str, Any] = {
-                "model": self.config.model,
-                "temperature": self.config.temperature,
-                "max_tokens": self.config.max_tokens,
-                "messages": [
+            content = await call_llm(
+                [
                     {"role": "system", "content": RULE_EXTRACTION_PROMPT},
                     {"role": "user", "content": f"Extract rules from this configuration:\n\n{claude_md_content}"},
                 ],
-            }
-            if self.config.api_base:
-                kwargs["api_base"] = self.config.api_base
-            if self.config.api_key:
-                kwargs["api_key"] = self.config.api_key
-
-            response = await acompletion(**kwargs)
-            response = cast(ModelResponse, response)
-            first_choice: Choices = response.choices[0]  # type: ignore[assignment]
-            message: Message = first_choice.message  # type: ignore[assignment]
-            content = message.content or ""
-            if not isinstance(content, str):
-                content = str(content)
-
+                model=self.config.model,
+                temperature=self.config.temperature,
+                max_tokens=self.config.max_tokens,
+                api_base=self.config.api_base,
+                api_key=self.config.api_key,
+            )
             return self._parse_extracted_rules(content)
 
         except Exception:

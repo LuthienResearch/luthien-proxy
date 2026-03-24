@@ -25,19 +25,22 @@ class SessionRule:
     instruction: str
 
 
+SENTINEL_RULE_NAME = "__no_rules_extracted__"
+
+
 async def save_rules(db_pool: "DatabasePool", session_id: str, rules: list[SessionRule]) -> None:
     """Persist extracted rules for a session.
 
-    Inserts all rules in a single transaction. Skips silently if rules list is empty.
+    When rules is empty, inserts a sentinel row so has_rules() returns True
+    on future turns, preventing repeated extraction attempts.
     """
-    if not rules:
-        return
+    rows_to_insert = rules if rules else [SessionRule(name=SENTINEL_RULE_NAME, instruction="")]
 
     pool = await db_pool.get_pool()
 
     if db_pool.is_sqlite:
         async with pool.acquire() as conn:
-            for rule in rules:
+            for rule in rows_to_insert:
                 rule_id = str(uuid.uuid4())
                 await conn.execute(
                     "INSERT INTO session_rules (id, session_id, rule_name, rule_instruction) VALUES (?, ?, ?, ?)",
@@ -49,7 +52,7 @@ async def save_rules(db_pool: "DatabasePool", session_id: str, rules: list[Sessi
     else:
         async with pool.acquire() as conn:
             async with conn.transaction():
-                for rule in rules:
+                for rule in rows_to_insert:
                     await conn.execute(
                         "INSERT INTO session_rules (session_id, rule_name, rule_instruction) VALUES ($1, $2, $3)",
                         session_id,
@@ -75,7 +78,11 @@ async def load_rules(db_pool: "DatabasePool", session_id: str) -> list[SessionRu
             session_id,
         )
 
-    return [SessionRule(name=str(row["rule_name"]), instruction=str(row["rule_instruction"])) for row in rows]
+    return [
+        SessionRule(name=str(row["rule_name"]), instruction=str(row["rule_instruction"]))
+        for row in rows
+        if str(row["rule_name"]) != SENTINEL_RULE_NAME
+    ]
 
 
 async def has_rules(db_pool: "DatabasePool", session_id: str) -> bool:

@@ -208,8 +208,8 @@ class TestFirstTurnExtraction:
     @pytest.mark.asyncio
     @patch("luthien_proxy.policies.claude_md_rules_policy.has_rules", new_callable=AsyncMock, return_value=False)
     @patch("luthien_proxy.policies.claude_md_rules_policy.save_rules", new_callable=AsyncMock)
-    @patch("luthien_proxy.policies.claude_md_rules_policy.acompletion")
-    @patch("luthien_proxy.policies.parallel_rules_policy.acompletion")
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_extracts_and_saves_rules_on_first_turn(
         self, mock_parallel_acompletion, mock_extraction_acompletion, mock_save, mock_has_rules
     ):
@@ -270,7 +270,7 @@ class TestSubsequentTurnLoading:
         new_callable=AsyncMock,
         return_value=[SessionRule(name="concise", instruction="Be concise")],
     )
-    @patch("luthien_proxy.policies.parallel_rules_policy.acompletion")
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_loads_rules_from_db(self, mock_acompletion, mock_load, mock_has_rules):
         """Subsequent turns load rules from DB and apply them."""
         mock_acompletion.return_value = _make_litellm_response("Concise response")
@@ -287,3 +287,37 @@ class TestSubsequentTurnLoading:
         mock_load.assert_called_once()
         # The parallel rules policy should have been called to apply the loaded rule
         assert mock_acompletion.call_count >= 1
+
+
+class TestExtractionFailure:
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.policies.claude_md_rules_policy.has_rules", new_callable=AsyncMock, return_value=False)
+    @patch("luthien_proxy.policies.claude_md_rules_policy.save_rules", new_callable=AsyncMock)
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion", side_effect=RuntimeError("LLM down"))
+    async def test_extraction_failure_saves_empty_and_passes_through(
+        self, mock_acompletion, mock_save, mock_has_rules
+    ):
+        """If the extraction LLM call fails, save empty rules and pass through."""
+        policy = ClaudeMdRulesPolicy()
+        request = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "test"}],
+            "max_tokens": 100,
+            "stream": False,
+            "system": "CLAUDE.md instructions: ## Style\n- Be concise",
+        }
+        io = _StubIO(request=request)
+        mock_db_pool = MagicMock()
+        ctx = PolicyContext.for_testing(session_id="session-123", db_pool=mock_db_pool)
+
+        emissions = []
+        async for emission in policy.run_anthropic(io, ctx):
+            emissions.append(emission)
+
+        # Should save empty rules (extraction failed)
+        mock_save.assert_called_once()
+        saved_rules = mock_save.call_args[0][2]
+        assert saved_rules == []
+
+        # Should still return a response (passthrough)
+        assert len(emissions) == 1

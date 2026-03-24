@@ -24,12 +24,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
-from litellm import acompletion
-from litellm.types.utils import Choices, Message, ModelResponse
 from pydantic import BaseModel, Field
 
+from luthien_proxy.policies.rules_llm_utils import call_llm
 from luthien_proxy.policies.simple_policy import SimplePolicy
 from luthien_proxy.storage.session_rules import SessionRule
 
@@ -37,6 +36,8 @@ if TYPE_CHECKING:
     from luthien_proxy.policy_core.policy_context import PolicyContext
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_MAX_RULES = 10
 
 
 class ParallelRulesConfig(BaseModel):
@@ -54,6 +55,10 @@ class ParallelRulesConfig(BaseModel):
     )
     temperature: float = Field(default=0.0, description="Sampling temperature for rule LLM calls")
     max_tokens: int = Field(default=4096, description="Max output tokens per rule application")
+    max_rules: int = Field(
+        default=DEFAULT_MAX_RULES,
+        description="Maximum number of rules to apply per response. Excess rules are silently dropped.",
+    )
     rules: list[dict[str, str]] = Field(
         default_factory=list,
         description="Static rules list. Each item has 'name' and 'instruction' keys.",
@@ -102,16 +107,31 @@ class ParallelRulesPolicy(SimplePolicy):
         return "ParallelRules"
 
     def _get_rules(self, context: "PolicyContext") -> list[SessionRule]:
-        """Get rules from request state (dynamic) or config (static)."""
+        """Get rules from request state (dynamic) or config (static), capped at max_rules."""
         state = context.get_request_state(self, _ParallelRulesState, _ParallelRulesState)
-        if state.rules:
-            return state.rules
-        return list(self._static_rules)
+        rules = state.rules if state.rules else list(self._static_rules)
+        if len(rules) > self.config.max_rules:
+            logger.warning(
+                "Truncating %d rules to max_rules=%d", len(rules), self.config.max_rules
+            )
+            rules = rules[: self.config.max_rules]
+        return rules
 
     def set_rules_for_request(self, context: "PolicyContext", rules: list[SessionRule]) -> None:
         """Set dynamic rules for this request (called by ClaudeMdRulesPolicy)."""
         state = context.get_request_state(self, _ParallelRulesState, _ParallelRulesState)
         state.rules = rules
+
+    async def _call_llm(self, messages: list[dict[str, str]]) -> str:
+        """Call LLM using this policy's config."""
+        return await call_llm(
+            messages,
+            model=self.config.model,
+            temperature=self.config.temperature,
+            max_tokens=self.config.max_tokens,
+            api_base=self.config.api_base,
+            api_key=self.config.api_key,
+        )
 
     async def simple_on_response_content(self, content: str, context: "PolicyContext") -> str:
         """Apply all rules in parallel, merge if needed."""
@@ -133,37 +153,19 @@ class ParallelRulesPolicy(SimplePolicy):
     async def _apply_rule(self, rule: SessionRule, text: str) -> _RuleResult:
         """Apply a single rule to the text via LLM call."""
         try:
-            kwargs: dict[str, Any] = {
-                "model": self.config.model,
-                "temperature": self.config.temperature,
-                "max_tokens": self.config.max_tokens,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            f"You are a text rewriting assistant. Apply the following rule to the user's text.\n\n"
-                            f"Rule: {rule.instruction}\n\n"
-                            f"Return ONLY the rewritten text with the rule applied. "
-                            f"Do not add commentary, explanations, or meta-text. "
-                            f"If no changes are needed, return the text unchanged."
-                        ),
-                    },
-                    {"role": "user", "content": text},
-                ],
-            }
-            if self.config.api_base:
-                kwargs["api_base"] = self.config.api_base
-            if self.config.api_key:
-                kwargs["api_key"] = self.config.api_key
-
-            response = await acompletion(**kwargs)
-            response = cast(ModelResponse, response)
-            first_choice: Choices = response.choices[0]  # type: ignore[assignment]
-            message: Message = first_choice.message  # type: ignore[assignment]
-            rewritten = message.content or ""
-            if not isinstance(rewritten, str):
-                rewritten = str(rewritten)
-
+            rewritten = await self._call_llm([
+                {
+                    "role": "system",
+                    "content": (
+                        f"You are a text rewriting assistant. Apply the following rule to the user's text.\n\n"
+                        f"Rule: {rule.instruction}\n\n"
+                        f"Return ONLY the rewritten text with the rule applied. "
+                        f"Do not add commentary, explanations, or meta-text. "
+                        f"If no changes are needed, return the text unchanged."
+                    ),
+                },
+                {"role": "user", "content": text},
+            ])
             changed = rewritten.strip() != text.strip()
             return _RuleResult(rule=rule, rewritten=rewritten, changed=changed)
 
@@ -178,45 +180,25 @@ class ParallelRulesPolicy(SimplePolicy):
         )
 
         try:
-            kwargs: dict[str, Any] = {
-                "model": self.config.model,
-                "temperature": self.config.temperature,
-                "max_tokens": self.config.max_tokens,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a text editor merging multiple rewrites of the same text. "
-                            "Each rewrite applied a different rule independently. "
-                            "Your job is to produce a single version that faithfully applies ALL rules. "
-                            "Return ONLY the merged text. No commentary or explanation."
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Original text:\n{original}\n\n"
-                            f"Rewritten versions (each applied one rule):\n{versions_text}\n\n"
-                            f"Produce a single version that applies all {len(changed_results)} rules together."
-                        ),
-                    },
-                ],
-            }
-            if self.config.api_base:
-                kwargs["api_base"] = self.config.api_base
-            if self.config.api_key:
-                kwargs["api_key"] = self.config.api_key
-
-            response = await acompletion(**kwargs)
-            response = cast(ModelResponse, response)
-            first_choice: Choices = response.choices[0]  # type: ignore[assignment]
-            message: Message = first_choice.message  # type: ignore[assignment]
-            merged = message.content or ""
-            if not isinstance(merged, str):
-                merged = str(merged)
-
-            return merged
-
+            return await self._call_llm([
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a text editor merging multiple rewrites of the same text. "
+                        "Each rewrite applied a different rule independently. "
+                        "Your job is to produce a single version that faithfully applies ALL rules. "
+                        "Return ONLY the merged text. No commentary or explanation."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Original text:\n{original}\n\n"
+                        f"Rewritten versions (each applied one rule):\n{versions_text}\n\n"
+                        f"Produce a single version that applies all {len(changed_results)} rules together."
+                    ),
+                },
+            ])
         except Exception:
             logger.exception("Refinement failed, using first changed result as fallback")
             return changed_results[0].rewritten
