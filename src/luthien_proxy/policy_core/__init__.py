@@ -13,7 +13,6 @@ Policy Interfaces:
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
     AnthropicPolicyEmission,
-    AnthropicPolicyIOProtocol,
 )
 from luthien_proxy.policy_core.anthropic_hook_policy import AnthropicHookPolicy
 from luthien_proxy.policy_core.base_policy import BasePolicy
@@ -25,7 +24,6 @@ __all__ = [
     "BasePolicy",
     "AnthropicExecutionInterface",
     "AnthropicPolicyEmission",
-    "AnthropicPolicyIOProtocol",
     "AnthropicHookPolicy",
     # Contexts
     "PolicyContext",

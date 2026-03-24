@@ -1664,3 +1664,47 @@ class TestRunPolicyHooks:
         assert len(emissions) == 2
         assert isinstance(emissions[0], RawMessageStartEvent)
         assert isinstance(emissions[1], RawMessageStopEvent)
+
+    @pytest.mark.asyncio
+    async def test_multi_serial_policy_ordering_through_hooks(self):
+        """MultiSerialPolicy chains hooks in list order through _run_policy_hooks.
+
+        Replaces the deleted TestMultiSerialAnthropicRunOrdering — verifies that
+        [StringReplacement, AllCaps] produces the correct order: replace first,
+        then uppercase.
+        """
+        from luthien_proxy.policies.all_caps_policy import AllCapsPolicy
+        from luthien_proxy.policies.multi_serial_policy import MultiSerialPolicy
+        from luthien_proxy.policies.string_replacement_policy import StringReplacementPolicy
+
+        replacement = StringReplacementPolicy(
+            config={"replacements": [["hello", "goodbye"]]}
+        )
+        allcaps = AllCapsPolicy()
+        pipeline = MultiSerialPolicy.from_instances([replacement, allcaps])
+
+        request: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 10,
+            "stream": False,
+        }
+        response: AnthropicResponse = {
+            "id": "msg_order",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "hello world"}],
+            "model": DEFAULT_TEST_MODEL,
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": {"input_tokens": 1, "output_tokens": 2},
+        }
+        io = _StubIO(request=request, response=response)
+        ctx = PolicyContext.for_testing()
+
+        emissions = []
+        async for emission in _run_policy_hooks(pipeline, io, ctx):
+            emissions.append(emission)
+
+        assert len(emissions) == 1
+        assert emissions[0]["content"][0]["text"] == "GOODBYE WORLD"

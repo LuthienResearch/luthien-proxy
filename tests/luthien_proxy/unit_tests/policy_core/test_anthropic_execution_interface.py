@@ -36,6 +36,12 @@ class TestAnthropicExecutionInterface:
 
         assert isinstance(CompletePolicy(), AnthropicExecutionInterface)
 
+    def test_text_modifier_policy_satisfies_protocol(self):
+        """TextModifierPolicy satisfies AnthropicExecutionInterface structurally (no explicit inheritance)."""
+        from luthien_proxy.policy_core.text_modifier_policy import TextModifierPolicy
+
+        assert isinstance(TextModifierPolicy(), AnthropicExecutionInterface)
+
     def test_runtime_checkable_protocol_negative(self):
         class IncompletePolicy:
             pass

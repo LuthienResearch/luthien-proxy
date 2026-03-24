@@ -23,7 +23,7 @@ import copy
 import json
 import logging
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Literal, TypedDict, TypeGuard, cast
 
 from anthropic import APIConnectionError as AnthropicConnectionError
@@ -481,7 +481,7 @@ async def _run_policy_hooks(
     policy: AnthropicExecutionInterface,
     io: AnthropicPolicyIOProtocol,
     ctx: PolicyContext,
-) -> AsyncIterator[AnthropicPolicyEmission]:
+) -> AsyncGenerator[AnthropicPolicyEmission, None]:
     """Call policy hooks around backend I/O.
 
     The executor owns the stream-vs-complete branching and calls hooks at each
@@ -516,7 +516,7 @@ async def _execute_anthropic_policy(
     extra_headers: dict[str, str] | None = None,
     usage_collector: UsageCollector | None = None,
 ) -> FastAPIStreamingResponse | JSONResponse:
-    """Execute an Anthropic policy using the execution-oriented runtime."""
+    """Execute an Anthropic policy using the hook-based runtime."""
     io = _AnthropicPolicyIO(
         initial_request=initial_request,
         anthropic_client=anthropic_client,
