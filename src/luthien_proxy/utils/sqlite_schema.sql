@@ -148,3 +148,13 @@ CREATE TABLE IF NOT EXISTS telemetry_config (
     updated_by TEXT
 );
 INSERT OR IGNORE INTO telemetry_config (id) VALUES (1);
+
+-- Session rules (extracted per-session, e.g. from CLAUDE.md)
+CREATE TABLE IF NOT EXISTS session_rules (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    rule_name TEXT NOT NULL,
+    rule_instruction TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_session_rules_session ON session_rules(session_id);
