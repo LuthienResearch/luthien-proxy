@@ -76,6 +76,7 @@ convention = "google"
 [tool.pytest.ini_options]
 addopts = "-q -ra -m 'not e2e and not integration and not mock_e2e and not sqlite_e2e' --cov=src/luthien_proxy --cov-report=term-missing --timeout=3 --timeout-method=signal"
 testpaths = ["tests"]
+importmode = "importlib"
 asyncio_mode = "auto"
 filterwarnings = [
     "default::DeprecationWarning",
