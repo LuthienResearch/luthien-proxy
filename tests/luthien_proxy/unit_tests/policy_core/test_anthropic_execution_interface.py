@@ -5,8 +5,8 @@ from typing import cast
 import pytest
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import RawContentBlockStartEvent
+from tests.constants import DEFAULT_TEST_MODEL
 
-from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,

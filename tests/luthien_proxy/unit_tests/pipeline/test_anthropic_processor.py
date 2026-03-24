@@ -21,8 +21,8 @@ from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from httpx import Request as HttpxRequest
 from httpx import Response as HttpxResponse
+from tests.constants import DEFAULT_TEST_MODEL
 
-from conftest import DEFAULT_TEST_MODEL
 from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
 from luthien_proxy.pipeline.anthropic_processor import (

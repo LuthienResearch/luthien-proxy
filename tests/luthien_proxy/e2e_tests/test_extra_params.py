@@ -6,7 +6,7 @@ These tests verify that extra model parameters (like `thinking`, `metadata`,
 
 import httpx
 import pytest
-from tests.conftest import DEFAULT_TEST_MODEL
+from tests.constants import DEFAULT_TEST_MODEL
 from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL
 
 # === Test Configuration ===
