@@ -18,7 +18,7 @@ from luthien_proxy.policies.parallel_rules_policy import (
 from luthien_proxy.policies.simple_policy import SimplePolicy
 from luthien_proxy.policy_core import AnthropicExecutionInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
-from luthien_proxy.storage.session_rules import SessionRule
+from luthien_proxy.policies.parallel_rules_policy import Rule
 
 
 def _make_litellm_response(content: str) -> ModelResponse:
@@ -75,7 +75,7 @@ class TestParallelRulesConfig:
         assert config.temperature == 0.5
 
     def test_static_rules_parsed(self):
-        """Static rules from config are converted to SessionRule objects."""
+        """Static rules from config are converted to Rule objects."""
         policy = ParallelRulesPolicy(config={"rules": [{"name": "r1", "instruction": "Do thing 1"}]})
         assert len(policy._static_rules) == 1
         assert policy._static_rules[0].name == "r1"
@@ -315,7 +315,7 @@ class TestDynamicRules:
 
         policy = ParallelRulesPolicy(config={"rules": [{"name": "static", "instruction": "Static rule"}]})
         ctx = PolicyContext.for_testing()
-        policy.set_rules_for_request(ctx, [SessionRule(name="dynamic", instruction="Dynamic rule")])
+        policy.set_rules_for_request(ctx, [Rule(name="dynamic", instruction="Dynamic rule")])
         result = await policy.simple_on_response_content("Hello", ctx)
 
         # Should use the dynamic rule
@@ -358,8 +358,8 @@ class TestDynamicRules:
         policy.set_rules_for_request(
             ctx,
             [
-                SessionRule(name="r1", instruction="Rule 1"),
-                SessionRule(name="r2", instruction="Rule 2"),
+                Rule(name="r1", instruction="Rule 1"),
+                Rule(name="r2", instruction="Rule 2"),
             ],
         )
         await policy.simple_on_response_content("Hello", ctx)
@@ -373,7 +373,7 @@ class TestRuleResultDataclass:
 
     def test_rule_result_unchanged(self):
         """_RuleResult.changed is False when text unchanged."""
-        rule = SessionRule(name="test", instruction="Do thing")
+        rule = Rule(name="test", instruction="Do thing")
         result = _RuleResult(rule=rule, rewritten="hello", changed=False)
         assert result.changed is False
         assert result.rule.name == "test"
@@ -381,7 +381,7 @@ class TestRuleResultDataclass:
 
     def test_rule_result_changed(self):
         """_RuleResult.changed is True when text changed."""
-        rule = SessionRule(name="test", instruction="Do thing")
+        rule = Rule(name="test", instruction="Do thing")
         result = _RuleResult(rule=rule, rewritten="HELLO", changed=True)
         assert result.changed is True
 

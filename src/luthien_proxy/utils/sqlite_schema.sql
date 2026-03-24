@@ -1,8 +1,9 @@
 -- SQLite schema representing the final state of all PostgreSQL migrations.
 -- Applied automatically when using SQLite (no Docker migration runner needed).
 --
--- NOTE: A bundled copy lives at src/luthien_proxy/utils/sqlite_schema.sql
--- for pip-installed environments. When updating this file, copy it there too.
+-- IMPORTANT: This is a bundled copy of migrations/sqlite_schema.sql.
+-- The source of truth is migrations/sqlite_schema.sql — update that file
+-- first, then copy it here. Both files must stay in sync.
 
 -- Migration tracking (matches the PostgreSQL _migrations table)
 CREATE TABLE IF NOT EXISTS _migrations (
@@ -147,13 +148,3 @@ CREATE TABLE IF NOT EXISTS telemetry_config (
     updated_by TEXT
 );
 INSERT OR IGNORE INTO telemetry_config (id) VALUES (1);
-
--- Session rules (extracted per-session, e.g. from CLAUDE.md)
-CREATE TABLE IF NOT EXISTS session_rules (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    rule_name TEXT NOT NULL,
-    rule_instruction TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_session_rules_session ON session_rules(session_id);

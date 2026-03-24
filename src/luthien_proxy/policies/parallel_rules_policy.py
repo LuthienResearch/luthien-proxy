@@ -5,7 +5,7 @@ If multiple rules produce different rewrites, a refinement round merges them
 into a single comprehensive version.
 
 Can be used standalone with static rules in YAML config, or driven dynamically
-by another policy (like ClaudeMdRulesPolicy) that sets rules via request state.
+by another policy that sets rules via request state using set_rules_for_request().
 
 Example config (static rules):
     policy:
@@ -30,7 +30,6 @@ from pydantic import BaseModel, Field
 
 from luthien_proxy.policies.rules_llm_utils import call_llm
 from luthien_proxy.policies.simple_policy import SimplePolicy
-from luthien_proxy.storage.session_rules import SessionRule
 
 if TYPE_CHECKING:
     from luthien_proxy.policy_core.policy_context import PolicyContext
@@ -38,6 +37,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_RULES = 10
+
+
+@dataclass(frozen=True)
+class Rule:
+    """A named rewriting rule with an LLM instruction."""
+
+    name: str
+    instruction: str
 
 
 class ParallelRulesConfig(BaseModel):
@@ -71,14 +78,14 @@ class ParallelRulesConfig(BaseModel):
 class _ParallelRulesState:
     """Per-request state: rules to apply on this turn."""
 
-    rules: list[SessionRule] = field(default_factory=list)
+    rules: list[Rule] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
 class _RuleResult:
     """Result of applying a single rule."""
 
-    rule: SessionRule
+    rule: Rule
     rewritten: str
     changed: bool
 
@@ -97,8 +104,8 @@ class ParallelRulesPolicy(SimplePolicy):
     def __init__(self, config: ParallelRulesConfig | dict[str, Any] | None = None) -> None:
         """Initialize with config and convert static rules to immutable tuple."""
         self.config = self._init_config(config, ParallelRulesConfig)
-        self._static_rules: tuple[SessionRule, ...] = tuple(
-            SessionRule(name=r["name"], instruction=r["instruction"]) for r in self.config.rules
+        self._static_rules: tuple[Rule, ...] = tuple(
+            Rule(name=r["name"], instruction=r["instruction"]) for r in self.config.rules
         )
 
     @property
@@ -106,7 +113,7 @@ class ParallelRulesPolicy(SimplePolicy):
         """Human-readable policy name."""
         return "ParallelRules"
 
-    def _get_rules(self, context: "PolicyContext") -> list[SessionRule]:
+    def _get_rules(self, context: "PolicyContext") -> list[Rule]:
         """Get rules from request state (dynamic) or config (static), capped at max_rules."""
         state = context.get_request_state(self, _ParallelRulesState, _ParallelRulesState)
         rules = state.rules if state.rules else list(self._static_rules)
@@ -115,7 +122,7 @@ class ParallelRulesPolicy(SimplePolicy):
             rules = rules[: self.config.max_rules]
         return rules
 
-    def set_rules_for_request(self, context: "PolicyContext", rules: list[SessionRule]) -> None:
+    def set_rules_for_request(self, context: "PolicyContext", rules: list[Rule]) -> None:
         """Set dynamic rules for this request (called by ClaudeMdRulesPolicy)."""
         state = context.get_request_state(self, _ParallelRulesState, _ParallelRulesState)
         state.rules = rules
@@ -148,7 +155,7 @@ class ParallelRulesPolicy(SimplePolicy):
 
         return await self._refine(content, changed_results)
 
-    async def _apply_rule(self, rule: SessionRule, text: str) -> _RuleResult:
+    async def _apply_rule(self, rule: Rule, text: str) -> _RuleResult:
         """Apply a single rule to the text via LLM call."""
         try:
             rewritten = await self._call_llm(
@@ -207,4 +214,4 @@ class ParallelRulesPolicy(SimplePolicy):
             return changed_results[0].rewritten
 
 
-__all__ = ["ParallelRulesPolicy"]
+__all__ = ["ParallelRulesPolicy", "Rule"]
