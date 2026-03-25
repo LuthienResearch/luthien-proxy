@@ -115,9 +115,14 @@ Client Response
 
 ## Testing Philosophy
 
-- **Unit tests** (`tests/luthien_proxy/unit_tests/`) - Fast, isolated component tests
-- **Integration tests** (`tests/luthien_proxy/integration_tests/`) - Test component interactions
-- **E2E tests** (`tests/luthien_proxy/e2e_tests/`) - Full system tests with real LLMs (slow, use sparingly)
+**Four tiers, in order of priority:**
+
+1. **Unit tests** (`tests/luthien_proxy/unit_tests/`) — Fast, isolated, network-blocked, 3s timeout. **Required for all new code.**
+2. **Integration tests** (`tests/luthien_proxy/integration_tests/`) — In-process gateway, real-ish stack. Excluded from default run.
+3. **Mock E2E tests** (`tests/luthien_proxy/e2e_tests/`, marker: `mock_e2e`) — Full Docker stack, mocked LLM backend. Excluded from default run.
+4. **E2E tests** (`tests/luthien_proxy/e2e_tests/`, marker: `e2e`) — Real API calls, real costs. Use sparingly.
+
+**Current focus (pre-Demo Day):** Unit tests for new code are mandatory. Integration/E2E test expansion is deprioritized — discovery and real user onboarding teach us more about what to test than speculative coverage. See [testing-philosophy.md](https://github.com/LuthienResearch/luthien-org/blob/main/dev/operational-excellence/testing-philosophy.md) for full rationale.
 
 Run the full test suite before opening PRs for review: `./scripts/dev_checks.sh`
 

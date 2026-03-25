@@ -191,6 +191,16 @@ Most near-term development work is dockerless. Prefer `start_gateway.sh` for day
 - Refactored code MUST maintain or improve test coverage
 - PRs without tests for new functionality will be considered incomplete
 
+### Current Prioritization (Pre-Demo Day, as of March 25 2026)
+
+Unit tests for new code: **still required.** The mandate above stands.
+
+Integration/E2E test *expansion*: **deprioritized until post-Demo Day.** Don't spend hours writing integration or e2e tests for scenarios we haven't validated matter yet. Discovery — continuously onboarding real users and fixing where they get stuck — is higher priority than expanding test coverage at this stage.
+
+Write tests for what you build. Don't go hunting for new test scenarios to cover.
+
+For full context on this decision, including the team discussion and rationale: [testing-philosophy.md](https://github.com/LuthienResearch/luthien-org/blob/main/dev/operational-excellence/testing-philosophy.md) (private repo)
+
 ## Security & Configuration
 
 - Keep lint, test, and type-check settings consolidated in `pyproject.toml`; avoid extra config files unless necessary.
