@@ -109,11 +109,7 @@ def main() -> int:
     args = ap.parse_args()
 
     env = parse_env_file(".env")
-    url = (
-        args.url
-        or env.get("DATABASE_URL")
-        or os.environ.get("DATABASE_URL")
-    )
+    url = args.url or env.get("DATABASE_URL") or os.environ.get("DATABASE_URL")
     if not url:
         raise SystemExit("No database URL found. Set --url or populate .env")
 
