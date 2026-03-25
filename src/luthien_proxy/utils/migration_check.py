@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 # Default path inside Docker container; can be overridden for local dev
 DEFAULT_MIGRATIONS_DIR = "/app/migrations"
 
+SNAPSHOT_ERA_MARKER_TABLE = "current_policy"
+BOOTSTRAP_THROUGH_PREFIX = "009"
+
 
 def compute_file_hash(filepath: Path) -> str:
     """Compute MD5 hash of a file, matching run-migrations.sh behavior."""
@@ -22,64 +25,140 @@ def compute_file_hash(filepath: Path) -> str:
         return hashlib.md5(f.read()).hexdigest()
 
 
-async def _apply_sqlite_schema(db_pool: DatabasePool) -> None:
-    """Apply the SQLite schema if tables don't exist yet.
-
-    For SQLite, we use a single schema file that represents the final state
-    of all PostgreSQL migrations. This runs on every startup but uses
-    CREATE TABLE IF NOT EXISTS / INSERT OR IGNORE so it's idempotent.
-    """
-    schema_file = _find_sqlite_schema()
-    if schema_file is None:
-        logger.warning("SQLite schema file not found — skipping schema init")
-        return
-
-    schema_sql = schema_file.read_text()
-
-    async with db_pool.connection() as conn:
-        # SQLite doesn't support executing multiple statements in one call,
-        # so we split on semicolons and execute each statement individually.
-        for statement in schema_sql.split(";"):
-            statement = statement.strip()
-            if statement:
-                await conn.execute(statement)
-
-        # Postgres uses gen_random_uuid() as a column default — SQLite can't,
-        # so we generate the deployment_id in Python on first schema apply.
-        await conn.execute(
-            "UPDATE telemetry_config SET deployment_id = ? WHERE id = 1 AND deployment_id = 'pending'",
-            str(uuid.uuid4()),
-        )
-
-    logger.info("SQLite schema applied (idempotent)")
-
-
-def _find_sqlite_schema() -> Path | None:
-    """Locate the sqlite_schema.sql file.
+def _find_sqlite_migrations_dir() -> Path | None:
+    """Locate the sqlite migrations directory.
 
     Checks (in order):
-    1. MIGRATIONS_DIR env var (explicit override)
-    2. Bundled with the package (next to this file)
-    3. Repo-relative path (migrations/ at repo root)
+    1. MIGRATIONS_DIR env var + /sqlite/ subdirectory
+    2. Bundled with the package (sqlite_migrations/ next to this file)
+    3. Repo-relative path (migrations/sqlite/ at repo root)
     4. Relative to the current working directory
     """
     candidates = [
-        # Bundled with the package — works in pip-installed environments
-        Path(__file__).resolve().parent / "sqlite_schema.sql",
-        # Repo-relative — works when running from the repo checkout
-        Path(__file__).resolve().parents[3] / "migrations" / "sqlite_schema.sql",
-        Path("migrations/sqlite_schema.sql"),
+        Path(__file__).resolve().parent / "sqlite_migrations",
+        Path(__file__).resolve().parents[3] / "migrations" / "sqlite",
+        Path("migrations/sqlite"),
     ]
 
-    # Also check MIGRATIONS_DIR env var
     migrations_dir = os.environ.get("MIGRATIONS_DIR")
     if migrations_dir:
-        candidates.insert(0, Path(migrations_dir) / "sqlite_schema.sql")
+        candidates.insert(0, Path(migrations_dir) / "sqlite")
 
     for candidate in candidates:
-        if candidate.exists():
+        if candidate.is_dir():
             return candidate
     return None
+
+
+async def _apply_sqlite_migrations(
+    db_pool: DatabasePool,
+    migrations_dir: Path | None = None,
+) -> None:
+    """Apply SQLite migrations incrementally.
+
+    For each .sql file in the migrations directory (sorted by name):
+    1. Skip if already recorded in _migrations
+    2. Execute the SQL statements
+    3. Record filename + content_hash in _migrations
+
+    Handles upgrade from snapshot-era databases by detecting existing tables
+    with no migration tracking and seeding _migrations.
+    """
+    if migrations_dir is None:
+        migrations_dir = _find_sqlite_migrations_dir()
+    if migrations_dir is None:
+        logger.warning("SQLite migrations directory not found -- skipping")
+        return
+
+    migration_files = sorted(migrations_dir.glob("*.sql"))
+    if not migration_files:
+        logger.warning(f"No migration files in {migrations_dir} -- skipping")
+        return
+
+    async with db_pool.connection() as conn:
+        # Ensure _migrations table exists
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS _migrations ("
+            "    filename TEXT PRIMARY KEY,"
+            "    applied_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    content_hash TEXT"
+            ")"
+        )
+
+        # Check for snapshot-era database: _migrations empty but tables exist
+        migration_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM _migrations"
+        )
+        if migration_count == 0:
+            marker_exists = await conn.fetchval(
+                "SELECT COUNT(*) FROM sqlite_master "
+                "WHERE type='table' AND name=?",
+                SNAPSHOT_ERA_MARKER_TABLE,
+            )
+            if marker_exists:
+                logger.info("Detected snapshot-era SQLite database -- bootstrapping migration tracking")
+                for mf in migration_files:
+                    if mf.stem.split("_")[0] <= BOOTSTRAP_THROUGH_PREFIX:
+                        content_hash = compute_file_hash(mf)
+                        await conn.execute(
+                            "INSERT OR IGNORE INTO _migrations (filename, content_hash) VALUES (?, ?)",
+                            mf.name,
+                            content_hash,
+                        )
+                logger.info("Bootstrap complete -- existing migrations seeded")
+
+        # Get already-applied migrations
+        applied_rows = await conn.fetch(
+            "SELECT filename, content_hash FROM _migrations ORDER BY filename"
+        )
+        applied = {row["filename"]: row["content_hash"] for row in applied_rows}
+
+        # Validate + apply
+        for mf in migration_files:
+            if mf.name in applied:
+                # Validate hash
+                db_hash = applied[mf.name]
+                if db_hash:
+                    local_hash = compute_file_hash(mf)
+                    if db_hash != local_hash:
+                        raise RuntimeError(
+                            f"HASH MISMATCH: {mf.name}\n"
+                            f"   DB hash:    {db_hash}\n"
+                            f"   Local hash: {local_hash}\n"
+                            "   Migration file was modified after being applied."
+                        )
+                continue
+
+            # Apply migration
+            sql = mf.read_text()
+            for statement in sql.split(";"):
+                statement = statement.strip()
+                if statement and not all(
+                    line.strip().startswith("--") or not line.strip()
+                    for line in statement.split("\n")
+                ):
+                    await conn.execute(statement)
+
+            content_hash = compute_file_hash(mf)
+            await conn.execute(
+                "INSERT INTO _migrations (filename, content_hash) VALUES (?, ?)",
+                mf.name,
+                content_hash,
+            )
+            logger.info(f"Applied SQLite migration: {mf.name}")
+
+        # Handle deployment_id for telemetry_config (only if table exists)
+        telemetry_exists = await conn.fetchval(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='telemetry_config'"
+        )
+        if telemetry_exists:
+            await conn.execute(
+                "UPDATE telemetry_config SET deployment_id = ? "
+                "WHERE id = 1 AND deployment_id = 'pending'",
+                str(uuid.uuid4()),
+            )
+
+    logger.info("SQLite migrations complete")
 
 
 async def check_migrations(
@@ -101,13 +180,17 @@ async def check_migrations(
         migrations_dir: Path to migrations directory. Defaults to /app/migrations.
     """
     if db_pool.is_sqlite:
-        await _apply_sqlite_schema(db_pool)
+        await _apply_sqlite_migrations(db_pool)
         return
 
     if migrations_dir is None:
         migrations_dir = os.environ.get("MIGRATIONS_DIR", DEFAULT_MIGRATIONS_DIR)
 
     migrations_path = Path(migrations_dir)
+
+    postgres_path = migrations_path / "postgres"
+    if postgres_path.exists():
+        migrations_path = postgres_path
 
     if not migrations_path.exists():
         logger.warning(f"Migrations directory not found: {migrations_dir} - skipping check")
