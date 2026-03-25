@@ -22,6 +22,7 @@ Example config (static rules):
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -90,14 +91,43 @@ class _RuleResult:
     changed: bool
 
 
+def _parse_rule_decision(raw: str) -> tuple[bool, str] | None:
+    """Parse a structured rule response into (apply, rewritten_text).
+
+    Returns None if the response can't be parsed.
+    """
+    text = raw.strip()
+
+    # Strip markdown fences if present
+    if text.startswith("```"):
+        text = text.lstrip("`")
+        nl = text.find("\n")
+        if nl != -1:
+            text = text[nl + 1:]
+        text = text.rstrip("`").strip()
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+    if not isinstance(data, dict) or "apply" not in data:
+        return None
+
+    apply = bool(data["apply"])
+    rewritten = str(data.get("rewritten", "")) if apply else ""
+    return (apply, rewritten)
+
+
 class ParallelRulesPolicy(SimplePolicy):
     """Apply multiple rewriting rules in parallel with LLM-based refinement.
 
     For each response text block:
-    1. Fan out — each rule rewrites the text independently via an LLM call
-    2. Collect — compare results to the original
-    3. Merge — if 0-1 rules changed the text, use that version directly.
-       If 2+ rules changed it, run a refinement LLM call that sees all
+    1. Fan out — each rule gets an LLM call that decides whether to apply
+       and provides a rewrite if so (structured JSON response)
+    2. Collect — gather decisions from all rules
+    3. Merge — if 0-1 rules applied, use that version directly.
+       If 2+ rules applied, run a refinement LLM call that sees all
        versions and produces a comprehensive merge.
     """
 
@@ -127,15 +157,19 @@ class ParallelRulesPolicy(SimplePolicy):
         state = context.get_request_state(self, _ParallelRulesState, _ParallelRulesState)
         state.rules = rules
 
-    async def _call_llm(self, messages: list[dict[str, str]]) -> str:
-        """Call LLM using this policy's config."""
+    def _resolve_api_key(self, context: "PolicyContext") -> str | None:
+        """Resolve API key: explicit config → client passthrough → env fallback."""
+        return self._resolve_judge_api_key(context, self.config.api_key, None)
+
+    async def _call_llm(self, messages: list[dict[str, str]], context: "PolicyContext") -> str:
+        """Call LLM using this policy's config and the resolved API key."""
         return await call_llm(
             messages,
             model=self.config.model,
             temperature=self.config.temperature,
             max_tokens=self.config.max_tokens,
             api_base=self.config.api_base,
-            api_key=self.config.api_key,
+            api_key=self._resolve_api_key(context),
         )
 
     async def simple_on_response_content(self, content: str, context: "PolicyContext") -> str:
@@ -144,7 +178,7 @@ class ParallelRulesPolicy(SimplePolicy):
         if not rules:
             return content
 
-        results = await asyncio.gather(*(self._apply_rule(rule, content) for rule in rules))
+        results = await asyncio.gather(*(self._apply_rule(rule, content, context) for rule in rules))
 
         changed_results = [r for r in results if r.changed]
 
@@ -153,35 +187,46 @@ class ParallelRulesPolicy(SimplePolicy):
         if len(changed_results) == 1:
             return changed_results[0].rewritten
 
-        return await self._refine(content, changed_results)
+        return await self._refine(content, changed_results, context)
 
-    async def _apply_rule(self, rule: Rule, text: str) -> _RuleResult:
-        """Apply a single rule to the text via LLM call."""
+    async def _apply_rule(self, rule: Rule, text: str, context: "PolicyContext") -> _RuleResult:
+        """Apply a single rule: LLM decides whether to apply and provides rewrite if so."""
         try:
-            rewritten = await self._call_llm(
+            raw = await self._call_llm(
                 [
                     {
                         "role": "system",
                         "content": (
-                            f"You are a text rewriting assistant. Apply the following rule to the user's text.\n\n"
+                            "You are a text rewriting assistant. You will be given a rule and a text.\n"
+                            "First decide whether the rule applies to this text. "
+                            "If it does, rewrite the text with the rule applied.\n\n"
                             f"Rule: {rule.instruction}\n\n"
-                            f"Return ONLY the rewritten text with the rule applied. "
-                            f"Do not add commentary, explanations, or meta-text. "
-                            f"If no changes are needed, return the text unchanged."
+                            "Respond with a JSON object:\n"
+                            '- If the rule applies: {"apply": true, "rewritten": "<the rewritten text>"}\n'
+                            '- If the rule does not apply: {"apply": false}\n\n'
+                            "Return ONLY the JSON object. No markdown fences, no commentary."
                         ),
                     },
                     {"role": "user", "content": text},
-                ]
+                ],
+                context,
             )
-            rewritten = rewritten.strip()
-            changed = rewritten != text.strip()
-            return _RuleResult(rule=rule, rewritten=rewritten, changed=changed)
+            decision = _parse_rule_decision(raw)
+            if decision is None:
+                logger.warning("Rule '%s' returned unparseable response, treating as no-change", rule.name)
+                return _RuleResult(rule=rule, rewritten=text, changed=False)
+
+            apply, rewritten = decision
+            if not apply:
+                return _RuleResult(rule=rule, rewritten=text, changed=False)
+
+            return _RuleResult(rule=rule, rewritten=rewritten.strip(), changed=True)
 
         except Exception:
             logger.exception("Rule '%s' failed, treating as no-change", rule.name)
             return _RuleResult(rule=rule, rewritten=text, changed=False)
 
-    async def _refine(self, original: str, changed_results: list[_RuleResult]) -> str:
+    async def _refine(self, original: str, changed_results: list[_RuleResult], context: "PolicyContext") -> str:
         """Merge multiple rule rewrites into a single comprehensive version."""
         versions_text = "\n\n".join(
             f"--- Rule: {r.rule.name} ({r.rule.instruction}) ---\n{r.rewritten}" for r in changed_results
@@ -207,7 +252,8 @@ class ParallelRulesPolicy(SimplePolicy):
                             f"Produce a single version that applies all {len(changed_results)} rules together."
                         ),
                     },
-                ]
+                ],
+                context,
             )
         except Exception:
             logger.exception("Refinement failed, using first changed result as fallback")

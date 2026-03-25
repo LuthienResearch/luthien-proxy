@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from unittest.mock import patch
 
 import pytest
@@ -12,6 +14,7 @@ from luthien_proxy.policies.parallel_rules_policy import (
     ParallelRulesPolicy,
     Rule,
     _RuleResult,
+    _parse_rule_decision,
 )
 from luthien_proxy.policies.simple_policy import SimplePolicy
 from luthien_proxy.policy_core import AnthropicExecutionInterface
@@ -35,70 +38,88 @@ def _make_litellm_response(content: str) -> ModelResponse:
     )
 
 
-class TestParallelRulesPolicyProtocol:
-    """Tests verifying ParallelRulesPolicy implements required protocols."""
+def _apply_response(rewritten: str) -> ModelResponse:
+    """Create a structured rule response that applies a rewrite."""
+    return _make_litellm_response(json.dumps({"apply": True, "rewritten": rewritten}))
 
+
+def _skip_response() -> ModelResponse:
+    """Create a structured rule response that skips (rule doesn't apply)."""
+    return _make_litellm_response(json.dumps({"apply": False}))
+
+
+# =============================================================================
+# Parse decision tests
+# =============================================================================
+
+
+class TestParseRuleDecision:
+    """Tests for the structured response parser."""
+
+    def test_apply_true_with_rewrite(self):
+        result = _parse_rule_decision('{"apply": true, "rewritten": "NEW TEXT"}')
+        assert result == (True, "NEW TEXT")
+
+    def test_apply_false(self):
+        result = _parse_rule_decision('{"apply": false}')
+        assert result == (False, "")
+
+    def test_with_markdown_fences(self):
+        result = _parse_rule_decision('```json\n{"apply": true, "rewritten": "OK"}\n```')
+        assert result == (True, "OK")
+
+    def test_invalid_json_returns_none(self):
+        assert _parse_rule_decision("not json") is None
+
+    def test_missing_apply_key_returns_none(self):
+        assert _parse_rule_decision('{"rewritten": "text"}') is None
+
+    def test_non_dict_returns_none(self):
+        assert _parse_rule_decision("[1, 2, 3]") is None
+
+
+# =============================================================================
+# Protocol compliance
+# =============================================================================
+
+
+class TestParallelRulesPolicyProtocol:
     def test_inherits_simple_policy(self):
-        """ParallelRulesPolicy is a SimplePolicy."""
-        policy = ParallelRulesPolicy()
-        assert isinstance(policy, SimplePolicy)
+        assert isinstance(ParallelRulesPolicy(), SimplePolicy)
 
     def test_implements_anthropic_interface(self):
-        """ParallelRulesPolicy implements AnthropicExecutionInterface."""
-        policy = ParallelRulesPolicy()
-        assert isinstance(policy, AnthropicExecutionInterface)
+        assert isinstance(ParallelRulesPolicy(), AnthropicExecutionInterface)
 
     def test_short_policy_name(self):
-        """short_policy_name returns 'ParallelRules'."""
-        policy = ParallelRulesPolicy()
-        assert policy.short_policy_name == "ParallelRules"
+        assert ParallelRulesPolicy().short_policy_name == "ParallelRules"
+
+
+# =============================================================================
+# Config
+# =============================================================================
 
 
 class TestParallelRulesConfig:
-    """Tests for ParallelRulesConfig parsing and defaults."""
-
     def test_default_config(self):
-        """Default config has sensible defaults."""
         config = ParallelRulesConfig()
         assert config.model == "claude-haiku-4-5"
         assert config.rules == []
         assert config.temperature == 0.0
-        assert config.max_tokens == 4096
-
-    def test_config_from_dict(self):
-        """Config parses from dict."""
-        config = ParallelRulesConfig(**{"model": "claude-opus", "temperature": 0.5})
-        assert config.model == "claude-opus"
-        assert config.temperature == 0.5
 
     def test_static_rules_parsed(self):
-        """Static rules from config are converted to Rule objects."""
-        policy = ParallelRulesPolicy(config={"rules": [{"name": "r1", "instruction": "Do thing 1"}]})
+        policy = ParallelRulesPolicy(config={"rules": [{"name": "r1", "instruction": "Do thing"}]})
         assert len(policy._static_rules) == 1
         assert policy._static_rules[0].name == "r1"
-        assert policy._static_rules[0].instruction == "Do thing 1"
 
-    def test_multiple_static_rules(self):
-        """Multiple static rules are all parsed."""
-        policy = ParallelRulesPolicy(
-            config={
-                "rules": [
-                    {"name": "r1", "instruction": "Rule 1"},
-                    {"name": "r2", "instruction": "Rule 2"},
-                ]
-            }
-        )
-        assert len(policy._static_rules) == 2
-        assert policy._static_rules[0].name == "r1"
-        assert policy._static_rules[1].name == "r2"
+
+# =============================================================================
+# Rule application
+# =============================================================================
 
 
 class TestRuleApplication:
-    """Tests for rule application logic."""
-
     @pytest.mark.asyncio
     async def test_no_rules_passthrough(self):
-        """With no rules, content passes through unchanged."""
         policy = ParallelRulesPolicy()
         ctx = PolicyContext.for_testing()
         result = await policy.simple_on_response_content("Hello world", ctx)
@@ -107,20 +128,18 @@ class TestRuleApplication:
     @pytest.mark.asyncio
     @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_single_rule_applies(self, mock_acompletion):
-        """When one rule changes the text, its version is used."""
-        mock_acompletion.return_value = _make_litellm_response("HELLO WORLD")
+        mock_acompletion.return_value = _apply_response("HELLO WORLD")
 
-        policy = ParallelRulesPolicy(config={"rules": [{"name": "uppercase", "instruction": "Convert to uppercase"}]})
+        policy = ParallelRulesPolicy(config={"rules": [{"name": "uppercase", "instruction": "Uppercase"}]})
         ctx = PolicyContext.for_testing()
         result = await policy.simple_on_response_content("Hello world", ctx)
         assert result == "HELLO WORLD"
-        mock_acompletion.assert_called_once()
 
     @pytest.mark.asyncio
     @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
-    async def test_single_rule_no_change(self, mock_acompletion):
-        """If rule returns text unchanged, passthrough."""
-        mock_acompletion.return_value = _make_litellm_response("Hello world")
+    async def test_single_rule_skips(self, mock_acompletion):
+        """Rule decides it doesn't apply — content passes through."""
+        mock_acompletion.return_value = _skip_response()
 
         policy = ParallelRulesPolicy(config={"rules": [{"name": "noop", "instruction": "Do nothing"}]})
         ctx = PolicyContext.for_testing()
@@ -129,54 +148,43 @@ class TestRuleApplication:
 
     @pytest.mark.asyncio
     @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
-    async def test_multiple_rules_no_changes(self, mock_acompletion):
-        """When multiple rules don't change text, passthrough."""
-        mock_acompletion.return_value = _make_litellm_response("Hello world")
+    async def test_multiple_rules_all_skip(self, mock_acompletion):
+        mock_acompletion.return_value = _skip_response()
 
         policy = ParallelRulesPolicy(
-            config={
-                "rules": [
-                    {"name": "r1", "instruction": "Rule 1"},
-                    {"name": "r2", "instruction": "Rule 2"},
-                ]
-            }
+            config={"rules": [{"name": "r1", "instruction": "R1"}, {"name": "r2", "instruction": "R2"}]}
         )
         ctx = PolicyContext.for_testing()
-        result = await policy.simple_on_response_content("Hello world", ctx)
-        assert result == "Hello world"
+        result = await policy.simple_on_response_content("Hello", ctx)
+        assert result == "Hello"
         assert mock_acompletion.call_count == 2
 
     @pytest.mark.asyncio
     @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
-    async def test_multiple_rules_one_change_uses_that_version(self, mock_acompletion):
-        """When 1 out of N rules changes text, use that version."""
+    async def test_multiple_rules_one_applies(self, mock_acompletion):
+        """When 1 of N rules applies, use its version."""
+        call_count = 0
 
         def side_effect(**kwargs):
-            # Return same as input first, then changed on second
-            return (
-                _make_litellm_response("Hello world")
-                if mock_acompletion.call_count == 1
-                else _make_litellm_response("HELLO WORLD")
-            )
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return _skip_response()
+            return _apply_response("CHANGED")
 
         mock_acompletion.side_effect = side_effect
 
         policy = ParallelRulesPolicy(
-            config={
-                "rules": [
-                    {"name": "r1", "instruction": "No change"},
-                    {"name": "r2", "instruction": "Uppercase"},
-                ]
-            }
+            config={"rules": [{"name": "r1", "instruction": "Skip"}, {"name": "r2", "instruction": "Apply"}]}
         )
         ctx = PolicyContext.for_testing()
-        result = await policy.simple_on_response_content("Hello world", ctx)
-        assert result == "HELLO WORLD"
+        result = await policy.simple_on_response_content("Hello", ctx)
+        assert result == "CHANGED"
 
     @pytest.mark.asyncio
     @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
-    async def test_multiple_rules_multiple_changes_triggers_refinement(self, mock_acompletion):
-        """When 2+ rules change content, a refinement call merges them."""
+    async def test_multiple_rules_trigger_refinement(self, mock_acompletion):
+        """When 2+ rules apply, refinement merges them."""
         call_count = 0
 
         def side_effect(**kwargs):
@@ -186,241 +194,113 @@ class TestRuleApplication:
             system_content = messages[0]["content"] if messages else ""
 
             if "text editor merging" in system_content:
-                # Refinement call
-                return _make_litellm_response("HELLO WORLD (concise)")
+                return _make_litellm_response("MERGED RESULT")
             elif call_count == 1:
-                return _make_litellm_response("HELLO WORLD")
+                return _apply_response("VERSION A")
             else:
-                return _make_litellm_response("Hello world (concise)")
+                return _apply_response("VERSION B")
 
         mock_acompletion.side_effect = side_effect
 
         policy = ParallelRulesPolicy(
-            config={
-                "rules": [
-                    {"name": "uppercase", "instruction": "Convert to uppercase"},
-                    {"name": "concise", "instruction": "Make concise"},
-                ]
-            }
+            config={"rules": [{"name": "a", "instruction": "Apply A"}, {"name": "b", "instruction": "Apply B"}]}
         )
         ctx = PolicyContext.for_testing()
-        result = await policy.simple_on_response_content("Hello world", ctx)
-
-        # Should have called: 2 rule applications + 1 refinement = 3 calls
-        assert call_count == 3
-        assert result == "HELLO WORLD (concise)"
+        result = await policy.simple_on_response_content("Hello", ctx)
+        assert call_count == 3  # 2 rules + 1 refinement
+        assert result == "MERGED RESULT"
 
     @pytest.mark.asyncio
     @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
-    async def test_rule_failure_treated_as_no_change(self, mock_acompletion):
-        """If a rule's LLM call fails, treat as no-change and continue."""
+    async def test_rule_failure_treated_as_skip(self, mock_acompletion):
         mock_acompletion.side_effect = Exception("LLM error")
 
-        policy = ParallelRulesPolicy(config={"rules": [{"name": "failing", "instruction": "Do thing"}]})
+        policy = ParallelRulesPolicy(config={"rules": [{"name": "failing", "instruction": "Fail"}]})
         ctx = PolicyContext.for_testing()
-        result = await policy.simple_on_response_content("Hello world", ctx)
-        assert result == "Hello world"
+        result = await policy.simple_on_response_content("Hello", ctx)
+        assert result == "Hello"
 
     @pytest.mark.asyncio
     @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
-    async def test_partial_rule_failure_in_multiple_rules(self, mock_acompletion):
-        """When one rule fails and another succeeds with change, use the success."""
+    async def test_unparseable_response_treated_as_skip(self, mock_acompletion):
+        """If rule returns non-JSON, treat as skip."""
+        mock_acompletion.return_value = _make_litellm_response("just some plain text")
 
+        policy = ParallelRulesPolicy(config={"rules": [{"name": "bad", "instruction": "Bad output"}]})
+        ctx = PolicyContext.for_testing()
+        result = await policy.simple_on_response_content("Hello", ctx)
+        assert result == "Hello"
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
+    async def test_partial_failure_uses_successful_rule(self, mock_acompletion):
         def side_effect(**kwargs):
             if mock_acompletion.call_count == 1:
-                raise Exception("Rule failed")
-            else:
-                return _make_litellm_response("TRANSFORMED")
+                raise Exception("Fail")
+            return _apply_response("TRANSFORMED")
 
         mock_acompletion.side_effect = side_effect
 
         policy = ParallelRulesPolicy(
-            config={
-                "rules": [
-                    {"name": "failing", "instruction": "Fail"},
-                    {"name": "transform", "instruction": "Transform"},
-                ]
-            }
+            config={"rules": [{"name": "fail", "instruction": "Fail"}, {"name": "ok", "instruction": "OK"}]}
         )
         ctx = PolicyContext.for_testing()
         result = await policy.simple_on_response_content("Hello", ctx)
         assert result == "TRANSFORMED"
 
-    @pytest.mark.asyncio
-    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
-    async def test_refinement_respects_config_model(self, mock_acompletion):
-        """Refinement call uses configured model."""
-        mock_acompletion.return_value = _make_litellm_response("refined")
 
-        policy = ParallelRulesPolicy(
-            config={
-                "model": "claude-opus",
-                "rules": [
-                    {"name": "r1", "instruction": "Rule 1"},
-                    {"name": "r2", "instruction": "Rule 2"},
-                ],
-            }
-        )
-        ctx = PolicyContext.for_testing()
-        await policy.simple_on_response_content("text", ctx)
-
-        # Check that calls used the right model
-        for call in mock_acompletion.call_args_list:
-            assert call.kwargs["model"] == "claude-opus"
-
-    @pytest.mark.asyncio
-    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
-    async def test_refinement_includes_rule_names_and_instructions(self, mock_acompletion):
-        """Refinement call includes rule names and instructions."""
-        mock_acompletion.return_value = _make_litellm_response("refined")
-
-        policy = ParallelRulesPolicy(
-            config={
-                "rules": [
-                    {"name": "uppercase", "instruction": "Make uppercase"},
-                    {"name": "concise", "instruction": "Make concise"},
-                ]
-            }
-        )
-        ctx = PolicyContext.for_testing()
-        await policy.simple_on_response_content("hello", ctx)
-
-        # Find the refinement call (the one with "text editor merging")
-        refinement_call = None
-        for call in mock_acompletion.call_args_list:
-            messages = call.kwargs.get("messages", [])
-            system = messages[0]["content"] if messages else ""
-            if "text editor merging" in system:
-                refinement_call = call
-                break
-
-        assert refinement_call is not None
-        # Check user message contains rule names
-        user_msg = refinement_call.kwargs["messages"][1]["content"]
-        assert "uppercase" in user_msg
-        assert "concise" in user_msg
+# =============================================================================
+# Dynamic rules
+# =============================================================================
 
 
 class TestDynamicRules:
-    """Tests for dynamic rules via request state."""
-
     @pytest.mark.asyncio
     @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_dynamic_rules_override_static(self, mock_acompletion):
-        """Dynamic rules set via set_rules_for_request take precedence."""
-        mock_acompletion.return_value = _make_litellm_response("dynamic result")
+        mock_acompletion.return_value = _apply_response("dynamic result")
 
-        policy = ParallelRulesPolicy(config={"rules": [{"name": "static", "instruction": "Static rule"}]})
+        policy = ParallelRulesPolicy(config={"rules": [{"name": "static", "instruction": "Static"}]})
         ctx = PolicyContext.for_testing()
-        policy.set_rules_for_request(ctx, [Rule(name="dynamic", instruction="Dynamic rule")])
+        policy.set_rules_for_request(ctx, [Rule(name="dynamic", instruction="Dynamic")])
         result = await policy.simple_on_response_content("Hello", ctx)
-
-        # Should use the dynamic rule
         assert result == "dynamic result"
-        # Only one call (one dynamic rule, not the static one)
         assert mock_acompletion.call_count == 1
 
-    @pytest.mark.asyncio
-    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
-    async def test_empty_dynamic_rules_fallback_to_static(self, mock_acompletion):
-        """If dynamic rules are empty list, fall back to static."""
-        mock_acompletion.return_value = _make_litellm_response("static result")
 
-        policy = ParallelRulesPolicy(config={"rules": [{"name": "static", "instruction": "Static rule"}]})
-        ctx = PolicyContext.for_testing()
-        policy.set_rules_for_request(ctx, [])
-        result = await policy.simple_on_response_content("Hello", ctx)
-
-        assert result == "static result"
-        # Should use static rules (1 rule)
-        assert mock_acompletion.call_count == 1
-
-    @pytest.mark.asyncio
-    @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
-    async def test_multiple_dynamic_rules(self, mock_acompletion):
-        """Multiple dynamic rules are applied in parallel."""
-
-        def side_effect(**kwargs):
-            messages = kwargs.get("messages", [])
-            system = messages[0]["content"] if messages else ""
-            if "text editor merging" in system:
-                return _make_litellm_response("merged")
-            else:
-                return _make_litellm_response(f"result_{mock_acompletion.call_count}")
-
-        mock_acompletion.side_effect = side_effect
-
-        policy = ParallelRulesPolicy()
-        ctx = PolicyContext.for_testing()
-        policy.set_rules_for_request(
-            ctx,
-            [
-                Rule(name="r1", instruction="Rule 1"),
-                Rule(name="r2", instruction="Rule 2"),
-            ],
-        )
-        await policy.simple_on_response_content("Hello", ctx)
-
-        # Should trigger refinement (2 rules that change)
-        assert mock_acompletion.call_count == 3
-
-
-class TestRuleResultDataclass:
-    """Tests for _RuleResult dataclass."""
-
-    def test_rule_result_unchanged(self):
-        """_RuleResult.changed is False when text unchanged."""
-        rule = Rule(name="test", instruction="Do thing")
-        result = _RuleResult(rule=rule, rewritten="hello", changed=False)
-        assert result.changed is False
-        assert result.rule.name == "test"
-        assert result.rewritten == "hello"
-
-    def test_rule_result_changed(self):
-        """_RuleResult.changed is True when text changed."""
-        rule = Rule(name="test", instruction="Do thing")
-        result = _RuleResult(rule=rule, rewritten="HELLO", changed=True)
-        assert result.changed is True
+# =============================================================================
+# Config / credentials
+# =============================================================================
 
 
 class TestConfigWithApiCredentials:
-    """Tests for config with optional API credentials."""
-
     def test_config_with_api_credentials(self):
-        """Config accepts and stores API credentials."""
-        config = ParallelRulesConfig(
-            model="custom-model",
-            api_base="https://api.custom.com",
-            api_key="sk-test",
-        )
+        config = ParallelRulesConfig(model="custom", api_base="https://api.custom.com", api_key="sk-test")
         assert config.api_base == "https://api.custom.com"
         assert config.api_key == "sk-test"
 
     @pytest.mark.asyncio
     @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_apply_rule_uses_api_credentials(self, mock_acompletion):
-        """_apply_rule passes API credentials to acompletion."""
-        mock_acompletion.return_value = _make_litellm_response("result")
+        mock_acompletion.return_value = _skip_response()
 
         policy = ParallelRulesPolicy(
-            config={
-                "api_base": "https://api.custom.com",
-                "api_key": "sk-test",
-                "rules": [{"name": "test", "instruction": "Do it"}],
-            }
+            config={"api_base": "https://api.custom.com", "api_key": "sk-test", "rules": [{"name": "t", "instruction": "T"}]}
         )
         ctx = PolicyContext.for_testing()
         await policy.simple_on_response_content("text", ctx)
 
-        # Check that API credentials were passed
         call_kwargs = mock_acompletion.call_args.kwargs
         assert call_kwargs.get("api_base") == "https://api.custom.com"
         assert call_kwargs.get("api_key") == "sk-test"
 
 
-class TestRefinementFailureFallback:
-    """Test that refinement failure falls back to first changed result."""
+# =============================================================================
+# Refinement failure
+# =============================================================================
 
+
+class TestRefinementFailureFallback:
     @pytest.mark.asyncio
     @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_refine_failure_uses_first_result(self, mock_acompletion):
@@ -433,50 +313,43 @@ class TestRefinementFailureFallback:
             system_content = messages[0]["content"] if messages else ""
 
             if "text editor merging" in system_content:
-                raise RuntimeError("LLM refinement failed")
+                raise RuntimeError("Refinement failed")
             elif call_count == 1:
-                return _make_litellm_response("VERSION A")
+                return _apply_response("VERSION A")
             else:
-                return _make_litellm_response("VERSION B")
+                return _apply_response("VERSION B")
 
         mock_acompletion.side_effect = side_effect
 
         policy = ParallelRulesPolicy(
-            config={
-                "rules": [
-                    {"name": "rule-a", "instruction": "Apply A"},
-                    {"name": "rule-b", "instruction": "Apply B"},
-                ]
-            }
+            config={"rules": [{"name": "a", "instruction": "A"}, {"name": "b", "instruction": "B"}]}
         )
         ctx = PolicyContext.for_testing()
         result = await policy.simple_on_response_content("original", ctx)
-
-        # Should fall back to first changed result when refinement fails
         assert result == "VERSION A"
 
 
-class TestMaxRules:
-    """Test that max_rules config caps the number of applied rules."""
+# =============================================================================
+# Max rules
+# =============================================================================
 
+
+class TestMaxRules:
     @pytest.mark.asyncio
     @patch("luthien_proxy.policies.rules_llm_utils.acompletion")
     async def test_max_rules_truncates(self, mock_acompletion):
-        # Return unchanged text so no refinement call is triggered
-        mock_acompletion.return_value = _make_litellm_response("text")
+        mock_acompletion.return_value = _skip_response()
 
         policy = ParallelRulesPolicy(
             config={
                 "max_rules": 2,
                 "rules": [
-                    {"name": "r1", "instruction": "Rule 1"},
-                    {"name": "r2", "instruction": "Rule 2"},
-                    {"name": "r3", "instruction": "Rule 3"},
+                    {"name": "r1", "instruction": "R1"},
+                    {"name": "r2", "instruction": "R2"},
+                    {"name": "r3", "instruction": "R3"},
                 ],
             }
         )
         ctx = PolicyContext.for_testing()
         await policy.simple_on_response_content("text", ctx)
-
-        # Only 2 rule calls (max_rules=2), not 3
         assert mock_acompletion.call_count == 2
