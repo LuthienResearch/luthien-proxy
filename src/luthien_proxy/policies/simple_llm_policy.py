@@ -108,7 +108,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         settings = get_settings()
         self._config = SimpleLLMJudgeConfig(
             model=settings.llm_judge_model or parsed.model,
-            api_base=settings.llm_judge_api_base or parsed.api_base,
+            base_url=settings.llm_judge_api_base or parsed.base_url,
             api_key=parsed.api_key,  # explicit per-policy override only
             instructions=parsed.instructions,
             temperature=parsed.temperature,
@@ -116,7 +116,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             on_error=parsed.on_error,
         )
         # Server-level key fallback, used when no per-policy key and no passthrough key.
-        self._fallback_api_key = settings.llm_judge_api_key or settings.litellm_master_key or None
+        self._fallback_api_key = settings.llm_judge_api_key or None
 
         if self._config.on_error == "pass":
             logger.warning(
