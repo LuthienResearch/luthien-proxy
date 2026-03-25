@@ -59,6 +59,17 @@ Search the codebase for the same pattern. Check for related assumptions that mig
 |--------|--------------|--------|
 | [pattern searched] | [where] | [safe / found issue / fixed] |
 
+**Class-level analysis:**
+
+Is this bug an instance of a broader failure class? (e.g., "one streaming handler drops events" → "all streaming handlers may have ordering bugs")
+
+If yes:
+1. Name the failure class
+2. List all instances found (not just this one)
+3. Fix or document all instances — not just the one that triggered this COE
+
+A COE that only patches the specific instance is incomplete. (Origin: [private-claude-code-docs PR #4](https://github.com/scottwofford/private-claude-code-docs/pull/4) — a gdrive read failure was fixed narrowly, missing 5 other MCP servers with the same class of problem.)
+
 **Fixes Applied:**
 
 | Issue | Fix | File |
@@ -71,11 +82,21 @@ Search the codebase for the same pattern. Check for related assumptions that mig
 |--------|-------|----------|------|
 | [action] | [who] | [when] | Architectural / Detection / Process |
 
-(Every COE must have at least one action item beyond "fix the line." If the only action is the code fix itself, you haven't gone deep enough.)
+(Every COE must have at least one action item beyond "fix the line." If the only action is the code fix itself, you haven't gone deep enough. Every action item must have an owner and due date — unowned items rot.)
+
+**Completeness gate (answer before submitting):**
+
+> "If a similar but slightly different version of this bug appeared tomorrow in an adjacent area, would this fix prevent it?"
+
+If no → widen the COE scope. Go back to the class-level analysis and expand.
 
 ---
 
 Reference examples (full PRs with COEs at this standard):
-- https://github.com/LuthienResearch/luthien-proxy/pull/201
-- https://github.com/LuthienResearch/luthien-proxy/pull/203
-- https://github.com/LuthienResearch/luthien-proxy/pull/202
+- https://github.com/LuthienResearch/luthien-proxy/pull/204 — design principles + self-healing pipeline (architectural fix for 5 instances of missing request validation)
+- https://github.com/LuthienResearch/luthien-proxy/pull/134 — 5-layer postmortem, meta 5 Whys (thinking blocks in streaming)
+- https://github.com/LuthienResearch/luthien-proxy/pull/356 — class-level sweep of streaming handlers (parallel tool_use ordering violation)
+- https://github.com/LuthienResearch/luthien-proxy/pull/201 — empty text content blocks causing API 400s
+- https://github.com/LuthienResearch/luthien-proxy/pull/203 — orphaned Docker containers from project name mismatch
+- https://github.com/LuthienResearch/luthien-proxy/pull/202 — bash 3 compatibility for find-available-ports.sh
+- https://github.com/scottwofford/private-claude-code-docs/pull/4 — class-level MCP audit after single-fix COE (the COE that led to adding class-level analysis)
