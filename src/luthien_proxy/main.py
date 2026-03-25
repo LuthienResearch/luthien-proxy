@@ -1,4 +1,4 @@
-"""Luthien - integrated FastAPI + LiteLLM proxy with OpenTelemetry observability."""
+"""Luthien - integrated FastAPI proxy with OpenTelemetry observability."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import os
 import secrets
 from contextlib import asynccontextmanager
 
-import litellm
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.exceptions import HTTPException as FastAPIHTTPException
@@ -161,10 +160,6 @@ def create_app(
         # Validate migrations are up to date before proceeding
         await check_migrations(db_pool)
         logger.info("Migration check passed")
-
-        # Configure litellm globally (moved from policy file to prevent import side effects)
-        litellm.drop_params = True
-        logger.info("Configured litellm: drop_params=True")
 
         # Create event publisher (Redis or in-process)
         _event_publisher: EventPublisherProtocol
@@ -477,9 +472,8 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
 def configure_local_mode() -> dict[str, str]:
     """Force-set env vars for dockerless local mode.
 
-    Infrastructure vars (DATABASE_URL, REDIS_URL, etc.) are force-set because
-    litellm calls dotenv.load_dotenv() at import time, polluting os.environ
-    with Docker-internal values from .env. API keys use setdefault so users
+    Infrastructure vars (DATABASE_URL, REDIS_URL, etc.) are force-set to prevent
+    Docker-internal values from .env leaking into local mode. API keys use setdefault so users
     can pre-set them intentionally.
 
     Returns:

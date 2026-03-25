@@ -46,7 +46,7 @@ class TestConfigureLocalMode:
         assert "ADMIN_API_KEY" not in os.environ
 
     def test_force_overrides_existing_database_url(self, monkeypatch):
-        """Infrastructure vars are force-set because litellm's dotenv pollutes os.environ."""
+        """Infrastructure vars are force-set to prevent Docker .env values leaking into local mode."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://custom:5432/db")
         configure_local_mode()
         assert os.environ["DATABASE_URL"].startswith("sqlite:///")

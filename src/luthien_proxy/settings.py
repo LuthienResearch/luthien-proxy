@@ -64,7 +64,6 @@ class Settings(BaseSettings):
     llm_judge_model: str | None = None
     llm_judge_api_base: str | None = None
     llm_judge_api_key: str | None = None
-    litellm_master_key: str | None = None
 
     # Skip auth for all routes when accessed from localhost (127.0.0.1, ::1)
     localhost_auth_bypass: bool = True
