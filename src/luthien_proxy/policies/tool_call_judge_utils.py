@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from luthien_proxy.llm.completion import completion
 from luthien_proxy.utils.constants import DEFAULT_JUDGE_MAX_TOKENS
@@ -49,7 +49,15 @@ class JudgeConfig(BaseModel):
         description="Maximum output tokens for judge response",
     )
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "populate_by_name": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_api_base(cls, data: dict) -> dict:
+        """Accept api_base as a deprecated alias for base_url."""
+        if isinstance(data, dict) and "api_base" in data:
+            data.setdefault("base_url", data.pop("api_base"))
+        return data
 
 
 @dataclass(frozen=True)

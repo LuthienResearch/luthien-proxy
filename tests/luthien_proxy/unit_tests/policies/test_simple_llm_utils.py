@@ -48,6 +48,11 @@ class TestSimpleLLMJudgeConfig:
         with pytest.raises(Exception):
             SimpleLLMJudgeConfig(instructions="x", on_error="ignore")
 
+    def test_api_base_alias(self):
+        """api_base is accepted as alias for base_url (backwards compat)."""
+        config = SimpleLLMJudgeConfig(instructions="x", api_base="http://custom:8080")
+        assert config.base_url == "http://custom:8080"
+
 
 class TestBlockDescriptor:
     def test_text_block(self):

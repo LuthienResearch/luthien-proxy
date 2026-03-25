@@ -21,6 +21,13 @@ from luthien_proxy.policies.tool_call_judge_utils import (
 )
 
 
+class TestJudgeConfig:
+    def test_api_base_alias(self):
+        """api_base is accepted as alias for base_url (backwards compat)."""
+        config = JudgeConfig(model="test", api_base="http://custom:8080")
+        assert config.base_url == "http://custom:8080"
+
+
 class TestBuildJudgePrompt:
     """Test judge prompt building utilities."""
 
