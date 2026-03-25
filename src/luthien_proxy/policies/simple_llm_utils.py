@@ -15,7 +15,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from luthien_proxy.llm.completion import completion
-
 from luthien_proxy.policies.tool_call_judge_utils import parse_judge_response
 
 logger = logging.getLogger(__name__)

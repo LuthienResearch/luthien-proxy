@@ -17,7 +17,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from luthien_proxy.llm.completion import completion
-
 from luthien_proxy.utils.constants import DEFAULT_JUDGE_MAX_TOKENS
 
 logger = logging.getLogger(__name__)

@@ -285,7 +285,7 @@ async def list_models(
 ):
     """List available models for testing.
 
-    Returns a list of Anthropic Claude models available via litellm.
+    Returns a list of available Anthropic Claude models.
     Requires admin authentication.
     """
     return {"models": get_available_models()}

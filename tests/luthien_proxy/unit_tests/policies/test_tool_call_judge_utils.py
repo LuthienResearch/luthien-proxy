@@ -13,7 +13,6 @@ from unittest.mock import patch
 import pytest
 
 from luthien_proxy.llm.completion import CompletionResult
-
 from luthien_proxy.policies.tool_call_judge_utils import (
     JudgeConfig,
     build_judge_prompt,
