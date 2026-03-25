@@ -1,7 +1,7 @@
 # Streaming Response Structures
 
 **Date**: 2025-10-23
-**Testing**: Live responses from Claude Sonnet 4 and GPT-4o-mini via LiteLLM
+**Testing**: Live responses from Claude Sonnet 4 and GPT-4o-mini (captured 2025-10-23)
 **Data**: See `/tmp/*_chunks.json` from `scripts/test_response_structures.py`
 
 ## Executive Summary

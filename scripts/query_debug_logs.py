@@ -1,4 +1,4 @@
-"""Quick helper to inspect debug_logs for a given litellm_call_id."""
+"""Quick helper to inspect debug_logs for a given call_id."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def load_env_file(env_path: Path) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Inspect debug_logs records.")
-    parser.add_argument("--call-id", help="litellm_call_id to filter on", default=None)
+    parser.add_argument("--call-id", help="call_id (jsonblob field) to filter on", default=None)
     parser.add_argument("--debug-type", help="debug_type_identifier filter", default=None)
     parser.add_argument("--limit", type=int, default=50, help="maximum rows to return")
     parser.add_argument(

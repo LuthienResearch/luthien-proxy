@@ -74,8 +74,8 @@ async def call_judge(
     """Call LLM judge to evaluate a tool call.
 
     api_key overrides config.api_key (used for passthrough auth). extra_headers
-    is used for OAuth tokens (anthropic-beta header). If neither is set, LiteLLM
-    falls back to its own env-var resolution.
+    is used for OAuth tokens (anthropic-beta header). If neither is set, falls
+    back to ANTHROPIC_API_KEY env var.
 
     Args:
         name: Tool call name

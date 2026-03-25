@@ -9,7 +9,7 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 ## V2 Architecture Overview (2025-10-24, updated 2025-12-04)
 
-- **Gateway** (`src/luthien_proxy/`): Integrated FastAPI + LiteLLM application with built-in policy enforcement
+- **Gateway** (`src/luthien_proxy/`): Integrated FastAPI application with built-in policy enforcement
 - **Orchestration** (`src/luthien_proxy/orchestration/`): PolicyOrchestrator coordinates streaming pipeline
 - **Policies** (`src/luthien_proxy/policies/`): Event-driven policy implementations
 - **Policy Core** (`src/luthien_proxy/policy_core/`): Policy protocol, contexts, and chunk builders
@@ -19,7 +19,7 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 - **Admin** (`src/luthien_proxy/admin/`): Runtime policy management API
 - **Debug** (`src/luthien_proxy/debug/`): Debug endpoints for inspecting conversation events
 - **UI** (`src/luthien_proxy/ui/`): Activity monitoring and diff viewer interfaces
-- **LLM** (`src/luthien_proxy/llm/`): LiteLLM client wrapper and format converters
+- **LLM** (`src/luthien_proxy/llm/`): LLM client implementations (Anthropic native SDK, internal completion wrapper)
 
 Integrated architecture - everything runs in single gateway process.
 
@@ -37,22 +37,9 @@ Integrated architecture - everything runs in single gateway process.
 - **Background persistence**: `SequentialTaskQueue` ensures non-blocking event emission to database
 - **OpenTelemetry**: Distributed tracing with automatic span creation and log correlation
 
-## LiteLLM Role in V2 Architecture (2025-10-17)
+## LiteLLM Removed (2026-03-25, replaces 2025-10-17 entry)
 
-**Key insight**: LiteLLM should ONLY be used for API format conversion, not parameter validation.
-
-**Problem**: When passing model-specific parameters (e.g., `verbosity: "low"` for GPT-5), litellm's `acompletion()` rejects them with "Unknown parameter" errors.
-
-**Solution**: Use litellm's `allowed_openai_params` mechanism:
-```python
-# Identify model-specific parameters to forward
-known_params = {"verbosity"}  # Add more as needed
-model_specific_params = [p for p in data.keys() if p in known_params]
-if model_specific_params:
-    data["allowed_openai_params"] = model_specific_params
-```
-
-**Key principle**: We want litellm to do format conversion (OpenAI ↔ Anthropic) but NOT validate parameters. Each provider knows what it supports.
+LiteLLM was removed as a dependency. Judge policies (`SimpleLLMPolicy`, `ToolCallJudgePolicy`) now use the internal `llm/completion.py` wrapper which calls the Anthropic SDK directly. The `llm/litellm_client.py` file no longer exists; `llm/completion.py` is its replacement.
 
 ## E2E Test Infrastructure (2025-10-17, updated 2025-10-24)
 
@@ -79,9 +66,9 @@ def gateway():
 ### Architecture
 
 ```
-Backend LLM (via LiteLLM)
+Backend LLM (via AnthropicClient)
          ↓
-AsyncIterator[ModelResponse] ← LiteLLM provides common format
+AsyncIterator[ModelResponse]
          ↓
     PolicyExecutor (stage 1)
     - Block assembly (StreamingChunkAssembler)
@@ -100,7 +87,7 @@ sse_queue: Queue[str]
 
 ### Key Design Principles
 
-1. **No Ingress Formatting**: LiteLLM already normalizes backend responses to ModelResponse format
+1. **No Ingress Formatting**: Backend responses arrive pre-normalized (no extra conversion layer needed)
 2. **Dependency Injection**: Gateway instantiates PolicyExecutor and ClientFormatter, injects into PolicyOrchestrator
 3. **Explicit Queues**: Typed queues (`Queue[ModelResponse]`, `Queue[str]`) define clear data contracts
 4. **Context Threading**: `ObservabilityContext` and `PolicyContext` created at gateway, passed through entire lifecycle
@@ -109,7 +96,7 @@ sse_queue: Queue[str]
 
 ### Why This Architecture
 
-**Simplified from original 3-stage plan**: Discovered LiteLLM provides ModelResponse, eliminating need for CommonFormatter stage.
+**Simplified from original 3-stage plan**: No ingress formatting needed; the backend client delivers chunks directly to the PolicyExecutor.
 
 **Benefits**:
 - Clear data flow visible in code structure

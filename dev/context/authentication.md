@@ -32,7 +32,7 @@ Token is extracted from, in order:
    - Received via `Authorization: Bearer` → `AnthropicClient(auth_token=token)` (OAuth token)
    - Received via `x-api-key` → `AnthropicClient(api_key=token)` (API key)
 
-**For Anthropic (`/v1/messages`)**: `verify_token()` validates but the token is NOT forwarded to LiteLLM — LiteLLM uses env vars (`ANTHROPIC_API_KEY`, etc.) or per-request `api_key` kwargs.
+**For Anthropic (`/v1/messages`)**: `verify_token()` validates the token; the backend `AnthropicClient` uses its own credential (resolved via `resolve_anthropic_client()` above).
 
 ---
 
@@ -51,13 +51,12 @@ Headers are stored lowercase. `BasePolicy._extract_passthrough_key(raw_http_requ
 
 ## Judge LLM Key Resolution (2026-03-17)
 
-Both `SimpleLLMPolicy` and `ToolCallJudgePolicy` make separate LiteLLM calls to a judge model. Key priority (resolved per-request at call time):
+Both `SimpleLLMPolicy` and `ToolCallJudgePolicy` make separate calls to a judge model via `llm/completion.py`. Key priority (resolved per-request at call time):
 
 1. **Explicit policy config `api_key`** — set by admin in the policy config. Highest priority, overrides everything.
 2. **Passthrough key** — the client's incoming API key from `context.raw_http_request.headers`. Default behavior: the client's key is used for judge calls too.
 3. **`LLM_JUDGE_API_KEY` env var** — server-configured key specifically for judge calls.
-4. **`LITELLM_MASTER_KEY` env var** — legacy catch-all fallback.
-5. **None** — LiteLLM resolves via its own env var chain (`ANTHROPIC_API_KEY`, etc.).
+4. **None** — falls back to `ANTHROPIC_API_KEY` env var.
 
 This is implemented in `_resolve_api_key(context)` on each policy class (backed by `BasePolicy._extract_passthrough_key()`). The resolved key is passed as `api_key=` kwarg to `call_simple_llm_judge()` / `call_judge()`.
 

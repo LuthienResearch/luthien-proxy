@@ -1,6 +1,6 @@
 #!/bin/bash
 # Requires: bash 3.2+
-# ABOUTME: Start the V2 integrated gateway (FastAPI + LiteLLM with control plane)
+# ABOUTME: Start the V2 integrated gateway (FastAPI with control plane)
 # ABOUTME: Runs on port 8000 (configurable via GATEWAY_PORT env var)
 
 set -e

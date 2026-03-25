@@ -12,7 +12,7 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 - E2E tests (`pytest -m e2e`) are SLOW - use sparingly, prefer unit tests for rapid iteration
 - Always run `./scripts/dev_checks.sh` before committing - formats, lints, type-checks, and tests
 - **OTel disabled in tests**: Set `OTEL_ENABLED=false` in test environment to avoid connection errors to Tempo endpoint. Module-level `tracer = trace.get_tracer()` calls trigger OTel initialization at import time.
-- **LiteLLM type warnings**: When working with `ModelResponse`, use proper typed objects (`Choices`, `StreamingChoices`, `Message`, `Delta`) to avoid Pydantic serialization warnings from LiteLLM's `Union` types. See test fixtures for examples.
+- **ModelResponse type warnings**: When constructing `ModelResponse` objects in tests, use proper typed objects (`Choices`, `StreamingChoices`, `Message`, `Delta`) to avoid Pydantic serialization warnings. See test fixtures for examples.
 - **E2E tests**: E2E tests remain (test_gateway_matrix.py, test_streaming_chunk_structure.py).
 
 ## Docker Development (2025-10-08, updated 2026-02-03)
@@ -78,7 +78,7 @@ See `SimplePolicy.on_stream_complete()` for the pattern.
 **Gotcha**: Images pass validation after PR #104 fix, but Claude may respond to wrong image content.
 
 - **Fixed (PR #104)**: Validation error - changed `Request.messages` to `list[dict[str, Any]]`, added image block conversion
-- **Still broken**: Claude sometimes describes wrong image - suspect LiteLLM→Anthropic conversion issue
+- **Still broken**: Claude sometimes describes wrong image - suspect proxy format conversion issue
 - **Tracking**: Issue #108 has full troubleshooting logs
 
 ## Thinking Blocks Must Come First in Anthropic Responses (2026-01-14)
@@ -91,7 +91,7 @@ See `SimplePolicy.on_stream_complete()` for the pattern.
 
 **Gotcha**: Extended thinking requires fixes at THREE layers - streaming, format conversion, AND request validation.
 
-1. **Streaming assembler** must recognize `reasoning_content` and `thinking_blocks` from LiteLLM
+1. **Streaming assembler** must recognize `reasoning_content` and `thinking_blocks` from the backend
 2. **Format conversion** (`anthropic_to_openai_request`) must preserve thinking blocks in message history - they were silently dropped!
 3. **Pydantic validation** must allow list content in `AssistantMessage` - OpenAI types don't natively support thinking blocks
 
@@ -102,37 +102,23 @@ See `SimplePolicy.on_stream_complete()` for the pattern.
 
 **Files involved**: `anthropic_sse_assembler.py`, `llm_format_utils.py`, `types/anthropic.py`, `types/openai.py`
 
-## LiteLLM Delivers Thinking Signatures Out of Order (2026-01-24)
+## Backend Delivers Thinking Signatures Out of Order (2026-01-24)
 
-**Gotcha**: LiteLLM sends `signature_delta` AFTER text content starts, but Anthropic requires it BEFORE the thinking block closes.
+**Gotcha**: The backend sends `signature_delta` AFTER text content starts, but Anthropic requires it BEFORE the thinking block closes.
 
 **Expected order** (Anthropic native):
 1. thinking_deltas → 2. signature_delta → 3. content_block_stop → 4. text starts
 
-**LiteLLM actual order**:
+**Actual backend order**:
 1. thinking_deltas → 2. text starts → 3. signature_delta (too late!)
 
 **Fix**: Delay `content_block_stop` for thinking blocks until signature arrives. Track `thinking_block_needs_close` flag and `last_thinking_block_index`.
 
-## LiteLLM >= 1.81.0 Breaking Changes in Streaming (2026-01-29)
+## LiteLLM >= 1.81.0 Breaking Changes in Streaming (2026-01-29, HISTORICAL)
 
-**Gotcha**: litellm 1.81.0+ introduced breaking changes in streaming response handling.
+**Note**: LiteLLM was removed as a dependency (2026-03-25). This entry is kept for historical context only.
 
-**Breaking changes**:
-1. `StreamingChoices.delta` returns a `dict` instead of a `Delta` object
-2. `finish_reason` defaults to `"stop"` instead of `None` for intermediate chunks
-3. `StreamingChoices` passed to `ModelResponse` may get converted to `Choices`
-
-**Fix**: Use `response_normalizer.py` to normalize all streaming chunks:
-- `normalize_chunk()` - converts dict deltas to `Delta` objects
-- `normalize_chunk_with_finish_reason()` - also restores intended `finish_reason`
-- `normalize_stream()` - wraps async streams to normalize each chunk
-
-**Where normalization happens**:
-- `litellm_client.py` calls `normalize_stream()` on raw litellm output
-- Downstream code should receive already-normalized chunks
-
-**Test helpers**: Use `litellm_test_utils.make_streaming_chunk()` to create normalized chunks for tests.
+**Was**: litellm 1.81.0+ introduced breaking changes in streaming response handling (dict deltas, wrong finish_reason defaults). The fix was `response_normalizer.py` called from `litellm_client.py`. Both files have since been removed.
 
 ## Content and finish_reason Must Be in Separate Chunks (2026-01-30)
 
@@ -183,7 +169,7 @@ if stream_state.finish_reason:
 2. **Compare streaming chunks**: Enable debug logging to see each SSE chunk as it flows through pipeline
 3. **Isolate the layer**: Is it request conversion? Response assembly? Policy transformation?
 4. **Reproduce minimally**: Strip the request down to simplest failing case
-5. **Check LiteLLM version**: Breaking changes in LiteLLM streaming have caused issues (see litellm >= 1.81.0 gotcha)
+5. **Check streaming pipeline**: Look for chunk assembly or SSE conversion issues in `streaming/`
 
 **Tools available**:
 - Activity monitor: `/activity/monitor` - live SSE stream

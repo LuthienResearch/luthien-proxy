@@ -48,7 +48,7 @@ Editor setup (VS Code)
 
 The gateway integrates everything into a single FastAPI application:
 
-- **Gateway** (`src/luthien_proxy/`): Unified FastAPI + LiteLLM integration
+- **Gateway** (`src/luthien_proxy/`): Unified FastAPI application
   - Anthropic Messages API compatibility
   - Event-driven policy system with streaming support
   - OpenTelemetry instrumentation for observability

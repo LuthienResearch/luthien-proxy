@@ -39,7 +39,7 @@ Via `PolicyOrchestrator.process_request()`
 
 ### 4. Backend call
 
-- Request sent to configured backend via LiteLLM client
+- Request sent to configured backend via AnthropicClient
 - Backend returns complete response
 
 ### 5. Response processing
@@ -80,7 +80,7 @@ This approach gives policies visibility into complete blocks (not just raw chunk
 
 ```mermaid
 graph TD
-    A["Backend LLM via LiteLLM"] -->|"AsyncIter[ModelResponse]"| B["PolicyExecutor - Stage 1"]
+    A["Backend LLM via AnthropicClient"] -->|"AsyncIter[ModelResponse]"| B["PolicyExecutor - Stage 1"]
     B -->|"Block assembly + hooks"| C["policy_out_queue<br/>Queue[ModelResponse]"]
     C --> D["ClientFormatter - Stage 2"]
     D -->|"SSE conversion"| E["sse_queue<br/>Queue[str]"]
@@ -109,11 +109,10 @@ Request includes `"stream": true`
 - Validates authentication
 - Processes request through policy hooks
 
-### 3. LiteLLM streams from backend
+### 3. AnthropicClient streams from backend
 
 - Returns `AsyncIterator[ModelResponse]` - chunks arrive incrementally
-- LiteLLM already normalized chunks to common format
-- **Key insight**: No ingress formatting needed!
+- **Key insight**: No ingress formatting needed — chunks arrive in the common format!
 
 ### 4. Streaming Pipeline - Stage 1: PolicyExecutor
 
@@ -295,7 +294,7 @@ Policies can intercept at these points:
 
 ### Q: Why remove CommonFormatter?
 
-**A**: Discovered LiteLLM already normalizes backend responses to ModelResponse. Having a formatter that did `ModelResponse → ModelResponse` was unnecessary complexity (~200 lines removed).
+**A**: The backend client delivers chunks directly in the common format. Having a formatter that did `ModelResponse → ModelResponse` was unnecessary complexity (~200 lines removed).
 
 ### Q: What if a policy is slow?
 
@@ -359,7 +358,7 @@ Policies can intercept at these points:
 
 ### Type errors
 
-- Ensure using proper LiteLLM types (`StreamingChoices`, `Delta`, not dicts)
+- Ensure using proper typed objects (`StreamingChoices`, `Delta`, not dicts)
 - Check queue type annotations match what's being put/get
 - Use test fixtures as reference for proper types
 

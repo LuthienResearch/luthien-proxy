@@ -195,8 +195,8 @@ async def call_simple_llm_judge(
     """Call the judge LLM and return its decision.
 
     api_key overrides config.api_key (used for passthrough auth). extra_headers
-    is used for OAuth tokens (anthropic-beta header). If neither is set, LiteLLM
-    falls back to its own env-var resolution.
+    is used for OAuth tokens (anthropic-beta header). If neither is set, falls
+    back to ANTHROPIC_API_KEY env var.
 
     Retries up to config.max_retries times with config.retry_delay between
     attempts. Exceptions propagate to the caller on final failure.
