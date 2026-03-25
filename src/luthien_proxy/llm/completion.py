@@ -85,13 +85,13 @@ async def completion(
     finally:
         await client.close()
 
-    # Extract first text block
-    for block in response.content:
-        if hasattr(block, "text"):
-            return CompletionResult(
-                text=block.text,
-                input_tokens=response.usage.input_tokens,
-                output_tokens=response.usage.output_tokens,
-            )
+    # Concatenate all text blocks
+    text_parts = [block.text for block in response.content if hasattr(block, "text")]
+    if not text_parts:
+        raise ValueError("No text content in LLM response")
 
-    raise ValueError("No text content in LLM response")
+    return CompletionResult(
+        text="\n".join(text_parts),
+        input_tokens=response.usage.input_tokens,
+        output_tokens=response.usage.output_tokens,
+    )

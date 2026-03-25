@@ -182,6 +182,34 @@ class TestCompletion:
         mock_client.close.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_multi_text_blocks_concatenated(self):
+        """Multiple text blocks are joined with newlines."""
+        block1 = MagicMock()
+        block1.text = "first part"
+        block2 = MagicMock()
+        block2.text = "second part"
+
+        mock_message = MagicMock()
+        mock_message.content = [block1, block2]
+        mock_message.usage.input_tokens = 10
+        mock_message.usage.output_tokens = 8
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(return_value=mock_message)
+
+        with patch(
+            "luthien_proxy.llm.completion.anthropic.AsyncAnthropic",
+            return_value=mock_client,
+        ):
+            result = await completion(
+                model="claude-haiku-4-5",
+                messages=[{"role": "user", "content": "Hi"}],
+                api_key="test-key",
+            )
+
+        assert result.text == "first part\nsecond part"
+
+    @pytest.mark.asyncio
     async def test_client_closed_on_error(self):
         """Client is closed even when API call raises."""
         mock_client = AsyncMock()
