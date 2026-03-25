@@ -13,8 +13,9 @@ from __future__ import annotations
 import json
 import logging
 import urllib.parse
-from datetime import datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
+
+from luthien_proxy.utils.db import parse_db_ts
 
 if TYPE_CHECKING:
     from luthien_proxy.utils.db import DatabasePool
@@ -239,7 +240,7 @@ async def fetch_call_events(call_id: str, db_pool: DatabasePool) -> CallEventsRe
         ConversationEventResponse(
             call_id=str(row["call_id"]),
             event_type=str(row["event_type"]),
-            timestamp=cast(datetime, row["created_at"]).isoformat(),
+            timestamp=parse_db_ts(row["created_at"]).isoformat(),
             hook="",  # Not stored in schema
             payload=_parse_payload(row["payload"]),
             session_id=str(row["session_id"]) if row["session_id"] else None,
@@ -355,7 +356,7 @@ async def fetch_recent_calls(limit: int, db_pool: DatabasePool) -> CallListRespo
         CallListItem(
             call_id=str(row["call_id"]),
             event_count=int(row["event_count"]),  # type: ignore[arg-type]
-            latest_timestamp=cast(datetime, row["latest"]).isoformat(),
+            latest_timestamp=parse_db_ts(row["latest"]).isoformat(),
             session_id=str(row["session_id"]) if row["session_id"] else None,
         )
         for row in rows
