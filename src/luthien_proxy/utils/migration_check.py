@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_MIGRATIONS_DIR = "/app/migrations"
 
 SNAPSHOT_ERA_MARKER_TABLE = "current_policy"
+# Lexicographic comparison — assumes zero-padded 3-digit prefixes (000-009)
 BOOTSTRAP_THROUGH_PREFIX = "009"
 
 
@@ -124,7 +125,11 @@ async def _apply_sqlite_migrations(
                         )
                 continue
 
-            # Apply migration
+            # Apply migration — split on ";" is naive (breaks on semicolons in
+            # string literals) but sufficient for our DDL-only migration files.
+            # SQLite DDL auto-commits, so transaction wrapping won't help with
+            # partial failures. A multi-statement migration that fails mid-way
+            # will leave partial schema with no _migrations record.
             sql = mf.read_text()
             for statement in sql.split(";"):
                 statement = statement.strip()

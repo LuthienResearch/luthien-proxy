@@ -11,7 +11,7 @@ Migrations live in two directories with matched numbering:
 
 Every migration needs BOTH a Postgres and SQLite file with matched numbering.
 
-1. Pick the next number: `ls migrations/postgres/` to see current highest.
+1. Pick the next number: `ls migrations/postgres/` to see current highest. Use zero-padded 3-digit prefixes (e.g., `010`, not `10`). Note: `008` is used by two historical migrations — do not reuse prefixes.
 2. Create `migrations/postgres/NNN_description.sql` with Postgres-native DDL.
 3. Create `migrations/sqlite/NNN_description.sql` with SQLite-compatible DDL.
 4. Copy the SQLite file: `cp migrations/sqlite/NNN_*.sql src/luthien_proxy/utils/sqlite_migrations/`
