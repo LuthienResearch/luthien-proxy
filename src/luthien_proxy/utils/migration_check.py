@@ -86,13 +86,10 @@ async def _apply_sqlite_migrations(
         )
 
         # Check for snapshot-era database: _migrations empty but tables exist
-        migration_count = await conn.fetchval(
-            "SELECT COUNT(*) FROM _migrations"
-        )
+        migration_count = await conn.fetchval("SELECT COUNT(*) FROM _migrations")
         if migration_count == 0:
             marker_exists = await conn.fetchval(
-                "SELECT COUNT(*) FROM sqlite_master "
-                "WHERE type='table' AND name=?",
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
                 SNAPSHOT_ERA_MARKER_TABLE,
             )
             if marker_exists:
@@ -108,9 +105,7 @@ async def _apply_sqlite_migrations(
                 logger.info("Bootstrap complete -- existing migrations seeded")
 
         # Get already-applied migrations
-        applied_rows = await conn.fetch(
-            "SELECT filename, content_hash FROM _migrations ORDER BY filename"
-        )
+        applied_rows = await conn.fetch("SELECT filename, content_hash FROM _migrations ORDER BY filename")
         applied = {row["filename"]: row["content_hash"] for row in applied_rows}
 
         # Validate + apply
@@ -134,8 +129,7 @@ async def _apply_sqlite_migrations(
             for statement in sql.split(";"):
                 statement = statement.strip()
                 if statement and not all(
-                    line.strip().startswith("--") or not line.strip()
-                    for line in statement.split("\n")
+                    line.strip().startswith("--") or not line.strip() for line in statement.split("\n")
                 ):
                     await conn.execute(statement)
 
@@ -153,8 +147,7 @@ async def _apply_sqlite_migrations(
         )
         if telemetry_exists:
             await conn.execute(
-                "UPDATE telemetry_config SET deployment_id = ? "
-                "WHERE id = 1 AND deployment_id = 'pending'",
+                "UPDATE telemetry_config SET deployment_id = ? WHERE id = 1 AND deployment_id = 'pending'",
                 str(uuid.uuid4()),
             )
 

@@ -93,8 +93,7 @@ async def get_postgres_schema() -> dict:
 
     # Extract tables and columns (exclude system tables)
     rows = await conn.fetch(
-        "SELECT table_name FROM information_schema.tables "
-        "WHERE table_schema = 'public' ORDER BY table_name"
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
     )
 
     tables = {}
@@ -136,9 +135,7 @@ class TestMigrationSync:
         pg_tables = {t for t in pg_schema if t != "_migrations"}
 
         assert sqlite_tables == pg_tables, (
-            f"Table mismatch.\n"
-            f"  SQLite only: {sqlite_tables - pg_tables}\n"
-            f"  Postgres only: {pg_tables - sqlite_tables}"
+            f"Table mismatch.\n  SQLite only: {sqlite_tables - pg_tables}\n  Postgres only: {pg_tables - sqlite_tables}"
         )
 
         # Compare columns per table
@@ -156,6 +153,5 @@ class TestMigrationSync:
                 sqlite_type = sqlite_cols[col_name]["type"]
                 pg_type = pg_cols[col_name]["type"]
                 assert sqlite_type == pg_type, (
-                    f"Type mismatch in '{table}.{col_name}': "
-                    f"SQLite={sqlite_type}, Postgres(normalized)={pg_type}"
+                    f"Type mismatch in '{table}.{col_name}': SQLite={sqlite_type}, Postgres(normalized)={pg_type}"
                 )

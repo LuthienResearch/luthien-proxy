@@ -328,12 +328,8 @@ class TestApplySqliteMigrations:
     @pytest.mark.asyncio
     async def test_applies_migrations_in_order(self, migrations_dir: Path) -> None:
         """Should apply migrations sequentially and record in _migrations."""
-        (migrations_dir / "001_first.sql").write_text(
-            "CREATE TABLE t1 (id INTEGER PRIMARY KEY);"
-        )
-        (migrations_dir / "002_second.sql").write_text(
-            "CREATE TABLE t2 (id INTEGER PRIMARY KEY);"
-        )
+        (migrations_dir / "001_first.sql").write_text("CREATE TABLE t1 (id INTEGER PRIMARY KEY);")
+        (migrations_dir / "002_second.sql").write_text("CREATE TABLE t2 (id INTEGER PRIMARY KEY);")
         pool = DatabasePool("sqlite://:memory:")
         await _apply_sqlite_migrations(pool, migrations_dir)
 
@@ -348,9 +344,7 @@ class TestApplySqliteMigrations:
     @pytest.mark.asyncio
     async def test_skips_already_applied(self, migrations_dir: Path) -> None:
         """Should not re-apply migrations that are already recorded."""
-        (migrations_dir / "001_first.sql").write_text(
-            "CREATE TABLE t1 (id INTEGER PRIMARY KEY);"
-        )
+        (migrations_dir / "001_first.sql").write_text("CREATE TABLE t1 (id INTEGER PRIMARY KEY);")
         pool = DatabasePool("sqlite://:memory:")
         await _apply_sqlite_migrations(pool, migrations_dir)
         await _apply_sqlite_migrations(pool, migrations_dir)
@@ -358,9 +352,7 @@ class TestApplySqliteMigrations:
     @pytest.mark.asyncio
     async def test_handles_comment_only_files(self, migrations_dir: Path) -> None:
         """Should handle no-op migration files (comments only)."""
-        (migrations_dir / "000_init.sql").write_text(
-            "-- No-op: SQLite needs no database initialization.\n"
-        )
+        (migrations_dir / "000_init.sql").write_text("-- No-op: SQLite needs no database initialization.\n")
         pool = DatabasePool("sqlite://:memory:")
         await _apply_sqlite_migrations(pool, migrations_dir)
 
@@ -384,8 +376,12 @@ class TestApplySqliteMigrations:
         """Should seed _migrations for databases created by the old snapshot approach."""
         pool = DatabasePool("sqlite://:memory:")
         async with pool.connection() as conn:
-            await conn.execute("CREATE TABLE _migrations (filename TEXT PRIMARY KEY, applied_at TEXT, content_hash TEXT)")
-            await conn.execute("CREATE TABLE current_policy (id INTEGER PRIMARY KEY CHECK (id = 1), policy_class_ref TEXT NOT NULL)")
+            await conn.execute(
+                "CREATE TABLE _migrations (filename TEXT PRIMARY KEY, applied_at TEXT, content_hash TEXT)"
+            )
+            await conn.execute(
+                "CREATE TABLE current_policy (id INTEGER PRIMARY KEY CHECK (id = 1), policy_class_ref TEXT NOT NULL)"
+            )
         (migrations_dir / "001_first.sql").write_text("CREATE TABLE current_policy (id INTEGER PRIMARY KEY);")
         await _apply_sqlite_migrations(pool, migrations_dir)
         async with pool.connection() as conn:

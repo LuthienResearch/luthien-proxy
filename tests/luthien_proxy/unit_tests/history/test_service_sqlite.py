@@ -28,8 +28,7 @@ async def sqlite_pool() -> DatabasePool:
             for statement in sql.split(";"):
                 statement = statement.strip()
                 if statement and not all(
-                    line.strip().startswith("--") or not line.strip()
-                    for line in statement.split("\n")
+                    line.strip().startswith("--") or not line.strip() for line in statement.split("\n")
                 ):
                     await conn.execute(statement)
 
