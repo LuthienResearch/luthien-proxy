@@ -1002,11 +1002,8 @@ dependencies = [
     { name = "psycopg" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
-    { name = "pyright" },
-    { name = "pytest-timeout" },
     { name = "pyyaml" },
     { name = "redis" },
-    { name = "vulture" },
 ]
 
 [package.dev-dependencies]
@@ -1019,8 +1016,10 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-httpx" },
+    { name = "pytest-timeout" },
     { name = "radon" },
     { name = "ruff" },
+    { name = "vulture" },
 ]
 
 [package.metadata]
@@ -1041,11 +1040,8 @@ requires-dist = [
     { name = "psycopg", specifier = ">=3.2.9" },
     { name = "pydantic", specifier = ">=2.11.7" },
     { name = "pydantic-settings", specifier = ">=2.0.0" },
-    { name = "pyright" },
-    { name = "pytest-timeout", specifier = ">=2.4.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "redis", specifier = ">=6.4.0" },
-    { name = "vulture", specifier = ">=2.14" },
 ]
 
 [package.metadata.requires-dev]
@@ -1058,8 +1054,10 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=1.1.0" },
     { name = "pytest-cov", specifier = ">=6.2.1" },
     { name = "pytest-httpx", specifier = ">=0.35.0" },
+    { name = "pytest-timeout", specifier = ">=2.4.0" },
     { name = "radon", specifier = ">=6.0.1" },
     { name = "ruff", specifier = ">=0.12.10" },
+    { name = "vulture", specifier = ">=2.14" },
 ]
 
 [[package]]
