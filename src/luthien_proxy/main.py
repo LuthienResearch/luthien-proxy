@@ -502,7 +502,57 @@ def configure_local_mode() -> dict[str, str]:
     }
 
 
-__all__ = ["create_app", "load_config_from_env", "connect_db", "connect_redis", "configure_local_mode"]
+def auto_provision_defaults() -> dict[str, str]:
+    """Auto-provision sensible defaults for missing environment variables.
+
+    Ensures the app can boot on fresh PaaS deployments (Railway, Render, etc.)
+    without any pre-configured environment variables. Only sets values that are
+    not already present — never overrides explicit configuration.
+
+    Returns:
+        Dict of variable names to auto-provisioned values (empty if nothing was provisioned).
+    """
+    provisioned: dict[str, str] = {}
+
+    if not os.environ.get("DATABASE_URL"):
+        data_dir = os.path.join(os.path.expanduser("~"), ".luthien")
+        os.makedirs(data_dir, exist_ok=True)
+        db_path = os.path.join(data_dir, "local.db")
+        value = f"sqlite:///{db_path}"
+        os.environ["DATABASE_URL"] = value
+        provisioned["DATABASE_URL"] = value
+
+    if not os.environ.get("PROXY_API_KEY"):
+        value = f"sk-luthien-{secrets.token_urlsafe(16)}"
+        os.environ["PROXY_API_KEY"] = value
+        provisioned["PROXY_API_KEY"] = value
+
+    if not os.environ.get("ADMIN_API_KEY"):
+        value = f"admin-{secrets.token_urlsafe(16)}"
+        os.environ["ADMIN_API_KEY"] = value
+        provisioned["ADMIN_API_KEY"] = value
+
+    if not os.environ.get("POLICY_CONFIG"):
+        value = "config/policy_config.yaml"
+        os.environ["POLICY_CONFIG"] = value
+        provisioned["POLICY_CONFIG"] = value
+
+    if not os.environ.get("POLICY_SOURCE"):
+        value = "file"
+        os.environ["POLICY_SOURCE"] = value
+        provisioned["POLICY_SOURCE"] = value
+
+    return provisioned
+
+
+__all__ = [
+    "create_app",
+    "load_config_from_env",
+    "connect_db",
+    "connect_redis",
+    "configure_local_mode",
+    "auto_provision_defaults",
+]
 
 
 if __name__ == "__main__":
@@ -523,6 +573,18 @@ if __name__ == "__main__":
             clear_settings_cache()
             print(f"[local mode] DATABASE_URL={os.environ['DATABASE_URL']}")
             print(f"[local mode] PROXY_API_KEY={keys['proxy_api_key']}")
+
+        # Auto-provision missing env vars so fresh deploys boot without config
+        provisioned = auto_provision_defaults()
+        if provisioned:
+            clear_settings_cache()
+            print("=" * 60)
+            print("AUTO-CONFIGURED: Missing environment variables were set")
+            print("to defaults. Set these in your platform dashboard for")
+            print("production use:")
+            for key, value in provisioned.items():
+                print(f"  {key}={value}")
+            print("=" * 60)
 
         config = load_config_from_env()
 
