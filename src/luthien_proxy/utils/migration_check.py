@@ -16,8 +16,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_MIGRATIONS_DIR = "/app/migrations"
 
 SNAPSHOT_ERA_MARKER_TABLE = "current_policy"
-# Lexicographic comparison — assumes zero-padded 3-digit prefixes (000-009)
-BOOTSTRAP_THROUGH_PREFIX = "009"
+BOOTSTRAP_THROUGH_PREFIX = 9
 
 
 def compute_file_hash(filepath: Path) -> str:
@@ -96,7 +95,8 @@ async def _apply_sqlite_migrations(
             if marker_exists:
                 logger.info("Detected snapshot-era SQLite database -- bootstrapping migration tracking")
                 for mf in migration_files:
-                    if mf.stem.split("_")[0] <= BOOTSTRAP_THROUGH_PREFIX:
+                    prefix = mf.stem.split("_")[0]
+                    if prefix.isdigit() and int(prefix) <= BOOTSTRAP_THROUGH_PREFIX:
                         content_hash = compute_file_hash(mf)
                         await conn.execute(
                             "INSERT OR IGNORE INTO _migrations (filename, content_hash) VALUES (?, ?)",
