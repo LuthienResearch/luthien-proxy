@@ -119,10 +119,14 @@ async def resolve_anthropic_client(
     use_passthrough = not matches_proxy_key or auth_mode == AuthMode.PASSTHROUGH
     if use_passthrough:
         # OAuth tokens arrive via Bearer header and are not Anthropic API keys.
-        # x-api-key header tokens are always treated as API keys regardless of format.
-        if is_bearer and not is_anthropic_api_key(token):
-            await _record_credential_type("oauth")
-            return await anthropic_client_cache.get_client(token, auth_type="auth_token", base_url=base_url)
+        # In passthrough mode, x-api-key tokens that don't look like Anthropic
+        # API keys (sk-ant-*) are also treated as OAuth tokens — Claude Code
+        # may send OAuth tokens via either header depending on configuration.
+        if not is_anthropic_api_key(token):
+            cred_type = "oauth" if is_bearer else "oauth_via_api_key"
+            await _record_credential_type(cred_type)
+            auth_type = "auth_token" if is_bearer else "api_key"
+            return await anthropic_client_cache.get_client(token, auth_type=auth_type, base_url=base_url)
         await _record_credential_type("client_api_key")
         return await anthropic_client_cache.get_client(token, auth_type="api_key", base_url=base_url)
 
