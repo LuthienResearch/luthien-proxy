@@ -247,7 +247,9 @@ Base classes and building blocks in `src/luthien_proxy/policies/` — see **[doc
 
 ## Usage Telemetry
 
-Luthien collects anonymous, aggregate usage metrics (request counts, token counts) to help improve the project. **No model names, API keys, IP addresses, or request/response content is collected.**
+Luthien collects anonymous, aggregate usage metrics to help track adoption and improve the project. **No model names, API keys, IP addresses, or request/response content is collected.**
+
+Metrics collected every 5 minutes: request counts, token counts (input/output), streaming vs non-streaming breakdown, and active session count. Data is sent to `telemetry.luthien.cc` (a Cloudflare Worker) and stored in Grafana Cloud.
 
 Telemetry is enabled by default and can be disabled:
 
