@@ -13,15 +13,21 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
-    InputJSONDelta,
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
-    RawContentBlockStopEvent,
     RawMessageDeltaEvent,
     TextBlock,
     TextDelta,
     ToolUseBlock,
-    Usage,
+)
+from tests.luthien_proxy.unit_tests.policies.anthropic_event_builders import (
+    block_stop,
+    event_types,
+    message_delta,
+    text_delta,
+    text_start,
+    tool_delta,
+    tool_start,
 )
 
 from luthien_proxy.policies.simple_llm_policy import (
@@ -34,15 +40,6 @@ from luthien_proxy.policies.simple_llm_utils import (
     SimpleLLMJudgeConfig,
 )
 from luthien_proxy.policy_core.policy_context import PolicyContext
-from tests.luthien_proxy.unit_tests.policies.anthropic_event_builders import (
-    block_stop,
-    event_types,
-    message_delta,
-    text_delta,
-    text_start,
-    tool_delta,
-    tool_start,
-)
 
 # ============================================================================
 # Helpers

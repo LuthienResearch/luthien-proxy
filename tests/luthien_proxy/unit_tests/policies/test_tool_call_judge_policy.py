@@ -16,18 +16,10 @@ from anthropic.types import (
     InputJSONDelta,
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
-    RawContentBlockStopEvent,
     TextBlock,
     TextDelta,
     ToolUseBlock,
 )
-
-from luthien_proxy.policies.tool_call_judge_policy import (
-    ToolCallJudgeConfig,
-    ToolCallJudgePolicy,
-)
-from luthien_proxy.policies.tool_call_judge_utils import JudgeResult
-from luthien_proxy.policy_core.policy_context import PolicyContext
 from tests.luthien_proxy.unit_tests.policies.anthropic_event_builders import (
     block_stop,
     event_types,
@@ -37,6 +29,13 @@ from tests.luthien_proxy.unit_tests.policies.anthropic_event_builders import (
     tool_delta,
     tool_start,
 )
+
+from luthien_proxy.policies.tool_call_judge_policy import (
+    ToolCallJudgeConfig,
+    ToolCallJudgePolicy,
+)
+from luthien_proxy.policies.tool_call_judge_utils import JudgeResult
+from luthien_proxy.policy_core.policy_context import PolicyContext
 
 # ============================================================================
 # Helpers
@@ -96,7 +95,9 @@ class TestStreamingToolPassThrough:
             mock_eval.return_value = None  # allowed
 
             # Start is suppressed
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0, tool_id="toolu_123", name="Bash")), ctx)
+            await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, tool_start(0, tool_id="toolu_123", name="Bash")), ctx
+            )
 
             # Delta is buffered
             await policy.on_anthropic_stream_event(
@@ -178,9 +179,7 @@ class TestStreamingToolBlocked:
             mock_eval.return_value = judge_result
 
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
-            await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx
-            )
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
 
             # Verify index 0 is in blocked set
@@ -283,9 +282,7 @@ class TestStreamingJudgeFailure:
             mock_eval.return_value = judge_result
 
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
-            await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, tool_delta('{"cmd":"dangerous"}', 0)), ctx
-            )
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"cmd":"dangerous"}', 0)), ctx)
 
             stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
 
@@ -319,10 +316,10 @@ class TestStreamingMultipleTools:
             mock_eval.side_effect = [judge_result_allowed, judge_result_blocked]
 
             # Tool at index 0 — allowed
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0, tool_id="toolu_1", name="Tool1")), ctx)
             await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, tool_delta('{"param":"value"}', 0)), ctx
+                cast(MessageStreamEvent, tool_start(0, tool_id="toolu_1", name="Tool1")), ctx
             )
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"param":"value"}', 0)), ctx)
             stop_0 = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
 
             # Tool at index 0 was allowed, so we get full reconstruction
@@ -333,7 +330,9 @@ class TestStreamingMultipleTools:
             assert start_0.content_block.name == "Tool1"
 
             # Tool at index 1 — blocked
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(1, tool_id="toolu_2", name="Tool2")), ctx)
+            await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, tool_start(1, tool_id="toolu_2", name="Tool2")), ctx
+            )
             await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, tool_delta('{"param":"dangerous"}', 1)), ctx
             )
@@ -562,9 +561,7 @@ class TestBlockedMessageFormatting:
 
     def test_custom_template(self):
         """policy with custom blocked_message_template uses it."""
-        policy = _make_policy(
-            blocked_message_template="BLOCKED: {tool_name} with probability {probability:.1f}"
-        )
+        policy = _make_policy(blocked_message_template="BLOCKED: {tool_name} with probability {probability:.1f}")
 
         tool_call = {"name": "Python", "arguments": "{}"}
         judge_result = JudgeResult(probability=0.75, explanation="explanation", prompt=[], response_text="")
