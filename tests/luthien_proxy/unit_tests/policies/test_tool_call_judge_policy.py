@@ -354,7 +354,13 @@ class TestStreamingMultipleTools:
 
 
 class TestNonStreamingResponse:
-    """Test on_anthropic_response (non-streaming path)."""
+    """Test on_anthropic_response (non-streaming path).
+
+    Note: streaming stop_reason correction is not tested here because
+    ToolCallJudgePolicy doesn't handle message_delta events — they pass
+    through to the parent policy. That path is covered by
+    test_simple_llm_policy.py::TestStopReasonCorrection.
+    """
 
     @pytest.mark.asyncio
     async def test_empty_content_returns_unchanged(self):
@@ -514,24 +520,23 @@ class TestStateCleanup:
 
     @pytest.mark.asyncio
     async def test_streaming_policy_complete_pops_state(self):
-        """after calling on_anthropic_streaming_policy_complete, state is cleaned up."""
+        """after calling on_anthropic_streaming_policy_complete, old state is removed."""
         policy = _make_policy()
         ctx = _make_context()
 
-        # Buffer a tool
+        # Buffer a tool to create non-empty state
         await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
 
-        # Verify state exists
-        buffered = policy._anthropic_buffered_tool_uses(ctx)
-        assert 0 in buffered
+        state_before = policy._anthropic_state(ctx)
+        assert 0 in state_before.buffered_tool_uses
 
         # Clean up
         await policy.on_anthropic_streaming_policy_complete(ctx)
 
-        # Get fresh state (should be empty)
-        fresh_state = policy._anthropic_state(ctx)
-        assert len(fresh_state.buffered_tool_uses) == 0
-        assert len(fresh_state.blocked_blocks) == 0
+        # get_request_state returns a new object — the old one was removed
+        state_after = policy._anthropic_state(ctx)
+        assert state_after is not state_before
+        assert 0 not in state_after.buffered_tool_uses
 
 
 # ============================================================================
@@ -572,27 +577,26 @@ class TestBlockedMessageFormatting:
 
     def test_long_arguments_truncated(self):
         """arguments longer than TOOL_ARGS_TRUNCATION_LENGTH are truncated."""
+        from luthien_proxy.utils.constants import TOOL_ARGS_TRUNCATION_LENGTH
+
         policy = _make_policy()
 
-        # Create very long arguments
         long_args = '{"data":"' + "x" * 10000 + '"}'
         tool_call = {"name": "Tool", "arguments": long_args}
         judge_result = JudgeResult(probability=0.5, explanation="test", prompt=[], response_text="")
 
         message = policy._format_anthropic_blocked_message(tool_call, judge_result)
 
-        # Arguments should be truncated in the message
-        # (the actual truncation length is from constants)
-        assert len(message) < len(long_args)
-        # Message should still contain tool name
-        assert "Tool" in message
+        # Truncated prefix appears in message, but full args do not
+        assert long_args[:TOOL_ARGS_TRUNCATION_LENGTH] in message
+        assert long_args not in message
 
-    def test_template_with_missing_explanation(self):
-        """format handles None explanation gracefully."""
+    def test_template_with_empty_explanation(self):
+        """format handles empty explanation via 'or' fallback."""
         policy = _make_policy()
 
         tool_call = {"name": "Tool", "arguments": "{}"}
-        judge_result = JudgeResult(probability=0.9, explanation=None, prompt=[], response_text="")
+        judge_result = JudgeResult(probability=0.9, explanation="", prompt=[], response_text="")
 
         message = policy._format_anthropic_blocked_message(tool_call, judge_result)
 
