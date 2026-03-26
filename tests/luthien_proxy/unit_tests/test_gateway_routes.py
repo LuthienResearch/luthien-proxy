@@ -500,3 +500,28 @@ class TestGatewayAuthAndClientResolution:
             )
             assert deps.last_credential_info["type"] == "client_api_key"
             assert "timestamp" in deps.last_credential_info
+
+    def test_passthrough_bearer_sk_ant_oat_records_oauth(self, mock_app):
+        """Bearer token with sk-ant-oat prefix (Anthropic OAuth) records oauth, not client_api_key."""
+        app, _, credential_manager, deps = mock_app
+        credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
+        deps.last_credential_info = {}
+
+        with (
+            patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
+            patch("luthien_proxy.gateway_routes.AnthropicClient") as MockClient,
+        ):
+            MockClient.return_value = MagicMock()
+            mock_process.return_value = MagicMock()
+            client = TestClient(app)
+            client.post(
+                "/v1/messages",
+                json={
+                    "model": DEFAULT_TEST_MODEL,
+                    "messages": [{"role": "user", "content": "Hi"}],
+                    "max_tokens": 10,
+                },
+                headers={"Authorization": "Bearer sk-ant-oat01-fake-oauth-token"},
+            )
+            assert deps.last_credential_info["type"] == "oauth"
+            assert "timestamp" in deps.last_credential_info
