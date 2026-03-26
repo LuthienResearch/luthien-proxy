@@ -69,6 +69,7 @@ EOF
 
 # ============================================================================
 # ONE-TIME CLEANUP: Remove sqlite_schema.sql tracking from Postgres databases
+# TODO: Remove this block after all deployments have run it (added 2026-03)
 # ============================================================================
 # The sqlite_schema.sql file has moved to migrations/sqlite/ and is no longer
 # in the Postgres migrations directory. Remove the stale tracking row to prevent

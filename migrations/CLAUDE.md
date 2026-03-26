@@ -41,6 +41,11 @@ Every migration needs BOTH a Postgres and SQLite file with matched numbering.
 - `GRANT` / `REVOKE` statements
 - `CREATE INDEX CONCURRENTLY` (use plain `CREATE INDEX IF NOT EXISTS`)
 
+## SQLite Migration File Constraints
+
+- Use only `--` line comments (no `/* */` block comments — the runner doesn't handle them)
+- Do not use semicolons inside string literals (the runner splits on `;` naively)
+
 ## SQLite ALTER TABLE Limitations
 
 - `ALTER TABLE ADD COLUMN` works (Python 3.13+ ships SQLite 3.45+)

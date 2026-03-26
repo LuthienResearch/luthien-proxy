@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_MIGRATIONS_DIR = "/app/migrations"
 
 SNAPSHOT_ERA_MARKER_TABLE = "current_policy"
+# Last migration that existed when the snapshot approach was retired (2026-03).
+# Snapshot-era databases get these seeded as already-applied. Never change this.
 BOOTSTRAP_THROUGH_PREFIX = 9
 
 

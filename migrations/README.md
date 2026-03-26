@@ -20,3 +20,5 @@ See `CLAUDE.md` in this directory for step-by-step instructions and type transla
 ## Upgrading from snapshot-based SQLite
 
 Older versions used a single `sqlite_schema.sql` snapshot. The migration runner auto-detects this (existing tables but empty `_migrations`) and bootstraps tracking for all migrations through 009. No manual action needed.
+
+**Known divergence:** Bootstrapped databases retain the old snapshot's full indexes on `session_id` columns, while fresh databases get the partial indexes (`WHERE session_id IS NOT NULL`) from migration 006. This is functionally harmless — full indexes are a superset of partial indexes.
