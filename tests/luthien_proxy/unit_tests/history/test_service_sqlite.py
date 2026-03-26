@@ -20,17 +20,17 @@ async def sqlite_pool() -> DatabasePool:
     """Create an in-memory SQLite pool with schema applied."""
     pool = DatabasePool("sqlite://:memory:")
 
-    # Read and apply the schema
-    schema_path = Path(__file__).parent.parent.parent.parent.parent / "migrations" / "sqlite_schema.sql"
-    schema_content = schema_path.read_text()
+    migrations_dir = Path(__file__).parent.parent.parent.parent.parent / "migrations" / "sqlite"
 
     async with pool.connection() as conn:
-        # Execute the entire schema (it contains CREATE TABLE IF NOT EXISTS statements)
-        # Split by semicolons and execute each statement
-        for statement in schema_content.split(";"):
-            statement = statement.strip()
-            if statement:
-                await conn.execute(statement)
+        for migration_file in sorted(migrations_dir.glob("*.sql")):
+            sql = migration_file.read_text()
+            for statement in sql.split(";"):
+                statement = statement.strip()
+                if statement and not all(
+                    line.strip().startswith("--") or not line.strip() for line in statement.split("\n")
+                ):
+                    await conn.execute(statement)
 
     yield pool
 

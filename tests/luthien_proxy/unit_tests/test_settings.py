@@ -9,7 +9,7 @@ import pytest
 from luthien_proxy.credential_manager import AuthMode, CredentialManager
 from luthien_proxy.settings import Settings, clear_settings_cache, get_settings
 
-MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "migrations"
+MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "migrations" / "postgres"
 
 
 class TestSettingsDefaults:

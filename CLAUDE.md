@@ -191,6 +191,10 @@ Most near-term development work is dockerless. Prefer `start_gateway.sh` for day
 - Refactored code MUST maintain or improve test coverage
 - PRs without tests for new functionality will be considered incomplete
 
+## Migrations
+
+Migrations live in `migrations/postgres/` and `migrations/sqlite/`. Every Postgres migration needs a matching SQLite migration with the same number prefix. See `migrations/CLAUDE.md` for type translation rules and workflow.
+
 ## Security & Configuration
 
 - Keep lint, test, and type-check settings consolidated in `pyproject.toml`; avoid extra config files unless necessary.

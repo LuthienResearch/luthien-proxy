@@ -8,7 +8,15 @@ set -e
 # Default to /migrations for Docker, can be overridden for CI
 MIGRATIONS_DIR="${MIGRATIONS_DIR:-/migrations}"
 
-echo "🔄 Running database migrations from $MIGRATIONS_DIR..."
+# Auto-detect postgres subdirectory
+POSTGRES_DIR="$MIGRATIONS_DIR/postgres"
+if [ -d "$POSTGRES_DIR" ]; then
+    MIGRATIONS_SQL_DIR="$POSTGRES_DIR"
+else
+    MIGRATIONS_SQL_DIR="$MIGRATIONS_DIR"
+fi
+
+echo "🔄 Running database migrations from $MIGRATIONS_SQL_DIR..."
 
 # Wait for database to be ready
 until pg_isready -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE"; do
@@ -59,14 +67,15 @@ UPDATE _migrations
    AND content_hash = '$OLD_008_HASH';
 EOF
 
-# PR #399 added a comment header to sqlite_schema.sql (no schema changes).
-OLD_SQLITE_HASH="ef93b393d0ed1bfe16619d1057e0f20e"
-NEW_SQLITE_HASH="f36eaacaf65b351436fa156e52c9d766"
+# ============================================================================
+# ONE-TIME CLEANUP: Remove sqlite_schema.sql tracking from Postgres databases
+# TODO: Remove this block after all deployments have run it (added 2026-03)
+# ============================================================================
+# The sqlite_schema.sql file has moved to migrations/sqlite/ and is no longer
+# in the Postgres migrations directory. Remove the stale tracking row to prevent
+# "file not found locally" validation errors.
 psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -q <<EOF
-UPDATE _migrations
-   SET content_hash = '$NEW_SQLITE_HASH'
- WHERE filename = 'sqlite_schema.sql'
-   AND content_hash = '$OLD_SQLITE_HASH';
+DELETE FROM _migrations WHERE filename = 'sqlite_schema.sql';
 EOF
 
 # ============================================================================
@@ -91,7 +100,7 @@ for line in $db_migrations; do
     # Skip if filename is empty
     [ -z "$db_filename" ] && continue
 
-    local_file="$MIGRATIONS_DIR/$db_filename"
+    local_file="$MIGRATIONS_SQL_DIR/$db_filename"
 
     # Check 1: All DB migrations must exist locally
     if [ ! -f "$local_file" ]; then
@@ -129,13 +138,8 @@ echo "✅ Migration validation passed"
 # ============================================================================
 
 # Apply each migration in order
-for migration in "$MIGRATIONS_DIR"/*.sql; do
+for migration in "$MIGRATIONS_SQL_DIR"/*.sql; do
     filename=$(basename "$migration")
-
-    # sqlite_schema.sql is only for SQLite — skip it in Postgres migrations
-    if [ "$filename" = "sqlite_schema.sql" ]; then
-        continue
-    fi
 
     # Check if already applied
     applied=$(psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -t <<EOF | tr -d ' '
