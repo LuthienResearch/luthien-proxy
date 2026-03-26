@@ -79,7 +79,11 @@ def _write_local_env(repo_path: str, proxy_key: str, admin_key: str | None = Non
 
 
 def _ensure_docker_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
-    """Create or update .env with Docker onboard settings."""
+    """Create or update .env with Docker onboard settings.
+
+    Sets both the proxy keys and the Postgres/Redis connection vars that
+    Docker Compose requires at pull/start time.
+    """
     env_path = f"{repo_path}/.env"
     env_example = f"{repo_path}/.env.example"
 
@@ -93,11 +97,19 @@ def _ensure_docker_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
         except FileNotFoundError:
             env_content = ""
 
+    pg_password = secrets.token_urlsafe(16)
     overrides = {
         "PROXY_API_KEY": proxy_key,
         "ADMIN_API_KEY": admin_key,
         "AUTH_MODE": "both",
         "POLICY_SOURCE": "file",
+        "POSTGRES_USER": "luthien",
+        "POSTGRES_PASSWORD": pg_password,
+        "POSTGRES_DB": "luthien_control",
+        "POSTGRES_PORT": "5433",
+        "DATABASE_URL": f"postgresql://luthien:{pg_password}@db:5432/luthien_control",
+        "REDIS_URL": "redis://redis:6379",
+        "REDIS_PORT": "6379",
     }
 
     for key, value in overrides.items():

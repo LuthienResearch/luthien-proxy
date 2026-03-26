@@ -28,6 +28,7 @@ from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
     RawContentBlockDeltaEvent,
     RawContentBlockStopEvent,
+    RawMessageDeltaEvent,
     TextDelta,
 )
 from pydantic import BaseModel, Field
@@ -283,6 +284,13 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
         This is safe because the Anthropic protocol sends blocks sequentially
         (not interleaved), and content_block_stop flushes the buffer between blocks.
         """
+        # Flush buffer before message_delta so content blocks precede it
+        if isinstance(event, RawMessageDeltaEvent) and self._buffer_size > 0:
+            state = self._get_buffer_state(context)
+            flush_events = self._flush_buffer(state)
+            flush_events.append(event)
+            return flush_events
+
         # Flush buffer before content_block_stop so the block is complete
         if isinstance(event, RawContentBlockStopEvent) and self._buffer_size > 0:
             state = self._get_buffer_state(context)
@@ -322,7 +330,7 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
         return [event.model_copy(update={"delta": new_delta})]
 
     async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
-        """Flush any remaining buffer after the stream ends."""
+        """Safety net: flush buffer if stream ended without message_delta."""
         if self._buffer_size <= 0:
             return []
         state = context.pop_request_state(self, _StreamBufferState)
