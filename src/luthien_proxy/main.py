@@ -527,6 +527,11 @@ def auto_provision_defaults() -> dict[str, str]:
         os.environ["PROXY_API_KEY"] = value
         provisioned["PROXY_API_KEY"] = value
 
+    if not os.environ.get("ADMIN_API_KEY"):
+        value = f"admin-{secrets.token_urlsafe(16)}"
+        os.environ["ADMIN_API_KEY"] = value
+        provisioned["ADMIN_API_KEY"] = value
+
     if not os.environ.get("POLICY_CONFIG"):
         value = "config/policy_config.yaml"
         os.environ["POLICY_CONFIG"] = value

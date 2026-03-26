@@ -156,9 +156,19 @@ class TestAutoProvisionDefaults:
         assert result["POLICY_SOURCE"] == "file"
         assert os.environ["POLICY_SOURCE"] == "file"
 
+    def test_provisions_admin_api_key_when_missing(self, monkeypatch):
+        monkeypatch.delenv("ADMIN_API_KEY", raising=False)
+
+        result = auto_provision_defaults()
+
+        assert "ADMIN_API_KEY" in result
+        assert result["ADMIN_API_KEY"].startswith("admin-")
+        assert os.environ["ADMIN_API_KEY"] == result["ADMIN_API_KEY"]
+
     def test_does_not_override_existing_values(self, monkeypatch):
         monkeypatch.setenv("DATABASE_URL", "postgresql://existing")
         monkeypatch.setenv("PROXY_API_KEY", "sk-existing")
+        monkeypatch.setenv("ADMIN_API_KEY", "admin-existing")
         monkeypatch.setenv("POLICY_CONFIG", "custom/path.yaml")
         monkeypatch.setenv("POLICY_SOURCE", "db")
 
@@ -173,14 +183,17 @@ class TestAutoProvisionDefaults:
     def test_provisions_multiple_missing_vars(self, monkeypatch, tmp_path):
         monkeypatch.delenv("DATABASE_URL", raising=False)
         monkeypatch.delenv("PROXY_API_KEY", raising=False)
+        monkeypatch.delenv("ADMIN_API_KEY", raising=False)
         monkeypatch.delenv("POLICY_CONFIG", raising=False)
         monkeypatch.delenv("POLICY_SOURCE", raising=False)
         monkeypatch.setenv("HOME", str(tmp_path))
 
         result = auto_provision_defaults()
 
-        assert len(result) == 4
-        assert all(k in result for k in ("DATABASE_URL", "PROXY_API_KEY", "POLICY_CONFIG", "POLICY_SOURCE"))
+        assert len(result) == 5
+        assert all(
+            k in result for k in ("DATABASE_URL", "PROXY_API_KEY", "ADMIN_API_KEY", "POLICY_CONFIG", "POLICY_SOURCE")
+        )
 
 
 @pytest.fixture
