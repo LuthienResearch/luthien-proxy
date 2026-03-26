@@ -190,10 +190,12 @@ This repo has extensive test infrastructure — **use it before building manual 
 | mock_e2e | `mock_e2e` | Docker + mock server | Medium | Deterministic streaming, policy behavior |
 | e2e | `e2e` | Docker + real API | Slow | Final validation, real-world behavior |
 
-Key helpers in `tests/luthien_proxy/e2e_tests/conftest.py`:
-- `policy_context(class_ref, config)` — hot-swap policy via admin API, auto-restore
-- `ClaudeCodeSimulator` — simulate Claude Code client sessions
-- `MockAnthropicServer` — enqueue deterministic responses
+Key helpers in `tests/luthien_proxy/e2e_tests/`:
+- `conftest.py`: `policy_context(class_ref, config)` — hot-swap policy via admin API, auto-restore
+- `mock_anthropic/simulator.py`: `ClaudeCodeSimulator` — simulate Claude Code client sessions
+- `mock_anthropic/server.py`: `MockAnthropicServer` — enqueue deterministic responses
+
+Note: `sqlite_e2e` and `mock_e2e` must run in **separate pytest sessions** (module-level patching conflicts).
 
 Smoke test script: `scripts/test_gateway.sh`
 
