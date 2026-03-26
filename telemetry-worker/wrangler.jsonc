@@ -1,7 +1,6 @@
 {
   "name": "luthien-telemetry",
   "main": "src/index.ts",
-  "compatibility_date": "2025-04-01"
-  // Routes will be added once luthien.cc DNS is proxied:
-  // "routes": [{ "pattern": "telemetry.luthien.cc/*", "zone_name": "luthien.cc" }]
+  "compatibility_date": "2025-04-01",
+  "workers_dev": true
 }
