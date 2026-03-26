@@ -7,7 +7,6 @@ mocked — the utils tests cover actual judge invocation.
 
 from __future__ import annotations
 
-import json
 from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
@@ -35,7 +34,6 @@ from luthien_proxy.policies.simple_llm_utils import (
     SimpleLLMJudgeConfig,
 )
 from luthien_proxy.policy_core.policy_context import PolicyContext
-
 
 # ============================================================================
 # Helpers
@@ -124,9 +122,7 @@ class TestTextBlockStreaming:
             mock_judge.return_value = JudgeAction(action="pass")
 
             # Start is passed through immediately
-            start_events = await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, _text_start(0)), ctx
-            )
+            start_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _text_start(0)), ctx)
             assert _event_types(start_events) == ["content_block_start"]
 
             # Delta is buffered
@@ -136,9 +132,7 @@ class TestTextBlockStreaming:
             assert delta_events == []
 
             # Stop triggers judge, emits buffered delta + stop
-            stop_events = await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, _block_stop(0)), ctx
-            )
+            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
             assert _event_types(stop_events) == ["content_block_delta", "content_block_stop"]
             # Verify the buffered text is in the delta
             delta = stop_events[0]
@@ -158,9 +152,7 @@ class TestTextBlockStreaming:
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _text_start(0)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _text_delta("secret", 0)), ctx)
 
-            stop_events = await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, _block_stop(0)), ctx
-            )
+            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
             # Text start was already emitted, so stop must be emitted to close the block
             assert _event_types(stop_events) == ["content_block_stop"]
 
@@ -177,9 +169,7 @@ class TestTextBlockStreaming:
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _text_start(0)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _text_delta("secret", 0)), ctx)
 
-            stop_events = await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, _block_stop(0)), ctx
-            )
+            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
             assert _event_types(stop_events) == [
                 "content_block_start",
                 "content_block_delta",
@@ -205,9 +195,7 @@ class TestToolBlockStreaming:
             mock_judge.return_value = JudgeAction(action="pass")
 
             # Start is suppressed (buffered for judge)
-            start_events = await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, _tool_start(0)), ctx
-            )
+            start_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0)), ctx)
             assert start_events == []
 
             # Delta is buffered
@@ -217,9 +205,7 @@ class TestToolBlockStreaming:
             assert delta_events == []
 
             # Stop triggers judge, emits full tool block
-            stop_events = await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, _block_stop(0)), ctx
-            )
+            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
             assert _event_types(stop_events) == [
                 "content_block_start",
                 "content_block_delta",
@@ -245,9 +231,7 @@ class TestToolBlockStreaming:
             mock_judge.return_value = JudgeAction(action="block")
 
             # Start suppressed
-            start_events = await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, _tool_start(0)), ctx
-            )
+            start_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0)), ctx)
             assert start_events == []
 
             # Delta buffered
@@ -256,9 +240,7 @@ class TestToolBlockStreaming:
             )
 
             # Stop: must emit NOTHING since start was suppressed
-            stop_events = await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, _block_stop(0)), ctx
-            )
+            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
             assert stop_events == [], (
                 f"Blocked tool_use must not emit orphaned content_block_stop, got: {_event_types(stop_events)}"
             )
@@ -278,9 +260,7 @@ class TestToolBlockStreaming:
                 cast(MessageStreamEvent, _tool_delta('{"command":"echo hi"}', 0)), ctx
             )
 
-            stop_events = await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, _block_stop(0)), ctx
-            )
+            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
             assert _event_types(stop_events) == [
                 "content_block_start",
                 "content_block_delta",
@@ -310,13 +290,9 @@ class TestJudgeFailure:
             mock_judge.return_value = JudgeAction(action="block", judge_failed=True)
 
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0)), ctx)
-            await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, _tool_delta('{"cmd":"x"}', 0)), ctx
-            )
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_delta('{"cmd":"x"}', 0)), ctx)
 
-            stop_events = await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, _block_stop(0)), ctx
-            )
+            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
             assert stop_events == []
 
     @pytest.mark.asyncio
@@ -329,13 +305,9 @@ class TestJudgeFailure:
             mock_judge.return_value = JudgeAction(action="pass", judge_failed=True)
 
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0)), ctx)
-            await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, _tool_delta('{"cmd":"echo"}', 0)), ctx
-            )
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_delta('{"cmd":"echo"}', 0)), ctx)
 
-            stop_events = await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, _block_stop(0)), ctx
-            )
+            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
             # Tool is passed through
             assert _event_types(stop_events) == [
                 "content_block_start",
@@ -379,9 +351,7 @@ class TestStopReasonCorrection:
 
             # Process a tool block that gets blocked
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0)), ctx)
-            await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, _tool_delta('{}', 0)), ctx
-            )
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_delta("{}", 0)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
 
             # message_delta with stop_reason='tool_use' should be corrected to 'end_turn'
@@ -401,9 +371,7 @@ class TestStopReasonCorrection:
             mock_judge.return_value = JudgeAction(action="pass")
 
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0)), ctx)
-            await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, _tool_delta('{"x":1}', 0)), ctx
-            )
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_delta('{"x":1}', 0)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
 
             msg_events = await policy.on_anthropic_stream_event(
