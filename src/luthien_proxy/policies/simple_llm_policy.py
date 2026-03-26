@@ -251,6 +251,11 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                 for rblock in action.blocks or ():
                     emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
                     new_content.append(self._replacement_to_anthropic_block(rblock))
+            elif block_type == "tool_use":
+                blocked_text = f"[Tool call `{block.get('name', '')}` was blocked by policy]"
+                blocked_desc = self._block_descriptor_from_text(blocked_text)
+                emitted_blocks.append(blocked_desc)
+                new_content.append({"type": "text", "text": blocked_text})
 
         if judge_error_occurred and self._config.on_error == "pass":
             new_content.append({"type": "text", "text": JUDGE_UNAVAILABLE_WARNING})
@@ -355,8 +360,11 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                 return self._emit_anthropic_tool_events(index, buffered, event)
             elif action.action == "replace":
                 return self._emit_anthropic_replacement_events(index, action, state, event)
-            # Tool start was suppressed — suppress stop too to avoid orphaned event
-            return []
+            # Tool start was suppressed — emit a text block so the client
+            # knows the tool call was blocked and can continue the conversation.
+            blocked_desc = self._block_descriptor_from_text(f"[Tool call `{buffered.name}` was blocked by policy]")
+            state.emitted_blocks.append(blocked_desc)
+            return self._make_anthropic_text_block_events(index, f"[Tool call `{buffered.name}` was blocked by policy]")
 
         return [cast(MessageStreamEvent, event)]
 
@@ -420,11 +428,11 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             cast(MessageStreamEvent, stop_event),
         ]
 
-    def _make_anthropic_warning_events(self, index: int) -> list[MessageStreamEvent]:
-        """Emit a warning text block for judge-unavailable notification."""
+    def _make_anthropic_text_block_events(self, index: int, text: str) -> list[MessageStreamEvent]:
+        """Emit a complete text block (start + delta + stop) with the given text."""
         text_block = TextBlock(type="text", text="")
         start = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=text_block)
-        text_delta = TextDelta.model_construct(type="text_delta", text=JUDGE_UNAVAILABLE_WARNING)
+        text_delta = TextDelta.model_construct(type="text_delta", text=text)
         delta = RawContentBlockDeltaEvent.model_construct(type="content_block_delta", index=index, delta=text_delta)
         stop = RawContentBlockStopEvent(type="content_block_stop", index=index)
         return [
@@ -432,6 +440,10 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             cast(MessageStreamEvent, delta),
             cast(MessageStreamEvent, stop),
         ]
+
+    def _make_anthropic_warning_events(self, index: int) -> list[MessageStreamEvent]:
+        """Emit a warning text block for judge-unavailable notification."""
+        return self._make_anthropic_text_block_events(index, JUDGE_UNAVAILABLE_WARNING)
 
     def _emit_anthropic_replacement_events(
         self,

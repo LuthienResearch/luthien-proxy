@@ -239,11 +239,18 @@ class TestToolBlockStreaming:
                 cast(MessageStreamEvent, _tool_delta('{"command":"rm -rf /"}', 0)), ctx
             )
 
-            # Stop: must emit NOTHING since start was suppressed
+            # Stop: blocked tool emits a text block explaining the block
             stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
-            assert stop_events == [], (
-                f"Blocked tool_use must not emit orphaned content_block_stop, got: {_event_types(stop_events)}"
-            )
+            assert _event_types(stop_events) == [
+                "content_block_start",
+                "content_block_delta",
+                "content_block_stop",
+            ], f"Blocked tool_use should emit explanatory text block, got: {_event_types(stop_events)}"
+            # Verify the text explains what was blocked
+            delta = [e for e in stop_events if isinstance(e, RawContentBlockDeltaEvent)][0]
+            assert isinstance(delta.delta, TextDelta)
+            assert "Bash" in delta.delta.text
+            assert "blocked" in delta.delta.text
 
     @pytest.mark.asyncio
     async def test_tool_replaced_with_text(self):
@@ -293,7 +300,12 @@ class TestJudgeFailure:
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_delta('{"cmd":"x"}', 0)), ctx)
 
             stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
-            assert stop_events == []
+            # Blocked tool emits explanatory text block
+            assert _event_types(stop_events) == [
+                "content_block_start",
+                "content_block_delta",
+                "content_block_stop",
+            ]
 
     @pytest.mark.asyncio
     async def test_judge_failure_pass_tool_emitted_with_warning(self):
@@ -422,5 +434,9 @@ class TestNonStreamingResponse:
             mock_judge.return_value = JudgeAction(action="block")
             result = await policy.on_anthropic_response(response, ctx)
 
-        assert len(result["content"]) == 0
+        # Blocked tool_use is replaced with explanatory text
+        assert len(result["content"]) == 1
+        assert result["content"][0]["type"] == "text"
+        assert "Bash" in result["content"][0]["text"]
+        assert "blocked" in result["content"][0]["text"]
         assert result["stop_reason"] == "end_turn"
