@@ -75,6 +75,10 @@ def _blocked_tool_message(name: str) -> str:
     return f"[Tool call `{name}` was blocked by policy]"
 
 
+def _blocked_tool_judge_failed_message(name: str) -> str:
+    return f"[Tool call `{name}` blocked: policy evaluation unavailable]"
+
+
 @dataclass
 class _SimpleLLMAnthropicState:
     text_buffer: dict[int, str] = field(default_factory=dict)
@@ -256,7 +260,10 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                     emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
                     new_content.append(self._replacement_to_anthropic_block(rblock))
             elif action.action == "block" and block_type == "tool_use":
-                blocked_text = _blocked_tool_message(block.get("name", ""))
+                if action.judge_failed:
+                    blocked_text = _blocked_tool_judge_failed_message(block.get("name", ""))
+                else:
+                    blocked_text = _blocked_tool_message(block.get("name", ""))
                 emitted_blocks.append(self._block_descriptor_from_text(blocked_text))
                 new_content.append({"type": "text", "text": blocked_text})
 
@@ -368,7 +375,10 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                 return self._emit_anthropic_replacement_events(index, action, state, event)
             # Tool start was suppressed — emit a text block so the client
             # knows the tool call was blocked and can continue the conversation.
-            blocked_text = _blocked_tool_message(buffered.name)
+            if action.judge_failed:
+                blocked_text = _blocked_tool_judge_failed_message(buffered.name)
+            else:
+                blocked_text = _blocked_tool_message(buffered.name)
             state.emitted_blocks.append(self._block_descriptor_from_text(blocked_text))
             return self._make_anthropic_text_block_events(index, blocked_text)
 

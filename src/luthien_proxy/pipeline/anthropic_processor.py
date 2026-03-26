@@ -608,13 +608,23 @@ async def _handle_execution_streaming(
                     if not emitted_any:
                         io.ensure_request_recorded()
                         logger.warning(
-                            "[%s] Execution policy emitted zero streaming events; returning empty stream",
+                            "[%s] Execution policy emitted zero streaming events; yielding error event",
                             call_id,
                         )
                         policy_ctx.record_event(
                             "policy.execution.empty_stream",
                             {"summary": "Execution policy emitted zero streaming events"},
                         )
+                        # Yield an Anthropic-compatible error event so the client
+                        # gets a clear signal instead of a silent empty HTTP 200.
+                        empty_stream_error = _StreamErrorEvent(
+                            type="error",
+                            error=_ErrorDetail(
+                                type="api_error",
+                                message=("Request blocked: policy evaluation unavailable. Contact your administrator."),
+                            ),
+                        )
+                        yield _format_sse_event(empty_stream_error)
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
 
                     # Validate streaming protocol compliance (log-and-warn).

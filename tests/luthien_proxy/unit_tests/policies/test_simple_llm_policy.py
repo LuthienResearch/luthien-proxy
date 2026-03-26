@@ -439,3 +439,83 @@ class TestNonStreamingResponse:
         assert "Bash" in result["content"][0]["text"]
         assert "blocked" in result["content"][0]["text"]
         assert result["stop_reason"] == "end_turn"
+
+    @pytest.mark.asyncio
+    async def test_tool_blocked_judge_failed_non_streaming(self):
+        """on_error='block' + judge failure: blocked message indicates judge unavailable."""
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+
+        response: dict[str, Any] = {
+            "content": [
+                {"type": "tool_use", "id": "toolu_abc", "name": "Bash", "input": {"command": "echo hi"}},
+            ],
+            "stop_reason": "tool_use",
+        }
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="block", judge_failed=True)
+            result = await policy.on_anthropic_response(response, ctx)
+
+        assert len(result["content"]) == 1
+        assert result["content"][0]["type"] == "text"
+        assert "Bash" in result["content"][0]["text"]
+        assert "policy evaluation unavailable" in result["content"][0]["text"]
+        assert result["stop_reason"] == "end_turn"
+
+
+# ============================================================================
+# Judge failure: streaming blocked tool message
+# ============================================================================
+
+
+class TestJudgeFailedBlockedToolStreaming:
+    """Test that judge-failed blocked tools use a distinct message in streaming."""
+
+    @pytest.mark.asyncio
+    async def test_tool_blocked_judge_failed_streaming(self):
+        """on_error='block' + judge failure on tool_use: blocked text says judge unavailable."""
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="block", judge_failed=True)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, _tool_delta('{"command":"echo hi"}', 0)), ctx
+            )
+
+            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
+
+        # Should emit a text block with the judge-failed message
+        assert _event_types(stop_events) == [
+            "content_block_start",
+            "content_block_delta",
+            "content_block_stop",
+        ]
+        delta = [e for e in stop_events if isinstance(e, RawContentBlockDeltaEvent)][0]
+        assert isinstance(delta.delta, TextDelta)
+        assert "Bash" in delta.delta.text
+        assert "policy evaluation unavailable" in delta.delta.text
+
+    @pytest.mark.asyncio
+    async def test_tool_blocked_intentional_uses_standard_message(self):
+        """Intentional block (no judge failure) uses the standard blocked message."""
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="block", judge_failed=False)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, _tool_delta('{"command":"rm -rf /"}', 0)), ctx
+            )
+
+            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
+
+        delta = [e for e in stop_events if isinstance(e, RawContentBlockDeltaEvent)][0]
+        assert isinstance(delta.delta, TextDelta)
+        assert "blocked by policy" in delta.delta.text
+        assert "policy evaluation unavailable" not in delta.delta.text
