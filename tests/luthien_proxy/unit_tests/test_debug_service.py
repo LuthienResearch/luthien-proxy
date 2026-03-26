@@ -247,6 +247,27 @@ class TestFetchCallEvents:
         assert result.tempo_trace_url is not None
 
     @pytest.mark.asyncio
+    async def test_string_timestamps_from_sqlite(self):
+        """Test that string timestamps (from SQLite) are handled correctly."""
+        mock_row = {
+            "call_id": "test-call-id",
+            "event_type": "transaction.request_recorded",
+            "created_at": "2025-10-20T10:00:00",
+            "payload": {"original_request": {}, "final_request": {}},
+            "session_id": None,
+        }
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = [mock_row]
+
+        mock_pool = MagicMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+
+        result = await fetch_call_events("test-call-id", mock_pool)
+
+        assert result.events[0].timestamp == "2025-10-20T10:00:00"
+
+    @pytest.mark.asyncio
     async def test_no_events_found(self):
         """Test error when no events found."""
         mock_conn = AsyncMock()
@@ -410,6 +431,29 @@ class TestFetchRecentCalls:
         assert len(result.calls) == 2
         assert result.calls[0].call_id == "call-0"
         assert result.calls[0].event_count == 2
+
+    @pytest.mark.asyncio
+    async def test_string_timestamps_from_sqlite(self):
+        """Test that string timestamps (from SQLite) are handled correctly."""
+        mock_rows = [
+            {
+                "call_id": "call-0",
+                "event_count": 3,
+                "latest": "2025-10-20T10:00:00",
+                "session_id": None,
+            }
+        ]
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = mock_rows
+
+        mock_pool = MagicMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+
+        result = await fetch_recent_calls(limit=10, db_pool=mock_pool)
+
+        assert result.total == 1
+        assert result.calls[0].latest_timestamp == "2025-10-20T10:00:00"
 
     @pytest.mark.asyncio
     async def test_empty_result(self):

@@ -8,8 +8,10 @@ from unittest.mock import AsyncMock, MagicMock
 import asyncpg
 import pytest
 
+from luthien_proxy.utils.db import DatabasePool
 from luthien_proxy.utils.migration_check import (
-    _find_sqlite_schema,
+    _apply_sqlite_migrations,
+    _find_sqlite_migrations_dir,
     check_migrations,
     compute_file_hash,
 )
@@ -288,46 +290,114 @@ class TestCheckMigrations:
         assert "docker compose up migrations" in error_msg
 
 
-class TestFindSqliteSchema:
-    """Tests for _find_sqlite_schema bundled path resolution."""
+class TestFindSqliteMigrationsDir:
+    """Tests for _find_sqlite_migrations_dir bundled path resolution."""
 
-    def test_finds_bundled_schema(self) -> None:
-        """Bundled sqlite_schema.sql next to migration_check.py should be found."""
-        result = _find_sqlite_schema()
+    def test_finds_bundled_migrations_dir(self) -> None:
+        """Bundled sqlite_migrations/ next to migration_check.py should be found."""
+        result = _find_sqlite_migrations_dir()
         assert result is not None
-        assert result.name == "sqlite_schema.sql"
-        assert result.exists()
+        assert result.is_dir()
+        assert (result / "001_add_policy_config_table.sql").exists()
 
-    def test_bundled_schema_contains_current_policy_table(self) -> None:
-        """Bundled schema must define the current_policy table (the crash trigger)."""
-        schema = _find_sqlite_schema()
-        assert schema is not None
-        content = schema.read_text()
-        assert "current_policy" in content
-
-
-class TestSchemaDrift:
-    """Verify that the bundled and source schema files stay in sync."""
-
-    def test_bundled_schema_matches_migrations_source(self) -> None:
-        """src/luthien_proxy/utils/sqlite_schema.sql must match migrations/sqlite_schema.sql.
-
-        Both files should have identical table definitions. The bundled copy
-        may have extra comment lines (the sync notice), so we compare only
-        the SQL content after stripping comment-only lines.
-        """
-        bundled = Path(__file__).resolve().parents[4] / "src" / "luthien_proxy" / "utils" / "sqlite_schema.sql"
-        source = Path(__file__).resolve().parents[4] / "migrations" / "sqlite_schema.sql"
-
+    def test_bundled_migrations_match_source(self) -> None:
+        """Bundled sqlite_migrations/ must match migrations/sqlite/ content."""
+        bundled = _find_sqlite_migrations_dir()
+        assert bundled is not None
+        source = Path(__file__).resolve().parents[4] / "migrations" / "sqlite"
         if not source.exists():
-            pytest.skip("migrations/sqlite_schema.sql not found (running outside repo)")
+            pytest.skip("migrations/sqlite/ not found (running outside repo)")
 
-        def sql_lines(path: Path) -> list[str]:
-            """Return non-comment, non-empty lines."""
-            return [
-                line for line in path.read_text().splitlines() if line.strip() and not line.strip().startswith("--")
-            ]
-
-        assert sql_lines(bundled) == sql_lines(source), (
-            "Bundled schema has drifted from migrations/sqlite_schema.sql. Update both files to keep them in sync."
+        bundled_files = {f.name: f.read_text() for f in sorted(bundled.glob("*.sql"))}
+        source_files = {f.name: f.read_text() for f in sorted(source.glob("*.sql"))}
+        assert bundled_files == source_files, (
+            "Bundled sqlite_migrations/ has drifted from migrations/sqlite/. "
+            "Copy migrations/sqlite/*.sql to src/luthien_proxy/utils/sqlite_migrations/"
         )
+
+
+class TestApplySqliteMigrations:
+    """Tests for incremental SQLite migration runner."""
+
+    @pytest.fixture
+    def migrations_dir(self, tmp_path: Path) -> Path:
+        d = tmp_path / "sqlite"
+        d.mkdir()
+        return d
+
+    @pytest.mark.asyncio
+    async def test_applies_migrations_in_order(self, migrations_dir: Path) -> None:
+        """Should apply migrations sequentially and record in _migrations."""
+        (migrations_dir / "001_first.sql").write_text("CREATE TABLE t1 (id INTEGER PRIMARY KEY);")
+        (migrations_dir / "002_second.sql").write_text("CREATE TABLE t2 (id INTEGER PRIMARY KEY);")
+        pool = DatabasePool("sqlite://:memory:")
+        await _apply_sqlite_migrations(pool, migrations_dir)
+
+        async with pool.connection() as conn:
+            rows = await conn.fetch("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            names = [r["name"] for r in rows]
+            assert "t1" in names
+            assert "t2" in names
+            tracked = await conn.fetch("SELECT filename FROM _migrations ORDER BY filename")
+            assert [r["filename"] for r in tracked] == ["001_first.sql", "002_second.sql"]
+
+    @pytest.mark.asyncio
+    async def test_skips_already_applied(self, migrations_dir: Path) -> None:
+        """Should not re-apply migrations that are already recorded."""
+        (migrations_dir / "001_first.sql").write_text("CREATE TABLE t1 (id INTEGER PRIMARY KEY);")
+        pool = DatabasePool("sqlite://:memory:")
+        await _apply_sqlite_migrations(pool, migrations_dir)
+        await _apply_sqlite_migrations(pool, migrations_dir)
+
+    @pytest.mark.asyncio
+    async def test_handles_comment_only_files(self, migrations_dir: Path) -> None:
+        """Should handle no-op migration files (comments only)."""
+        (migrations_dir / "000_init.sql").write_text("-- No-op: SQLite needs no database initialization.\n")
+        pool = DatabasePool("sqlite://:memory:")
+        await _apply_sqlite_migrations(pool, migrations_dir)
+
+        async with pool.connection() as conn:
+            tracked = await conn.fetch("SELECT filename FROM _migrations")
+            assert len(tracked) == 1
+            assert tracked[0]["filename"] == "000_init.sql"
+
+    @pytest.mark.asyncio
+    async def test_detects_hash_mismatch(self, migrations_dir: Path) -> None:
+        """Should raise RuntimeError if a recorded migration's hash doesn't match."""
+        (migrations_dir / "001_first.sql").write_text("CREATE TABLE t1 (id INTEGER PRIMARY KEY);")
+        pool = DatabasePool("sqlite://:memory:")
+        await _apply_sqlite_migrations(pool, migrations_dir)
+        (migrations_dir / "001_first.sql").write_text("CREATE TABLE t1_modified (id INTEGER PRIMARY KEY);")
+        with pytest.raises(RuntimeError, match="HASH MISMATCH"):
+            await _apply_sqlite_migrations(pool, migrations_dir)
+
+    @pytest.mark.asyncio
+    async def test_bootstrap_snapshot_era_database(self, migrations_dir: Path) -> None:
+        """Should seed old migrations and apply new ones after bootstrap."""
+        pool = DatabasePool("sqlite://:memory:")
+        async with pool.connection() as conn:
+            await conn.execute(
+                "CREATE TABLE _migrations (filename TEXT PRIMARY KEY, applied_at TEXT, content_hash TEXT)"
+            )
+            await conn.execute(
+                "CREATE TABLE current_policy (id INTEGER PRIMARY KEY CHECK (id = 1), policy_class_ref TEXT NOT NULL)"
+            )
+        # 001 is within bootstrap range (prefix <= 9) — should be seeded, not executed
+        (migrations_dir / "001_first.sql").write_text(
+            "CREATE TABLE current_policy (id INTEGER PRIMARY KEY);"
+        )
+        # 010 is beyond bootstrap range — should be applied as a new migration
+        (migrations_dir / "010_new_feature.sql").write_text(
+            "CREATE TABLE new_feature (id INTEGER PRIMARY KEY);"
+        )
+        await _apply_sqlite_migrations(pool, migrations_dir)
+        async with pool.connection() as conn:
+            tracked = await conn.fetch("SELECT filename FROM _migrations ORDER BY filename")
+            filenames = [r["filename"] for r in tracked]
+            assert "001_first.sql" in filenames
+            assert "010_new_feature.sql" in filenames
+            # Verify 010 was actually executed (table exists)
+            tables = await conn.fetch(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='new_feature'"
+            )
+            assert len(tables) == 1

@@ -310,6 +310,18 @@ if stream_state.finish_reason:
 - **Fix**: Add `--no-cov` when running e2e, mock_e2e, or sqlite_e2e tests
 - **Example**: `uv run pytest -m sqlite_e2e tests/luthien_proxy/e2e_tests/ --no-cov -v`
 
+## Anthropic Streaming: All Content Blocks Must Precede message_delta (2026-03-18)
+
+**Gotcha**: Anthropic's streaming protocol requires all content block events (`content_block_start`, `content_block_delta`, `content_block_stop`) to complete BEFORE `message_delta` is emitted. Injecting content blocks after `message_delta` corrupts client-side conversation history and permanently bricks the session (400 errors on every subsequent request).
+
+- **Invariant**: `content_block_*` events → `message_delta` → `message_stop` (never content blocks after `message_delta`)
+- **Wrong**: Injecting warning/error content blocks at `RawMessageStopEvent` (which fires after `message_delta`)
+- **Right**: Inject content blocks at `RawMessageDeltaEvent`, *before* emitting the delta event itself
+- **Symptom**: `API Error: 400` on the next request in the session, repeating forever. Only recovery is `/rewind`.
+- **Why it's subtle**: `message_stop` feels like the "last event" and a natural injection point — but `message_delta` (which carries `stop_reason` and `usage`) already closed the content block window.
+- **Pattern**: This is the 2nd instance of this bug class in 2 months (1st was PR #134 — thinking block signatures out of order, 2nd was PR #356 — warning injection after `message_delta`). Both were discovered by humans hitting them in real usage.
+- **Architectural gap**: No pipeline-level validator enforces event ordering — each policy must get it right independently.
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

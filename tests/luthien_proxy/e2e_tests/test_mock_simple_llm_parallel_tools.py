@@ -25,6 +25,7 @@ from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import parallel_tool_response, text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 from tests.luthien_proxy.e2e_tests.mock_anthropic.simulator import ClaudeCodeSimulator
+from tests.luthien_proxy.fixtures.anthropic_stream_validator import validate_anthropic_event_ordering
 
 pytestmark = pytest.mark.mock_e2e
 
@@ -78,18 +79,8 @@ async def test_parallel_tool_use_with_judge_failure_session_survives(
         # Warning should be present
         assert "Safety judge unavailable" in turn1.text, f"Expected judge unavailable warning, got: {turn1.text!r}"
 
-        # Verify event ordering: all content blocks before message_delta
-        msg_delta_idx = None
-        last_content_idx = None
-        for i, ev in enumerate(turn1.raw_events):
-            if ev.get("type") in ("content_block_start", "content_block_delta", "content_block_stop"):
-                last_content_idx = i
-            if ev.get("type") == "message_delta":
-                msg_delta_idx = i
-
-        assert msg_delta_idx is not None
-        assert last_content_idx is not None
-        assert last_content_idx < msg_delta_idx, "Content blocks must come before message_delta in the stream"
+        # Verify streaming protocol compliance
+        validate_anthropic_event_ordering(turn1.raw_events).assert_valid()
 
         # Turn 2: send tool results — this is where the session would brick
         # before the fix (400 from malformed conversation history)
@@ -130,20 +121,8 @@ async def test_parallel_tool_use_with_judge_failure_event_ordering(
     # All 3 tool calls should pass through
     assert len(turn.tool_calls) == 3
 
-    # Validate strict event ordering
-    event_types = [ev.get("type") for ev in turn.raw_events]
-
-    # message_start must come first
-    assert event_types[0] == "message_start"
-
-    # message_delta must come after all content blocks
-    delta_pos = event_types.index("message_delta")
-    for i, t in enumerate(event_types):
-        if t in ("content_block_start", "content_block_delta", "content_block_stop"):
-            assert i < delta_pos, f"Content event at position {i} came after message_delta at {delta_pos}"
-
-    # message_stop must come last
-    assert event_types[-1] == "message_stop"
+    # Validate full streaming protocol compliance
+    validate_anthropic_event_ordering(turn.raw_events).assert_valid()
 
     # stop_reason should be "tool_use" (tools were emitted)
     assert turn.stop_reason == "tool_use"

@@ -1,0 +1,2 @@
+-- No-op: SQLite needs no database/user initialization.
+-- Exists to keep numbering consistent with postgres/000_init_databases.sql.
