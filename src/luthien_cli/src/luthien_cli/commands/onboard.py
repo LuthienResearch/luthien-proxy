@@ -260,7 +260,22 @@ def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str) ->
             text=True,
         )
     if pull_result.returncode != 0:
-        console.print(f"[red]docker compose pull failed:[/red]\n{pull_result.stderr}")
+        stderr_lower = (pull_result.stderr or "").lower()
+        if any(hint in stderr_lower for hint in ("403", "forbidden", "unauthorized", "denied")):
+            console.print(
+                "[red]Docker image pull failed: access denied.[/red]\n\n"
+                "The container images on GitHub Container Registry (GHCR) may not be\n"
+                "publicly accessible, or your Docker credentials may have expired.\n\n"
+                "[bold]Suggestions:[/bold]\n"
+                "  1. Try local mode instead (no Docker required):\n"
+                "     [green]luthien onboard[/green]\n"
+                "  2. If you need Docker mode, contact the project maintainers\n"
+                "     to request access to the GHCR images.\n"
+                "  3. If you have access, try logging in:\n"
+                "     [dim]docker login ghcr.io[/dim]"
+            )
+        else:
+            console.print(f"[red]docker compose pull failed:[/red]\n{pull_result.stderr}")
         raise SystemExit(1)
 
     with console.status("Stopping existing containers..."):
