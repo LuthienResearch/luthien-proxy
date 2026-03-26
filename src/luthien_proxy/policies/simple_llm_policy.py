@@ -355,7 +355,8 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                 return self._emit_anthropic_tool_events(index, buffered, event)
             elif action.action == "replace":
                 return self._emit_anthropic_replacement_events(index, action, state, event)
-            return [cast(MessageStreamEvent, event)]
+            # Tool start was suppressed — suppress stop too to avoid orphaned event
+            return []
 
         return [cast(MessageStreamEvent, event)]
 
