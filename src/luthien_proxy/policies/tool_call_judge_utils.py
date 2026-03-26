@@ -22,6 +22,13 @@ from luthien_proxy.utils.constants import DEFAULT_JUDGE_MAX_TOKENS
 logger = logging.getLogger(__name__)
 
 
+def _migrate_api_base(data: dict) -> dict:
+    """Accept api_base as a deprecated alias for base_url."""
+    if isinstance(data, dict) and "api_base" in data:
+        data.setdefault("base_url", data.pop("api_base"))
+    return data
+
+
 class JudgeConfig(BaseModel):
     """Configuration for LLM judge."""
 
@@ -54,10 +61,7 @@ class JudgeConfig(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _accept_api_base(cls, data: dict) -> dict:
-        """Accept api_base as a deprecated alias for base_url."""
-        if isinstance(data, dict) and "api_base" in data:
-            data.setdefault("base_url", data.pop("api_base"))
-        return data
+        return _migrate_api_base(data)
 
 
 @dataclass(frozen=True)
@@ -205,6 +209,7 @@ def build_judge_prompt(name: str, arguments: str, judge_instructions: str) -> li
 
 
 __all__ = [
+    "_migrate_api_base",
     "JudgeConfig",
     "JudgeResult",
     "call_judge",

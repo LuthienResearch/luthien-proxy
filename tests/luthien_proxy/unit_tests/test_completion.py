@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import anthropic
 import pytest
 
 from luthien_proxy.llm.completion import CompletionResult, completion
@@ -24,8 +25,7 @@ class TestCompletion:
     async def test_basic_call(self):
         """System message is extracted and passed as Anthropic system param."""
         mock_message = MagicMock()
-        mock_message.content = [MagicMock()]
-        mock_message.content[0].text = "hello world"
+        mock_message.content = [anthropic.types.TextBlock(type="text", text="hello world")]
         mock_message.usage.input_tokens = 10
         mock_message.usage.output_tokens = 5
 
@@ -58,8 +58,7 @@ class TestCompletion:
     async def test_no_system_message(self):
         """When no system message, system param is not passed."""
         mock_message = MagicMock()
-        mock_message.content = [MagicMock()]
-        mock_message.content[0].text = "response"
+        mock_message.content = [anthropic.types.TextBlock(type="text", text="response")]
         mock_message.usage.input_tokens = 5
         mock_message.usage.output_tokens = 3
 
@@ -83,8 +82,7 @@ class TestCompletion:
     async def test_passes_optional_params(self):
         """Temperature, max_tokens, extra_headers, base_url forwarded."""
         mock_message = MagicMock()
-        mock_message.content = [MagicMock()]
-        mock_message.content[0].text = "ok"
+        mock_message.content = [anthropic.types.TextBlock(type="text", text="ok")]
         mock_message.usage.input_tokens = 1
         mock_message.usage.output_tokens = 1
 
@@ -136,8 +134,7 @@ class TestCompletion:
     async def test_uses_env_api_key_when_none(self):
         """When api_key is None, AsyncAnthropic falls back to env var."""
         mock_message = MagicMock()
-        mock_message.content = [MagicMock()]
-        mock_message.content[0].text = "ok"
+        mock_message.content = [anthropic.types.TextBlock(type="text", text="ok")]
         mock_message.usage.input_tokens = 1
         mock_message.usage.output_tokens = 1
 
@@ -160,8 +157,7 @@ class TestCompletion:
     async def test_client_closed_on_success(self):
         """Client is closed after successful call."""
         mock_message = MagicMock()
-        mock_message.content = [MagicMock()]
-        mock_message.content[0].text = "ok"
+        mock_message.content = [anthropic.types.TextBlock(type="text", text="ok")]
         mock_message.usage.input_tokens = 1
         mock_message.usage.output_tokens = 1
 
@@ -183,14 +179,12 @@ class TestCompletion:
 
     @pytest.mark.asyncio
     async def test_multi_text_blocks_concatenated(self):
-        """Multiple text blocks are joined with newlines."""
-        block1 = MagicMock()
-        block1.text = "first part"
-        block2 = MagicMock()
-        block2.text = "second part"
-
+        """Multiple text blocks are concatenated directly."""
         mock_message = MagicMock()
-        mock_message.content = [block1, block2]
+        mock_message.content = [
+            anthropic.types.TextBlock(type="text", text="first part"),
+            anthropic.types.TextBlock(type="text", text="second part"),
+        ]
         mock_message.usage.input_tokens = 10
         mock_message.usage.output_tokens = 8
 
@@ -207,7 +201,7 @@ class TestCompletion:
                 api_key="test-key",
             )
 
-        assert result.text == "first part\nsecond part"
+        assert result.text == "first partsecond part"
 
     @pytest.mark.asyncio
     async def test_client_closed_on_error(self):

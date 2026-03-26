@@ -86,12 +86,12 @@ async def completion(
         await client.close()
 
     # Concatenate all text blocks
-    text_parts = [block.text for block in response.content if hasattr(block, "text")]
+    text_parts = [block.text for block in response.content if isinstance(block, anthropic.types.TextBlock)]
     if not text_parts:
         raise ValueError("No text content in LLM response")
 
     return CompletionResult(
-        text="\n".join(text_parts),
+        text="".join(text_parts),
         input_tokens=response.usage.input_tokens,
         output_tokens=response.usage.output_tokens,
     )
