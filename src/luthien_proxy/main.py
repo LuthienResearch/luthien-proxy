@@ -551,7 +551,8 @@ if __name__ == "__main__":
                 auth_mode=config.get("auth_mode", AuthMode.BOTH),
             )
 
-            server_config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="debug")
+            log_level = os.environ.get("LOG_LEVEL", "info").lower()
+            server_config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level=log_level)
             server = uvicorn.Server(server_config)
             await server.serve()
         finally:

@@ -20,7 +20,7 @@ from luthien_proxy.llm.anthropic_client import AnthropicClient
 
 logger = logging.getLogger(__name__)
 
-MAX_CACHE_SIZE = 64
+MAX_CACHE_SIZE = 16
 
 _cache: OrderedDict[str, AnthropicClient] = OrderedDict()
 _lock = asyncio.Lock()
