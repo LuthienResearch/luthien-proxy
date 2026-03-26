@@ -343,6 +343,9 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                 return self._emit_anthropic_text_events(index, text, event)
             elif action.action == "replace":
                 return self._emit_anthropic_replacement_events(index, action, state, event)
+            # Text start was already emitted — must close with stop (produces
+            # empty text block). Unlike tool_use, clients don't wait for a
+            # follow-up action on text blocks, so silent suppression is fine.
             return [cast(MessageStreamEvent, event)]
 
         # Tool block stop

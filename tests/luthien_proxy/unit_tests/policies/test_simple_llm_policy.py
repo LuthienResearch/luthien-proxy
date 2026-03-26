@@ -280,6 +280,50 @@ class TestToolBlockStreaming:
 
 
 # ============================================================================
+# Multi-block sequences
+# ============================================================================
+
+
+class TestMultiBlockStreaming:
+    """Test mixed block sequences to verify index tracking and stop_reason."""
+
+    @pytest.mark.asyncio
+    async def test_text_passes_then_tool_blocked(self):
+        """Text block passes, then tool block is blocked — correct events and stop_reason."""
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+
+        pass_action = JudgeAction(action="pass")
+        block_action = JudgeAction(action="block")
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = [pass_action, block_action]
+
+            # Text block at index 0 — passes through
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _text_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _text_delta("hello", 0)), ctx)
+            text_stop = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
+            assert _event_types(text_stop) == ["content_block_delta", "content_block_stop"]
+
+            # Tool block at index 1 — blocked, emits explanatory text
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_delta("{}", 1)), ctx)
+            tool_stop = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(1)), ctx)
+            assert _event_types(tool_stop) == [
+                "content_block_start",
+                "content_block_delta",
+                "content_block_stop",
+            ]
+
+            # stop_reason should be end_turn (no tool_use passed through)
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, _message_delta("tool_use")), ctx
+            )
+            delta_event = [e for e in msg_events if isinstance(e, RawMessageDeltaEvent)][0]
+            assert delta_event.delta.stop_reason == "end_turn"
+
+
+# ============================================================================
 # Judge failure behavior
 # ============================================================================
 
