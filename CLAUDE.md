@@ -179,6 +179,26 @@ Most near-term development work is dockerless. Prefer `start_gateway.sh` for day
 - Prefer fast unit tests for policies; add integration tests against gateway endpoints.
 - Use `pytest-cov` for coverage; include edge cases for streaming chunk logic.
 
+### Existing Test Infrastructure
+
+This repo has extensive test infrastructure — **use it before building manual test setups**. Read the CLAUDE.md in the relevant test directory for full details and examples.
+
+| Tier | Marker | Infra needed | Speed | When to use |
+|------|--------|-------------|-------|-------------|
+| Unit | *(default)* | None | Fast | Logic, edge cases, mock external calls |
+| sqlite_e2e | `sqlite_e2e` | None (in-process) | Medium | Full gateway behavior, no Docker |
+| mock_e2e | `mock_e2e` | Docker + mock server | Medium | Deterministic streaming, policy behavior |
+| e2e | `e2e` | Docker + real API | Slow | Final validation, real-world behavior |
+
+Key helpers in `tests/luthien_proxy/e2e_tests/`:
+- `conftest.py`: `policy_context(class_ref, config)` — hot-swap policy via admin API, auto-restore
+- `mock_anthropic/simulator.py`: `ClaudeCodeSimulator` — simulate Claude Code client sessions
+- `mock_anthropic/server.py`: `MockAnthropicServer` — enqueue deterministic responses
+
+Note: `sqlite_e2e` and `mock_e2e` must run in **separate pytest sessions** (module-level patching conflicts).
+
+Smoke test script: `scripts/test_gateway.sh`
+
 ### Test Requirements
 
 **IMPORTANT: Always write unit tests when adding or significantly modifying code.**
