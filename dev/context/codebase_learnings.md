@@ -54,23 +54,31 @@ if model_specific_params:
 
 **Key principle**: We want litellm to do format conversion (OpenAI ↔ Anthropic) but NOT validate parameters. Each provider knows what it supports.
 
-## E2E Test Infrastructure (2025-10-17, updated 2025-10-24)
+## E2E Test Infrastructure (2025-10-17, updated 2026-03-25)
 
-**Self-contained test servers**: E2E tests manage their own V2 gateway instances.
+Three test tiers with increasing infrastructure requirements:
 
-**V2GatewayManager** ([tests/luthien_proxy/e2e_tests/helpers/v2_gateway.py](../../tests/luthien_proxy/e2e_tests/helpers/v2_gateway.py)):
-- Uses `multiprocessing.Process` to run V2 gateway in isolated subprocess
-- Runs on dedicated test port (8888) separate from dev (8000)
-- Handles startup, health checking, and cleanup automatically
+**sqlite_e2e** (no Docker, fastest): In-process gateway on random port with SQLite.
+- Conftest at `tests/luthien_proxy/e2e_tests/sqlite/conftest.py`
+- Starts uvicorn in-process, auto-selects free port, auto-teardown
+- Run: `uv run pytest -m sqlite_e2e tests/luthien_proxy/e2e_tests/sqlite/ --no-cov -v`
+- Must run in **separate pytest session** from mock_e2e (module-level patching)
 
-**Usage pattern**:
-```python
-@pytest.fixture(scope="module")
-def gateway():
-    manager = V2GatewayManager(port=8888, api_key="sk-test-gateway")
-    with manager.running():
-        yield manager
-```
+**mock_e2e** (Docker, deterministic): Gateway + mock Anthropic server on port 18888.
+- Mock server at `tests/luthien_proxy/e2e_tests/mock_anthropic/`
+- `MockAnthropicServer` enqueues canned responses, `ClaudeCodeSimulator` sends requests
+- `policy_context()` fixture hot-swaps policies via admin API
+- Run: `uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/ --no-cov -v`
+
+**e2e** (Docker + real API): Real Anthropic API calls through Docker Compose gateway.
+- Slow, costs money, non-deterministic. Use sparingly.
+
+**Smoke test script**: `scripts/test_gateway.sh` — health, streaming, non-streaming, auth validation.
+
+**Key helpers** (in `tests/luthien_proxy/e2e_tests/conftest.py`):
+- `policy_context(class_ref, config)` — set policy, auto-restore NoOp
+- `set_policy()` / `get_current_policy()` — admin API wrappers
+- `gateway_healthy` — fixture that skips if gateway unreachable
 
 ## Streaming Pipeline Architecture (2025-11-05)
 
