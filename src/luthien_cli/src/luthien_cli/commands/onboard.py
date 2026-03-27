@@ -261,7 +261,9 @@ def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str) ->
         )
     if pull_result.returncode != 0:
         stderr_lower = (pull_result.stderr or "").lower()
-        if any(hint in stderr_lower for hint in ("403", "forbidden", "unauthorized", "denied")):
+        if any(
+            hint in stderr_lower for hint in ("403", "forbidden", "unauthorized", "access to the resource is denied")
+        ):
             console.print(
                 "[red]Docker image pull failed: access denied.[/red]\n\n"
                 "The container images on GitHub Container Registry (GHCR) may not be\n"

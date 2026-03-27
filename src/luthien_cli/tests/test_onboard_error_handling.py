@@ -82,8 +82,8 @@ class TestDockerPullErrorHandling:
         assert "access denied" in printed.lower()
 
     @patch("luthien_cli.commands.onboard.subprocess.run")
-    def test_pull_denied_shows_access_denied_message(self, mock_run, tmp_path):
-        """When docker compose pull returns 'denied', show access denied message."""
+    def test_pull_access_denied_shows_access_denied_message(self, mock_run, tmp_path):
+        """When docker compose pull returns 'access denied', show access denied message."""
         config = self._make_config(tmp_path)
         console = MagicMock()
 
@@ -99,6 +99,50 @@ class TestDockerPullErrorHandling:
 
         printed = " ".join(str(call) for call in console.print.call_args_list)
         assert "access denied" in printed.lower()
+
+    @patch("luthien_cli.commands.onboard.subprocess.run")
+    def test_pull_bare_denied_does_not_match(self, mock_run, tmp_path):
+        """Bare 'denied' without 'access' should NOT trigger GHCR auth messaging.
+
+        This avoids false positives for Docker socket 'permission denied' errors.
+        """
+        config = self._make_config(tmp_path)
+        console = MagicMock()
+
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["docker", "compose", "pull"],
+            returncode=1,
+            stdout="",
+            stderr="permission denied while trying to connect to the Docker daemon socket",
+        )
+
+        with pytest.raises(SystemExit):
+            _onboard_docker(console, config, "sk-test", "admin-test")
+
+        printed = " ".join(str(call) for call in console.print.call_args_list)
+        # Should show raw stderr, not the GHCR access denied guidance
+        assert "permission denied while trying to connect" in printed
+        assert "luthien onboard" not in printed
+
+    @patch("luthien_cli.commands.onboard.subprocess.run")
+    def test_pull_none_stderr_handled_gracefully(self, mock_run, tmp_path):
+        """When stderr is None (not empty string), handle gracefully."""
+        config = self._make_config(tmp_path)
+        console = MagicMock()
+
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["docker", "compose", "pull"],
+            returncode=1,
+            stdout="",
+            stderr=None,
+        )
+
+        with pytest.raises(SystemExit):
+            _onboard_docker(console, config, "sk-test", "admin-test")
+
+        # Should not crash
+        printed = " ".join(str(call) for call in console.print.call_args_list)
+        assert "docker compose pull failed" in printed
 
     @patch("luthien_cli.commands.onboard.subprocess.run")
     def test_pull_generic_failure_shows_raw_stderr(self, mock_run, tmp_path):
@@ -146,9 +190,13 @@ class TestDownloadFiles403:
     """Test that _download_files handles 403 errors with helpful messages."""
 
     @patch("luthien_cli.repo.httpx.get")
-    def test_download_403_shows_access_denied(self, mock_get, tmp_path):
+    @patch("luthien_cli.repo.Console")
+    def test_download_403_shows_access_denied(self, mock_console_cls, mock_get, tmp_path):
         """HTTP 403 on file download shows access denied message."""
         import httpx
+
+        mock_console = MagicMock()
+        mock_console_cls.return_value = mock_console
 
         response = httpx.Response(403, request=httpx.Request("GET", "https://example.com"))
         mock_get.side_effect = httpx.HTTPStatusError(
@@ -160,13 +208,18 @@ class TestDownloadFiles403:
         with pytest.raises(SystemExit):
             _download_files(tmp_path)
 
-        # The function prints to stderr via Console — we check it doesn't crash
-        # and the SystemExit is raised (the console output goes to stderr)
+        printed = " ".join(str(call) for call in mock_console.print.call_args_list)
+        assert "access denied" in printed.lower()
+        assert "403" in printed
 
     @patch("luthien_cli.repo.httpx.get")
-    def test_download_401_shows_access_denied(self, mock_get, tmp_path):
+    @patch("luthien_cli.repo.Console")
+    def test_download_401_shows_access_denied(self, mock_console_cls, mock_get, tmp_path):
         """HTTP 401 on file download shows access denied message."""
         import httpx
+
+        mock_console = MagicMock()
+        mock_console_cls.return_value = mock_console
 
         response = httpx.Response(401, request=httpx.Request("GET", "https://example.com"))
         mock_get.side_effect = httpx.HTTPStatusError(
@@ -178,10 +231,18 @@ class TestDownloadFiles403:
         with pytest.raises(SystemExit):
             _download_files(tmp_path)
 
+        printed = " ".join(str(call) for call in mock_console.print.call_args_list)
+        assert "access denied" in printed.lower()
+        assert "401" in printed
+
     @patch("luthien_cli.repo.httpx.get")
-    def test_download_404_shows_generic_error(self, mock_get, tmp_path):
+    @patch("luthien_cli.repo.Console")
+    def test_download_404_shows_generic_error(self, mock_console_cls, mock_get, tmp_path):
         """HTTP 404 should show the generic error (not access denied)."""
         import httpx
+
+        mock_console = MagicMock()
+        mock_console_cls.return_value = mock_console
 
         response = httpx.Response(404, request=httpx.Request("GET", "https://example.com"))
         mock_get.side_effect = httpx.HTTPStatusError(
@@ -192,3 +253,7 @@ class TestDownloadFiles403:
 
         with pytest.raises(SystemExit):
             _download_files(tmp_path)
+
+        printed = " ".join(str(call) for call in mock_console.print.call_args_list)
+        assert "access denied" not in printed.lower()
+        assert "404" in printed
