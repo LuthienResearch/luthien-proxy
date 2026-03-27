@@ -577,6 +577,7 @@ async def _handle_execution_streaming(
                 response_span.set_attribute("luthien.phase", "process_response")
                 response_span.set_attribute("luthien.streaming", True)
 
+                caught_exception = False
                 try:
                     with tracer.start_as_current_span("policy_execute"):
                         async for emitted in emissions:
@@ -591,6 +592,7 @@ async def _handle_execution_streaming(
                             accumulated_events.append(cast(MessageStreamEvent, emitted))
                             yield _format_sse_event(cast(MessageStreamEvent, emitted))
                 except Exception as e:
+                    caught_exception = True
                     # Headers may already be sent, so emit an in-stream error event.
                     policy_ctx.record_event(
                         "policy.execution.streaming_error",
@@ -605,7 +607,7 @@ async def _handle_execution_streaming(
                     error_event = _build_error_event(e, call_id)
                     yield _format_sse_event(error_event)
                 finally:
-                    if not emitted_any:
+                    if not emitted_any and not caught_exception:
                         io.ensure_request_recorded()
                         logger.warning(
                             "[%s] Execution policy emitted zero streaming events; yielding error event",
@@ -621,7 +623,7 @@ async def _handle_execution_streaming(
                             type="error",
                             error=_ErrorDetail(
                                 type="api_error",
-                                message=("Request blocked: policy evaluation unavailable. Contact your administrator."),
+                                message="Request blocked: policy evaluation unavailable. Contact your administrator.",
                             ),
                         )
                         yield _format_sse_event(empty_stream_error)

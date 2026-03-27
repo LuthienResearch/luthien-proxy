@@ -1323,6 +1323,46 @@ class TestExecutionPolicyRuntime:
         assert "must emit streaming events" not in full_stream
 
     @pytest.mark.asyncio
+    async def test_exception_before_any_events_yields_exactly_one_error(
+        self,
+        mock_request,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """When a policy raises before emitting any events, the client gets exactly one error event.
+
+        Regression: the finally block used to unconditionally yield a second
+        empty-stream error when emitted_any was False, even though the except
+        block had already yielded an error event for the exception.
+        """
+        mock_request.json = AsyncMock(
+            return_value={
+                "model": DEFAULT_TEST_MODEL,
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 64,
+                "stream": True,
+            }
+        )
+        policy = _GenericErrorPolicy()
+
+        response = await process_anthropic_request(
+            request=mock_request,
+            policy=policy,
+            anthropic_client=mock_anthropic_client,
+            emitter=mock_emitter,
+        )
+
+        assert isinstance(response, FastAPIStreamingResponse)
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+        full_stream = "".join(chunks)
+
+        # Count "event: error" occurrences — must be exactly one
+        error_count = full_stream.count("event: error")
+        assert error_count == 1, f"Expected exactly 1 error event but found {error_count}. Full stream: {full_stream!r}"
+
+    @pytest.mark.asyncio
     async def test_anthropic_beta_header_forwarded_to_upstream_client(
         self,
         mock_emitter,
