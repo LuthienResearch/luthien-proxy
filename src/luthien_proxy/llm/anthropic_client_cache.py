@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections import OrderedDict
 from typing import Literal
 
@@ -20,7 +21,8 @@ from luthien_proxy.llm.anthropic_client import AnthropicClient
 
 logger = logging.getLogger(__name__)
 
-MAX_CACHE_SIZE = 16
+_DEFAULT_MAX_CACHE_SIZE = 16
+MAX_CACHE_SIZE = int(os.environ.get("ANTHROPIC_CLIENT_CACHE_SIZE", _DEFAULT_MAX_CACHE_SIZE))
 
 _cache: OrderedDict[str, AnthropicClient] = OrderedDict()
 _lock = asyncio.Lock()

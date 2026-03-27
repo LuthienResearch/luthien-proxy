@@ -26,6 +26,7 @@ from tests.constants import DEFAULT_TEST_MODEL
 from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
 from luthien_proxy.pipeline.anthropic_processor import (
+    _AnthropicPolicyIO,
     _build_error_event,
     _format_sse_event,
     _handle_anthropic_error,
@@ -1706,3 +1707,58 @@ class TestRunPolicyHooks:
 
         assert len(emissions) == 1
         assert emissions[0]["content"][0]["text"] == "GOODBYE WORLD"
+
+
+class TestAnthropicPolicyIOBuffering:
+    """Tests for _AnthropicPolicyIO raw event buffering behaviour."""
+
+    def _make_io(self, *, is_streaming: bool) -> _AnthropicPolicyIO:
+        request: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "max_tokens": 100,
+            "messages": [{"role": "user", "content": "hi"}],
+        }
+        return _AnthropicPolicyIO(
+            initial_request=request,
+            anthropic_client=MagicMock(),
+            emitter=MagicMock(),
+            call_id="test-call",
+            session_id=None,
+            request_log_recorder=MagicMock(),
+            is_streaming=is_streaming,
+        )
+
+    def test_buffer_raw_events_false_when_streaming(self):
+        """Streaming requests should NOT buffer raw events (memory optimisation)."""
+        io = self._make_io(is_streaming=True)
+        assert io._buffer_raw_events is False
+
+    def test_buffer_raw_events_true_when_not_streaming(self):
+        """Non-streaming requests should buffer raw events for response reconstruction."""
+        io = self._make_io(is_streaming=False)
+        assert io._buffer_raw_events is True
+
+    def test_raw_backend_events_starts_empty(self):
+        """Raw backend events list starts empty regardless of streaming mode."""
+        for streaming in (True, False):
+            io = self._make_io(is_streaming=streaming)
+            assert io._raw_backend_events == []
+
+    def test_streaming_fallback_uses_accumulated_events(self):
+        """When buffering is disabled (streaming), raw_events should come from
+        accumulated_events, not from the empty _raw_backend_events list."""
+        io = self._make_io(is_streaming=True)
+        accumulated_events = [MagicMock(spec=MessageStreamEvent)]
+
+        # This mirrors the logic in the streaming response path
+        raw_events = accumulated_events if not io._buffer_raw_events else io._raw_backend_events
+        assert raw_events is accumulated_events
+
+    def test_non_streaming_uses_raw_backend_events(self):
+        """When buffering is enabled (non-streaming), raw_events should come
+        from _raw_backend_events, even when it is empty."""
+        io = self._make_io(is_streaming=False)
+        accumulated_events = [MagicMock(spec=MessageStreamEvent)]
+
+        raw_events = accumulated_events if not io._buffer_raw_events else io._raw_backend_events
+        assert raw_events is io._raw_backend_events

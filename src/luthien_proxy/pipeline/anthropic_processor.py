@@ -656,7 +656,7 @@ async def _handle_execution_streaming(
                     if reconstructed is not None:
                         # Use raw backend events for original response if buffered,
                         # otherwise fall back to accumulated (post-policy) events.
-                        raw_events = io._raw_backend_events if io._raw_backend_events else accumulated_events
+                        raw_events = accumulated_events if not io._buffer_raw_events else io._raw_backend_events
                         raw_reconstructed = _reconstruct_response_from_stream_events(raw_events)
                         emitter.record(
                             call_id,

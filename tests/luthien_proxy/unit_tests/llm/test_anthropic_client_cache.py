@@ -174,3 +174,22 @@ class TestCacheManagement:
 
     async def test_close_all_on_empty_returns_zero(self):
         assert await anthropic_client_cache.close_all() == 0
+
+
+class TestMaxCacheSizeConfigurable:
+    """MAX_CACHE_SIZE can be overridden via ANTHROPIC_CLIENT_CACHE_SIZE env var."""
+
+    def test_default_cache_size(self):
+        assert anthropic_client_cache._DEFAULT_MAX_CACHE_SIZE == 16
+
+    def test_env_var_overrides_cache_size(self, monkeypatch):
+        """Reloading the module with the env var set changes MAX_CACHE_SIZE."""
+        import importlib
+
+        monkeypatch.setenv("ANTHROPIC_CLIENT_CACHE_SIZE", "64")
+        importlib.reload(anthropic_client_cache)
+        try:
+            assert anthropic_client_cache.MAX_CACHE_SIZE == 64
+        finally:
+            monkeypatch.delenv("ANTHROPIC_CLIENT_CACHE_SIZE", raising=False)
+            importlib.reload(anthropic_client_cache)
