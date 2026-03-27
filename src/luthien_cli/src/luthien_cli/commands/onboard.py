@@ -18,7 +18,7 @@ from rich.panel import Panel
 from luthien_cli.commands.up import wait_for_healthy
 from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config, save_config
 from luthien_cli.local_process import find_docker_ports, find_free_port, start_gateway, stop_gateway
-from luthien_cli.repo import ensure_gateway_venv, ensure_repo, resolve_proxy_ref
+from luthien_cli.repo import ensure_gateway_venv, ensure_repo, ensure_repo_clone, resolve_proxy_ref
 
 
 def _read_single_key() -> str:
@@ -264,6 +264,7 @@ def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str) ->
 
     # 3. Start Docker stack
     console.print("\n[blue]Starting gateway...[/blue]")
+    use_local_build = False
     with console.status("Pulling latest images..."):
         pull_result = subprocess.run(
             ["docker", "compose", "pull"],
@@ -272,8 +273,41 @@ def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str) ->
             text=True,
         )
     if pull_result.returncode != 0:
-        console.print(f"[red]docker compose pull failed:[/red]\n{pull_result.stderr}")
-        raise SystemExit(1)
+        console.print("[yellow]Could not pull pre-built images from GHCR.[/yellow]")
+        console.print(f"[dim]{(pull_result.stderr or '').strip()}[/dim]")
+        console.print()
+
+        if click.confirm(
+            "Would you like to build the Docker images locally instead? (requires git and takes a few minutes)",
+            default=True,
+        ):
+            clone_path = ensure_repo_clone()
+            # Re-write env and policy config into the cloned repo
+            _ensure_docker_env(clone_path, proxy_key, admin_key)
+            config.repo_path = clone_path
+            use_local_build = True
+
+            with console.status("Building Docker images locally (this may take a few minutes)..."):
+                build_result = subprocess.run(
+                    ["docker", "compose", "build"],
+                    cwd=config.repo_path,
+                    capture_output=True,
+                    text=True,
+                )
+            if build_result.returncode != 0:
+                console.print(f"[red]docker compose build failed:[/red]\n{build_result.stderr}")
+                console.print(
+                    "\n[bold]Alternative:[/bold] Try local mode instead (no Docker required):\n"
+                    "  [green]luthien onboard[/green]"
+                )
+                raise SystemExit(1)
+            console.print("[green]Docker images built successfully.[/green]")
+        else:
+            console.print(
+                "\n[bold]Alternative:[/bold] Try local mode instead (no Docker required):\n"
+                "  [green]luthien onboard[/green]"
+            )
+            raise SystemExit(1)
 
     with console.status("Stopping existing containers..."):
         down_result = subprocess.run(
@@ -321,7 +355,8 @@ def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str) ->
         console.print(f"[dim]Check logs: docker compose -f {config.repo_path}/docker-compose.yaml logs gateway[/dim]")
         raise SystemExit(1)
 
-    _show_results(console, actual_gateway_url.rstrip("/"), "docker")
+    mode_label = "docker (local build)" if use_local_build else "docker"
+    _show_results(console, actual_gateway_url.rstrip("/"), mode_label)
 
 
 @click.command()

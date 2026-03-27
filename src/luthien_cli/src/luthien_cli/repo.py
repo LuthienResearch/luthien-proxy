@@ -16,6 +16,8 @@ GITHUB_SHA_URL = "https://api.github.com/repos/LuthienResearch/luthien-proxy/com
 GITHUB_PR_URL = "https://api.github.com/repos/LuthienResearch/luthien-proxy/pulls/{number}"
 MANAGED_REPO_DIR = Path.home() / ".luthien" / "luthien-proxy"
 MANAGED_VENV_DIR = Path.home() / ".luthien" / "venv"
+CLONE_DIR = Path.home() / ".luthien" / "luthien-proxy-src"
+GITHUB_CLONE_URL = "https://github.com/LuthienResearch/luthien-proxy.git"
 
 FILES_TO_DOWNLOAD = ("docker-compose.yaml", ".env.example")
 
@@ -234,3 +236,42 @@ def ensure_gateway_venv(
 
     console.print("[green]Gateway package installed.[/green]")
     return str(repo_dir)
+
+
+def ensure_repo_clone() -> str:
+    """Clone or update the full luthien-proxy repo for local Docker builds.
+
+    Returns the path to the cloned repo at ~/.luthien/luthien-proxy-src/.
+    If the clone already exists, pulls latest changes instead.
+    """
+    console = Console(stderr=True)
+    dest = CLONE_DIR
+
+    git = shutil.which("git")
+    if not git:
+        console.print("[red]git is required for local builds but not found.[/red]")
+        raise SystemExit(1)
+
+    if (dest / ".git").is_dir():
+        with console.status("Updating local repo clone..."):
+            result = subprocess.run(
+                [git, "pull", "--ff-only"],
+                cwd=str(dest),
+                capture_output=True,
+                text=True,
+            )
+        if result.returncode != 0:
+            console.print("[yellow]Could not update repo clone. Using existing files.[/yellow]")
+    else:
+        with console.status("Cloning luthien-proxy repo for local build..."):
+            result = subprocess.run(
+                [git, "clone", "--depth", "1", GITHUB_CLONE_URL, str(dest)],
+                capture_output=True,
+                text=True,
+            )
+        if result.returncode != 0:
+            console.print(f"[red]Failed to clone repo:[/red]\n{result.stderr}")
+            raise SystemExit(1)
+
+    console.print("[green]Repo clone ready for local build.[/green]")
+    return str(dest)
