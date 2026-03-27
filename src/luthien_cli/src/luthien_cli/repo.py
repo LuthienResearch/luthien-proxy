@@ -253,13 +253,24 @@ def ensure_repo_clone() -> str:
         raise SystemExit(1)
 
     if (dest / ".git").is_dir():
+        # Use fetch+reset instead of pull --ff-only: shallow clones can
+        # fail to fast-forward when the remote has diverged.
         with console.status("Updating local repo clone..."):
-            result = subprocess.run(
-                [git, "pull", "--ff-only"],
+            fetch = subprocess.run(
+                [git, "fetch", "--depth", "1", "origin", "main"],
                 cwd=str(dest),
                 capture_output=True,
                 text=True,
             )
+            if fetch.returncode == 0:
+                result = subprocess.run(
+                    [git, "reset", "--hard", "origin/main"],
+                    cwd=str(dest),
+                    capture_output=True,
+                    text=True,
+                )
+            else:
+                result = fetch
         if result.returncode != 0:
             console.print("[yellow]Could not update repo clone. Using existing files.[/yellow]")
     else:

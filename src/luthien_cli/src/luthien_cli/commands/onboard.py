@@ -50,6 +50,10 @@ ONBOARDING_PROMPT = (
 
 ONBOARDING_POLICY_CLASS = "luthien_proxy.policies.onboarding_policy:OnboardingPolicy"
 
+_LOCAL_MODE_HINT = (
+    "\n[bold]Alternative:[/bold] Try local mode instead (no Docker required):\n  [green]luthien onboard[/green]"
+)
+
 
 def _generate_key(prefix: str) -> str:
     return f"{prefix}-{secrets.token_urlsafe(24)}"
@@ -282,7 +286,12 @@ def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str) ->
             default=True,
         ):
             clone_path = ensure_repo_clone()
-            # Re-write env and policy config into the cloned repo
+            # Intentionally call _ensure_docker_env a second time: the first
+            # call (above) wrote env vars into config.repo_path (the managed
+            # artifact directory), but the local-build fallback switches to
+            # clone_path which is a full git clone.  Docker Compose reads .env
+            # from its working directory, so we must re-write the env file
+            # into the clone directory.
             _ensure_docker_env(clone_path, proxy_key, admin_key)
             config.repo_path = clone_path
             use_local_build = True
@@ -296,17 +305,11 @@ def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str) ->
                 )
             if build_result.returncode != 0:
                 console.print(f"[red]docker compose build failed:[/red]\n{build_result.stderr}")
-                console.print(
-                    "\n[bold]Alternative:[/bold] Try local mode instead (no Docker required):\n"
-                    "  [green]luthien onboard[/green]"
-                )
+                console.print(_LOCAL_MODE_HINT)
                 raise SystemExit(1)
             console.print("[green]Docker images built successfully.[/green]")
         else:
-            console.print(
-                "\n[bold]Alternative:[/bold] Try local mode instead (no Docker required):\n"
-                "  [green]luthien onboard[/green]"
-            )
+            console.print(_LOCAL_MODE_HINT)
             raise SystemExit(1)
 
     with console.status("Stopping existing containers..."):

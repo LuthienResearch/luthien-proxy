@@ -221,15 +221,15 @@ class TestEnsureRepoClone:
 
     @patch("luthien_cli.repo.subprocess.run")
     @patch("luthien_cli.repo.shutil.which", return_value="/usr/bin/git")
-    def test_pulls_existing_repo(self, mock_which, mock_run, tmp_path):
-        """When .git dir exists, pulls instead of cloning."""
+    def test_updates_existing_repo_with_fetch_reset(self, mock_which, mock_run, tmp_path):
+        """When .git dir exists, uses fetch+reset instead of cloning."""
         dest = tmp_path / "clone"
         dest.mkdir()
         (dest / ".git").mkdir()
 
         with patch("luthien_cli.repo.CLONE_DIR", dest):
             mock_run.return_value = subprocess.CompletedProcess(
-                args=["git", "pull"],
+                args=["git", "fetch"],
                 returncode=0,
                 stdout="",
                 stderr="",
@@ -238,8 +238,14 @@ class TestEnsureRepoClone:
             result = ensure_repo_clone()
 
         assert result == str(dest)
-        pull_call = mock_run.call_args[0][0]
-        assert "pull" in pull_call
+        # Should have called fetch then reset (two subprocess.run calls)
+        assert mock_run.call_count == 2
+        fetch_call = mock_run.call_args_list[0][0][0]
+        reset_call = mock_run.call_args_list[1][0][0]
+        assert "fetch" in fetch_call
+        assert "--depth" in fetch_call
+        assert "reset" in reset_call
+        assert "--hard" in reset_call
 
     @patch("luthien_cli.repo.shutil.which", return_value=None)
     def test_no_git_exits(self, mock_which):
@@ -266,18 +272,18 @@ class TestEnsureRepoClone:
 
     @patch("luthien_cli.repo.subprocess.run")
     @patch("luthien_cli.repo.shutil.which", return_value="/usr/bin/git")
-    def test_pull_failure_continues(self, mock_which, mock_run, tmp_path):
-        """When git pull fails on existing clone, warns but continues."""
+    def test_fetch_failure_continues(self, mock_which, mock_run, tmp_path):
+        """When git fetch fails on existing clone, warns but continues."""
         dest = tmp_path / "clone"
         dest.mkdir()
         (dest / ".git").mkdir()
 
         with patch("luthien_cli.repo.CLONE_DIR", dest):
             mock_run.return_value = subprocess.CompletedProcess(
-                args=["git", "pull"],
+                args=["git", "fetch"],
                 returncode=1,
                 stdout="",
-                stderr="merge conflict",
+                stderr="network error",
             )
 
             # Should not raise — uses existing files
