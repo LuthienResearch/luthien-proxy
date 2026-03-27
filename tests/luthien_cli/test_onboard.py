@@ -209,10 +209,12 @@ def test_onboard_docker_failure(tmp_path):
         patch("luthien_cli.commands.onboard.subprocess.run") as mock_run,
     ):
         mock_run.return_value = MagicMock(returncode=1, stderr="compose error")
-        result = runner.invoke(cli, ["onboard", "--docker", "-y"])
+        # Answer 'n' to the local build fallback prompt
+        result = runner.invoke(cli, ["onboard", "--docker", "-y"], input="n\n")
 
     assert result.exit_code != 0
-    assert "failed" in result.output.lower()
+    assert "could not pull" in result.output.lower()
+    assert "luthien onboard" in result.output
 
 
 def test_onboard_local_gateway_unhealthy(tmp_path):
