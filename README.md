@@ -121,6 +121,8 @@ After setup, use the CLI or Claude Code to manage the proxy:
 
 > **Docker mode**: If you prefer PostgreSQL + Redis, run `luthien onboard --docker` instead. Requires [Docker](https://www.docker.com/products/docker-desktop/).
 
+> **Next step**: Once the gateway is running, see [Configuration](#configuration) to set up API keys and customize policies.
+
 ---
 
 ## What You Get

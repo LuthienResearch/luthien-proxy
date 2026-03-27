@@ -47,6 +47,14 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
+if ! docker compose version > /dev/null 2>&1; then
+    echo "❌ Docker Compose v2 is required but not found."
+    echo "   This script uses 'docker compose' (v2), not 'docker-compose' (v1, EOL)."
+    echo "   Install Docker Desktop (includes Compose v2): https://www.docker.com/products/docker-desktop/"
+    echo "   Or install the plugin: https://docs.docker.com/compose/install/"
+    exit 1
+fi
+
 if ! command -v uv &> /dev/null; then
     echo "❌ uv is not installed. Please install uv first: https://docs.astral.sh/uv/"
     exit 1
