@@ -49,8 +49,8 @@ export function validatePayload(data: unknown): ValidationResult {
     return { ok: false, error: "deployment_id must be a non-empty string" };
   }
 
-  if (typeof obj.proxy_version !== "string") {
-    return { ok: false, error: "proxy_version must be a string" };
+  if (typeof obj.proxy_version !== "string" || obj.proxy_version === "") {
+    return { ok: false, error: "proxy_version must be a non-empty string" };
   }
 
   if (typeof obj.timestamp !== "string" || isNaN(new Date(obj.timestamp).getTime())) {

@@ -20,7 +20,7 @@ function escapeTagValue(value: string): string {
 }
 
 export function toInfluxLines(payload: TelemetryPayload): string {
-  const timestampNs = new Date(payload.timestamp).getTime() * 1_000_000;
+  const timestampNs = (BigInt(new Date(payload.timestamp).getTime()) * 1_000_000n).toString();
   const deploymentId = escapeTagValue(payload.deployment_id);
   const proxyVersion = escapeTagValue(payload.proxy_version);
   const tags = `deployment_id=${deploymentId},proxy_version=${proxyVersion}`;
