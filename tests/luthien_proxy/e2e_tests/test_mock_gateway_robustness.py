@@ -42,7 +42,7 @@ async def test_malformed_json_returns_400(gateway_healthy):
         response = await client.post(
             f"{GATEWAY_URL}/v1/messages",
             content=b"not valid json {",
-            headers={**_HEADERS, "Content-Type": "application/json"},
+            headers={**MOCK_HEADERS, "Content-Type": "application/json"},
         )
 
     # TODO: tighten to == 400 once PR #336 merges (currently returns 500)
@@ -56,7 +56,7 @@ async def test_empty_body_returns_error(gateway_healthy):
         response = await client.post(
             f"{GATEWAY_URL}/v1/messages",
             content=b"",
-            headers={**_HEADERS, "Content-Type": "application/json"},
+            headers={**MOCK_HEADERS, "Content-Type": "application/json"},
         )
 
     assert response.status_code >= 400  # 400/422 ideal; 500 until PR #336 merges
@@ -74,7 +74,7 @@ async def test_missing_model_field_returns_error(gateway_healthy):
         response = await client.post(
             f"{GATEWAY_URL}/v1/messages",
             json=payload,
-            headers=_HEADERS,
+            headers=MOCK_HEADERS,
         )
 
     assert response.status_code in (400, 422)
@@ -92,7 +92,7 @@ async def test_missing_messages_field_returns_error(gateway_healthy):
         response = await client.post(
             f"{GATEWAY_URL}/v1/messages",
             json=payload,
-            headers=_HEADERS,
+            headers=MOCK_HEADERS,
         )
 
     assert response.status_code in (400, 422)
@@ -115,7 +115,7 @@ async def test_empty_messages_array_returns_error(
         response = await client.post(
             f"{GATEWAY_URL}/v1/messages",
             json=payload,
-            headers=_HEADERS,
+            headers=MOCK_HEADERS,
         )
 
     assert response.status_code != 500  # gateway must not crash
@@ -138,7 +138,7 @@ async def test_invalid_role_in_messages_returns_error(
         response = await client.post(
             f"{GATEWAY_URL}/v1/messages",
             json=payload,
-            headers=_HEADERS,
+            headers=MOCK_HEADERS,
         )
 
     assert response.status_code != 500  # gateway must not crash
@@ -161,8 +161,8 @@ async def test_concurrent_requests_all_succeed(
     async def make_request(client: httpx.AsyncClient) -> httpx.Response:
         return await client.post(
             f"{GATEWAY_URL}/v1/messages",
-            json=_BASE_REQUEST,
-            headers=_HEADERS,
+            json=BASE_REQUEST,
+            headers=MOCK_HEADERS,
         )
 
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -186,8 +186,8 @@ async def test_concurrent_requests_responses_are_valid(
     async def make_request(client: httpx.AsyncClient) -> httpx.Response:
         return await client.post(
             f"{GATEWAY_URL}/v1/messages",
-            json=_BASE_REQUEST,
-            headers=_HEADERS,
+            json=BASE_REQUEST,
+            headers=MOCK_HEADERS,
         )
 
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -212,7 +212,7 @@ async def test_missing_auth_header_returns_401(gateway_healthy):
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(
             f"{GATEWAY_URL}/v1/messages",
-            json=_BASE_REQUEST,
+            json=BASE_REQUEST,
         )
 
     assert response.status_code == 401
@@ -233,7 +233,7 @@ async def test_invalid_auth_token_returns_401(
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(
             f"{GATEWAY_URL}/v1/messages",
-            json=_BASE_REQUEST,
+            json=BASE_REQUEST,
             headers={"Authorization": "Bearer invalid-token-xyz"},
         )
 
