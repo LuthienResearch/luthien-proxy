@@ -63,7 +63,7 @@ export function validatePayload(data: unknown): ValidationResult {
 
   const metrics = obj.metrics as Record<string, unknown>;
   for (const key of REQUIRED_METRIC_KEYS) {
-    if (typeof metrics[key] !== "number" || metrics[key] < 0) {
+    if (typeof metrics[key] !== "number" || !(metrics[key] >= 0)) {
       return { ok: false, error: `metrics.${key} must be a non-negative number` };
     }
   }

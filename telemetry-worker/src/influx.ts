@@ -16,7 +16,7 @@ const METRIC_MAPPINGS: MetricMapping[] = [
 ];
 
 function escapeTagValue(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/ /g, "\\ ").replace(/,/g, "\\,").replace(/=/g, "\\=");
+  return value.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/ /g, "\\ ").replace(/,/g, "\\,").replace(/=/g, "\\=");
 }
 
 export function toInfluxLines(payload: TelemetryPayload): string {
