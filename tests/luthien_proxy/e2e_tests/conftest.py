@@ -302,6 +302,10 @@ class FailureCapture:
         self._test_name = test_name
         self._entries: list[dict] = []
 
+    def reset(self) -> None:
+        """Clear all accumulated observations (call between retry attempts)."""
+        self._entries.clear()
+
     def record(
         self,
         scenario: str,
@@ -310,7 +314,7 @@ class FailureCapture:
         actual_response: str,
         input_messages: list[dict] | None = None,
     ) -> None:
-        """Append one observation.  Call this before the assertion."""
+        """Append one observation. Call before the assertion; persisted only on flush()."""
         safe_config = {k: v for k, v in policy_config.items() if k != "api_key"}
         self._entries.append(
             {
