@@ -12,7 +12,10 @@ import json
 import logging
 import re
 from datetime import datetime
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
+
+# DB row payload type: asyncpg returns dict, aiosqlite returns str, may be NULL
+_PreviewPayload = dict[str, Any] | str | None
 
 from luthien_proxy.utils.db import DatabasePool, parse_db_ts
 
@@ -410,7 +413,7 @@ async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int 
             total_events=int(row["total_events"]),  # type: ignore[arg-type]
             policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
             models_used=list(row["models"]) if row["models"] else [],  # type: ignore[arg-type]
-            preview_message=_extract_preview_message(row["request_payload"]),  # type: ignore[arg-type]
+            preview_message=_extract_preview_message(cast(_PreviewPayload, row["request_payload"])),
         )
         for row in rows
     ]
@@ -509,7 +512,7 @@ async def _fetch_session_list_sqlite(limit: int, db_pool: DatabasePool, offset: 
     for r in preview_rows:
         sid = str(r["session_id"])
         if sid not in preview_by_session:
-            preview_by_session[sid] = _extract_preview_message(r["request_payload"])  # type: ignore[arg-type]
+            preview_by_session[sid] = _extract_preview_message(cast(_PreviewPayload, r["request_payload"]))
 
     sessions = [
         SessionSummary(

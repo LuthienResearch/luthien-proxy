@@ -211,7 +211,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         has_tool_use = any(b.get("type") == "tool_use" for b in content)
         expected = "tool_use" if has_tool_use else "end_turn"
         if response.get("stop_reason") != expected:
-            response = cast("AnthropicResponse", dict(response))
+            response = cast("AnthropicResponse", dict(response))  # shallow copy preserves TypedDict shape
             response["stop_reason"] = expected
         return response
 
@@ -359,7 +359,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         if index in state.tool_buffer:
             buffered = state.tool_buffer.pop(index)
             try:
-                input_data: "JSONObject | str" = json.loads(buffered.input_json) if buffered.input_json else {}
+                input_data: "JSONObject | str" = json.loads(buffered.input_json) if buffered.input_json else {}  # tool inputs are always objects in practice
             except json.JSONDecodeError:
                 logger.warning(f"Malformed tool input JSON for '{buffered.name}', using raw string")
                 input_data = {"_raw": buffered.input_json}
