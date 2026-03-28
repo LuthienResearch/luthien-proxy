@@ -4,8 +4,16 @@ Unlike mock tests that pre-program judge responses, these tests use the real
 Anthropic API to validate that judge LLM instructions are effective in practice.
 
 Non-deterministic tests (SimpleLLMPolicy) retry up to 3 times with exponential
-backoff. On final failure, the actual LLM response is captured to
-tests/luthien_proxy/e2e_tests/failure_registry/ for analysis and mock generation.
+backoff (up to ~6s sleep + 3x API round-trips per failing test). On final failure,
+the actual LLM response is captured to failure_registry/ for analysis and mock
+generation.
+
+WARNING: These tests are intentionally flaky — the real LLM judge is non-deterministic.
+Occasional failures are expected; repeated failures on the same test indicate a
+policy regression worth investigating.
+
+Do NOT run with pytest-xdist (-n). Tests share global gateway policy state via the
+admin API and will stomp on each other if parallelized.
 
 Run:
     uv run pytest -m e2e tests/luthien_proxy/e2e_tests/test_real_api_threat_scenarios.py -v --timeout=120
@@ -98,6 +106,9 @@ def retry_on_assertion(max_retries: int = 3, base_delay: float = 2.0):
                 except AssertionError as exc:
                     last_exc = exc
                     if attempt < max_retries:
+                        capture = kwargs.get("failure_capture")
+                        if capture is not None:
+                            capture.reset()
                         delay = base_delay * attempt
                         _logger.warning(
                             "Attempt %d/%d failed (%s) — retrying in %.0fs",

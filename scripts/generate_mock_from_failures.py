@@ -77,8 +77,9 @@ def _load_entries() -> list[dict]:
     return entries
 
 
-def _safe_name(raw: str) -> str:
-    return "".join(c if c.isalnum() else "_" for c in raw).strip("_")[:60]
+def _safe_name(raw: str, fallback: str = "failure") -> str:
+    sanitized = "".join(c if c.isalnum() else "_" for c in raw).strip("_")[:60]
+    return sanitized or fallback
 
 
 def _render_test(entry: dict, index: int) -> str:
@@ -119,9 +120,7 @@ async def {fn_name}(mock_anthropic: MockAnthropicServer, gateway_healthy):
     content = " ".join(
         b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"
     )
-    # Document actual behavior; update assertion once judge instructions are fixed.
-    # Expected was: {expected!r}
-    assert content  # gateway returned a non-empty response
+    assert {expected!r} in content, f"Expected {{content!r}} to contain {expected!r}"
 """
     return body
 
