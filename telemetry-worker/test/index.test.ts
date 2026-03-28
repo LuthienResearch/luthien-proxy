@@ -12,11 +12,18 @@ function createMockKV(): KVNamespace {
   } as unknown as KVNamespace;
 }
 
+function createMockRateLimiter(success = true): RateLimiter {
+  return {
+    limit: vi.fn(async () => ({ success })),
+  } as unknown as RateLimiter;
+}
+
 const ENV: Env = {
   GRAFANA_USER_ID: "123456",
   GRAFANA_API_KEY: "glc_test_key",
   GRAFANA_PUSH_URL: "https://influx-prod.grafana.net/api/v1/push/influx/write",
   DEDUP: createMockKV(),
+  RATE_LIMITER: createMockRateLimiter(),
 };
 
 function makeRequest(method: string, body?: unknown): Request {
@@ -115,6 +122,15 @@ describe("handleRequest", () => {
     expect(body2.deduplicated).toBe(true);
 
     expect(grafanaCalls).toBe(1);
+  });
+
+  it("returns 429 when rate limited", async () => {
+    const env = { ...ENV, RATE_LIMITER: createMockRateLimiter(false) };
+    const req = makeRequest("POST", VALID_BODY);
+    const res = await handleRequest(req, env, async () => new Response("", { status: 204 }));
+    expect(res.status).toBe(429);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain("rate limited");
   });
 
   it("returns 415 for non-JSON Content-Type", async () => {

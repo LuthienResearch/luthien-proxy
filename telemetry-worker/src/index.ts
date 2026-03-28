@@ -8,6 +8,7 @@ export interface Env {
   GRAFANA_API_KEY: string;
   GRAFANA_PUSH_URL: string;
   DEDUP: KVNamespace;
+  RATE_LIMITER: RateLimiter;
 }
 
 type FetchFn = typeof fetch;
@@ -38,6 +39,14 @@ async function handleTelemetryPost(
   env: Env,
   fetchFn: FetchFn,
 ): Promise<Response> {
+  if (env.RATE_LIMITER) {
+    const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+    const { success } = await env.RATE_LIMITER.limit({ key: ip });
+    if (!success) {
+      return Response.json({ error: "rate limited" }, { status: 429 });
+    }
+  }
+
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.includes("application/json")) {
     return Response.json({ error: "Content-Type must be application/json" }, { status: 415 });
