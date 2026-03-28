@@ -55,7 +55,7 @@ def _find_roots() -> tuple[Path, Path]:
     worktree_root is the current checkout (may be the same as main_repo_root).
     Docker compose must run from main_repo_root so it can find .env.
     """
-    checkout = Path(__file__).resolve().parents[3]
+    checkout = Path(__file__).resolve().parents[2]
     return find_repo_roots(checkout)
 
 
@@ -129,7 +129,16 @@ def _compose_up_gateway(extra_env: dict[str, str] | None = None) -> None:
 
 @pytest.fixture(scope="module")
 def _enable_request_logging():
-    """Restart gateway with ENABLE_REQUEST_LOGGING=true for this module."""
+    """Ensure the gateway runs with ENABLE_REQUEST_LOGGING=true for this module.
+
+    When the env var is already set (CI / dockerless mode), the gateway was
+    started with logging enabled — no restart needed.  Otherwise, restart the
+    gateway container via docker compose.
+    """
+    already_enabled = os.getenv("ENABLE_REQUEST_LOGGING", "").lower() == "true"
+    if already_enabled:
+        yield
+        return
     _compose_up_gateway(extra_env={"ENABLE_REQUEST_LOGGING": "true"})
     yield
     _compose_up_gateway(extra_env={"ENABLE_REQUEST_LOGGING": "false"})
