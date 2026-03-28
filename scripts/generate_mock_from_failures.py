@@ -83,6 +83,13 @@ def _safe_name(raw: str, fallback: str = "failure") -> str:
 
 
 def _render_test(entry: dict, index: int) -> str:
+    """Render one regression test function from a failure capture entry.
+
+    NOTE: actual_response and policy configs are embedded via repr() from the local
+    failure registry (developer-only, never served from untrusted sources).
+    policy_class_ref is taken directly from the capture — do not use generated tests
+    from untrusted registries.
+    """
     base_name = _safe_name(entry.get("test_name", f"failure_{index}"))
     fn_name = f"test_mock_regression_{index:03d}_{base_name}"
     scenario = entry.get("scenario", "unknown scenario").replace("\n", " ").replace("\r", "")
@@ -92,13 +99,22 @@ def _render_test(entry: dict, index: int) -> str:
     timestamp = entry.get("timestamp", "unknown")
     source = entry.get("_source_file", "unknown")
 
+    if not expected:
+        return f"""\
+@pytest.mark.asyncio
+async def {fn_name}(mock_anthropic: MockAnthropicServer, gateway_healthy):
+    # Captured: {source} at {timestamp}
+    # Scenario: {scenario}
+    pytest.skip("No expected value in capture — cannot generate a meaningful assertion")
+"""
+
     policy_class_ref = policy_config.get(
         "class_ref",
         "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy",
     )
     config = {k: v for k, v in policy_config.items() if k != "class_ref"}
 
-    body = f"""\
+    return f"""\
 @pytest.mark.asyncio
 async def {fn_name}(mock_anthropic: MockAnthropicServer, gateway_healthy):
     # Captured: {source} at {timestamp}
@@ -122,7 +138,6 @@ async def {fn_name}(mock_anthropic: MockAnthropicServer, gateway_healthy):
     )
     assert {expected!r} in content, f"Expected {{content!r}} to contain {expected!r}"
 """
-    return body
 
 
 def generate(output: Path) -> int:
