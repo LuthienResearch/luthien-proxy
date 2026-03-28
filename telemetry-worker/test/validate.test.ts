@@ -52,6 +52,33 @@ describe("validatePayload", () => {
     if (!result.ok) expect(result.error).toContain("deployment_id");
   });
 
+  it("rejects missing proxy_version", () => {
+    const { proxy_version, ...rest } = VALID_PAYLOAD;
+    const result = validatePayload(rest as any);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("proxy_version");
+  });
+
+  it("rejects invalid timestamp", () => {
+    const result = validatePayload({ ...VALID_PAYLOAD, timestamp: "not-a-date" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("timestamp");
+  });
+
+  it("rejects missing timestamp", () => {
+    const { timestamp, ...rest } = VALID_PAYLOAD;
+    const result = validatePayload(rest as any);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("timestamp");
+  });
+
+  it("rejects negative metric values", () => {
+    const payload = { ...VALID_PAYLOAD, metrics: { ...VALID_PAYLOAD.metrics, input_tokens: -1 } };
+    const result = validatePayload(payload);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("input_tokens");
+  });
+
   it("accepts zero-value metrics", () => {
     const payload = {
       ...VALID_PAYLOAD,

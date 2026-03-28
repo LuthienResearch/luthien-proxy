@@ -76,7 +76,7 @@ async function handleTelemetryPost(
     console.error(`Grafana push failed: ${result.error}`);
   }
 
-  // Always return 200 to proxy — it ignores errors anyway
+  // Always return 200 — fire-and-forget semantics
   return Response.json({ accepted: true });
 }
 

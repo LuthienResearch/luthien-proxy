@@ -49,14 +49,22 @@ export function validatePayload(data: unknown): ValidationResult {
     return { ok: false, error: "deployment_id must be a non-empty string" };
   }
 
+  if (typeof obj.proxy_version !== "string") {
+    return { ok: false, error: "proxy_version must be a string" };
+  }
+
+  if (typeof obj.timestamp !== "string" || isNaN(new Date(obj.timestamp).getTime())) {
+    return { ok: false, error: "timestamp must be a valid ISO date string" };
+  }
+
   if (typeof obj.metrics !== "object" || obj.metrics === null) {
     return { ok: false, error: "metrics must be an object" };
   }
 
   const metrics = obj.metrics as Record<string, unknown>;
   for (const key of REQUIRED_METRIC_KEYS) {
-    if (typeof metrics[key] !== "number") {
-      return { ok: false, error: `metrics.${key} must be a number` };
+    if (typeof metrics[key] !== "number" || metrics[key] < 0) {
+      return { ok: false, error: `metrics.${key} must be a non-negative number` };
     }
   }
 
