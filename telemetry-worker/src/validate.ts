@@ -12,8 +12,8 @@ export interface TelemetryPayload {
   schema_version: number;
   deployment_id: string;
   proxy_version: string;
-  python_version: string;
-  interval_seconds: number;
+  python_version?: string;
+  interval_seconds?: number;
   timestamp: string;
   metrics: TelemetryMetrics;
 }
@@ -35,7 +35,7 @@ const REQUIRED_METRIC_KEYS: (keyof TelemetryMetrics)[] = [
 ];
 
 export function validatePayload(data: unknown): ValidationResult {
-  if (typeof data !== "object" || data === null) {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) {
     return { ok: false, error: "payload must be a JSON object" };
   }
 
@@ -63,8 +63,8 @@ export function validatePayload(data: unknown): ValidationResult {
 
   const metrics = obj.metrics as Record<string, unknown>;
   for (const key of REQUIRED_METRIC_KEYS) {
-    if (typeof metrics[key] !== "number" || !(metrics[key] >= 0)) {
-      return { ok: false, error: `metrics.${key} must be a non-negative number` };
+    if (typeof metrics[key] !== "number" || !(metrics[key] >= 0) || !Number.isInteger(metrics[key])) {
+      return { ok: false, error: `metrics.${key} must be a non-negative integer` };
     }
   }
 

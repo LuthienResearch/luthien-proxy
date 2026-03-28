@@ -79,6 +79,31 @@ describe("validatePayload", () => {
     if (!result.ok) expect(result.error).toContain("input_tokens");
   });
 
+  it("rejects NaN metric values", () => {
+    const payload = { ...VALID_PAYLOAD, metrics: { ...VALID_PAYLOAD.metrics, output_tokens: NaN } };
+    const result = validatePayload(payload);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("output_tokens");
+  });
+
+  it("rejects non-integer metric values", () => {
+    const payload = { ...VALID_PAYLOAD, metrics: { ...VALID_PAYLOAD.metrics, input_tokens: 3.14 } };
+    const result = validatePayload(payload);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("input_tokens");
+  });
+
+  it("rejects array payloads", () => {
+    const result = validatePayload([1, 2, 3]);
+    expect(result.ok).toBe(false);
+  });
+
+  it("accepts payload without optional fields", () => {
+    const { python_version, interval_seconds, ...rest } = VALID_PAYLOAD;
+    const result = validatePayload(rest);
+    expect(result.ok).toBe(true);
+  });
+
   it("accepts zero-value metrics", () => {
     const payload = {
       ...VALID_PAYLOAD,
