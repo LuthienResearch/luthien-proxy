@@ -17,7 +17,13 @@ Run:
 
 import httpx
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import GATEWAY_URL, MOCK_HOST, SIMPLE_LLM_POLICY, auth_config_context, policy_context
+from tests.luthien_proxy.e2e_tests.conftest import (
+    GATEWAY_URL,
+    MOCK_HOST,
+    SIMPLE_LLM_POLICY,
+    auth_config_context,
+    policy_context,
+)
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import DEFAULT_MOCK_PORT, MockAnthropicServer
 
