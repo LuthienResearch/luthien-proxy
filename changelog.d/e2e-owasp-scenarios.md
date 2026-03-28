@@ -1,8 +1,8 @@
 ---
 category: Features
+pr: 458
 ---
 
-**OWASP threat scenario e2e tests**: 48 new mock_e2e tests covering LLM01 (Prompt Injection), LLM06 (Sensitive Disclosure), LLM08 (Excessive Agency), gateway robustness, and audit trail. 7 real-API tests with retry and failure capture for non-deterministic judge validation.
-  - OWASP LLM markers (llm01/02/04/06/07/08) added to pytest config
-  - `FailureCapture` fixture: on real-API test failure, writes actual judge response to `failure_registry/` for analysis
-  - `scripts/generate_mock_from_failures.py`: converts failure captures into deterministic mock regression tests
+**OWASP threat scenario e2e tests**: 48 new mock_e2e tests covering LLM01 (Prompt Injection), LLM06 (Sensitive Disclosure), LLM08 (Excessive Agency), gateway robustness, and audit trail.
+  - OWASP LLM markers (llm01/02/04/06/07/08) added to pytest config for selective test runs
+  - Fixed 4 pre-existing test failures: passthrough auth tests now use `MOCK_ANTHROPIC_HOST` env var (defaults to `host.docker.internal`, overridable to `localhost` for dockerless/CI runs); `_enable_request_logging` fixture is a no-op when `ENABLE_REQUEST_LOGGING` is already set in the environment
