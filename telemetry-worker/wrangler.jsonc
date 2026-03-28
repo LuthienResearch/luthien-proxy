@@ -8,5 +8,11 @@
       "pattern": "telemetry.luthien.cc/*",
       "zone_name": "luthien.cc"
     }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "DEDUP",
+      "id": "df9131d7d84c479590a366b70d8c03ee"
+    }
   ]
 }

@@ -1,10 +1,22 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { handleRequest, type Env } from "../src/index";
+
+function createMockKV(): KVNamespace {
+  const store = new Map<string, string>();
+  return {
+    get: vi.fn(async (key: string) => store.get(key) ?? null),
+    put: vi.fn(async (key: string, value: string) => { store.set(key, value); }),
+    delete: vi.fn(),
+    list: vi.fn(),
+    getWithMetadata: vi.fn(),
+  } as unknown as KVNamespace;
+}
 
 const ENV: Env = {
   GRAFANA_USER_ID: "123456",
   GRAFANA_API_KEY: "glc_test_key",
   GRAFANA_PUSH_URL: "https://influx-prod.grafana.net/api/v1/push/influx/write",
+  DEDUP: createMockKV(),
 };
 
 function makeRequest(method: string, body?: unknown): Request {
@@ -83,6 +95,26 @@ describe("handleRequest", () => {
     const req = makeRequest("POST", oversized);
     const res = await handleRequest(req, ENV, async () => new Response("", { status: 204 }));
     expect(res.status).toBe(413);
+  });
+
+  it("deduplicates identical payloads", async () => {
+    const env = { ...ENV, DEDUP: createMockKV() };
+    let grafanaCalls = 0;
+    const mockFetch = async () => { grafanaCalls++; return new Response("", { status: 204 }); };
+
+    const req1 = makeRequest("POST", VALID_BODY);
+    const res1 = await handleRequest(req1, env, mockFetch);
+    expect(res1.status).toBe(200);
+    const body1 = await res1.json() as { deduplicated?: boolean };
+    expect(body1.deduplicated).toBeUndefined();
+
+    const req2 = makeRequest("POST", VALID_BODY);
+    const res2 = await handleRequest(req2, env, mockFetch);
+    expect(res2.status).toBe(200);
+    const body2 = await res2.json() as { deduplicated?: boolean };
+    expect(body2.deduplicated).toBe(true);
+
+    expect(grafanaCalls).toBe(1);
   });
 
   it("returns 404 for unknown paths", async () => {

@@ -1,11 +1,13 @@
 import { validatePayload, MAX_PAYLOAD_BYTES } from "./validate";
 import { toInfluxLines } from "./influx";
 import { pushToGrafana, type GrafanaConfig } from "./grafana";
+import { isDuplicate, markSeen } from "./dedup";
 
 export interface Env {
   GRAFANA_USER_ID: string;
   GRAFANA_API_KEY: string;
   GRAFANA_PUSH_URL: string;
+  DEDUP: KVNamespace;
 }
 
 type FetchFn = typeof fetch;
@@ -61,6 +63,15 @@ async function handleTelemetryPost(
   const validation = validatePayload(data);
   if (!validation.ok) {
     return Response.json({ error: validation.error }, { status: 400 });
+  }
+
+  const { deployment_id, timestamp } = validation.payload;
+
+  if (env.DEDUP) {
+    if (await isDuplicate(env.DEDUP, deployment_id, timestamp)) {
+      return Response.json({ accepted: true, deduplicated: true });
+    }
+    await markSeen(env.DEDUP, deployment_id, timestamp);
   }
 
   const influxBody = toInfluxLines(validation.payload);
