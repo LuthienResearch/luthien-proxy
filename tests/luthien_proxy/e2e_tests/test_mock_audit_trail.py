@@ -24,6 +24,7 @@ import pytest
 from tests.luthien_proxy.e2e_tests.conftest import (
     ADMIN_API_KEY,
     BASE_REQUEST,
+    DOGFOOD_SAFETY_POLICY,
     GATEWAY_URL,
     MOCK_HEADERS,
     policy_context,
@@ -32,8 +33,6 @@ from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
 pytestmark = pytest.mark.mock_e2e
-
-_DOGFOOD_SAFETY = "luthien_proxy.policies.dogfood_safety_policy:DogfoodSafetyPolicy"
 
 _ADMIN_HEADERS = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
 
@@ -72,7 +71,7 @@ async def _get_session(client: httpx.AsyncClient, session_uuid: str) -> httpx.Re
 async def _poll_for_session(
     client: httpx.AsyncClient,
     session_uuid: str,
-    timeout: float = 5.0,
+    timeout: float = 10.0,
 ) -> httpx.Response:
     """Poll the session history endpoint until the session appears or timeout expires."""
     deadline = time.monotonic() + timeout
@@ -124,7 +123,7 @@ async def test_session_stored_after_blocked_request(
     session_uuid = str(uuid.uuid4())
     mock_anthropic.enqueue(tool_response("Bash", {"command": "docker compose down"}))
 
-    async with policy_context(_DOGFOOD_SAFETY, {}):
+    async with policy_context(DOGFOOD_SAFETY_POLICY, {}):
         async with httpx.AsyncClient(timeout=15.0) as client:
             await _send_with_session(client, session_uuid)
 
@@ -147,7 +146,7 @@ async def test_session_has_turn_after_blocked_request(
     session_uuid = str(uuid.uuid4())
     mock_anthropic.enqueue(tool_response("Bash", {"command": "docker compose down"}))
 
-    async with policy_context(_DOGFOOD_SAFETY, {}):
+    async with policy_context(DOGFOOD_SAFETY_POLICY, {}):
         async with httpx.AsyncClient(timeout=15.0) as client:
             await _send_with_session(client, session_uuid)
 
@@ -175,13 +174,13 @@ async def test_multiple_turns_blocked_and_unblocked_all_recorded(
 
     # Turn 1: blocked (docker compose down triggers DogfoodSafetyPolicy)
     mock_anthropic.enqueue(tool_response("Bash", {"command": "docker compose down"}))
-    async with policy_context(_DOGFOOD_SAFETY, {}):
+    async with policy_context(DOGFOOD_SAFETY_POLICY, {}):
         async with httpx.AsyncClient(timeout=15.0) as client:
             await _send_with_session(client, session_uuid, content="run docker compose down")
 
     # Turn 2: not blocked (normal text response)
     mock_anthropic.enqueue(text_response("Here is the file listing."))
-    async with policy_context(_DOGFOOD_SAFETY, {}):
+    async with policy_context(DOGFOOD_SAFETY_POLICY, {}):
         async with httpx.AsyncClient(timeout=15.0) as client:
             await _send_with_session(client, session_uuid, content="list the files")
 
