@@ -78,3 +78,9 @@ src/luthien_cli/src/luthien_cli/_version.py
 
 # Real-API test failure captures (runtime artifacts, .gitkeep tracks the directory)
 tests/**/failure_registry/*.json
+
+# Serena AI assistant local state
+.serena/
+
+# Local scratch files
+kanban.jpg
