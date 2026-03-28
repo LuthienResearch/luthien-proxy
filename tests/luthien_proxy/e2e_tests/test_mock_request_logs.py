@@ -55,7 +55,7 @@ def _find_roots() -> tuple[Path, Path]:
     worktree_root is the current checkout (may be the same as main_repo_root).
     Docker compose must run from main_repo_root so it can find .env.
     """
-    checkout = Path(__file__).resolve().parents[2]
+    checkout = Path(__file__).resolve().parents[2]  # tests/luthien_proxy/e2e_tests/ → repo root
     return find_repo_roots(checkout)
 
 

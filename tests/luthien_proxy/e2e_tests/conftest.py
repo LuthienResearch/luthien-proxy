@@ -86,6 +86,9 @@ def _reset_mock_server(request):
 
     Only activates for tests marked with @pytest.mark.mock_e2e so real-API
     tests don't trigger an unnecessary mock server startup.
+
+    Note: tests that use the mock_anthropic fixture directly without the mock_e2e
+    marker will NOT get a clean queue reset — add the marker to avoid stale state.
     """
     if not request.node.get_closest_marker("mock_e2e"):
         yield
@@ -375,7 +378,11 @@ BASE_REQUEST: dict = {
 
 
 async def collect_sse_text(response: "httpx.Response") -> str:
-    """Collect all text_delta values from an SSE streaming response into a single string."""
+    """Collect all text_delta values from an SSE streaming response into a single string.
+
+    The response must have been made with stream=True; non-streaming responses
+    will return an empty string with no error.
+    """
     parts: list[str] = []
     async for line in response.aiter_lines():
         if not line.startswith("data:"):

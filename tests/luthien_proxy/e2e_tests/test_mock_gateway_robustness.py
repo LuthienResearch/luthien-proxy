@@ -20,19 +20,11 @@ import asyncio
 
 import httpx
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL
+from tests.luthien_proxy.e2e_tests.conftest import BASE_REQUEST, GATEWAY_URL, MOCK_HEADERS
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
 pytestmark = pytest.mark.mock_e2e
-
-_HEADERS = {"Authorization": f"Bearer {API_KEY}"}
-_BASE_REQUEST = {
-    "model": "claude-haiku-4-5",
-    "messages": [{"role": "user", "content": "hello"}],
-    "max_tokens": 100,
-    "stream": False,
-}
 
 
 # ======================================================================

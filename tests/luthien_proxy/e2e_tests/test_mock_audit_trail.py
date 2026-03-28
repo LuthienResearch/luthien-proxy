@@ -21,7 +21,13 @@ import uuid
 
 import httpx
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import ADMIN_API_KEY, API_KEY, GATEWAY_URL, policy_context
+from tests.luthien_proxy.e2e_tests.conftest import (
+    ADMIN_API_KEY,
+    BASE_REQUEST,
+    GATEWAY_URL,
+    MOCK_HEADERS,
+    policy_context,
+)
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response, tool_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
@@ -29,13 +35,7 @@ pytestmark = pytest.mark.mock_e2e
 
 _DOGFOOD_SAFETY = "luthien_proxy.policies.dogfood_safety_policy:DogfoodSafetyPolicy"
 
-_HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 _ADMIN_HEADERS = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
-
-_BASE_REQUEST = {
-    "model": "claude-haiku-4-5",
-    "max_tokens": 100,
-}
 
 
 def _make_session_user_id(session_uuid: str) -> str:
@@ -52,12 +52,12 @@ async def _send_with_session(
     return await client.post(
         f"{GATEWAY_URL}/v1/messages",
         json={
-            **_BASE_REQUEST,
+            **BASE_REQUEST,
             "messages": [{"role": "user", "content": content}],
             "stream": False,
             "metadata": {"user_id": _make_session_user_id(session_uuid)},
         },
-        headers=_HEADERS,
+        headers=MOCK_HEADERS,
     )
 
 
