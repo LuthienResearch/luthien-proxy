@@ -383,13 +383,9 @@ class TestApplySqliteMigrations:
                 "CREATE TABLE current_policy (id INTEGER PRIMARY KEY CHECK (id = 1), policy_class_ref TEXT NOT NULL)"
             )
         # 001 is within bootstrap range (prefix <= 9) — should be seeded, not executed
-        (migrations_dir / "001_first.sql").write_text(
-            "CREATE TABLE current_policy (id INTEGER PRIMARY KEY);"
-        )
+        (migrations_dir / "001_first.sql").write_text("CREATE TABLE current_policy (id INTEGER PRIMARY KEY);")
         # 010 is beyond bootstrap range — should be applied as a new migration
-        (migrations_dir / "010_new_feature.sql").write_text(
-            "CREATE TABLE new_feature (id INTEGER PRIMARY KEY);"
-        )
+        (migrations_dir / "010_new_feature.sql").write_text("CREATE TABLE new_feature (id INTEGER PRIMARY KEY);")
         await _apply_sqlite_migrations(pool, migrations_dir)
         async with pool.connection() as conn:
             tracked = await conn.fetch("SELECT filename FROM _migrations ORDER BY filename")
@@ -397,7 +393,5 @@ class TestApplySqliteMigrations:
             assert "001_first.sql" in filenames
             assert "010_new_feature.sql" in filenames
             # Verify 010 was actually executed (table exists)
-            tables = await conn.fetch(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='new_feature'"
-            )
+            tables = await conn.fetch("SELECT name FROM sqlite_master WHERE type='table' AND name='new_feature'")
             assert len(tables) == 1
