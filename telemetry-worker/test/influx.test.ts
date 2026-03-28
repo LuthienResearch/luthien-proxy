@@ -51,9 +51,9 @@ describe("toInfluxLines", () => {
 
   it("includes timestamp in nanoseconds", () => {
     const lines = toInfluxLines(PAYLOAD);
-    const expectedNs = new Date("2026-03-25T22:00:00Z").getTime() * 1_000_000;
+    const expectedNs = (BigInt(new Date("2026-03-25T22:00:00Z").getTime()) * 1_000_000n).toString();
     for (const line of lines.split("\n").filter((l) => l.length > 0)) {
-      expect(line).toContain(expectedNs.toString());
+      expect(line).toContain(expectedNs);
     }
   });
 

@@ -45,8 +45,8 @@ export function validatePayload(data: unknown): ValidationResult {
     return { ok: false, error: "schema_version must be 1" };
   }
 
-  if (typeof obj.deployment_id !== "string" || obj.deployment_id === "") {
-    return { ok: false, error: "deployment_id must be a non-empty string" };
+  if (typeof obj.deployment_id !== "string" || obj.deployment_id === "" || obj.deployment_id.length > 256) {
+    return { ok: false, error: "deployment_id must be a non-empty string (max 256 chars)" };
   }
 
   if (typeof obj.proxy_version !== "string" || obj.proxy_version === "") {

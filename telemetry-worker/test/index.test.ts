@@ -117,6 +117,28 @@ describe("handleRequest", () => {
     expect(grafanaCalls).toBe(1);
   });
 
+  it("returns 415 for non-JSON Content-Type", async () => {
+    const req = new Request("https://telemetry.luthien.cc/v1/events", {
+      method: "POST",
+      body: "not json",
+      headers: new Headers({ "Content-Type": "text/plain" }),
+    });
+    const res = await handleRequest(req, ENV, async () => new Response("", { status: 204 }));
+    expect(res.status).toBe(415);
+  });
+
+  it("returns 400 for non-JSON body with correct Content-Type", async () => {
+    const req = new Request("https://telemetry.luthien.cc/v1/events", {
+      method: "POST",
+      body: "this is not json at all",
+      headers: new Headers({ "Content-Type": "application/json" }),
+    });
+    const res = await handleRequest(req, ENV, async () => new Response("", { status: 204 }));
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain("invalid JSON");
+  });
+
   it("returns 404 for unknown paths", async () => {
     const req = new Request("https://telemetry.luthien.cc/unknown", { method: "POST" });
     const res = await handleRequest(req, ENV, async () => new Response("", { status: 204 }));

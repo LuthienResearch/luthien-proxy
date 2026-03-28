@@ -38,7 +38,11 @@ async function handleTelemetryPost(
   env: Env,
   fetchFn: FetchFn,
 ): Promise<Response> {
-  // Size check — read body as text first to enforce limit
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    return Response.json({ error: "Content-Type must be application/json" }, { status: 415 });
+  }
+
   let bodyText: string;
   try {
     bodyText = await request.text();
@@ -46,7 +50,7 @@ async function handleTelemetryPost(
     return Response.json({ error: "failed to read body" }, { status: 400 });
   }
 
-  if (bodyText.length > MAX_PAYLOAD_BYTES) {
+  if (new TextEncoder().encode(bodyText).byteLength > MAX_PAYLOAD_BYTES) {
     return Response.json(
       { error: `payload too large (max ${MAX_PAYLOAD_BYTES} bytes)` },
       { status: 413 },
