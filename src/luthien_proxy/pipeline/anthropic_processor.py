@@ -19,6 +19,7 @@ The pipeline creates a structured span hierarchy for observability:
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import logging
@@ -604,6 +605,10 @@ async def _handle_execution_streaming(
                             chunk_count += 1
                             accumulated_events.append(cast(MessageStreamEvent, emitted))
                             yield _format_sse_event(cast(MessageStreamEvent, emitted))
+                except (GeneratorExit, asyncio.CancelledError):
+                    client_disconnected = True
+                    final_status = 499
+                    raise
                 except Exception as e:
                     # Headers may already be sent, so emit an in-stream error event.
                     policy_ctx.record_event(
@@ -661,7 +666,7 @@ async def _handle_execution_streaming(
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
                     reconstructed = _reconstruct_response_from_stream_events(accumulated_events)
-                    if reconstructed is not None:
+                    if reconstructed is not None and not client_disconnected:
                         raw_reconstructed = _reconstruct_response_from_stream_events(io._raw_backend_events)
                         emitter.record(
                             call_id,

@@ -1093,6 +1093,107 @@ class TestClientDisconnectHandling:
         event_types = [call.args[1] for call in mock_emitter.record.call_args_list]
         assert "streaming.client_disconnected" in event_types
 
+    @pytest.mark.asyncio
+    async def test_disconnect_does_not_record_partial_history(self, mock_policy):
+        anthropic_body: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+
+        async def single_event_stream(req, extra_headers=None):
+            yield RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_abc",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": DEFAULT_TEST_MODEL,
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 10, "output_tokens": 0},
+                },
+            )
+
+        mock_client = MagicMock()
+        mock_client.stream = single_event_stream
+        mock_emitter = MagicMock()
+        mock_fastapi_request = self._make_fastapi_request(is_disconnected=True)
+        mock_fastapi_request.json = AsyncMock(return_value=anthropic_body)
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await process_anthropic_request(
+                request=mock_fastapi_request,
+                policy=mock_policy,
+                anthropic_client=mock_client,
+                emitter=mock_emitter,
+            )
+
+            async for _ in response.body_iterator:
+                pass
+
+        event_types = [call.args[1] for call in mock_emitter.record.call_args_list]
+        assert "transaction.streaming_response_recorded" not in event_types
+
+    @pytest.mark.asyncio
+    async def test_generator_exit_sets_disconnect_state_and_skips_history(self, mock_policy):
+        anthropic_body: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+
+        async def multi_event_stream(req, extra_headers=None):
+            for i in range(10):
+                yield RawMessageStartEvent(
+                    type="message_start",
+                    message={
+                        "id": f"msg_{i}",
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [],
+                        "model": DEFAULT_TEST_MODEL,
+                        "stop_reason": None,
+                        "stop_sequence": None,
+                        "usage": {"input_tokens": 10, "output_tokens": 0},
+                    },
+                )
+
+        mock_client = MagicMock()
+        mock_client.stream = multi_event_stream
+        mock_emitter = MagicMock()
+        mock_fastapi_request = self._make_fastapi_request(is_disconnected=False)
+        mock_fastapi_request.json = AsyncMock(return_value=anthropic_body)
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await process_anthropic_request(
+                request=mock_fastapi_request,
+                policy=mock_policy,
+                anthropic_client=mock_client,
+                emitter=mock_emitter,
+            )
+
+            chunks_before_close = 0
+            async for chunk in response.body_iterator:
+                chunks_before_close += 1
+                if chunks_before_close == 2:
+                    await response.body_iterator.aclose()
+                    break
+
+        event_types = [call.args[1] for call in mock_emitter.record.call_args_list]
+        assert "transaction.streaming_response_recorded" not in event_types
+
 
 class TestHandleAnthropicError:
     """Tests for _handle_anthropic_error error classification.
