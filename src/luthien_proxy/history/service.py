@@ -14,9 +14,6 @@ import re
 from datetime import datetime
 from typing import Any, TypedDict, cast
 
-# DB row payload type: asyncpg returns dict, aiosqlite returns str, may be NULL
-_PreviewPayload = dict[str, Any] | str | None
-
 from luthien_proxy.utils.db import DatabasePool, parse_db_ts
 
 from .models import (
@@ -28,6 +25,9 @@ from .models import (
     SessionListResponse,
     SessionSummary,
 )
+
+# DB row payload type: asyncpg returns dict, aiosqlite returns str, may be NULL
+_PreviewPayload = dict[str, Any] | str | None
 
 
 class StoredEvent(TypedDict):
