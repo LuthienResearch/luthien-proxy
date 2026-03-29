@@ -131,7 +131,7 @@ def test_onboard_local_full_flow(tmp_path):
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open"),
     ):
-        result = runner.invoke(cli, ["onboard"], input="y\nq\n")
+        result = runner.invoke(cli, ["onboard"], input="y\nn\nq\n")
 
     assert result.exit_code == 0, result.output
     assert "Gateway is running" in result.output
@@ -168,7 +168,7 @@ def test_onboard_docker_full_flow(tmp_path):
         patch("luthien_cli.commands.onboard.webbrowser.open"),
     ):
         mock_run.return_value = MagicMock(returncode=0)
-        result = runner.invoke(cli, ["onboard", "--docker"], input="y\nq\n")
+        result = runner.invoke(cli, ["onboard", "--docker"], input="y\nn\nq\n")
 
     assert result.exit_code == 0, result.output
     assert "Gateway is running" in result.output
@@ -310,7 +310,7 @@ def test_onboard_shows_uninstall_instructions(tmp_path):
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open"),
     ):
-        result = runner.invoke(cli, ["onboard"], input="y\nq\n")
+        result = runner.invoke(cli, ["onboard"], input="y\nn\nq\n")
 
     assert result.exit_code == 0, result.output
     assert "pipx uninstall" in result.output
@@ -332,7 +332,7 @@ def test_onboard_opens_browser(tmp_path):
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open") as mock_browser,
     ):
-        result = runner.invoke(cli, ["onboard"], input="y\nq\n")
+        result = runner.invoke(cli, ["onboard"], input="y\nn\nq\n")
 
     assert result.exit_code == 0, result.output
     mock_browser.assert_called_once_with("http://localhost:8000/policy-config")
@@ -355,7 +355,7 @@ def test_onboard_local_with_proxy_ref(tmp_path):
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open"),
     ):
-        result = runner.invoke(cli, ["onboard", "--proxy-ref", "abc123"], input="y\nq\n")
+        result = runner.invoke(cli, ["onboard", "--proxy-ref", "abc123"], input="y\nn\nq\n")
 
     assert result.exit_code == 0, result.output
     mock_venv.assert_called_once_with(proxy_ref="abc123", force_reinstall=True)
@@ -391,7 +391,7 @@ def test_onboard_local_with_pr_ref(tmp_path):
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open"),
     ):
-        result = runner.invoke(cli, ["onboard", "--proxy-ref", "#123"], input="y\nq\n")
+        result = runner.invoke(cli, ["onboard", "--proxy-ref", "#123"], input="y\nn\nq\n")
 
     assert result.exit_code == 0, result.output
     mock_resolve.assert_called_once_with("#123")
