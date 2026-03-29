@@ -398,6 +398,7 @@ async def process_anthropic_request(
             is_streaming=is_streaming,
             root_span=root_span,
             request_log_recorder=request_log_recorder,
+            http_request=request,
             extra_headers=forwarded_headers,
             usage_collector=usage_collector,
         )
@@ -514,6 +515,7 @@ async def _execute_anthropic_policy(
     is_streaming: bool,
     root_span: Span,
     request_log_recorder: RequestLogRecorder,
+    http_request: Request,
     extra_headers: dict[str, str] | None = None,
     usage_collector: UsageCollector | None = None,
 ) -> FastAPIStreamingResponse | JSONResponse:
@@ -539,6 +541,7 @@ async def _execute_anthropic_policy(
             policy_ctx=policy_ctx,
             request_log_recorder=request_log_recorder,
             emitter=emitter,
+            http_request=http_request,
             usage_collector=usage_collector,
         )
 
@@ -561,6 +564,7 @@ async def _handle_execution_streaming(
     policy_ctx: PolicyContext,
     request_log_recorder: RequestLogRecorder,
     emitter: EventEmitterProtocol,
+    http_request: Request,
     usage_collector: UsageCollector | None = None,
 ) -> FastAPIStreamingResponse:
     """Handle streaming response flow for execution-oriented policies."""
@@ -580,6 +584,13 @@ async def _handle_execution_streaming(
                 try:
                     with tracer.start_as_current_span("policy_execute"):
                         async for emitted in emissions:
+                            if await http_request.is_disconnected():
+                                logger.info("[%s] Client disconnected, aborting stream", call_id)
+                                policy_ctx.record_event(
+                                    "streaming.client_disconnected",
+                                    {"summary": "Client disconnected mid-stream; upstream call cancelled"},
+                                )
+                                return
                             if _is_anthropic_response_emission(emitted):
                                 raise TypeError(
                                     "Streaming Anthropic execution policies must emit streaming events, "
