@@ -1,5 +1,7 @@
--- ABOUTME: Initialize two separate databases for LiteLLM and Luthien Control
+-- ABOUTME: Initialize databases for Luthien Control (and legacy litellm_db, kept for migration history)
 -- ABOUTME: Creates dedicated users and databases with proper isolation
+-- NOTE: litellm_db and litellm user are legacy (LiteLLM was removed). Kept to avoid breaking
+-- NOTE: deployed instances that already ran this migration. The litellm_db is unused.
 
 -- Create the litellm user with its own password
 DO $$

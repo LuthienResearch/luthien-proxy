@@ -8,7 +8,7 @@ Verifies that when the client authenticates with a bearer token
 Setup:
 - Auth mode set to 'passthrough' without credential validation so the
   gateway accepts a bearer token without hitting Anthropic.
-- Judge api_base points at the mock server.
+- Judge base_url points at the mock server.
 - Mock server receives both requests and we inspect their headers.
 
 Run:
@@ -32,7 +32,7 @@ _OAUTH_TOKEN = "claude-oauth-bearer-token-for-e2e-testing"
 _JUDGE_CONFIG = {
     "instructions": "Pass all content through",
     "model": "claude-haiku-4-5",
-    "api_base": f"http://host.docker.internal:{DEFAULT_MOCK_PORT}",
+    "base_url": f"http://host.docker.internal:{DEFAULT_MOCK_PORT}",
     "on_error": "pass",
 }
 

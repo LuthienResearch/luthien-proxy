@@ -6,7 +6,6 @@ import logging
 from typing import Any
 
 import httpx
-import litellm
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
@@ -140,13 +139,19 @@ class CachedCredentialsListResponse(BaseModel):
     count: int
 
 
-def get_available_models() -> list[str]:
-    """Get available Anthropic models for testing.
+_CLAUDE_MODELS = [
+    "claude-opus-4-0-20250514",
+    "claude-sonnet-4-5-20250514",
+    "claude-haiku-4-5-20251001",
+    "claude-sonnet-4-0-20250514",
+    "claude-3-5-sonnet-20241022",
+    "claude-3-5-haiku-20241022",
+]
 
-    Returns a list of Claude models available via litellm.
-    """
-    anthropic_models = [m for m in litellm.anthropic_models if "claude" in m.lower()]
-    return sorted(anthropic_models, reverse=True)
+
+def get_available_models() -> list[str]:
+    """Get available Anthropic models for testing."""
+    return list(_CLAUDE_MODELS)
 
 
 @router.get("/policy/current", response_model=PolicyCurrentResponse)
@@ -280,7 +285,7 @@ async def list_models(
 ):
     """List available models for testing.
 
-    Returns a list of Anthropic Claude models available via litellm.
+    Returns a list of available Anthropic Claude models.
     Requires admin authentication.
     """
     return {"models": get_available_models()}

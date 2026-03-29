@@ -6,7 +6,7 @@ auth token is forwarded to judge LLM calls.
 How this works in the mock_e2e setup:
 - Gateway has ANTHROPIC_API_KEY=mock-key (used for main LLM calls via LiteLLM env var)
 - Client authenticates with API_KEY (= PROXY_API_KEY = "sk-luthien-dev-key")
-- Judge api_base points at the mock server (same as main LLM)
+- Judge base_url points at the mock server (same as main LLM)
 - Main LLM call arrives at mock server with mock-key
 - Judge call arrives at mock server with the client's passthrough key (sk-luthien-dev-key)
 - We verify the judge request headers contain the client's key, not mock-key
@@ -31,7 +31,7 @@ _SIMPLE_LLM_POLICY = "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
 _PASSTHROUGH_JUDGE_CONFIG = {
     "instructions": "Pass all content through",
     "model": "claude-haiku-4-5",
-    "api_base": f"http://host.docker.internal:{DEFAULT_MOCK_PORT}",
+    "base_url": f"http://host.docker.internal:{DEFAULT_MOCK_PORT}",
     # Deliberately no api_key — should use client's passthrough key
     "on_error": "pass",
 }

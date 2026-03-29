@@ -174,7 +174,7 @@ policy:
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `model` | `claude-haiku-4-5` | Any LiteLLM model string |
+| `model` | `claude-haiku-4-5` | Any Anthropic model string (e.g. `claude-haiku-4-5`) |
 | `instructions` | *(required; presets hardcode this)* | Plain-English instructions for the judge |
 | `on_error` | `pass` | `"pass"` = allow with warning, `"block"` = reject on judge failure |
 | `temperature` | `0.0` | Sampling temperature for judge |
@@ -206,7 +206,7 @@ policy:
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `model` | `claude-haiku-4-5` | Any LiteLLM model string |
+| `model` | `claude-haiku-4-5` | Any Anthropic model string (e.g. `claude-haiku-4-5`) |
 | `probability_threshold` | `0.6` | Block tool calls with risk probability >= this value (0.0–1.0) |
 | `temperature` | `0.0` | Sampling temperature for judge |
 | `max_tokens` | `256` | Max output tokens for judge |

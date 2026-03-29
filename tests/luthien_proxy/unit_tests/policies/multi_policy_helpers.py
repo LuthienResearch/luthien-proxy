@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from litellm.types.utils import Choices, Message, ModelResponse
 from tests.constants import DEFAULT_TEST_MODEL
 
 from luthien_proxy.llm.types.anthropic import (
@@ -44,22 +43,6 @@ def replacement_config(replacements: list[list[str]]) -> dict:
         "class": "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy",
         "config": {"replacements": replacements},
     }
-
-
-def make_response(content: str) -> ModelResponse:
-    return ModelResponse(
-        id="test-id",
-        choices=[
-            Choices(
-                finish_reason="stop",
-                index=0,
-                message=Message(content=content, role="assistant"),
-            )
-        ],
-        created=1234567890,
-        model="test-model",
-        object="chat.completion",
-    )
 
 
 def make_anthropic_response(text: str) -> AnthropicResponse:

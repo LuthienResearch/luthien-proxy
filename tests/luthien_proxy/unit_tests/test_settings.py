@@ -63,7 +63,6 @@ class TestSettingsDefaults:
             "LLM_JUDGE_MODEL",
             "LLM_JUDGE_API_BASE",
             "LLM_JUDGE_API_KEY",
-            "LITELLM_MASTER_KEY",
         ]:
             monkeypatch.delenv(var, raising=False)
         settings = Settings(_env_file=None)
@@ -72,7 +71,6 @@ class TestSettingsDefaults:
         assert settings.llm_judge_model is None
         assert settings.llm_judge_api_base is None
         assert settings.llm_judge_api_key is None
-        assert settings.litellm_master_key is None
 
 
 class TestSettingsFromEnv:

@@ -249,7 +249,7 @@ while ! docker compose exec -T redis redis-cli ping > /dev/null 2>&1; do
 done
 echo "✅ Redis is ready"
 
-# Start gateway (integrated FastAPI + LiteLLM)
+# Start gateway
 echo "🚀 Starting gateway (integrated proxy)..."
 docker compose up -d $BUILD_FLAG gateway
 

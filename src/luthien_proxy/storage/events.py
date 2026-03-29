@@ -1,8 +1,7 @@
 """V2 Event Emission - Background persistence of conversation events.
 
 This module provides non-blocking event emission for the V2 gateway.
-Unlike V1 (which uses LiteLLM callbacks), V2 is an integrated architecture
-so we build and emit events directly from the gateway layer.
+V2 is an integrated architecture — events are built and emitted directly from the gateway layer.
 
 Events are submitted to a background queue to avoid blocking the request path.
 """
@@ -21,7 +20,7 @@ def reconstruct_full_response_from_chunks(chunks: list) -> dict:
     a synthetic response dict that matches the structure of a FullResponse.
 
     Args:
-        chunks: List of StreamingResponse objects (wrapping LiteLLM chunks)
+        chunks: List of StreamingResponse objects from the backend stream
 
     Returns:
         Dict with structure matching FullResponse.to_model_response().model_dump()

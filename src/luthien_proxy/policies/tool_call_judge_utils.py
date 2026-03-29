@@ -12,26 +12,32 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
-from litellm import acompletion
-from litellm.types.utils import Choices, Message, ModelResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
+from luthien_proxy.llm.completion import completion
 from luthien_proxy.utils.constants import DEFAULT_JUDGE_MAX_TOKENS
 
 logger = logging.getLogger(__name__)
+
+
+def _migrate_api_base(data: dict) -> dict:
+    """Accept api_base as a deprecated alias for base_url."""
+    if isinstance(data, dict) and "api_base" in data:
+        data.setdefault("base_url", data.pop("api_base"))
+    return data
 
 
 class JudgeConfig(BaseModel):
     """Configuration for LLM judge."""
 
     model: str = Field(
-        description="Any LiteLLM model string, e.g. 'claude-haiku-4-5', 'gpt-4o', 'ollama/llama3'",
+        description="Anthropic model name, e.g. 'claude-haiku-4-5', 'claude-sonnet-4-5-20250514'",
     )
-    api_base: str | None = Field(
+    base_url: str | None = Field(
         default=None,
-        description="Optional. Leave blank to use the model's default backend. Set to override, e.g. for a proxy or local endpoint.",
+        description="Optional custom API base URL.",
     )
     api_key: str | None = Field(
         default=None,
@@ -50,7 +56,12 @@ class JudgeConfig(BaseModel):
         description="Maximum output tokens for judge response",
     )
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "populate_by_name": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_api_base(cls, data: dict) -> dict:
+        return _migrate_api_base(data)
 
 
 @dataclass(frozen=True)
@@ -75,8 +86,8 @@ async def call_judge(
     """Call LLM judge to evaluate a tool call.
 
     api_key overrides config.api_key (used for passthrough auth). extra_headers
-    is used for OAuth tokens (anthropic-beta header). If neither is set, LiteLLM
-    falls back to its own env-var resolution.
+    is used for OAuth tokens (anthropic-beta header). If neither is set, falls
+    back to ANTHROPIC_API_KEY env var.
 
     Args:
         name: Tool call name
@@ -103,36 +114,20 @@ async def call_judge(
             "messages": prompt,
         }
 
-        # Only use response_format for models that support it
-        # (gpt-4-turbo, gpt-4o, gpt-3.5-turbo-1106+, etc.)
-        # Skip for base gpt-4 which doesn't support it
-        model_lower = config.model.lower()
-        if "gpt-4o" in model_lower or "gpt-4-turbo" in model_lower or "gpt-3.5-turbo" in model_lower:
-            kwargs["response_format"] = {"type": "json_object"}
-
-        if config.api_base:
-            kwargs["api_base"] = config.api_base
+        if config.base_url:
+            kwargs["base_url"] = config.base_url
         if resolved_key:
             kwargs["api_key"] = resolved_key
         if extra_headers:
             kwargs["extra_headers"] = extra_headers
 
-        response = await acompletion(**kwargs)
-        response = cast(ModelResponse, response)
+        result = await completion(**kwargs)
 
     except Exception as exc:
         logger.error(f"LLM judge request failed: {exc}")
         raise
 
-    # Extract response content
-    first_choice: Choices = cast(Choices, response.choices[0])
-    message: Message = first_choice.message
-    if message.content is None:
-        raise ValueError("Judge response content is None")
-    content: str = message.content
-
-    if not isinstance(content, str):
-        raise ValueError("Judge response content must be a string")
+    content = result.text
 
     # Parse JSON response
     data = parse_judge_response(content)
@@ -214,6 +209,7 @@ def build_judge_prompt(name: str, arguments: str, judge_instructions: str) -> li
 
 
 __all__ = [
+    "_migrate_api_base",
     "JudgeConfig",
     "JudgeResult",
     "call_judge",

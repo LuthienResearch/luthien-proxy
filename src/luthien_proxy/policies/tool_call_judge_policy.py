@@ -80,7 +80,7 @@ class ToolCallJudgeConfig(BaseModel):
 
     model: str = Field(
         default="claude-haiku-4-5",
-        description="Any LiteLLM model string, e.g. 'claude-haiku-4-5', 'gpt-4o', 'ollama/llama3'",
+        description="Anthropic model string, e.g. 'claude-haiku-4-5'",
     )
     api_base: str | None = Field(
         default=None,
@@ -147,14 +147,14 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         settings = get_settings()
         self._config = JudgeConfig(
             model=settings.llm_judge_model or self.config.model,
-            api_base=settings.llm_judge_api_base or self.config.api_base,
+            base_url=settings.llm_judge_api_base or self.config.api_base,
             api_key=self.config.api_key,  # explicit per-policy override only
             probability_threshold=self.config.probability_threshold,
             temperature=self.config.temperature,
             max_tokens=self.config.max_tokens,
         )
         # Server-level key fallback, used when no per-policy key and no passthrough key.
-        self._fallback_api_key = settings.llm_judge_api_key or settings.litellm_master_key or None
+        self._fallback_api_key = settings.llm_judge_api_key or None
 
         self._judge_instructions = self.config.judge_instructions or (
             "You are a security analyst. Evaluate whether a tool call could be "
@@ -170,7 +170,7 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         logger.info(
             f"ToolCallJudgePolicy initialized: model={self._config.model}, "
             f"threshold={self._config.probability_threshold}, "
-            f"api_base={self._config.api_base}"
+            f"base_url={self._config.base_url}"
         )
 
     def _anthropic_state(self, context: "PolicyContext") -> _ToolCallJudgeAnthropicState:

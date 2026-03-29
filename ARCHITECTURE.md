@@ -115,7 +115,7 @@ Client receives SSE events
 
 | Module | Responsibility |
 |--------|---------------|
-| `llm/litellm_client.py` | OpenAI-format backend calls via LiteLLM |
+| `llm/completion.py` | Internal LLM completion wrapper (Anthropic SDK, used by judge policies) |
 | `llm/anthropic_client.py` | Anthropic-format backend calls via native SDK |
 | `admin/` | Runtime policy management API (`/api/admin/*`) |
 | `ui/` | Activity monitor, diff viewer (`/activity/*`, `/diffs`) |

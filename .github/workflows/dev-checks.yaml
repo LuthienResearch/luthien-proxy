@@ -17,7 +17,6 @@ jobs:
       PGUSER: luthien
       PGPASSWORD: luthien
       PGDATABASE: luthien_control
-      LITELLM_DATABASE_URL: postgresql://luthien:luthien@localhost:5432/litellm_db
     services:
       postgres:
         image: postgres:16-alpine
@@ -51,6 +50,7 @@ jobs:
             echo "Waiting for Postgres..."
             sleep 1
           done
+          # Note: 000_init_databases.sql creates litellm_db as a legacy migration (LiteLLM removed)
           psql -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='litellm_db';" | grep -q 1 || \
             psql -d postgres -c "CREATE DATABASE litellm_db;"
 

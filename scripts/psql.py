@@ -7,7 +7,6 @@ Before dropping into psql, prints quick info about key tables/columns.
 
 Usage:
   uv run python scripts/psql.py               # uses DATABASE_URL from .env
-  uv run python scripts/psql.py --db litellm  # uses LITELLM_DATABASE_URL
   uv run python scripts/psql.py --url postgresql://user:pass@host:5432/db
 
 Fail-fast: exits non-zero if psql is not found or connection fails.
@@ -106,21 +105,11 @@ def print_banner(conn: Conn) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument(
-        "--db",
-        choices=["luthien", "litellm"],
-        default="luthien",
-        help="Select DATABASE_URL from .env",
-    )
-    ap.add_argument("--url", help="Explicit PostgreSQL URL (overrides --db)")
+    ap.add_argument("--url", help="Explicit PostgreSQL URL (overrides DATABASE_URL from .env)")
     args = ap.parse_args()
 
     env = parse_env_file(".env")
-    url = (
-        args.url
-        or (env.get("DATABASE_URL") if args.db == "luthien" else env.get("LITELLM_DATABASE_URL"))
-        or os.environ.get("DATABASE_URL")
-    )
+    url = args.url or env.get("DATABASE_URL") or os.environ.get("DATABASE_URL")
     if not url:
         raise SystemExit("No database URL found. Set --url or populate .env")
 

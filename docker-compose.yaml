@@ -82,7 +82,7 @@ services:
           cpus: '0.1'
           memory: 64M
 
-  # Gateway (integrated FastAPI + LiteLLM architecture)
+  # Gateway (integrated FastAPI application)
   gateway:
     image: ghcr.io/luthienresearch/luthien-proxy/gateway:latest
     build:

@@ -339,7 +339,7 @@ section h2 .tag {
     <div class="flow-step s3">
       <div class="num">3</div>
       <h4>Send to Backend</h4>
-      <p>Forwarded via <code>LiteLLMClient</code> <span class="badge badge-openai">OpenAI</span> or <code>AnthropicClient</code> <span class="badge badge-anthropic">Anthropic</span></p>
+      <p>Forwarded via <code>AnthropicClient</code> <span class="badge badge-anthropic">Anthropic</span></p>
     </div>
     <div class="flow-arrow" style="background: linear-gradient(to bottom, var(--stream), transparent);"></div>
     <div class="flow-step s4">
@@ -425,7 +425,7 @@ section h2 .tag {
   <div class="group-label" style="background: var(--accent-dim); color: var(--accent); margin-top: 1.2rem;">Auth, LLM Clients & UI</div>
   <div class="mod-grid">
     <div class="mod-card"><div class="mod-path">credential_manager.py</div><div class="mod-desc">Auth mode (proxy key / passthrough / both), credential validation with Redis caching</div><div class="mod-class">CredentialManager</div></div>
-    <div class="mod-card"><div class="mod-path">llm/litellm_client.py</div><div class="mod-desc">OpenAI-format backend calls via LiteLLM</div><div class="mod-class">LiteLLMClient</div></div>
+    <div class="mod-card"><div class="mod-path">llm/completion.py</div><div class="mod-desc">Internal LLM completion wrapper (judge policies)</div><div class="mod-class">completion()</div></div>
     <div class="mod-card"><div class="mod-path">llm/anthropic_client.py</div><div class="mod-desc">Anthropic-format backend calls via native SDK</div><div class="mod-class">AnthropicClient</div></div>
     <div class="mod-card"><div class="mod-path">admin/</div><div class="mod-desc">Runtime policy management API</div><div class="mod-class">/api/admin/*</div></div>
     <div class="mod-card"><div class="mod-path">ui/</div><div class="mod-desc">Activity monitor, diff viewer</div><div class="mod-class">/activity/*, /diffs</div></div>

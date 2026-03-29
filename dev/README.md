@@ -85,7 +85,7 @@ uv run pytest -m e2e
 
 ## Architecture Overview
 
-The V2 gateway is a FastAPI application with integrated LiteLLM and a streaming pipeline for policy enforcement:
+The V2 gateway is a FastAPI application with a streaming pipeline for policy enforcement:
 
 ```
 Client Request
@@ -94,7 +94,7 @@ V2 Gateway (gateway_routes.py)
     ↓
 Policy Orchestrator
     ↓
-Backend LLM (via LiteLLM)
+Backend LLM (via AnthropicClient)
     ↓
 Streaming Pipeline:
   1. PolicyExecutor (block assembly + policy hooks)

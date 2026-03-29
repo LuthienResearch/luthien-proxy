@@ -1,6 +1,6 @@
 """Utilities for SimpleLLMPolicy judge calls.
 
-Handles prompt construction, LiteLLM judge calls, and response parsing
+Handles prompt construction, judge calls, and response parsing
 for the simple LLM policy that applies plain-English instructions to
 response blocks.
 """
@@ -10,13 +10,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
-from litellm import acompletion
-from litellm.types.utils import Choices, Message, ModelResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from luthien_proxy.policies.tool_call_judge_utils import parse_judge_response
+from luthien_proxy.llm.completion import completion
+from luthien_proxy.policies.tool_call_judge_utils import _migrate_api_base, parse_judge_response
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +25,11 @@ class SimpleLLMJudgeConfig(BaseModel):
 
     model: str = Field(
         default="claude-haiku-4-5",
-        description="Any LiteLLM model string, e.g. 'claude-haiku-4-5', 'gpt-4o', 'ollama/llama3'",
+        description="Anthropic model name, e.g. 'claude-haiku-4-5', 'claude-sonnet-4-5-20250514'",
     )
-    api_base: str | None = Field(
+    base_url: str | None = Field(
         default=None,
-        description="Optional. Leave blank to use the model's default backend. Set to override, e.g. for a proxy or local endpoint.",
+        description="Optional custom API base URL.",
     )
     api_key: str | None = Field(
         default=None,
@@ -63,7 +62,12 @@ class SimpleLLMJudgeConfig(BaseModel):
         description="Seconds to wait between retries.",
     )
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "populate_by_name": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_api_base(cls, data: dict) -> dict:
+        return _migrate_api_base(data)
 
 
 @dataclass(frozen=True)
@@ -196,8 +200,8 @@ async def call_simple_llm_judge(
     """Call the judge LLM and return its decision.
 
     api_key overrides config.api_key (used for passthrough auth). extra_headers
-    is used for OAuth tokens (anthropic-beta header). If neither is set, LiteLLM
-    falls back to its own env-var resolution.
+    is used for OAuth tokens (anthropic-beta header). If neither is set, falls
+    back to ANTHROPIC_API_KEY env var.
 
     Retries up to config.max_retries times with config.retry_delay between
     attempts. Exceptions propagate to the caller on final failure.
@@ -210,10 +214,9 @@ async def call_simple_llm_judge(
         "messages": prompt,
         "temperature": config.temperature,
         "max_tokens": config.max_tokens,
-        "response_format": {"type": "json_object"},
     }
-    if config.api_base:
-        kwargs["api_base"] = config.api_base
+    if config.base_url:
+        kwargs["base_url"] = config.base_url
     if resolved_key:
         kwargs["api_key"] = resolved_key
     if extra_headers:
@@ -224,15 +227,8 @@ async def call_simple_llm_judge(
 
     for attempt in range(max_attempts):
         try:
-            response = await acompletion(**kwargs)
-            response = cast(ModelResponse, response)
-
-            first_choice: Choices = cast(Choices, response.choices[0])
-            message: Message = first_choice.message
-            if message.content is None:
-                raise ValueError("Judge response content is None")
-
-            return parse_judge_action(message.content)
+            result = await completion(**kwargs)
+            return parse_judge_action(result.text)
         except Exception as exc:  # noqa: BLE001
             # Retry all errors, not just network/API errors. Parse failures
             # (malformed JSON, missing fields) can also succeed on a fresh

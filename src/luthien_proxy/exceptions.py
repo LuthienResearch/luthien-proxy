@@ -51,34 +51,4 @@ class BackendAPIError(Exception):
         )
 
 
-# Mapping from LiteLLM exception class names to error type strings
-# These align with Anthropic's error types where possible
-_LITELLM_ERROR_TYPE_MAP = {
-    "AuthenticationError": "authentication_error",
-    "RateLimitError": "rate_limit_error",
-    "BadRequestError": "invalid_request_error",
-    "InvalidRequestError": "invalid_request_error",
-    "NotFoundError": "not_found_error",
-    "PermissionDeniedError": "permission_error",
-    "APIConnectionError": "api_connection_error",
-    "ServiceUnavailableError": "overloaded_error",
-    "InternalServerError": "api_error",
-    "ContextWindowExceededError": "invalid_request_error",
-    "ContentPolicyViolationError": "invalid_request_error",
-}
-
-
-def map_litellm_error_type(exception: Exception) -> str:
-    """Map a LiteLLM exception to an error type string.
-
-    Args:
-        exception: A LiteLLM exception instance
-
-    Returns:
-        An error type string suitable for Anthropic error responses
-    """
-    class_name = type(exception).__name__
-    return _LITELLM_ERROR_TYPE_MAP.get(class_name, "api_error")
-
-
-__all__ = ["BackendAPIError", "map_litellm_error_type"]
+__all__ = ["BackendAPIError"]
