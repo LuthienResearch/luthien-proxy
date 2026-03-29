@@ -919,6 +919,7 @@ class TestClientDisconnectHandling:
 
         mock_client = MagicMock()
         mock_client.stream = multi_event_stream
+        mock_emitter = MagicMock()
         mock_fastapi_request = self._make_fastapi_request(is_disconnected=True)
         mock_fastapi_request.json = AsyncMock(return_value=anthropic_body)
 
@@ -931,7 +932,7 @@ class TestClientDisconnectHandling:
                 request=mock_fastapi_request,
                 policy=mock_policy,
                 anthropic_client=mock_client,
-                emitter=MagicMock(),
+                emitter=mock_emitter,
             )
 
             events_yielded: list[str] = []
@@ -939,6 +940,8 @@ class TestClientDisconnectHandling:
                 events_yielded.append(chunk)
 
         assert len(events_yielded) == 0
+        event_types = [call.args[1] for call in mock_emitter.record.call_args_list]
+        assert "policy.execution.empty_stream" not in event_types
 
     @pytest.mark.asyncio
     async def test_stream_delivers_events_when_client_connected(self, mock_policy):

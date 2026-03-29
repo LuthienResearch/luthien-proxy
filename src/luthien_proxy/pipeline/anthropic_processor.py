@@ -587,6 +587,7 @@ async def _handle_execution_streaming(
                         async for emitted in emissions:
                             if await http_request.is_disconnected():
                                 client_disconnected = True
+                                final_status = 499
                                 logger.info("[%s] Client disconnected, aborting stream", call_id)
                                 policy_ctx.record_event(
                                     "streaming.client_disconnected",
