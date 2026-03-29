@@ -24,7 +24,7 @@ from httpx import Response as HttpxResponse
 from tests.constants import DEFAULT_TEST_MODEL
 
 from luthien_proxy.exceptions import BackendAPIError
-from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
+from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse, build_usage
 from luthien_proxy.pipeline.anthropic_processor import (
     _build_error_event,
     _format_sse_event,
@@ -1433,6 +1433,83 @@ class TestReconstructResponseFromStreamEvents:
         assert result is not None
         assert "cache_creation_input_tokens" not in result["usage"]
         assert "cache_read_input_tokens" not in result["usage"]
+
+    def test_includes_only_present_cache_field(self):
+        events = [
+            RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_abc",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": DEFAULT_TEST_MODEL,
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 10, "output_tokens": 0, "cache_read_input_tokens": 50},
+                },
+            ),
+            RawMessageStopEvent(type="message_stop"),
+        ]
+
+        result = _reconstruct_response_from_stream_events(events)
+
+        assert result is not None
+        assert result["usage"]["cache_read_input_tokens"] == 50
+        assert "cache_creation_input_tokens" not in result["usage"]
+
+    def test_cache_tokens_from_message_delta_override_message_start(self):
+        events = [
+            RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_abc",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": DEFAULT_TEST_MODEL,
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 10, "output_tokens": 0, "cache_read_input_tokens": 50},
+                },
+            ),
+            RawMessageDeltaEvent(
+                type="message_delta",
+                delta={"stop_reason": "end_turn", "stop_sequence": None},
+                usage={"output_tokens": 5, "cache_read_input_tokens": 75},
+            ),
+            RawMessageStopEvent(type="message_stop"),
+        ]
+
+        result = _reconstruct_response_from_stream_events(events)
+
+        assert result is not None
+        assert result["usage"]["cache_read_input_tokens"] == 75
+
+
+class TestBuildUsage:
+    def test_required_fields_only(self):
+        result = build_usage(10, 20)
+        assert result == {"input_tokens": 10, "output_tokens": 20}
+        assert "cache_creation_input_tokens" not in result
+        assert "cache_read_input_tokens" not in result
+
+    def test_all_fields(self):
+        result = build_usage(10, 20, cache_creation_input_tokens=100, cache_read_input_tokens=50)
+        assert result["input_tokens"] == 10
+        assert result["output_tokens"] == 20
+        assert result["cache_creation_input_tokens"] == 100
+        assert result["cache_read_input_tokens"] == 50
+
+    def test_only_one_cache_field(self):
+        result = build_usage(5, 10, cache_read_input_tokens=30)
+        assert result["cache_read_input_tokens"] == 30
+        assert "cache_creation_input_tokens" not in result
+
+    def test_none_cache_fields_omitted(self):
+        result = build_usage(5, 10, cache_creation_input_tokens=None, cache_read_input_tokens=None)
+        assert "cache_creation_input_tokens" not in result
+        assert "cache_read_input_tokens" not in result
 
 
 class TestStreamingResponseRecording:
