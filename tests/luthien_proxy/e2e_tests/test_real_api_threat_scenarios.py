@@ -3,7 +3,7 @@
 Unlike mock tests that pre-program judge responses, these tests use the real
 Anthropic API to validate that judge LLM instructions are effective in practice.
 
-Non-deterministic tests (SimpleLLMPolicy) retry up to 3 times with exponential
+Non-deterministic tests (SimpleLLMPolicy) retry up to 3 times with linear
 backoff (up to ~6s sleep + 3x API round-trips per failing test). On final failure,
 the actual LLM response is captured to failure_registry/ for analysis and mock
 generation.
@@ -89,7 +89,7 @@ _INJECTION_DETECTION_CONFIG = {**INJECTION_DETECTION_CONFIG, "api_key": _JUDGE_A
 
 
 def retry_on_assertion(max_retries: int = 3, base_delay: float = 2.0):
-    """Retry async tests on AssertionError with exponential backoff.
+    """Retry async tests on AssertionError with linear backoff (delay = base_delay * attempt).
 
     Handles LLM non-determinism — the real judge may occasionally make
     an unexpected decision.  Retrying gives it another chance before we

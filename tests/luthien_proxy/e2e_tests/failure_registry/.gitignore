@@ -1,0 +1,3 @@
+# Capture files contain actual LLM responses and may include PII from test runs.
+# Never commit them — use scripts/generate_mock_from_failures.py to convert to mock tests.
+*.json
