@@ -575,6 +575,7 @@ async def _handle_execution_streaming(
         with restore_context(parent_context):
             chunk_count = 0
             emitted_any = False
+            client_disconnected = False
             final_status = 200
             accumulated_events: list[MessageStreamEvent] = []
             with tracer.start_as_current_span("process_response") as response_span:
@@ -585,6 +586,7 @@ async def _handle_execution_streaming(
                     with tracer.start_as_current_span("policy_execute"):
                         async for emitted in emissions:
                             if await http_request.is_disconnected():
+                                client_disconnected = True
                                 logger.info("[%s] Client disconnected, aborting stream", call_id)
                                 policy_ctx.record_event(
                                     "streaming.client_disconnected",
@@ -616,7 +618,7 @@ async def _handle_execution_streaming(
                     error_event = _build_error_event(e, call_id)
                     yield _format_sse_event(error_event)
                 finally:
-                    if not emitted_any:
+                    if not emitted_any and not client_disconnected:
                         io.ensure_request_recorded()
                         logger.warning(
                             "[%s] Execution policy emitted zero streaming events; returning empty stream",
@@ -632,7 +634,7 @@ async def _handle_execution_streaming(
                     # Only validate complete streams — partial/error streams will
                     # always fail completeness checks (missing message_stop, etc.)
                     # and produce noisy false positives.
-                    if accumulated_events and final_status == 200:
+                    if accumulated_events and final_status == 200 and not client_disconnected:
                         validation = validate_anthropic_event_ordering(accumulated_events)
                         if not validation.valid:
                             violation_details = [

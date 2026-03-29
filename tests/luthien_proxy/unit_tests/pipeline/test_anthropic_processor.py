@@ -880,13 +880,16 @@ class TestClientDisconnectHandling:
     def mock_policy(self):
         return NoOpPolicy()
 
-    def _make_fastapi_request(self, is_disconnected: bool) -> MagicMock:
+    def _make_fastapi_request(self, is_disconnected: bool | list[bool]) -> MagicMock:
         mock_request = MagicMock()
         mock_request.headers = {}
         mock_request.method = "POST"
         mock_request.url = MagicMock()
         mock_request.url.path = "/v1/messages"
-        mock_request.is_disconnected = AsyncMock(return_value=is_disconnected)
+        if isinstance(is_disconnected, list):
+            mock_request.is_disconnected = AsyncMock(side_effect=is_disconnected)
+        else:
+            mock_request.is_disconnected = AsyncMock(return_value=is_disconnected)
         return mock_request
 
     @pytest.mark.asyncio
@@ -984,6 +987,108 @@ class TestClientDisconnectHandling:
 
         assert len(events) == 1
         assert "message_start" in events[0]
+
+    @pytest.mark.asyncio
+    async def test_mid_stream_disconnect_stops_after_connected_chunks(self, mock_policy):
+        anthropic_body: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+
+        def _make_event(i: int) -> RawMessageStartEvent:
+            return RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": f"msg_{i}",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": DEFAULT_TEST_MODEL,
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 10, "output_tokens": 0},
+                },
+            )
+
+        async def five_event_stream(req, extra_headers=None):
+            for i in range(5):
+                yield _make_event(i)
+
+        mock_client = MagicMock()
+        mock_client.stream = five_event_stream
+        mock_emitter = MagicMock()
+        mock_fastapi_request = self._make_fastapi_request(is_disconnected=[False, False, True, True, True])
+        mock_fastapi_request.json = AsyncMock(return_value=anthropic_body)
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await process_anthropic_request(
+                request=mock_fastapi_request,
+                policy=mock_policy,
+                anthropic_client=mock_client,
+                emitter=mock_emitter,
+            )
+
+            events: list[str] = []
+            async for chunk in response.body_iterator:
+                events.append(chunk)
+
+        assert len(events) == 2
+        event_types = [call.args[1] for call in mock_emitter.record.call_args_list]
+        assert "streaming.client_disconnected" in event_types
+
+    @pytest.mark.asyncio
+    async def test_disconnect_records_client_disconnected_event(self, mock_policy):
+        anthropic_body: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+
+        async def single_event_stream(req, extra_headers=None):
+            yield RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_abc",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": DEFAULT_TEST_MODEL,
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 10, "output_tokens": 0},
+                },
+            )
+
+        mock_client = MagicMock()
+        mock_client.stream = single_event_stream
+        mock_emitter = MagicMock()
+        mock_fastapi_request = self._make_fastapi_request(is_disconnected=True)
+        mock_fastapi_request.json = AsyncMock(return_value=anthropic_body)
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await process_anthropic_request(
+                request=mock_fastapi_request,
+                policy=mock_policy,
+                anthropic_client=mock_client,
+                emitter=mock_emitter,
+            )
+
+            async for _ in response.body_iterator:
+                pass
+
+        event_types = [call.args[1] for call in mock_emitter.record.call_args_list]
+        assert "streaming.client_disconnected" in event_types
 
 
 class TestHandleAnthropicError:
