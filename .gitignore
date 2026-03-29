@@ -1,3 +1,6 @@
+# Serena AI assistant state (memories, cache, local config)
+.serena/
+
 # Python-generated files
 __pycache__/
 *.py[oc]
