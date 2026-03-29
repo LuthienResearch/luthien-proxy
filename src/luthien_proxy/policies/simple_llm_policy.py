@@ -70,6 +70,10 @@ JUDGE_UNAVAILABLE_WARNING = (
     "\u26a0\ufe0f Safety judge unavailable \u2014 this response was not evaluated by the safety policy."
 )
 
+JUDGE_ERROR_BLOCKED_MESSAGE = (
+    "\u274c Response blocked: the safety judge encountered an error and the policy requires blocking on failure."
+)
+
 
 def _blocked_tool_message(name: str) -> str:
     return f"[Tool call `{name}` was blocked by policy]"
@@ -269,6 +273,8 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
 
         if judge_error_occurred and self._config.on_error == "pass":
             new_content.append({"type": "text", "text": JUDGE_UNAVAILABLE_WARNING})
+        elif judge_error_occurred and not new_content:
+            new_content.append({"type": "text", "text": JUDGE_ERROR_BLOCKED_MESSAGE})
 
         modified_response = dict(response)
         modified_response["content"] = new_content
@@ -400,6 +406,9 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         if state.judge_error_occurred and self._config.on_error == "pass":
             warning_index = len(state.emitted_blocks)
             events.extend(self._make_anthropic_warning_events(warning_index))
+        elif state.judge_error_occurred and not state.emitted_blocks:
+            error_index = len(state.emitted_blocks)
+            events.extend(self._make_anthropic_text_block_events(error_index, JUDGE_ERROR_BLOCKED_MESSAGE))
 
         # Correct stop_reason if the emitted block types differ from the original
         has_emitted_tool = any(b.type == "tool_use" for b in state.emitted_blocks)

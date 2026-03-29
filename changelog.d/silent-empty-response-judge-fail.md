@@ -3,4 +3,4 @@ category: Fixes
 pr: 451
 ---
 
-**Empty stream returns error instead of silent HTTP 200**: When a policy emits zero streaming events (e.g., judge auth fails with `on_error: block`), the pipeline now yields an Anthropic-compatible error event so clients get a clear "policy evaluation unavailable" message instead of an empty successful response.
+**Inject error message when judge failure silently strips all content**: When `on_error: block` is configured and the safety judge fails (auth error, network, rate limit), all content blocks were previously dropped with no explanation — the gateway returned an empty response with `stop_reason: end_turn` and Claude Code showed "Cogitated for Xs" then nothing. The gateway now injects an error text block in both the non-streaming and streaming paths explaining that the response was blocked due to a judge failure.

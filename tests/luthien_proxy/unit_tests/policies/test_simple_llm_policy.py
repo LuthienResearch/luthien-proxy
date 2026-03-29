@@ -31,6 +31,7 @@ from tests.luthien_proxy.unit_tests.policies.anthropic_event_builders import (
 )
 
 from luthien_proxy.policies.simple_llm_policy import (
+    JUDGE_ERROR_BLOCKED_MESSAGE,
     JUDGE_UNAVAILABLE_WARNING,
     SimpleLLMPolicy,
 )
@@ -481,15 +482,15 @@ class TestJudgeFailedBlockedToolStreaming:
         with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
             mock_judge.return_value = JudgeAction(action="block", judge_failed=True)
 
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
             await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, _tool_delta('{"command":"echo hi"}', 0)), ctx
+                cast(MessageStreamEvent, tool_delta('{"command":"echo hi"}', 0)), ctx
             )
 
-            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
+            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
 
         # Should emit a text block with the judge-failed message
-        assert _event_types(stop_events) == [
+        assert event_types(stop_events) == [
             "content_block_start",
             "content_block_delta",
             "content_block_stop",
@@ -508,14 +509,63 @@ class TestJudgeFailedBlockedToolStreaming:
         with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
             mock_judge.return_value = JudgeAction(action="block", judge_failed=False)
 
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
             await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, _tool_delta('{"command":"rm -rf /"}', 0)), ctx
+                cast(MessageStreamEvent, tool_delta('{"command":"rm -rf /"}', 0)), ctx
             )
 
-            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
+            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
 
         delta = [e for e in stop_events if isinstance(e, RawContentBlockDeltaEvent)][0]
         assert isinstance(delta.delta, TextDelta)
         assert "blocked by policy" in delta.delta.text
         assert "policy evaluation unavailable" not in delta.delta.text
+
+
+# ============================================================================
+# Judge failure: empty response injection (the core silent-drop bug)
+# ============================================================================
+
+
+class TestJudgeErrorEmptyResponseInjection:
+    @pytest.mark.asyncio
+    async def test_text_block_judge_error_non_streaming_injects_error_message(self):
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+
+        response: dict[str, Any] = {
+            "content": [{"type": "text", "text": "some response"}],
+            "stop_reason": "end_turn",
+        }
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="block", judge_failed=True)
+            result = await policy.on_anthropic_response(cast(Any, response), ctx)
+
+        assert len(result["content"]) == 1
+        assert result["content"][0]["type"] == "text"
+        assert JUDGE_ERROR_BLOCKED_MESSAGE in result["content"][0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_text_block_judge_error_streaming_injects_error_at_message_delta(self):
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="block", judge_failed=True)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("hello", 0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("end_turn")), ctx
+            )
+
+        types = event_types(msg_events)
+        assert "content_block_start" in types
+        assert types[-1] == "message_delta"
+        error_deltas = [
+            e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+        ]
+        assert any(JUDGE_ERROR_BLOCKED_MESSAGE in d.delta.text for d in error_deltas)
