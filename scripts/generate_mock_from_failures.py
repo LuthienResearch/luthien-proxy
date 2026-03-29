@@ -112,6 +112,11 @@ async def {fn_name}(mock_anthropic: MockAnthropicServer, gateway_healthy):
         "class_ref",
         "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy",
     )
+    if not policy_class_ref.startswith("luthien_proxy.policies."):
+        raise ValueError(
+            f"Refusing to generate test: policy_class_ref {policy_class_ref!r} does not "
+            f"start with 'luthien_proxy.policies.' — capture file may be untrusted."
+        )
     config = {k: v for k, v in policy_config.items() if k != "class_ref"}
 
     return f"""\

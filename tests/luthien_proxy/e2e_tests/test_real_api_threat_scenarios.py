@@ -22,8 +22,6 @@ After failures, generate mock regression tests:
     uv run python scripts/generate_mock_from_failures.py
 """
 
-import asyncio
-import functools
 import logging
 import os
 
@@ -42,6 +40,7 @@ from tests.luthien_proxy.e2e_tests.conftest import (
     policy_context,
 )
 from tests.luthien_proxy.e2e_tests.mock_anthropic.simulator import ClaudeCodeSimulator
+from tests.luthien_proxy.e2e_tests.real_api_utils import extract_text, retry_on_assertion
 
 pytestmark = pytest.mark.e2e
 
@@ -88,51 +87,8 @@ _INJECTION_DETECTION_CONFIG = {**INJECTION_DETECTION_CONFIG, "api_key": _JUDGE_A
 # ---------------------------------------------------------------------------
 
 
-def retry_on_assertion(max_retries: int = 3, base_delay: float = 2.0):
-    """Retry async tests on AssertionError with linear backoff (delay = base_delay * attempt).
-
-    Handles LLM non-determinism — the real judge may occasionally make
-    an unexpected decision.  Retrying gives it another chance before we
-    capture the failure for analysis.
-    """
-
-    def decorator(func):
-        @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
-            last_exc: AssertionError | None = None
-            for attempt in range(1, max_retries + 1):
-                try:
-                    return await func(*args, **kwargs)
-                except AssertionError as exc:
-                    last_exc = exc
-                    if attempt < max_retries:
-                        capture = kwargs.get("failure_capture")
-                        if capture is not None:
-                            capture.reset()
-                        delay = base_delay * attempt
-                        _logger.warning(
-                            "Attempt %d/%d failed (%s) — retrying in %.0fs",
-                            attempt,
-                            max_retries,
-                            func.__name__,
-                            delay,
-                        )
-                        await asyncio.sleep(delay)
-            raise last_exc  # type: ignore[misc]
-
-        return wrapper
-
-    return decorator
-
-
-# ---------------------------------------------------------------------------
-# Response extraction helper
-# ---------------------------------------------------------------------------
-
-
-def _extract_text(data: dict) -> str:
-    """Extract concatenated text from Anthropic response content blocks."""
-    return " ".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+# retry_on_assertion and extract_text live in real_api_utils.py so unit tests
+# can import them without triggering this file's module-level API key guard.
 
 
 # ==========================================================================
@@ -162,8 +118,10 @@ async def test_real_api_ssn_in_response_is_redacted(
                 },
             )
     assert response.status_code == 200, f"Gateway error: {response.status_code} {response.text}"
-    content_text = _extract_text(response.json())
+    content_text = extract_text(response.json())
 
+    # record() is called before assert — captured on every run, but only flushed
+    # to disk on test failure (FailureCapture fixture in conftest.py).
     failure_capture.record(
         scenario="SSN in response",
         policy_config=_PII_REDACTION_CONFIG,
@@ -204,7 +162,7 @@ async def test_real_api_api_key_in_response_is_redacted(
                 },
             )
     assert response.status_code == 200, f"Gateway error: {response.status_code} {response.text}"
-    content_text = _extract_text(response.json())
+    content_text = extract_text(response.json())
 
     failure_capture.record(
         scenario="API key in response",
@@ -233,7 +191,7 @@ async def test_real_api_clean_response_passes_through(gateway_healthy):
                 },
             )
     assert response.status_code == 200
-    content_text = _extract_text(response.json())
+    content_text = extract_text(response.json())
     assert content_text  # non-empty response
     assert "[REDACTED]" not in content_text  # no false positives
 
@@ -270,7 +228,7 @@ async def test_real_api_direct_injection_is_blocked(
                 },
             )
     assert response.status_code == 200, f"Gateway error: {response.status_code} {response.text}"
-    content_text = _extract_text(response.json())
+    content_text = extract_text(response.json())
 
     failure_capture.record(
         scenario="Direct injection in response",
@@ -303,7 +261,7 @@ async def test_real_api_benign_content_passes_through(gateway_healthy):
                 },
             )
     assert response.status_code == 200
-    content_text = _extract_text(response.json())
+    content_text = extract_text(response.json())
     assert content_text
     assert "[BLOCKED]" not in content_text
 

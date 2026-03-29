@@ -1,18 +1,9 @@
 """Unit tests for retry_on_assertion decorator and _extract_text helper."""
 
-import asyncio
-import sys
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from tests.luthien_proxy.e2e_tests.test_real_api_threat_scenarios import (
-    _extract_text,
-    retry_on_assertion,
-)
-
+from tests.luthien_proxy.e2e_tests.real_api_utils import extract_text, retry_on_assertion
 
 # =============================================================================
 # _extract_text
@@ -21,12 +12,12 @@ from tests.luthien_proxy.e2e_tests.test_real_api_threat_scenarios import (
 
 def test_extract_text_single_block():
     data = {"content": [{"type": "text", "text": "hello"}]}
-    assert _extract_text(data) == "hello"
+    assert extract_text(data) == "hello"
 
 
 def test_extract_text_multiple_blocks():
     data = {"content": [{"type": "text", "text": "foo"}, {"type": "text", "text": "bar"}]}
-    assert _extract_text(data) == "foo bar"
+    assert extract_text(data) == "foo bar"
 
 
 def test_extract_text_skips_non_text_blocks():
@@ -36,20 +27,20 @@ def test_extract_text_skips_non_text_blocks():
             {"type": "text", "text": "result"},
         ]
     }
-    assert _extract_text(data) == "result"
+    assert extract_text(data) == "result"
 
 
 def test_extract_text_empty_content():
-    assert _extract_text({"content": []}) == ""
+    assert extract_text({"content": []}) == ""
 
 
 def test_extract_text_missing_content_key():
-    assert _extract_text({}) == ""
+    assert extract_text({}) == ""
 
 
 def test_extract_text_missing_text_key_in_block():
     data = {"content": [{"type": "text"}]}
-    assert _extract_text(data) == ""
+    assert extract_text(data) == ""
 
 
 # =============================================================================
@@ -136,7 +127,10 @@ async def test_retry_uses_linear_backoff():
     async def fn():
         raise AssertionError("fail")
 
-    with patch("tests.luthien_proxy.e2e_tests.test_real_api_threat_scenarios.asyncio.sleep", new=AsyncMock(side_effect=lambda d: sleep_calls.append(d))):
+    with patch(
+        "tests.luthien_proxy.e2e_tests.real_api_utils.asyncio.sleep",
+        new=AsyncMock(side_effect=lambda d: sleep_calls.append(d)),
+    ):
         with pytest.raises(AssertionError):
             await fn()
 

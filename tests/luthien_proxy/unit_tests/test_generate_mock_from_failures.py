@@ -10,7 +10,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
 import generate_mock_from_failures as mod
 from generate_mock_from_failures import _load_entries, _render_test, _safe_name, generate
 
-
 # =============================================================================
 # _safe_name
 # =============================================================================
@@ -99,6 +98,12 @@ def test_render_test_strips_class_ref_from_config():
     entry = _make_entry()
     body = _render_test(entry, 0)
     assert "class_ref" not in body.split("policy_context")[1].split(")")[0]
+
+
+def test_render_test_rejects_untrusted_policy_class_ref():
+    entry = _make_entry(policy_config={"class_ref": "evil_package.malicious:Payload", "model": "x"})
+    with pytest.raises(ValueError, match="luthien_proxy.policies"):
+        _render_test(entry, 0)
 
 
 def test_render_test_missing_policy_config_uses_default_class():
