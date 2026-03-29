@@ -234,11 +234,13 @@ class AnthropicRequest(TypedDict, total=False):
 # =============================================================================
 
 
-class AnthropicUsage(TypedDict):
+class AnthropicUsage(TypedDict, total=False):
     """Anthropic usage statistics."""
 
-    input_tokens: int
-    output_tokens: int
+    input_tokens: Required[int]
+    output_tokens: Required[int]
+    cache_creation_input_tokens: int
+    cache_read_input_tokens: int
 
 
 class AnthropicResponse(TypedDict, total=False):

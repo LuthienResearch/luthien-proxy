@@ -42,6 +42,7 @@ from luthien_proxy.llm.types.anthropic import (
     AnthropicContentBlock,
     AnthropicRequest,
     AnthropicResponse,
+    AnthropicUsage,
 )
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.pipeline.client_format import ClientFormat
@@ -194,6 +195,20 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         return _stream()
 
 
+def _build_streaming_usage(
+    input_tokens: int,
+    output_tokens: int,
+    cache_creation_input_tokens: int | None,
+    cache_read_input_tokens: int | None,
+) -> AnthropicUsage:
+    result: AnthropicUsage = {"input_tokens": input_tokens, "output_tokens": output_tokens}
+    if cache_creation_input_tokens is not None:
+        result["cache_creation_input_tokens"] = cache_creation_input_tokens
+    if cache_read_input_tokens is not None:
+        result["cache_read_input_tokens"] = cache_read_input_tokens
+    return result
+
+
 def _reconstruct_response_from_stream_events(
     events: list[MessageStreamEvent],
 ) -> AnthropicResponse | None:
@@ -266,6 +281,10 @@ def _reconstruct_response_from_stream_events(
             usage = getattr(event, "usage", None)
             if usage:
                 output_tokens = getattr(usage, "output_tokens", 0)
+                if getattr(usage, "cache_creation_input_tokens", None) is not None:
+                    cache_creation_input_tokens = usage.cache_creation_input_tokens
+                if getattr(usage, "cache_read_input_tokens", None) is not None:
+                    cache_read_input_tokens = usage.cache_read_input_tokens
 
     if message_id is None or model is None:
         return None
@@ -285,16 +304,7 @@ def _reconstruct_response_from_stream_events(
             stop_reason,
         ),
         stop_sequence=stop_sequence,
-        usage={
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            **(
-                {"cache_creation_input_tokens": cache_creation_input_tokens}
-                if cache_creation_input_tokens is not None
-                else {}
-            ),
-            **({"cache_read_input_tokens": cache_read_input_tokens} if cache_read_input_tokens is not None else {}),
-        },
+        usage=_build_streaming_usage(input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens),
     )
 
 

@@ -4,14 +4,27 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 import anthropic
+import anthropic.types
 from opentelemetry import trace
 
-from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
+from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse, AnthropicUsage
 
 if TYPE_CHECKING:
     from anthropic.lib.streaming import MessageStreamEvent
 
 tracer = trace.get_tracer(__name__)
+
+
+def _build_usage(usage: anthropic.types.Usage) -> AnthropicUsage:
+    result: AnthropicUsage = {
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+    }
+    if usage.cache_creation_input_tokens is not None:
+        result["cache_creation_input_tokens"] = usage.cache_creation_input_tokens
+    if usage.cache_read_input_tokens is not None:
+        result["cache_read_input_tokens"] = usage.cache_read_input_tokens
+    return result
 
 
 class AnthropicClient:
@@ -114,20 +127,7 @@ class AnthropicClient:
             model=message.model,
             stop_reason=message.stop_reason,
             stop_sequence=message.stop_sequence,
-            usage={
-                "input_tokens": message.usage.input_tokens,
-                "output_tokens": message.usage.output_tokens,
-                **(
-                    {"cache_creation_input_tokens": message.usage.cache_creation_input_tokens}
-                    if message.usage.cache_creation_input_tokens is not None
-                    else {}
-                ),
-                **(
-                    {"cache_read_input_tokens": message.usage.cache_read_input_tokens}
-                    if message.usage.cache_read_input_tokens is not None
-                    else {}
-                ),
-            },
+            usage=_build_usage(message.usage),
         )
 
     async def complete(

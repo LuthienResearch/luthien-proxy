@@ -1383,6 +1383,57 @@ class TestReconstructResponseFromStreamEvents:
         """Returns None for an empty event list."""
         assert _reconstruct_response_from_stream_events([]) is None
 
+    def test_includes_cache_tokens_from_message_start_when_present(self):
+        events = [
+            RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_abc",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": DEFAULT_TEST_MODEL,
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 0,
+                        "cache_creation_input_tokens": 100,
+                        "cache_read_input_tokens": 50,
+                    },
+                },
+            ),
+            RawMessageDeltaEvent(
+                type="message_delta",
+                delta={"stop_reason": "end_turn", "stop_sequence": None},
+                usage={"output_tokens": 5},
+            ),
+            RawMessageStopEvent(type="message_stop"),
+        ]
+
+        result = _reconstruct_response_from_stream_events(events)
+
+        assert result is not None
+        assert result["usage"]["cache_creation_input_tokens"] == 100
+        assert result["usage"]["cache_read_input_tokens"] == 50
+
+    def test_omits_cache_tokens_when_absent(self):
+        events = [
+            self._message_start(input_tokens=10),
+            RawMessageDeltaEvent(
+                type="message_delta",
+                delta={"stop_reason": "end_turn", "stop_sequence": None},
+                usage={"output_tokens": 5},
+            ),
+            RawMessageStopEvent(type="message_stop"),
+        ]
+
+        result = _reconstruct_response_from_stream_events(events)
+
+        assert result is not None
+        assert "cache_creation_input_tokens" not in result["usage"]
+        assert "cache_read_input_tokens" not in result["usage"]
+
 
 class TestStreamingResponseRecording:
     """Tests that streaming responses are saved to conversation_events."""
