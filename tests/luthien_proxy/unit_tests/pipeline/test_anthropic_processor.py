@@ -893,7 +893,7 @@ class TestEmptyStreamErrorEvent:
         async def empty_stream(req, extra_headers=None):
             # Yield nothing — simulates a backend that returns no events
             return
-            yield  # make this an async generator  # noqa: RUF027
+            yield  # make this an async generator
 
         mock_client = MagicMock()
         mock_client.stream = empty_stream

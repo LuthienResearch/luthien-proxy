@@ -407,8 +407,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             warning_index = len(state.emitted_blocks)
             events.extend(self._make_anthropic_warning_events(warning_index))
         elif state.judge_error_occurred and not state.emitted_blocks:
-            error_index = len(state.emitted_blocks)
-            events.extend(self._make_anthropic_text_block_events(error_index, JUDGE_ERROR_BLOCKED_MESSAGE))
+            events.extend(self._make_anthropic_text_block_events(0, JUDGE_ERROR_BLOCKED_MESSAGE))
 
         # Correct stop_reason if the emitted block types differ from the original
         has_emitted_tool = any(b.type == "tool_use" for b in state.emitted_blocks)
