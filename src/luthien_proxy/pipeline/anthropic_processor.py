@@ -209,6 +209,8 @@ def _reconstruct_response_from_stream_events(
     model: str | None = None
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_creation_input_tokens: int | None = None
+    cache_read_input_tokens: int | None = None
     stop_reason: str | None = None
     stop_sequence: str | None = None
 
@@ -225,6 +227,8 @@ def _reconstruct_response_from_stream_events(
             model = msg.model
             if msg.usage:
                 input_tokens = msg.usage.input_tokens
+                cache_creation_input_tokens = msg.usage.cache_creation_input_tokens
+                cache_read_input_tokens = msg.usage.cache_read_input_tokens
 
         elif t == "content_block_start":
             idx: int = event.index  # type: ignore[union-attr]
@@ -281,7 +285,16 @@ def _reconstruct_response_from_stream_events(
             stop_reason,
         ),
         stop_sequence=stop_sequence,
-        usage={"input_tokens": input_tokens, "output_tokens": output_tokens},
+        usage={
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            **(
+                {"cache_creation_input_tokens": cache_creation_input_tokens}
+                if cache_creation_input_tokens is not None
+                else {}
+            ),
+            **({"cache_read_input_tokens": cache_read_input_tokens} if cache_read_input_tokens is not None else {}),
+        },
     )
 
 

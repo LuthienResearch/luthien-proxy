@@ -117,6 +117,16 @@ class AnthropicClient:
             usage={
                 "input_tokens": message.usage.input_tokens,
                 "output_tokens": message.usage.output_tokens,
+                **(
+                    {"cache_creation_input_tokens": message.usage.cache_creation_input_tokens}
+                    if message.usage.cache_creation_input_tokens is not None
+                    else {}
+                ),
+                **(
+                    {"cache_read_input_tokens": message.usage.cache_read_input_tokens}
+                    if message.usage.cache_read_input_tokens is not None
+                    else {}
+                ),
             },
         )
 
