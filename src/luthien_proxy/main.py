@@ -295,7 +295,10 @@ def create_app(
     class StaticCacheMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
             response = await call_next(request)
-            if request.url.path.startswith("/static/"):
+            if request.url.path.startswith("/api/") or request.url.path == "/health":
+                # Prevent CDN/edge caching of API and health responses (Railway, Cloudflare, etc.)
+                response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            elif request.url.path.startswith("/static/"):
                 path = request.url.path
                 if path.endswith((".js", ".html", ".css")):
                     response.headers["Cache-Control"] = "no-cache"
