@@ -143,7 +143,7 @@ Application code
     v
 EventEmitter (observability/emitter.py)
     |-- stdout (structured logging)
-    |-- Database (TransactionRecorder → conversation_events)
+    |-- Database (conversation_events)
     |-- EventPublisher (activity SSE stream)
            |-- RedisEventPublisher (when Redis available)
            |-- InProcessEventPublisher (local mode)

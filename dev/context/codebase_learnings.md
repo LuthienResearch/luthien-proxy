@@ -123,7 +123,7 @@ sse_queue: Queue[str]
 - Clear data flow visible in code structure
 - Type safety at queue boundaries
 - Easy to test each stage in isolation
-- Recording at boundaries via TransactionRecorder
+
 - ~200 lines of unnecessary code eliminated
 
 **Files**:
