@@ -294,6 +294,31 @@ def test_find_docker_ports_auto_selects():
             assert result == {"POSTGRES_PORT": "5433", "REDIS_PORT": "6379", "GATEWAY_PORT": "8000"}
 
 
+def test_onboard_shows_config_locations(tmp_path):
+    """Success panel shows where config files are stored."""
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    repo_path = tmp_path / "managed-repo"
+    repo_path.mkdir()
+    (repo_path / "config").mkdir()
+
+    with (
+        patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.onboard.ensure_gateway_venv", return_value=str(repo_path)),
+        patch("luthien_cli.commands.onboard.stop_gateway"),
+        patch("luthien_cli.commands.onboard.start_gateway", return_value=12345),
+        patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
+        patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
+        patch("luthien_cli.commands.onboard.webbrowser.open"),
+    ):
+        result = runner.invoke(cli, ["onboard"], input="y\nq\n")
+
+    assert result.exit_code == 0, result.output
+    assert "config.toml" in result.output
+    assert "luthien config" in result.output
+    assert "luthien-proxy" in result.output
+
+
 def test_onboard_shows_uninstall_instructions(tmp_path):
     runner = CliRunner()
     config_path = tmp_path / "config.toml"
