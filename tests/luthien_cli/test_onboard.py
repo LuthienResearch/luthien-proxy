@@ -145,9 +145,10 @@ def test_onboard_local_full_flow(tmp_path):
     policy = (repo_path / "config" / "policy_config.yaml").read_text()
     assert "OnboardingPolicy" in policy
 
-    # Verify .env has sqlite
+    # Verify .env has sqlite and ADMIN_API_KEY persisted
     env_content = (repo_path / ".env").read_text()
     assert "sqlite:///" in env_content
+    assert "ADMIN_API_KEY=" in env_content
 
 
 def test_onboard_docker_full_flow(tmp_path):

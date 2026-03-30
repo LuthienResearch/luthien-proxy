@@ -225,7 +225,7 @@ def _onboard_local(console: Console, config, proxy_key: str, admin_key: str, pro
     # 3. Write config files
     console.print("\n[blue]Configuring gateway...[/blue]")
     _write_policy(config.repo_path, actual_gateway_url)
-    _write_local_env(config.repo_path, proxy_key)
+    _write_local_env(config.repo_path, proxy_key, admin_key)
 
     # 4. Stop any existing gateway
     stop_gateway(config.repo_path)
