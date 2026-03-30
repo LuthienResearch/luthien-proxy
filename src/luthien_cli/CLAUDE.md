@@ -1,6 +1,6 @@
 # luthien-cli
 
-CLI tool for managing luthien-proxy gateways. Installed via `pipx install luthien-cli`.
+CLI tool for managing luthien-proxy gateways. Installed via `uv tool install luthien-cli`.
 
 ## Versioning
 

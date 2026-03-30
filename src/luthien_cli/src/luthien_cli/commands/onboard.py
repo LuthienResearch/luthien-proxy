@@ -179,7 +179,7 @@ def _show_results(
                   [bold yellow]luthien claude[/bold yellow]    # launch Claude Code through the proxy
 
                 [bold]Uninstall:[/bold]
-                  pipx uninstall luthien-cli
+                  uv tool uninstall luthien-cli
 
                 [dim]Luthien sends anonymous usage data to help development.
                 To disable, set USAGE_TELEMETRY=false in .env and restart.[/dim]"""),
@@ -345,7 +345,7 @@ def onboard(use_docker: bool, proxy_ref: str | None, yes: bool):
     console.print(
         Panel(
             "This will:\n"
-            "  1. Install the [bold]luthien[/bold] CLI tool (via pipx)\n"
+            "  1. Install the [bold]luthien[/bold] CLI tool (via uv)\n"
             "  2. Install a local [bold]luthien-proxy[/bold] server\n"
             "  3. Start the proxy with an onboarding policy\n\n"
             f"[bold]Mode:[/bold] {mode_label}",
