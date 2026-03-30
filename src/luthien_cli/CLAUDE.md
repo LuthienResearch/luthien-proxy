@@ -22,5 +22,5 @@ Uses PyPI trusted publishing (OIDC) — no API tokens stored in GitHub secrets.
 ## Development
 
 - Build: `cd src/luthien_cli && uv build`
-- Test: `cd src/luthien_cli && uv run pytest tests/ -v`
+- Test: `uv run pytest tests/luthien_cli/ -v` (from repo root)
 - The version shown by `luthien --version` comes from `importlib.metadata.version("luthien-cli")`
