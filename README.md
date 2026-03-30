@@ -297,6 +297,24 @@ docker compose restart db
 docker compose run --rm migrations
 ```
 
+## Uninstall
+
+**Local mode** (default):
+
+```bash
+luthien down
+uv tool uninstall luthien-cli
+rm -rf ~/.luthien  # removes all conversation logs, database, and config
+```
+
+**Docker Compose mode**:
+
+```bash
+docker compose down -v  # -v also removes the persistent database volume
+uv tool uninstall luthien-cli
+rm -rf ~/.luthien  # removes all conversation logs and config
+```
+
 ## Development
 
 For development setup, tooling, architecture, and API details, see **[dev-README.md](dev-README.md)**.
