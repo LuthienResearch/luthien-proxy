@@ -125,7 +125,11 @@ def init_sentry(settings: Settings | None = None) -> None:
     if settings is None:
         settings = get_settings()
 
-    if not settings.sentry_enabled or not settings.sentry_dsn:
+    if not settings.sentry_enabled:
+        return
+
+    if not settings.sentry_dsn:
+        logger.warning("SENTRY_ENABLED=true but SENTRY_DSN is empty — Sentry is NOT active")
         return
 
     # OTel exporter logs at ERROR when Tempo is unreachable — expected in

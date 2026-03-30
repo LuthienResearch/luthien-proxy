@@ -1,5 +1,7 @@
 """Tests for Sentry data scrubbing — _summarize() and _sentry_before_send()."""
 
+import logging
+
 import pytest
 
 from luthien_proxy.observability.sentry import _sentry_before_send, _summarize
@@ -349,7 +351,7 @@ class TestSentryDisabledInTests:
         init_sentry(settings)
         assert not sentry_sdk.is_initialized()
 
-    def test_init_sentry_is_noop_when_enabled_but_dsn_empty(self, monkeypatch):
+    def test_init_sentry_warns_when_enabled_but_dsn_empty(self, monkeypatch, caplog):
         monkeypatch.setenv("SENTRY_ENABLED", "true")
         monkeypatch.delenv("SENTRY_DSN", raising=False)
         import sentry_sdk
@@ -359,8 +361,10 @@ class TestSentryDisabledInTests:
 
         clear_settings_cache()
         settings = Settings(_env_file=None)
-        init_sentry(settings)
+        with caplog.at_level(logging.WARNING):
+            init_sentry(settings)
         assert not sentry_sdk.is_initialized()
+        assert "SENTRY_ENABLED=true but SENTRY_DSN is empty" in caplog.text
 
 
 class TestInitSentryHappyPath:
