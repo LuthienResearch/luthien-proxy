@@ -55,7 +55,13 @@ def _generate_key(prefix: str) -> str:
     return f"{prefix}-{secrets.token_urlsafe(24)}"
 
 
-def _write_local_env(repo_path: str, proxy_key: str, admin_key: str | None = None) -> None:
+def _write_local_env(
+    repo_path: str,
+    proxy_key: str,
+    admin_key: str | None = None,
+    sentry_enabled: bool = False,
+    sentry_dsn: str = "",
+) -> None:
     """Write .env for local mode (SQLite, no Redis)."""
     db_path = str(Path(repo_path) / "luthien.db")
     policy_path = str(Path(repo_path) / "config" / "policy_config.yaml")
@@ -68,9 +74,12 @@ def _write_local_env(repo_path: str, proxy_key: str, admin_key: str | None = Non
         f"AUTH_MODE=both\n"
         f"OTEL_ENABLED=false\n"
         f"USAGE_TELEMETRY=true\n"
+        f"SENTRY_ENABLED={str(sentry_enabled).lower()}\n"
     )
     if admin_key:
         env_content += f"ADMIN_API_KEY={admin_key}\n"
+    if sentry_dsn:
+        env_content += f"SENTRY_DSN={sentry_dsn}\n"
 
     env_path = f"{repo_path}/.env"
     with open(env_path, "w") as f:
@@ -78,7 +87,13 @@ def _write_local_env(repo_path: str, proxy_key: str, admin_key: str | None = Non
     os.chmod(env_path, 0o600)
 
 
-def _ensure_docker_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
+def _ensure_docker_env(
+    repo_path: str,
+    proxy_key: str,
+    admin_key: str,
+    sentry_enabled: bool = False,
+    sentry_dsn: str = "",
+) -> None:
     """Create or update .env with Docker onboard settings.
 
     Sets both the proxy keys and the Postgres/Redis connection vars that
@@ -98,7 +113,7 @@ def _ensure_docker_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
             env_content = ""
 
     pg_password = secrets.token_urlsafe(16)
-    overrides = {
+    overrides: dict[str, str] = {
         "PROXY_API_KEY": proxy_key,
         "ADMIN_API_KEY": admin_key,
         "AUTH_MODE": "both",
@@ -110,7 +125,10 @@ def _ensure_docker_env(repo_path: str, proxy_key: str, admin_key: str) -> None:
         "DATABASE_URL": f"postgresql://luthien:{pg_password}@db:5432/luthien_control",
         "REDIS_URL": "redis://redis:6379",
         "REDIS_PORT": "6379",
+        "SENTRY_ENABLED": str(sentry_enabled).lower(),
     }
+    if sentry_dsn:
+        overrides["SENTRY_DSN"] = sentry_dsn
 
     for key, value in overrides.items():
         pattern = rf"^#?\s*{key}=.*$"
@@ -211,7 +229,15 @@ def _show_results(
     _launch_claude(console, [ONBOARDING_PROMPT])
 
 
-def _onboard_local(console: Console, config, proxy_key: str, admin_key: str, proxy_ref: str | None = None) -> None:
+def _onboard_local(
+    console: Console,
+    config,
+    proxy_key: str,
+    admin_key: str,
+    proxy_ref: str | None = None,
+    sentry_enabled: bool = False,
+    sentry_dsn: str = "",
+) -> None:
     """Onboard in local mode: SQLite + in-process event publisher, no Docker."""
     # 1. Install gateway package
     console.print("[blue]Installing luthien-proxy...[/blue]")
@@ -225,7 +251,7 @@ def _onboard_local(console: Console, config, proxy_key: str, admin_key: str, pro
     # 3. Write config files
     console.print("\n[blue]Configuring gateway...[/blue]")
     _write_policy(config.repo_path, actual_gateway_url)
-    _write_local_env(config.repo_path, proxy_key, admin_key)
+    _write_local_env(config.repo_path, proxy_key, admin_key, sentry_enabled, sentry_dsn)
 
     # 4. Stop any existing gateway
     stop_gateway(config.repo_path)
@@ -252,7 +278,9 @@ def _onboard_local(console: Console, config, proxy_key: str, admin_key: str, pro
     _show_results(console, actual_gateway_url.rstrip("/"), "local")
 
 
-def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str) -> None:
+def _onboard_docker(
+    console: Console, config, proxy_key: str, admin_key: str, sentry_enabled: bool = False, sentry_dsn: str = ""
+) -> None:
     """Onboard in Docker mode: PostgreSQL + Redis via docker compose."""
     # 1. Ensure proxy files
     if not config.repo_path:
@@ -260,7 +288,7 @@ def _onboard_docker(console: Console, config, proxy_key: str, admin_key: str) ->
 
     # 2. Write env config
     console.print("\n[blue]Configuring gateway...[/blue]")
-    _ensure_docker_env(config.repo_path, proxy_key, admin_key)
+    _ensure_docker_env(config.repo_path, proxy_key, admin_key, sentry_enabled, sentry_dsn)
 
     # 3. Start Docker stack
     console.print("\n[blue]Starting gateway...[/blue]")
@@ -367,7 +395,26 @@ def onboard(use_docker: bool, proxy_ref: str | None, yes: bool):
     proxy_key = _generate_key("sk-luthien")
     admin_key = _generate_key("admin")
 
+    sentry_enabled = False
+    sentry_dsn = ""
+    if not yes:
+        console.print(
+            "\n[bold]Enable Sentry error tracking?[/bold]\n"
+            "[dim]Sends error reports (with sensitive data scrubbed) to help debug gateway issues.[/dim]"
+        )
+        sentry_enabled = click.confirm("Enable Sentry", default=False)
+        if sentry_enabled:
+            sentry_dsn = click.prompt("Sentry DSN", default="")
+
     if use_docker:
-        _onboard_docker(console, config, proxy_key, admin_key)
+        _onboard_docker(console, config, proxy_key, admin_key, sentry_enabled, sentry_dsn)
     else:
-        _onboard_local(console, config, proxy_key, admin_key, proxy_ref=proxy_ref)
+        _onboard_local(
+            console,
+            config,
+            proxy_key,
+            admin_key,
+            proxy_ref=proxy_ref,
+            sentry_enabled=sentry_enabled,
+            sentry_dsn=sentry_dsn,
+        )
