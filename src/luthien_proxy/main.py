@@ -616,7 +616,16 @@ if __name__ == "__main__":
                 auth_mode=config.get("auth_mode", AuthMode.BOTH),
             )
 
-            server_config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="debug")
+            _valid_log_levels = {"critical", "error", "warning", "info", "debug", "trace"}
+            log_level = os.environ.get("LOG_LEVEL", "info").lower()
+            if log_level not in _valid_log_levels:
+                logger.warning(
+                    f"Invalid LOG_LEVEL '{log_level}', falling back to 'info'. "
+                    f"Valid levels: {', '.join(sorted(_valid_log_levels))}"
+                )
+                log_level = "info"
+            logger.info(f"Using log level: {log_level}")
+            server_config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level=log_level)
             server = uvicorn.Server(server_config)
             await server.serve()
         finally:

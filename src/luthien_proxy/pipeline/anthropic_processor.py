@@ -112,6 +112,11 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         self._extra_headers = extra_headers
         self._request_recorded = False
         self._first_backend_response: AnthropicResponse | None = None
+        # Raw backend events are only buffered when needed for non-streaming
+        # response reconstruction (e.g., diff recording). Streaming responses
+        # can reconstruct from the post-policy accumulated_events instead,
+        # avoiding duplicate event buffering that doubles memory usage.
+        self._buffer_raw_events = not is_streaming
         self._raw_backend_events: list[MessageStreamEvent] = []
 
     @property
@@ -189,7 +194,8 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
             with tracer.start_as_current_span("send_upstream") as span:
                 span.set_attribute("luthien.phase", "send_upstream")
                 async for event in self._anthropic_client.stream(final_request, extra_headers=extra_headers):
-                    self._raw_backend_events.append(event)
+                    if self._buffer_raw_events:
+                        self._raw_backend_events.append(event)
                     yield event
 
         return _stream()
@@ -659,7 +665,15 @@ async def _handle_execution_streaming(
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
                     reconstructed = _reconstruct_response_from_stream_events(accumulated_events)
                     if reconstructed is not None:
-                        raw_reconstructed = _reconstruct_response_from_stream_events(io._raw_backend_events)
+                        # Use raw backend events for original response if buffered,
+                        # otherwise fall back to accumulated (post-policy) events.
+                        # Trade-off: for streaming requests, raw events are NOT buffered
+                        # separately (_buffer_raw_events=False) to avoid doubling memory
+                        # usage. This means the diff viewer will show identical original
+                        # and final responses for streaming requests. Non-streaming
+                        # requests still capture true pre-policy vs post-policy diffs.
+                        raw_events = accumulated_events if not io._buffer_raw_events else io._raw_backend_events
+                        raw_reconstructed = _reconstruct_response_from_stream_events(raw_events)
                         emitter.record(
                             call_id,
                             "transaction.streaming_response_recorded",
