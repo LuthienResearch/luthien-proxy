@@ -7,9 +7,9 @@ set -e
 
 # Auto-create .env from .env.local.example if missing (first-time dev setup)
 if [[ ! -f .env ]] && [[ -f .env.local.example ]]; then
-    echo "No .env found — creating from .env.local.example..."
+    echo "No .env found — creating from .env.local.example (continuing with defaults)."
+    echo "  -> Edit .env to add your ANTHROPIC_API_KEY for API key auth."
     cp .env.local.example .env
-    echo "  -> Edit .env to add your ANTHROPIC_API_KEY, then re-run this script."
     echo ""
 fi
 
