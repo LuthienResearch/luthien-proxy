@@ -301,18 +301,13 @@ docker compose run --rm migrations
 
 ```bash
 # Stop the gateway
-luthien down
+luthien down          # local mode
+# docker compose down  # Docker mode
 
-# Remove the CLI and all gateway data
+# Remove the CLI
 uv tool uninstall luthien-cli
-rm -rf ~/.luthien
-```
 
-For Docker mode, stop the stack first:
-
-```bash
-docker compose down
-uv tool uninstall luthien-cli
+# Remove all stored data (conversation logs, SQLite database, config)
 rm -rf ~/.luthien
 ```
 
