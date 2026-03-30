@@ -178,7 +178,7 @@ orchestrator = PolicyOrchestrator(
     policy=policy,
     policy_executor=policy_executor,
     client_formatter=client_formatter,
-    transaction_recorder=transaction_recorder,
+
 )
 ```
 
@@ -272,7 +272,7 @@ Policies can intercept at these points:
 
 - **StreamingChunkAssembler**: `src/luthien_proxy/streaming/streaming_chunk_assembler.py`
 - **PolicyContext**: `src/luthien_proxy/policy_core/policy_context.py`
-- **TransactionRecorder**: `src/luthien_proxy/observability/transaction_recorder.py`
+
 
 ### Policies
 
