@@ -313,7 +313,7 @@ def test_onboard_shows_uninstall_instructions(tmp_path):
         result = runner.invoke(cli, ["onboard"], input="y\nq\n")
 
     assert result.exit_code == 0, result.output
-    assert "pipx uninstall" in result.output
+    assert "uv tool uninstall" in result.output
 
 
 def test_onboard_opens_browser(tmp_path):

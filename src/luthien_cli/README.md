@@ -5,9 +5,9 @@ A standalone CLI tool for managing and interacting with [luthien-proxy](https://
 ## Install
 
 ```bash
-pipx install luthien-cli
+uv tool install luthien-cli
 # or for development:
-pip install -e ".[dev]"
+uv pip install -e ".[dev]"
 ```
 
 ## Quick Start
