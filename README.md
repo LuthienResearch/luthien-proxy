@@ -306,7 +306,7 @@ Clone the repo and start the gateway with SQLite — no Postgres or Redis needed
 ```bash
 git clone https://github.com/LuthienResearch/luthien-proxy.git
 cd luthien-proxy
-uv sync
+uv sync  # Install uv first if needed: https://docs.astral.sh/uv/getting-started/installation/
 ./scripts/start_gateway.sh
 ```
 

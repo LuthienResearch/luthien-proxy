@@ -5,6 +5,8 @@
 
 set -e
 
+cd "$(dirname "$0")/.."
+
 # Auto-create .env from .env.local.example if missing (first-time dev setup)
 if [[ ! -f .env ]] && [[ -f .env.local.example ]]; then
     echo "No .env found — creating from .env.local.example (continuing with defaults)."
@@ -47,4 +49,4 @@ PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$(pwd)/src"
 export PYTHONPATH
 
 # Start the gateway
-cd "$(dirname "$0")/.." && exec uv run python -m luthien_proxy.main
+exec uv run python -m luthien_proxy.main
