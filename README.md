@@ -299,7 +299,20 @@ docker compose run --rm migrations
 
 ## Development
 
-For development setup, tooling, architecture, and API details, see **[dev-README.md](dev-README.md)**.
+### Quick Start (from source, no Docker)
+
+Clone the repo and start the gateway with SQLite — no Postgres or Redis needed:
+
+```bash
+git clone https://github.com/LuthienResearch/luthien-proxy.git
+cd luthien-proxy
+uv sync
+cp .env.local.example .env
+# Edit .env to add your ANTHROPIC_API_KEY
+./scripts/start_gateway.sh
+```
+
+The gateway starts at `http://localhost:8000`. For full development setup, tooling, architecture, and API details, see **[dev-README.md](dev-README.md)**.
 
 ## License
 
