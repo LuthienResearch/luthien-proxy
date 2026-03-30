@@ -57,18 +57,17 @@ def _generate_key(prefix: str) -> str:
 
 def _write_local_env(
     repo_path: str,
-    proxy_key: str,
-    admin_key: str | None = None,
+    admin_key: str,
     sentry_enabled: bool = False,
     sentry_dsn: str = "",
 ) -> None:
-    """Write .env for local mode (SQLite, no Redis)."""
+    """Write .env for local mode (SQLite, no Redis, no proxy key required)."""
     db_path = str(Path(repo_path) / "luthien.db")
     policy_path = str(Path(repo_path) / "config" / "policy_config.yaml")
 
     env_content = (
         f"DATABASE_URL=sqlite:///{db_path}\n"
-        f"PROXY_API_KEY={proxy_key}\n"
+        f"ADMIN_API_KEY={admin_key}\n"
         f"POLICY_SOURCE=file\n"
         f"POLICY_CONFIG={policy_path}\n"
         f"AUTH_MODE=both\n"
@@ -76,8 +75,6 @@ def _write_local_env(
         f"USAGE_TELEMETRY=true\n"
         f"SENTRY_ENABLED={str(sentry_enabled).lower()}\n"
     )
-    if admin_key:
-        env_content += f"ADMIN_API_KEY={admin_key}\n"
     if sentry_dsn:
         env_content += f"SENTRY_DSN={sentry_dsn}\n"
 
@@ -232,13 +229,12 @@ def _show_results(
 def _onboard_local(
     console: Console,
     config,
-    proxy_key: str,
     admin_key: str,
     proxy_ref: str | None = None,
     sentry_enabled: bool = False,
     sentry_dsn: str = "",
 ) -> None:
-    """Onboard in local mode: SQLite + in-process event publisher, no Docker."""
+    """Onboard in local mode: SQLite, passthrough auth, no Docker."""
     # 1. Install gateway package
     console.print("[blue]Installing luthien-proxy...[/blue]")
     config.repo_path = ensure_gateway_venv(proxy_ref=proxy_ref, force_reinstall=True)
@@ -251,7 +247,7 @@ def _onboard_local(
     # 3. Write config files
     console.print("\n[blue]Configuring gateway...[/blue]")
     _write_policy(config.repo_path, actual_gateway_url)
-    _write_local_env(config.repo_path, proxy_key, admin_key, sentry_enabled, sentry_dsn)
+    _write_local_env(config.repo_path, admin_key, sentry_enabled, sentry_dsn)
 
     # 4. Stop any existing gateway
     stop_gateway(config.repo_path)
@@ -263,7 +259,7 @@ def _onboard_local(
 
     # 6. Save config
     config.gateway_url = actual_gateway_url
-    config.api_key = proxy_key
+    config.api_key = None
     config.admin_key = admin_key
     config.mode = "local"
     save_config(config, DEFAULT_CONFIG_PATH)
@@ -392,7 +388,6 @@ def onboard(use_docker: bool, proxy_ref: str | None, yes: bool):
             console.print("\n[dim]Cancelled.[/dim]")
             return
 
-    proxy_key = _generate_key("sk-luthien")
     admin_key = _generate_key("admin")
 
     sentry_enabled = False
@@ -407,12 +402,12 @@ def onboard(use_docker: bool, proxy_ref: str | None, yes: bool):
             sentry_dsn = click.prompt("Sentry DSN", default="")
 
     if use_docker:
+        proxy_key = _generate_key("sk-luthien")
         _onboard_docker(console, config, proxy_key, admin_key, sentry_enabled, sentry_dsn)
     else:
         _onboard_local(
             console,
             config,
-            proxy_key,
             admin_key,
             proxy_ref=proxy_ref,
             sentry_enabled=sentry_enabled,

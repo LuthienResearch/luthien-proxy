@@ -34,16 +34,16 @@ class TestLoadConfigFromEnv:
         config = load_config_from_env(settings=Settings(_env_file=None))
         assert config["admin_key"] is None
 
-    def test_missing_proxy_api_key_raises_error(self, monkeypatch):
-        """Test that missing PROXY_API_KEY raises ValueError."""
+    def test_missing_proxy_api_key_is_allowed(self, monkeypatch):
+        """PROXY_API_KEY is optional — passthrough mode doesn't need it."""
         from luthien_proxy.settings import Settings
 
         monkeypatch.delenv("PROXY_API_KEY", raising=False)
         monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
         monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
 
-        with pytest.raises(ValueError, match="PROXY_API_KEY environment variable required"):
-            load_config_from_env(settings=Settings(_env_file=None))
+        config = load_config_from_env(settings=Settings(_env_file=None))
+        assert config["api_key"] is None
 
     def test_missing_database_url_raises_error(self, monkeypatch):
         """Test that missing DATABASE_URL raises ValueError."""
@@ -56,8 +56,8 @@ class TestLoadConfigFromEnv:
         with pytest.raises(ValueError, match="DATABASE_URL environment variable required"):
             load_config_from_env(settings=Settings(_env_file=None))
 
-    def test_multiple_missing_vars_reported_at_once(self, monkeypatch):
-        """Test that all missing env vars are reported in a single error."""
+    def test_missing_database_url_reported(self, monkeypatch):
+        """Test that missing DATABASE_URL is reported."""
         from luthien_proxy.settings import Settings
 
         monkeypatch.delenv("PROXY_API_KEY", raising=False)
@@ -68,7 +68,6 @@ class TestLoadConfigFromEnv:
             load_config_from_env(settings=Settings(_env_file=None))
 
         message = str(exc_info.value)
-        assert "PROXY_API_KEY" in message
         assert "DATABASE_URL" in message
 
     def test_valid_config_returns_dict(self, monkeypatch):
@@ -131,14 +130,13 @@ class TestAutoProvisionDefaults:
         assert result["DATABASE_URL"].startswith("sqlite:///")
         assert os.environ["DATABASE_URL"] == result["DATABASE_URL"]
 
-    def test_provisions_proxy_api_key_when_missing(self, monkeypatch):
+    def test_does_not_provision_proxy_api_key(self, monkeypatch):
         monkeypatch.delenv("PROXY_API_KEY", raising=False)
 
         result = auto_provision_defaults()
 
-        assert "PROXY_API_KEY" in result
-        assert result["PROXY_API_KEY"].startswith("sk-luthien-")
-        assert os.environ["PROXY_API_KEY"] == result["PROXY_API_KEY"]
+        assert "PROXY_API_KEY" not in result
+        assert "PROXY_API_KEY" not in os.environ
 
     def test_provisions_policy_config_when_missing(self, monkeypatch):
         monkeypatch.delenv("POLICY_CONFIG", raising=False)
@@ -190,10 +188,11 @@ class TestAutoProvisionDefaults:
 
         result = auto_provision_defaults()
 
-        assert len(result) == 5
+        assert len(result) == 4
         assert all(
-            k in result for k in ("DATABASE_URL", "PROXY_API_KEY", "ADMIN_API_KEY", "POLICY_CONFIG", "POLICY_SOURCE")
+            k in result for k in ("DATABASE_URL", "ADMIN_API_KEY", "POLICY_CONFIG", "POLICY_SOURCE")
         )
+        assert "PROXY_API_KEY" not in result
 
 
 @pytest.fixture
