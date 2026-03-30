@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Create a standalone, pipx-installable CLI tool (`luthien`) for managing and interacting with luthien-proxy gateways.
+**Goal:** Create a standalone CLI tool (`luthien`) for managing and interacting with luthien-proxy gateways, installed via `uv tool install`.
 
 **Architecture:** Thin client CLI that talks to gateways over HTTP (httpx), manages config in `~/.luthien/config.toml`, and optionally manages a local docker-compose stack via subprocess. No dependency on the luthien-proxy server package.
 
@@ -1138,10 +1138,10 @@ cd luthien-cli && python -m pytest tests/ -v
 
 Brief usage docs: install, configure, command reference.
 
-**Step 4: Run `pipx install .` from luthien-cli/ to verify end-to-end**
+**Step 4: Run `uv tool install .` from luthien-cli/ to verify end-to-end**
 
 ```bash
-cd luthien-cli && pipx install .
+cd luthien-cli && uv tool install .
 luthien --help
 luthien config show
 ```

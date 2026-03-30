@@ -13,6 +13,12 @@ if ! command_exists uv; then
     curl -LsSf https://astral.sh/uv/install.sh | sh
 fi
 
+# --- migrate from pipx -------------------------------------------------
+if command_exists pipx && pipx list --short 2>/dev/null | grep -q '^luthien-cli '; then
+    echo "Migrating from pipx to uv..."
+    pipx uninstall luthien-cli 2>/dev/null || true
+fi
+
 # --- luthien-cli -------------------------------------------------------
 echo "Installing luthien-cli..."
 uv tool install --force --upgrade luthien-cli --from "git+https://github.com/LuthienResearch/luthien-proxy.git#subdirectory=src/luthien_cli"

@@ -298,7 +298,10 @@ def create_app(
     class StaticCacheMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
             response = await call_next(request)
-            if request.url.path.startswith("/static/"):
+            if request.url.path.startswith("/api/") or request.url.path == "/health":
+                # Prevent CDN/edge caching of API and health responses (Railway, Cloudflare, etc.)
+                response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            elif request.url.path.startswith("/static/"):
                 path = request.url.path
                 if path.endswith((".js", ".html", ".css")):
                     response.headers["Cache-Control"] = "no-cache"
@@ -616,7 +619,16 @@ if __name__ == "__main__":
                 auth_mode=config.get("auth_mode", AuthMode.BOTH),
             )
 
-            server_config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="debug")
+            _valid_log_levels = {"critical", "error", "warning", "info", "debug", "trace"}
+            log_level = os.environ.get("LOG_LEVEL", "info").lower()
+            if log_level not in _valid_log_levels:
+                logger.warning(
+                    f"Invalid LOG_LEVEL '{log_level}', falling back to 'info'. "
+                    f"Valid levels: {', '.join(sorted(_valid_log_levels))}"
+                )
+                log_level = "info"
+            logger.info(f"Using log level: {log_level}")
+            server_config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level=log_level)
             server = uvicorn.Server(server_config)
             await server.serve()
         finally:

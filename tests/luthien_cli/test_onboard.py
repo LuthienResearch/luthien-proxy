@@ -145,9 +145,10 @@ def test_onboard_local_full_flow(tmp_path):
     policy = (repo_path / "config" / "policy_config.yaml").read_text()
     assert "OnboardingPolicy" in policy
 
-    # Verify .env has sqlite
+    # Verify .env has sqlite and ADMIN_API_KEY persisted
     env_content = (repo_path / ".env").read_text()
     assert "sqlite:///" in env_content
+    assert "ADMIN_API_KEY=" in env_content
 
 
 def test_onboard_docker_full_flow(tmp_path):
@@ -313,7 +314,7 @@ def test_onboard_shows_uninstall_instructions(tmp_path):
         result = runner.invoke(cli, ["onboard"], input="y\nn\nq\n")
 
     assert result.exit_code == 0, result.output
-    assert "pipx uninstall" in result.output
+    assert "uv tool uninstall" in result.output
 
 
 def test_onboard_opens_browser(tmp_path):
