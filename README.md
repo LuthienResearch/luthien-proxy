@@ -299,16 +299,20 @@ docker compose run --rm migrations
 
 ## Uninstall
 
+**Local mode** (default):
+
 ```bash
-# Stop the gateway
-luthien down          # local mode
-# docker compose down  # Docker mode
-
-# Remove the CLI
+luthien down
 uv tool uninstall luthien-cli
+rm -rf ~/.luthien  # removes all conversation logs, database, and config
+```
 
-# Remove all stored data (conversation logs, SQLite database, config)
-rm -rf ~/.luthien
+**Docker Compose mode**:
+
+```bash
+docker compose down -v  # -v also removes the persistent database volume
+uv tool uninstall luthien-cli
+rm -rf ~/.luthien  # removes all conversation logs and config
 ```
 
 ## Development
