@@ -15,7 +15,7 @@
 
 | # | Finding | Status | Detail |
 |---|---------|--------|--------|
-| 1 | Cache AnthropicClient by credential hash | ❌ Not started | Branch `fix/cache-anthropic-client` exists but no open PR. Highest-impact unstarted item. |
+| 1 | Cache AnthropicClient by credential hash | ✅ Done | PR #312 merged 2026-03-22. `llm/anthropic_client_cache.py` — LRU cache keyed by credential hash, wired into `gateway_routes.py`. |
 | 2 | Sentry error tracking | 🔄 In review | PR #335 open. Needs Peter re-review. |
 | 3 | Prometheus metrics + `/metrics` endpoint | ❌ Not started | No PR. Assigned to Paolo. |
 | 4 | Rich health checks (DB, Redis) | ❌ Not started | No PR. Assigned to Paolo. |
@@ -24,8 +24,8 @@
 | 7 | Client disconnect detection in streaming | 🔄 In review | PR #465 (cancel upstream) + PR #466 (finally block fix), stacked. |
 | 8 | Forward anthropic-* headers upstream | ✅ Done | PR #269 merged. Finding fully addressed. |
 
-**Tier 1 summary: 1 done, 3 in review, 4 not started.**
-The 4 not-started items (#1, #3, #4, #5) are the critical gap between now and demo day.
+**Tier 1 summary: 2 done, 3 in review, 3 not started.**
+The 3 not-started items (#3, #4, #5) are the remaining gap before demo day.
 
 ### Tier 2 — Should-Have Before Demo
 
@@ -54,10 +54,9 @@ The 4 not-started items (#1, #3, #4, #5) are the critical gap between now and de
 
 These Tier 1 items have no PR and are blocking demo readiness:
 
-1. **Cache AnthropicClient** (#1) — branch exists, needs PR opened and reviewed. CRITICAL performance fix (50-100ms per request).
-2. **Prometheus `/metrics`** (#3) — Paolo assigned. ~2-4 hours of work.
-3. **Rich health checks** (#4) — Paolo assigned. ~1-2 hours of work.
-4. **Sanitize debug logging headers** (#5) — branch exists, needs PR opened. Trivial fix.
+1. **Prometheus `/metrics`** (#3) — Paolo assigned. ~2-4 hours of work.
+2. **Rich health checks** (#4) — Paolo assigned. ~1-2 hours of work.
+3. **Sanitize debug logging headers** (#5) — branch exists, needs PR opened. Trivial fix.
 
 ---
 
