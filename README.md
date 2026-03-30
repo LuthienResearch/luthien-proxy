@@ -297,6 +297,25 @@ docker compose restart db
 docker compose run --rm migrations
 ```
 
+## Uninstall
+
+```bash
+# Stop the gateway
+luthien down
+
+# Remove the CLI and all gateway data
+uv tool uninstall luthien-cli
+rm -rf ~/.luthien
+```
+
+For Docker mode, stop the stack first:
+
+```bash
+docker compose down
+uv tool uninstall luthien-cli
+rm -rf ~/.luthien
+```
+
 ## Development
 
 For development setup, tooling, architecture, and API details, see **[dev-README.md](dev-README.md)**.
