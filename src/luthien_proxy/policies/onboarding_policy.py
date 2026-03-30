@@ -15,9 +15,8 @@ Example config:
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
@@ -60,7 +59,7 @@ class OnboardingPolicyConfig(BaseModel):
     gateway_url: str = Field(default="http://localhost:8000", description="Gateway URL for config UI links")
 
 
-def is_first_turn(request: Mapping[str, Any]) -> bool:
+def is_first_turn(request: AnthropicRequest) -> bool:
     """Check if this is the first turn of a conversation.
 
     First turn = exactly one user message with no prior assistant responses.

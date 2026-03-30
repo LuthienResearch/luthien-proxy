@@ -101,7 +101,7 @@ Client receives SSE events
 |--------|---------------|
 | `storage/events.py` | Conversation event reconstruction utilities |
 | `observability/emitter.py` | `EventEmitter` — fire-and-forget event recording (DB + Redis + stdout) |
-| `observability/transaction_recorder.py` | Records request/response pairs for conversation history |
+
 
 ### Configuration & Authentication
 
@@ -143,7 +143,7 @@ Application code
     v
 EventEmitter (observability/emitter.py)
     |-- stdout (structured logging)
-    |-- Database (TransactionRecorder → conversation_events)
+    |-- Database (conversation_events)
     |-- EventPublisher (activity SSE stream)
            |-- RedisEventPublisher (when Redis available)
            |-- InProcessEventPublisher (local mode)

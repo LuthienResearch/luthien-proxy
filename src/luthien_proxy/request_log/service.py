@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
@@ -39,7 +40,7 @@ def _parse_jsonb(raw: object) -> dict[str, Any] | None:
     return None
 
 
-def _row_to_entry(row: Any) -> RequestLogEntry:
+def _row_to_entry(row: Mapping[str, Any]) -> RequestLogEntry:
     """Convert a database row to a RequestLogEntry."""
     return RequestLogEntry(
         id=str(row["id"]),
@@ -97,10 +98,10 @@ async def list_request_logs(
     """
     limit = min(limit, 200)
     conditions: list[str] = []
-    params: list[Any] = []
+    params: list[str | int | datetime] = []
     param_idx = 0
 
-    def _add(clause: str, value: Any) -> None:
+    def _add(clause: str, value: str | int | datetime) -> None:
         nonlocal param_idx
         param_idx += 1
         conditions.append(clause.replace("?", f"${param_idx}"))
