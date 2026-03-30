@@ -4,9 +4,10 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 import anthropic
+import anthropic.types
 from opentelemetry import trace
 
-from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
+from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse, build_usage
 
 if TYPE_CHECKING:
     from anthropic.lib.streaming import MessageStreamEvent
@@ -114,10 +115,12 @@ class AnthropicClient:
             model=message.model,
             stop_reason=message.stop_reason,
             stop_sequence=message.stop_sequence,
-            usage={
-                "input_tokens": message.usage.input_tokens,
-                "output_tokens": message.usage.output_tokens,
-            },
+            usage=build_usage(
+                message.usage.input_tokens,
+                message.usage.output_tokens,
+                message.usage.cache_creation_input_tokens,
+                message.usage.cache_read_input_tokens,
+            ),
         )
 
     async def complete(

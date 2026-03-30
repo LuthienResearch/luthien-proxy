@@ -42,6 +42,7 @@ from luthien_proxy.llm.types.anthropic import (
     AnthropicContentBlock,
     AnthropicRequest,
     AnthropicResponse,
+    build_usage,
 )
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.pipeline.client_format import ClientFormat
@@ -209,6 +210,8 @@ def _reconstruct_response_from_stream_events(
     model: str | None = None
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_creation_input_tokens: int | None = None
+    cache_read_input_tokens: int | None = None
     stop_reason: str | None = None
     stop_sequence: str | None = None
 
@@ -225,6 +228,8 @@ def _reconstruct_response_from_stream_events(
             model = msg.model
             if msg.usage:
                 input_tokens = msg.usage.input_tokens
+                cache_creation_input_tokens = msg.usage.cache_creation_input_tokens
+                cache_read_input_tokens = msg.usage.cache_read_input_tokens
 
         elif t == "content_block_start":
             idx: int = event.index  # type: ignore[union-attr]
@@ -262,6 +267,12 @@ def _reconstruct_response_from_stream_events(
             usage = getattr(event, "usage", None)
             if usage:
                 output_tokens = getattr(usage, "output_tokens", 0)
+                _cache_create = getattr(usage, "cache_creation_input_tokens", None)
+                _cache_read = getattr(usage, "cache_read_input_tokens", None)
+                if _cache_create is not None:
+                    cache_creation_input_tokens = _cache_create
+                if _cache_read is not None:
+                    cache_read_input_tokens = _cache_read
 
     if message_id is None or model is None:
         return None
@@ -281,7 +292,7 @@ def _reconstruct_response_from_stream_events(
             stop_reason,
         ),
         stop_sequence=stop_sequence,
-        usage={"input_tokens": input_tokens, "output_tokens": output_tokens},
+        usage=build_usage(input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens),
     )
 
 
