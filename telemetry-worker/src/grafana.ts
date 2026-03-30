@@ -27,7 +27,8 @@ export async function pushToGrafana(
 
     if (!response.ok) {
       const body = await response.text().catch(() => "");
-      return { ok: false, error: `Grafana returned ${response.status}: ${body}` };
+      const truncated = body.length > 200 ? body.slice(0, 200) + "..." : body;
+      return { ok: false, error: `Grafana returned ${response.status}: ${truncated}` };
     }
 
     return { ok: true };

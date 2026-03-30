@@ -155,6 +155,26 @@ describe("handleRequest", () => {
     expect(body.error).toContain("invalid JSON");
   });
 
+  it("works without RATE_LIMITER binding", async () => {
+    const env = { ...ENV, RATE_LIMITER: undefined as unknown as RateLimiter };
+    const req = makeRequest("POST", VALID_BODY);
+    const res = await handleRequest(req, env, async () => new Response("", { status: 204 }));
+    expect(res.status).toBe(200);
+  });
+
+  it("works without DEDUP binding", async () => {
+    const env = { ...ENV, DEDUP: undefined as unknown as KVNamespace };
+    const mockFetch = vi.fn(async () => new Response("", { status: 204 }));
+
+    // Send same payload twice — both should forward (no dedup)
+    const req1 = makeRequest("POST", VALID_BODY);
+    await handleRequest(req1, env, mockFetch);
+    const req2 = makeRequest("POST", VALID_BODY);
+    await handleRequest(req2, env, mockFetch);
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
   it("returns 404 for unknown paths", async () => {
     const req = new Request("https://telemetry.luthien.cc/unknown", { method: "POST" });
     const res = await handleRequest(req, ENV, async () => new Response("", { status: 204 }));

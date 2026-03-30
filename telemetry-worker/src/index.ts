@@ -1,3 +1,7 @@
+// Known limitation: /v1/events is unauthenticated. Rate limiting and validation
+// mitigate abuse, but a determined actor could inject fake metrics. Acceptable
+// for anonymous aggregate telemetry. If data integrity becomes important,
+// add HMAC signature verification (deployment_id signed with a shared secret).
 import { validatePayload, MAX_PAYLOAD_BYTES } from "./validate";
 import { toInfluxLines } from "./influx";
 import { pushToGrafana, type GrafanaConfig } from "./grafana";

@@ -49,8 +49,8 @@ export function validatePayload(data: unknown): ValidationResult {
     return { ok: false, error: "deployment_id must be a non-empty string (max 256 chars)" };
   }
 
-  if (typeof obj.proxy_version !== "string" || obj.proxy_version === "") {
-    return { ok: false, error: "proxy_version must be a non-empty string" };
+  if (typeof obj.proxy_version !== "string" || obj.proxy_version === "" || obj.proxy_version.length > 128) {
+    return { ok: false, error: "proxy_version must be a non-empty string (max 128 chars)" };
   }
 
   if (typeof obj.timestamp !== "string" || isNaN(new Date(obj.timestamp).getTime())) {
