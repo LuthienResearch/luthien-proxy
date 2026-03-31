@@ -56,3 +56,55 @@ def test_get_auth_config(client, httpx_mock):
     )
     result = client.get_auth_config()
     assert result["auth_mode"] == "both"
+
+
+def test_list_policies(client, httpx_mock):
+    httpx_mock.add_response(
+        url="http://localhost:8000/api/admin/policy/list",
+        json={
+            "policies": [
+                {
+                    "name": "NoOpPolicy",
+                    "class_ref": "luthien_proxy.policies.noop_policy:NoOpPolicy",
+                    "description": "Pass-through",
+                    "config_schema": {},
+                    "example_config": {},
+                }
+            ]
+        },
+    )
+    result = client.list_policies()
+    assert len(result) == 1
+    assert result[0]["name"] == "NoOpPolicy"
+
+
+def test_set_policy(client, httpx_mock):
+    httpx_mock.add_response(
+        url="http://localhost:8000/api/admin/policy/set",
+        json={"success": True, "policy": "NoOpPolicy"},
+    )
+    result = client.set_policy(
+        "luthien_proxy.policies.noop_policy:NoOpPolicy", {"key": "val"}
+    )
+    assert result["success"] is True
+
+    # Verify the POST body
+    request = httpx_mock.get_request()
+    import json
+
+    body = json.loads(request.content)
+    assert body["policy_class_ref"] == "luthien_proxy.policies.noop_policy:NoOpPolicy"
+    assert body["config"] == {"key": "val"}
+
+
+def test_set_policy_default_config(client, httpx_mock):
+    httpx_mock.add_response(
+        url="http://localhost:8000/api/admin/policy/set",
+        json={"success": True},
+    )
+    client.set_policy("luthien_proxy.policies.noop_policy:NoOpPolicy")
+    import json
+
+    request = httpx_mock.get_request()
+    body = json.loads(request.content)
+    assert body["config"] == {}
