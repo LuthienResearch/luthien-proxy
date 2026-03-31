@@ -36,7 +36,7 @@ class TestDockerPullErrorHandling:
         )
 
         with pytest.raises(SystemExit):
-            _onboard_docker(console, config, "sk-test", "admin-test")
+            _onboard_docker(console, config, admin_key="test-admin-key")
 
         # Check that console.print was called with access denied messaging
         printed = " ".join(str(call) for call in console.print.call_args_list)
@@ -57,7 +57,7 @@ class TestDockerPullErrorHandling:
         )
 
         with pytest.raises(SystemExit):
-            _onboard_docker(console, config, "sk-test", "admin-test")
+            _onboard_docker(console, config, admin_key="test-admin-key")
 
         printed = " ".join(str(call) for call in console.print.call_args_list)
         assert "access denied" in printed.lower()
@@ -76,7 +76,7 @@ class TestDockerPullErrorHandling:
         )
 
         with pytest.raises(SystemExit):
-            _onboard_docker(console, config, "sk-test", "admin-test")
+            _onboard_docker(console, config, admin_key="test-admin-key")
 
         printed = " ".join(str(call) for call in console.print.call_args_list)
         assert "access denied" in printed.lower()
@@ -95,7 +95,7 @@ class TestDockerPullErrorHandling:
         )
 
         with pytest.raises(SystemExit):
-            _onboard_docker(console, config, "sk-test", "admin-test")
+            _onboard_docker(console, config, admin_key="test-admin-key")
 
         printed = " ".join(str(call) for call in console.print.call_args_list)
         assert "access denied" in printed.lower()
@@ -117,7 +117,7 @@ class TestDockerPullErrorHandling:
         )
 
         with pytest.raises(SystemExit):
-            _onboard_docker(console, config, "sk-test", "admin-test")
+            _onboard_docker(console, config, admin_key="test-admin-key")
 
         printed = " ".join(str(call) for call in console.print.call_args_list)
         # Should show raw stderr, not the GHCR access denied guidance
@@ -138,7 +138,7 @@ class TestDockerPullErrorHandling:
         )
 
         with pytest.raises(SystemExit):
-            _onboard_docker(console, config, "sk-test", "admin-test")
+            _onboard_docker(console, config, admin_key="test-admin-key")
 
         # Should not crash
         printed = " ".join(str(call) for call in console.print.call_args_list)
@@ -158,7 +158,7 @@ class TestDockerPullErrorHandling:
         )
 
         with pytest.raises(SystemExit):
-            _onboard_docker(console, config, "sk-test", "admin-test")
+            _onboard_docker(console, config, admin_key="test-admin-key")
 
         printed = " ".join(str(call) for call in console.print.call_args_list)
         assert "network timeout" in printed
@@ -179,7 +179,7 @@ class TestDockerPullErrorHandling:
         )
 
         with pytest.raises(SystemExit):
-            _onboard_docker(console, config, "sk-test", "admin-test")
+            _onboard_docker(console, config, admin_key="test-admin-key")
 
         # Should not crash, should show generic failure message
         printed = " ".join(str(call) for call in console.print.call_args_list)

@@ -301,7 +301,7 @@ def test_onboard_shows_config_locations(tmp_path):
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open"),
     ):
-        result = runner.invoke(cli, ["onboard"], input="y\nq\n")
+        result = runner.invoke(cli, ["onboard"], input="y\nn\nq\n")
 
     assert result.exit_code == 0, result.output
     assert "config.toml" in result.output
