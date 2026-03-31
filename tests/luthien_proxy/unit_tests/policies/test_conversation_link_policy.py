@@ -3,15 +3,17 @@
 import pytest
 
 from luthien_proxy.policies.conversation_link_policy import (
+    _MAX_TRACKED_SESSIONS,
     ConversationLinkPolicy,
     _injected_sessions,
+    _mark_session_injected,
 )
 from luthien_proxy.policy_core.policy_context import PolicyContext
 
 
 @pytest.fixture(autouse=True)
 def _clear_injected_sessions():
-    """Clear the module-level tracking set between tests."""
+    """Clear the module-level tracking between tests."""
     _injected_sessions.clear()
     yield
     _injected_sessions.clear()
@@ -76,3 +78,24 @@ class TestConversationLinkPolicy:
         """Policy must pass the singleton state validation."""
         policy = ConversationLinkPolicy(base_url="http://localhost:8000")
         policy.freeze_configured_state()  # Should not raise
+
+    def test_get_config_returns_base_url(self):
+        """Config should be visible via get_config() for admin API."""
+        policy = ConversationLinkPolicy(base_url="http://example.com:9000")
+
+        config = policy.get_config()
+
+        assert config["base_url"] == "http://example.com:9000"
+
+
+class TestInjectedSessionsBounding:
+    def test_evicts_oldest_at_capacity(self):
+        for i in range(_MAX_TRACKED_SESSIONS + 5):
+            _mark_session_injected(f"sess-{i}")
+
+        assert len(_injected_sessions) == _MAX_TRACKED_SESSIONS
+        # Oldest entries evicted
+        assert "sess-0" not in _injected_sessions
+        assert "sess-4" not in _injected_sessions
+        # Newest entries present
+        assert f"sess-{_MAX_TRACKED_SESSIONS + 4}" in _injected_sessions

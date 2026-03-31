@@ -357,6 +357,15 @@
             pointer-events: none;
         }
 
+        .message-content.truncated.expanded {
+            max-height: none;
+            overflow: visible;
+        }
+
+        .message-content.truncated.expanded::after {
+            display: none;
+        }
+
         .expand-btn {
             display: inline-block;
             margin-top: 6px;
@@ -1029,6 +1038,50 @@
                     });
                 },
 
+                snapshotExpandState() {
+                    const state = { visible: [], expanded: [], open: [] };
+                    document.querySelectorAll('.visible[id]').forEach(el => state.visible.push(el.id));
+                    document.querySelectorAll('.expanded[id]').forEach(el => state.expanded.push(el.id));
+                    document.querySelectorAll('.open[data-event-timeline]').forEach(el => {
+                        state.open.push(el.getAttribute('data-event-timeline'));
+                    });
+                    document.querySelectorAll('.open[data-diff-toggle]').forEach(el => {
+                        state.open.push('diff:' + el.getAttribute('data-diff-toggle'));
+                    });
+                    return state;
+                },
+
+                restoreExpandState(state) {
+                    state.visible.forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el) el.classList.add('visible');
+                    });
+                    state.expanded.forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el) {
+                            el.classList.add('expanded');
+                            const btn = document.querySelector(`[data-expand-btn="${id}"]`);
+                            if (btn) btn.textContent = 'Show less';
+                        }
+                    });
+                    state.open.forEach(key => {
+                        if (key.startsWith('diff:')) {
+                            const diffId = key.slice(5);
+                            const panel = document.getElementById(diffId);
+                            const btn = document.querySelector(`[data-diff-toggle="${diffId}"]`);
+                            if (panel) panel.classList.add('visible');
+                            if (btn) btn.classList.add('open');
+                        } else {
+                            const btn = document.querySelector(`[data-event-timeline="${key}"]`);
+                            if (btn) {
+                                btn.classList.add('open');
+                                const list = btn.parentElement?.querySelector('.event-list');
+                                if (list) list.classList.add('visible');
+                            }
+                        }
+                    });
+                },
+
                 renderTurns() {
                     const container = document.getElementById('conversation-container');
 
@@ -1037,7 +1090,9 @@
                         return;
                     }
 
+                    const savedState = this.snapshotExpandState();
                     container.innerHTML = this.turns.map((turn, i) => this.renderTurn(turn, i + 1)).join('');
+                    this.restoreExpandState(savedState);
                 },
 
                 renderTurn(turn, number) {
@@ -1045,8 +1100,9 @@
                     const classes = ['turn', `turn-${number - 1}`];
                     if (hasIntervention) classes.push('has-intervention');
 
-                    const requestHtml = (turn.request_messages || []).map(m => this.renderMessage(m)).join('');
-                    const responseHtml = (turn.response_messages || []).map(m => this.renderMessage(m)).join('');
+                    const callId = turn.call_id;
+                    const requestHtml = (turn.request_messages || []).map((m, mi) => this.renderMessage(m, `${callId}-req-${mi}`)).join('');
+                    const responseHtml = (turn.response_messages || []).map((m, mi) => this.renderMessage(m, `${callId}-res-${mi}`)).join('');
 
                     let diffHtml = '';
                     if (turn.request_was_modified || turn.response_was_modified) {
@@ -1120,7 +1176,7 @@
                     `;
                 },
 
-                renderMessage(msg) {
+                renderMessage(msg, stableId) {
                     const typeClass = msg.message_type.toLowerCase();
                     const typeLabel = {
                         'system': 'System', 'user': 'User', 'assistant': 'Assistant',
@@ -1137,7 +1193,7 @@
 
                     const content = msg.content || '';
                     const shouldTruncate = content.length > 800;
-                    const contentId = `c-${Math.random().toString(36).substr(2, 8)}`;
+                    const contentId = `c-${stableId}`;
 
                     let toolInputHtml = '';
                     if (msg.message_type === 'tool_call' && msg.tool_input) {

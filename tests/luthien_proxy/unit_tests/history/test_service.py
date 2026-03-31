@@ -952,3 +952,39 @@ class TestExportSessionJsonl:
         )
         result = export_session_jsonl(session)
         assert result == ""
+
+    def test_includes_original_messages_when_modified(self):
+        session = SessionDetail(
+            session_id="sess-mod",
+            first_timestamp="2026-03-31T10:00:00",
+            last_timestamp="2026-03-31T10:01:00",
+            turns=[
+                ConversationTurn(
+                    call_id="call-mod",
+                    timestamp="2026-03-31T10:00:00",
+                    model="claude-3-opus",
+                    request_messages=[
+                        ConversationMessage(message_type=MessageType.USER, content="Hello"),
+                    ],
+                    response_messages=[
+                        ConversationMessage(message_type=MessageType.ASSISTANT, content="[Link]\n\nHi"),
+                    ],
+                    original_response_messages=[
+                        ConversationMessage(message_type=MessageType.ASSISTANT, content="Hi"),
+                    ],
+                    annotations=[],
+                    had_policy_intervention=True,
+                    response_was_modified=True,
+                ),
+            ],
+            total_policy_interventions=1,
+            models_used=["claude-3-opus"],
+        )
+
+        result = export_session_jsonl(session)
+        record = json.loads(result)
+
+        assert record["response_was_modified"] is True
+        assert record["request_was_modified"] is False
+        assert record["original_response_messages"][0]["content"] == "Hi"
+        assert "original_request_messages" not in record

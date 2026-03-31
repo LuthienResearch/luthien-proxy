@@ -765,7 +765,7 @@ def export_session_jsonl(session: SessionDetail) -> str:
     """
     lines: list[str] = []
     for turn in session.turns:
-        record = {
+        record: dict[str, object] = {
             "call_id": turn.call_id,
             "session_id": session.session_id,
             "timestamp": turn.timestamp,
@@ -774,7 +774,13 @@ def export_session_jsonl(session: SessionDetail) -> str:
             "response_messages": [m.model_dump(mode="json") for m in turn.response_messages],
             "annotations": [a.model_dump(mode="json") for a in turn.annotations],
             "had_policy_intervention": turn.had_policy_intervention,
+            "request_was_modified": turn.request_was_modified,
+            "response_was_modified": turn.response_was_modified,
         }
+        if turn.original_request_messages is not None:
+            record["original_request_messages"] = [m.model_dump(mode="json") for m in turn.original_request_messages]
+        if turn.original_response_messages is not None:
+            record["original_response_messages"] = [m.model_dump(mode="json") for m in turn.original_response_messages]
         lines.append(json.dumps(record, default=str))
     return "\n".join(lines)
 
