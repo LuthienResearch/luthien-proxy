@@ -24,6 +24,7 @@ document.addEventListener('alpine:init', () => {
 
             const positionTooltip = () => {
                 if (!activeTooltip || !activeBadge) return;
+                if (!activeTooltip.classList.contains('visible')) return;
                 const infoBtn = activeBadge.querySelector('.nav-billing-info');
                 const anchor = infoBtn || activeBadge;
                 const rect = anchor.getBoundingClientRect();
@@ -57,12 +58,12 @@ document.addEventListener('alpine:init', () => {
 
                     if (data.auth_mode === 'proxy_key') {
                         badgeType = 'warning';
-                        badgeLabel = '\u26A0 API key billing';
+                        badgeLabel = '⚠ API key billing';
                         tooltipText =
                             'Traffic is using an API key. You are being billed per token.';
                     } else if (sawApiKey) {
                         badgeType = 'warning';
-                        badgeLabel = '\u26A0 API key billing';
+                        badgeLabel = '⚠ API key billing';
                         if (data.last_credential_type === 'client_api_key') {
                             tooltipText =
                                 'Traffic is using your Anthropic API key, not your Claude subscription. ' +
@@ -77,7 +78,7 @@ document.addEventListener('alpine:init', () => {
                         data.last_credential_type === 'oauth_via_api_key'
                     ) {
                         badgeType = 'ok';
-                        badgeLabel = '\u2714 Claude plan active';
+                        badgeLabel = '✔ Claude plan active';
                         tooltipText =
                             'Usage applies to your Claude subscription. No per-token charges.';
                     }
@@ -113,7 +114,6 @@ document.addEventListener('alpine:init', () => {
             function createBadgeElement(type, label, tooltip) {
                 const badge = document.createElement('span');
                 badge.className = 'nav-billing-badge nav-billing-badge--' + type;
-                badge.setAttribute('tabindex', '0');
                 badge.setAttribute('role', 'status');
 
                 const labelSpan = document.createElement('span');
@@ -144,6 +144,9 @@ document.addEventListener('alpine:init', () => {
                 infoBtn.appendChild(svg);
                 infoBtn.setAttribute('role', 'button');
                 infoBtn.setAttribute('aria-label', 'Billing info');
+                // aria-describedby points to the tooltip which is appended to
+                // document.body (not inside the nav) so it can use fixed positioning
+                // without being clipped by the nav's overflow.
                 infoBtn.setAttribute('aria-describedby', tipId);
                 infoBtn.setAttribute('tabindex', '0');
                 badge.appendChild(infoBtn);
@@ -159,8 +162,8 @@ document.addEventListener('alpine:init', () => {
                     const isVisible = tip.classList.contains('visible');
                     closeTooltip();
                     if (!isVisible) {
-                        positionTooltip();
                         tip.classList.add('visible');
+                        positionTooltip();
                     }
                 });
 
