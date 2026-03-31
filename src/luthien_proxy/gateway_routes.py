@@ -71,7 +71,7 @@ async def verify_token(
         return token
 
     # BOTH mode: try proxy key first, fall through to passthrough
-    if api_key and secrets.compare_digest(token, api_key):
+    if api_key is not None and secrets.compare_digest(token, api_key):
         return token
     if credential_manager.config.validate_credentials:
         if not await credential_manager.validate_credential(token, is_bearer=is_bearer):
