@@ -18,6 +18,8 @@ document.addEventListener('alpine:init', () => {
             // Sticky-yellow: once any request in this page session used an API key,
             // the badge stays yellow until ALL traffic routes through OAuth.
             // This avoids confusing badge flicker in "both" auth mode.
+            // One-way latch: once true, stays true for the page session.
+            // Users must reload to see the green badge after switching from API key to OAuth.
             let sawApiKey = false;
             let activeTooltip = null;
             let activeBadge = null;
@@ -93,6 +95,8 @@ document.addEventListener('alpine:init', () => {
                             activeBadge = badge;
                             activeTooltip = tip;
                         } else {
+                            const oldType = existing.className.includes('--warning') ? 'warning' : 'ok';
+                            if (oldType !== badgeType) closeTooltip();
                             existing.className = 'nav-billing-badge nav-billing-badge--' + badgeType;
                             const label = existing.querySelector('.nav-billing-label');
                             if (label) label.textContent = badgeLabel;

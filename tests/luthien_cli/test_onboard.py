@@ -316,7 +316,7 @@ def test_onboard_shows_config_locations(tmp_path):
 
     assert result.exit_code == 0, result.output
     assert "config.toml" in result.output
-    assert "luthien config" in result.output
+    assert "luthien status" in result.output
     assert "luthien-proxy" in result.output
 
 

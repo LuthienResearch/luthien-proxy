@@ -1,5 +1,5 @@
 ---
-category: Fixes
+category: Changed
 pr: 477
 ---
 
