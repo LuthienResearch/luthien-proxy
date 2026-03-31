@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from luthien_proxy.auth import verify_admin_token
 from luthien_proxy.dependencies import get_db_pool
+from luthien_proxy.settings import get_settings
 from luthien_proxy.utils.constants import DEBUG_CALLS_DEFAULT_LIMIT, DEBUG_CALLS_MAX_LIMIT
 
 from .models import CallDiffResponse, CallEventsResponse, CallListResponse
@@ -61,7 +62,8 @@ async def get_call_events(
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
         logger.error(f"Failed to fetch events for call {call_id}: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        detail = f"Database error: {exc}" if get_settings().verbose_client_errors else "Internal server error"
+        raise HTTPException(status_code=500, detail=detail)
 
 
 @router.get("/calls/{call_id}/diff", response_model=CallDiffResponse)
@@ -92,7 +94,8 @@ async def get_call_diff(
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
         logger.error(f"Failed to compute diff for call {call_id}: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        detail = f"Database error: {exc}" if get_settings().verbose_client_errors else "Internal server error"
+        raise HTTPException(status_code=500, detail=detail)
 
 
 @router.get("/calls", response_model=CallListResponse)
@@ -120,7 +123,8 @@ async def list_recent_calls(
         return await fetch_recent_calls(limit, db_pool)
     except Exception as exc:
         logger.error(f"Failed to list recent calls: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        detail = f"Database error: {exc}" if get_settings().verbose_client_errors else "Internal server error"
+        raise HTTPException(status_code=500, detail=detail)
 
 
 __all__ = ["router"]

@@ -172,7 +172,10 @@ async def get_current_policy(
         )
     except Exception as e:
         logger.error(f"Failed to get current policy: {repr(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        detail = (
+            f"Failed to get current policy: {e}" if get_settings().verbose_client_errors else "Internal server error"
+        )
+        raise HTTPException(status_code=500, detail=detail)
 
 
 @router.post("/policy/set", response_model=PolicyEnableResponse)
@@ -225,13 +228,17 @@ async def set_policy(
         return PolicyEnableResponse(
             success=False,
             error="Validation error",
-            troubleshooting=["Check the policy configuration values and try again."],
+            troubleshooting=[
+                str(e)
+                if get_settings().verbose_client_errors
+                else "Check the policy configuration values and try again."
+            ],
         )
     except (ImportError, AttributeError, TypeError) as e:
         logger.warning(f"Policy load error: {repr(e)}")
         return PolicyEnableResponse(
             success=False,
-            error="Failed to load policy class.",
+            error=str(e) if get_settings().verbose_client_errors else "Failed to load policy class.",
             troubleshooting=[
                 "Check that the policy class reference is correct",
                 "Verify the policy module exists and is importable",
@@ -242,7 +249,8 @@ async def set_policy(
         raise
     except Exception as e:
         logger.error(f"Failed to set policy: {repr(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        detail = str(e) if get_settings().verbose_client_errors else "Internal server error"
+        raise HTTPException(status_code=500, detail=detail)
 
 
 @router.get("/policy/list", response_model=PolicyListResponse)
@@ -385,7 +393,7 @@ async def send_chat(
         logger.error(f"Test chat failed: {repr(e)}", exc_info=True)
         return ChatResponse(
             success=False,
-            error="An unexpected error occurred",
+            error=str(e) if get_settings().verbose_client_errors else "An unexpected error occurred",
             model=body.model,
         )
 

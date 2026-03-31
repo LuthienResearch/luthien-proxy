@@ -714,9 +714,14 @@ async def _handle_execution_non_streaming(
             # anything else (policy logic errors, etc.) convert to a safe 500
             # so internal details are not exposed to the client.
             logger.error("[%s] Unexpected error in non-streaming policy execution: %s", call_id, e)
+            message = (
+                str(e)
+                if get_settings().verbose_client_errors
+                else "An internal error occurred while processing the request."
+            )
             raise BackendAPIError(
                 status_code=500,
-                message="An internal error occurred while processing the request.",
+                message=message,
                 error_type="api_error",
                 client_format=ClientFormat.ANTHROPIC,
             ) from e
@@ -818,11 +823,15 @@ def _build_error_event(e: Exception, call_id: str) -> _StreamErrorEvent:
         logger.warning(f"[{call_id}] Mid-stream Anthropic API error: {e.status_code} {message}")
     elif isinstance(e, AnthropicConnectionError):
         error_type = "api_connection_error"
-        message = "An error occurred while connecting to the API."
+        message = str(e) if get_settings().verbose_client_errors else "An error occurred while connecting to the API."
         logger.warning(f"[{call_id}] Mid-stream Anthropic connection error: {repr(e)}")
     else:
         error_type = "api_error"
-        message = "An internal error occurred while processing the request."
+        message = (
+            str(e)
+            if get_settings().verbose_client_errors
+            else "An internal error occurred while processing the request."
+        )
         logger.error(f"[{call_id}] Mid-stream error: {repr(e)}")
 
     return _StreamErrorEvent(
@@ -878,7 +887,9 @@ def _handle_anthropic_error(e: Exception, call_id: str) -> None:
         logger.warning(f"[{call_id}] Anthropic connection error: {repr(e)}")
         raise BackendAPIError(
             status_code=502,
-            message="An error occurred while connecting to the API.",
+            message=str(e)
+            if get_settings().verbose_client_errors
+            else "An error occurred while connecting to the API.",
             error_type="api_connection_error",
             client_format=ClientFormat.ANTHROPIC,
             provider="anthropic",

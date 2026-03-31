@@ -406,6 +406,7 @@ class TestSendChatRoute:
         mock_settings = MagicMock()
         mock_settings.proxy_api_key = "test-proxy-key"
         mock_settings.gateway_port = 8000
+        mock_settings.verbose_client_errors = False
         mock_get_settings.return_value = mock_settings
 
         mock_client = AsyncMock()

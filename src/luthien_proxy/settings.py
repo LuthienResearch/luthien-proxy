@@ -77,6 +77,11 @@ class Settings(BaseSettings):
     # from killing the proxy they communicate through
     dogfood_mode: bool = False
 
+    # Include exception details in client-facing error responses.
+    # Useful for local debugging; should stay False in production to
+    # avoid leaking internal paths, DB connection strings, etc.
+    verbose_client_errors: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:
