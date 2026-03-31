@@ -132,7 +132,7 @@ async def request_validation_error_handler(request: Request, exc: Exception) -> 
 
 
 def create_app(
-    api_key: str,
+    api_key: str | None,
     admin_key: str | None,
     db_pool: db.DatabasePool,
     redis_client: Redis | None,
@@ -224,6 +224,14 @@ def create_app(
             logger.info("Upstream auth mode: both — uses client credentials when valid, falls back to server API key.")
         else:
             logger.info("Upstream auth mode: passthrough — client credentials forwarded directly to Anthropic.")
+
+        if api_key is None and _resolved_mode == "proxy_key":
+            raise RuntimeError(
+                "AUTH_MODE=proxy_key requires PROXY_API_KEY to be set. "
+                "Either set PROXY_API_KEY or switch to AUTH_MODE=both or AUTH_MODE=passthrough."
+            )
+        elif api_key is None and _resolved_mode == "both":
+            logger.info("PROXY_API_KEY is not set — proxy-key auth unavailable, using passthrough only")
 
         # Check if request logging is enabled
         _enable_request_logging = get_settings().enable_request_logging
@@ -452,11 +460,8 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
     except ValidationError as e:
         raise ValueError(f"Invalid configuration: {e}")
 
-    if settings.proxy_api_key is None:
-        errors.append("PROXY_API_KEY environment variable required")
-
-    # admin_api_key is optional — admin endpoints return 500 if not set,
-    # but the gateway still serves proxy traffic without it.
+    # Both api keys are optional — passthrough mode doesn't need PROXY_API_KEY,
+    # and admin endpoints degrade gracefully without ADMIN_API_KEY.
 
     database_url = settings.database_url
     if not database_url:
@@ -480,16 +485,12 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
     }
 
 
-def configure_local_mode() -> dict[str, str]:
+def configure_local_mode() -> None:
     """Force-set env vars for dockerless local mode.
 
     Infrastructure vars (DATABASE_URL, REDIS_URL, etc.) are force-set because
     litellm calls dotenv.load_dotenv() at import time, polluting os.environ
-    with Docker-internal values from .env. API keys use setdefault so users
-    can pre-set them intentionally.
-
-    Returns:
-        Dict with proxy_api_key (whether generated or existing).
+    with Docker-internal values from .env.
     """
     data_dir = os.path.join(os.path.expanduser("~"), ".luthien")
     os.makedirs(data_dir, exist_ok=True)
@@ -498,14 +499,6 @@ def configure_local_mode() -> dict[str, str]:
     os.environ["REDIS_URL"] = ""
     os.environ["POLICY_CONFIG"] = "config/policy_config.yaml"
     os.environ["POLICY_SOURCE"] = "file"
-
-    if not os.environ.get("PROXY_API_KEY"):
-        key = f"sk-local-{secrets.token_urlsafe(16)}"
-        os.environ["PROXY_API_KEY"] = key
-
-    return {
-        "proxy_api_key": os.environ["PROXY_API_KEY"],
-    }
 
 
 def auto_provision_defaults() -> dict[str, str]:
@@ -527,11 +520,6 @@ def auto_provision_defaults() -> dict[str, str]:
         value = f"sqlite:///{db_path}"
         os.environ["DATABASE_URL"] = value
         provisioned["DATABASE_URL"] = value
-
-    if not os.environ.get("PROXY_API_KEY"):
-        value = f"sk-luthien-{secrets.token_urlsafe(16)}"
-        os.environ["PROXY_API_KEY"] = value
-        provisioned["PROXY_API_KEY"] = value
 
     if not os.environ.get("ADMIN_API_KEY"):
         value = f"admin-{secrets.token_urlsafe(16)}"
@@ -575,10 +563,9 @@ if __name__ == "__main__":
         args = parser.parse_args()
 
         if args.local:
-            keys = configure_local_mode()
+            configure_local_mode()
             clear_settings_cache()
             print(f"[local mode] DATABASE_URL={os.environ['DATABASE_URL']}")
-            print(f"[local mode] PROXY_API_KEY={keys['proxy_api_key']}")
 
         # Auto-provision missing env vars so fresh deploys boot without config
         provisioned = auto_provision_defaults()

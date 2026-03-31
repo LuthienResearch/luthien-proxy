@@ -32,15 +32,12 @@ class TestConfigureLocalMode:
         configure_local_mode()
         assert os.environ["POLICY_SOURCE"] == "file"
 
-    def test_generates_proxy_api_key_when_missing(self, monkeypatch):
+    def test_does_not_set_proxy_api_key(self, monkeypatch):
         monkeypatch.delenv("PROXY_API_KEY", raising=False)
         configure_local_mode()
-        key = os.environ["PROXY_API_KEY"]
-        assert key.startswith("sk-local-")
-        assert len(key) > len("sk-local-")
+        assert "PROXY_API_KEY" not in os.environ
 
     def test_does_not_set_admin_api_key(self, monkeypatch):
-        monkeypatch.delenv("PROXY_API_KEY", raising=False)
         monkeypatch.delenv("ADMIN_API_KEY", raising=False)
         configure_local_mode()
         assert "ADMIN_API_KEY" not in os.environ
@@ -51,19 +48,3 @@ class TestConfigureLocalMode:
         configure_local_mode()
         assert os.environ["DATABASE_URL"].startswith("sqlite:///")
         assert os.environ["DATABASE_URL"].endswith("/.luthien/local.db")
-
-    def test_does_not_override_existing_proxy_api_key(self, monkeypatch):
-        monkeypatch.setenv("PROXY_API_KEY", "my-custom-key")
-        configure_local_mode()
-        assert os.environ["PROXY_API_KEY"] == "my-custom-key"
-
-    def test_returns_generated_key(self, monkeypatch):
-        monkeypatch.delenv("PROXY_API_KEY", raising=False)
-        result = configure_local_mode()
-        assert "proxy_api_key" in result
-        assert result["proxy_api_key"].startswith("sk-local-")
-
-    def test_returns_existing_key(self, monkeypatch):
-        monkeypatch.setenv("PROXY_API_KEY", "existing-proxy")
-        result = configure_local_mode()
-        assert result["proxy_api_key"] == "existing-proxy"

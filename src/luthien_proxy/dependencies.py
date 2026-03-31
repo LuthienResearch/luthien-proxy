@@ -33,7 +33,7 @@ class Dependencies:
     redis_client: Redis | None
     policy_manager: PolicyManager
     emitter: EventEmitterProtocol
-    api_key: str
+    api_key: str | None
     admin_key: str | None
     anthropic_client: AnthropicClient | None = field(default=None)
     event_publisher: EventPublisherProtocol | None = field(default=None)
@@ -135,14 +135,14 @@ def get_policy_manager(request: Request) -> PolicyManager:
     return get_dependencies(request).policy_manager
 
 
-def get_api_key(request: Request) -> str:
+def get_api_key(request: Request) -> str | None:
     """Get API key from dependencies.
 
     Args:
         request: FastAPI request object
 
     Returns:
-        API key string
+        API key string, or None in passthrough-only mode
     """
     return get_dependencies(request).api_key
 
