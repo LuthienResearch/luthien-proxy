@@ -105,7 +105,9 @@ Luthien sits in line as a transparent proxy. Every request and response flows th
 curl -fsSL https://raw.githubusercontent.com/LuthienResearch/luthien-proxy/main/scripts/install.sh | bash
 ```
 
-No Docker required. This installs [`uv`](https://docs.astral.sh/uv/) (if needed) and the Luthien CLI, sets up the gateway with SQLite, walks you through configuration, and starts the proxy. Works with both API keys and Claude Pro/Max subscriptions.
+No Docker required. This installs [`uv`](https://docs.astral.sh/uv/) (if needed) and the Luthien CLI, sets up the gateway with SQLite, walks you through configuration, and starts the proxy.
+
+> **Claude Pro/Max users**: You don't need an API key. Luthien passes your existing Claude subscription credentials through to the Anthropic API — no extra cost, no configuration needed.
 
 > **Platform support**: Linux and macOS. Windows is not currently supported.
 
@@ -138,19 +140,34 @@ After setup, use the CLI or Claude Code to manage the proxy:
 
 Copy `.env.example` to `.env` and configure your environment:
 
-### Required Configuration
+### Authentication & Billing
+
+Luthien supports two ways to authenticate with the Anthropic API:
+
+| Mode | Who pays | Setup |
+|------|----------|-------|
+| **OAuth passthrough** (default) | Your existing Claude Pro/Max subscription | Nothing — just run `luthien claude` |
+| **API key** | Per-token billing to your Anthropic API account | Set `ANTHROPIC_API_KEY` in `.env` |
+
+> :warning: **API key mode bills per token.** If you set `ANTHROPIC_API_KEY` in your `.env`, all requests through the proxy are billed to that API key at [Anthropic's per-token rates](https://docs.anthropic.com/en/docs/about-claude/models). This can result in significant charges. If you have a Claude Pro or Max subscription, you don't need an API key — OAuth passthrough is the default and uses your existing subscription at no extra cost.
+
+### Gateway Keys
 
 ```bash
-# Upstream LLM Provider API Keys (at least one required, or use Claude Pro/Max OAuth)
-OPENAI_API_KEY=your_openai_api_key_here       # optional — needed for OpenAI-format policies
-ANTHROPIC_API_KEY=your_anthropic_api_key_here  # optional if using Claude Pro/Max OAuth
-
 # Gateway Authentication
 PROXY_API_KEY=sk-luthien-dev-key     # API key for clients to access the proxy
 ADMIN_API_KEY=admin-dev-key          # API key for admin/policy management UI (History, Policy tabs)
 ```
 
-> **Two API keys, two purposes**: `PROXY_API_KEY` is for Claude Code and other LLM clients connecting through the gateway. `ADMIN_API_KEY` is for the web dashboard (History, Policy Configuration, Activity Monitor). On localhost, the dashboard bypasses auth automatically.
+> **Two gateway keys, two purposes**: `PROXY_API_KEY` is for Claude Code and other LLM clients connecting through the gateway. `ADMIN_API_KEY` is for the web dashboard (History, Policy Configuration, Activity Monitor). On localhost, the dashboard bypasses auth automatically.
+
+### Upstream API Keys (Optional)
+
+```bash
+# Only needed if NOT using Claude Pro/Max OAuth passthrough
+ANTHROPIC_API_KEY=your_anthropic_api_key_here  # optional — per-token billing, see warning above
+OPENAI_API_KEY=your_openai_api_key_here        # optional — needed for OpenAI-format judge policies
+```
 
 ### Core Infrastructure
 
@@ -249,7 +266,9 @@ Base classes and building blocks in `src/luthien_proxy/policies/` — see **[doc
 
 ## Usage Telemetry
 
-Luthien collects anonymous, aggregate usage metrics (request counts, token counts) to help improve the project. **No model names, API keys, IP addresses, or request/response content is collected.**
+Luthien collects anonymous, aggregate usage metrics to help track adoption and improve the project. **No model names, API keys, IP addresses, or request/response content is collected.**
+
+Metrics collected every 5 minutes: request counts, token counts (input/output), streaming vs non-streaming breakdown, and active session count. Data is sent to `telemetry.luthien.cc` (a Cloudflare Worker) and stored in Grafana Cloud.
 
 Telemetry is enabled by default and can be disabled:
 
@@ -278,10 +297,10 @@ docker compose down && ./scripts/quick_start.sh
 
 ### API requests failing
 
-1. **Check API key**: Ensure `Authorization: Bearer <PROXY_API_KEY>` header is set
+1. **Check gateway key**: Ensure `Authorization: Bearer <PROXY_API_KEY>` header is set
 2. **Check upstream credentials**:
+   - *OAuth passthrough (default)*: Run `claude auth login` to ensure your Claude Pro/Max session is active
    - *API key mode*: Verify `ANTHROPIC_API_KEY` starts with `sk-ant-api` in `.env`
-   - *Claude Max/OAuth mode*: Run `claude auth login` to ensure your session is active
 3. **Check logs**: `luthien logs` (local mode) or `docker compose logs -f gateway` (Docker mode)
 
 ### Database connection issues
@@ -295,9 +314,40 @@ docker compose restart db
 docker compose run --rm migrations
 ```
 
+## Uninstall
+
+**Local mode** (default):
+
+```bash
+luthien down
+uv tool uninstall luthien-cli
+rm -rf ~/.luthien  # removes all conversation logs, database, and config
+```
+
+**Docker Compose mode**:
+
+```bash
+docker compose down -v  # -v also removes the persistent database volume
+uv tool uninstall luthien-cli
+rm -rf ~/.luthien  # removes all conversation logs and config
+```
+
 ## Development
 
-For development setup, tooling, architecture, and API details, see **[dev-README.md](dev-README.md)**.
+### Quick Start (from source, no Docker)
+
+Clone the repo and start the gateway with SQLite — no Postgres or Redis needed:
+
+```bash
+git clone https://github.com/LuthienResearch/luthien-proxy.git
+cd luthien-proxy
+uv sync  # Install uv first if needed: https://docs.astral.sh/uv/getting-started/installation/
+./scripts/start_gateway.sh
+```
+
+To use API key auth, edit `.env` (auto-created on first run) and add your `ANTHROPIC_API_KEY`.
+
+The gateway starts at `http://localhost:8000`. For full development setup, tooling, architecture, and API details, see **[dev-README.md](dev-README.md)**.
 
 ## License
 

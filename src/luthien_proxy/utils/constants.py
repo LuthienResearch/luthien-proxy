@@ -19,7 +19,7 @@ DEFAULT_QUEUE_SIZE = 10000
 
 # Maximum number of chunks to buffer in the transaction recorder before truncation.
 # Prevents memory exhaustion on very long streaming responses.
-DEFAULT_MAX_CHUNKS_QUEUED = 4096
+DEFAULT_MAX_CHUNKS_QUEUED = 512
 
 # ------------------------------------------------------------------------------
 # Logging Truncation Lengths

@@ -259,16 +259,49 @@ class NoOpRequestLogRecorder(RequestLogRecorder):
     def __init__(self) -> None:  # noqa: D107
         pass
 
-    def record_inbound_request(self, *args: Any, **kwargs: Any) -> None:  # noqa: D102
+    def record_inbound_request(  # noqa: D102, ARG002
+        self,
+        *,
+        method: str,
+        url: str,
+        headers: dict[str, str],
+        body: dict[str, Any],
+        session_id: str | None = None,
+        model: str | None = None,
+        is_streaming: bool = False,
+        endpoint: str | None = None,
+    ) -> None:
         pass
 
-    def record_inbound_response(self, *args: Any, **kwargs: Any) -> None:  # noqa: D102
+    def record_inbound_response(  # noqa: D102, ARG002
+        self,
+        *,
+        status: int,
+        body: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        error: str | None = None,
+    ) -> None:
         pass
 
-    def record_outbound_request(self, *args: Any, **kwargs: Any) -> None:  # noqa: D102
+    def record_outbound_request(  # noqa: D102, ARG002
+        self,
+        *,
+        body: dict[str, Any],
+        method: str = "POST",
+        url: str | None = None,
+        model: str | None = None,
+        is_streaming: bool = False,
+        endpoint: str | None = None,
+    ) -> None:
         pass
 
-    def record_outbound_response(self, *args: Any, **kwargs: Any) -> None:  # noqa: D102
+    def record_outbound_response(  # noqa: D102, ARG002
+        self,
+        *,
+        body: dict[str, Any] | None = None,
+        status: int = 200,
+        error: str | None = None,
+    ) -> None:
         pass
 
     def flush(self) -> None:  # noqa: D102

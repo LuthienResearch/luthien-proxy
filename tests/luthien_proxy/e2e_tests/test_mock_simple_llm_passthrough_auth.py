@@ -17,21 +17,19 @@ Run:
 
 import httpx
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
+from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL, MOCK_HOST, SIMPLE_LLM_POLICY, policy_context
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import DEFAULT_MOCK_PORT, MockAnthropicServer
 
 pytestmark = pytest.mark.mock_e2e
 
-_SIMPLE_LLM_POLICY = "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
+_SIMPLE_LLM_POLICY = SIMPLE_LLM_POLICY
 
 # Judge pointed at the mock server, no explicit api_key → passthrough is used.
-# host.docker.internal resolves to the host machine from inside the gateway container,
-# which is where the mock Anthropic server runs.
 _PASSTHROUGH_JUDGE_CONFIG = {
     "instructions": "Pass all content through",
     "model": "claude-haiku-4-5",
-    "api_base": f"http://host.docker.internal:{DEFAULT_MOCK_PORT}",
+    "api_base": f"http://{MOCK_HOST}:{DEFAULT_MOCK_PORT}",
     # Deliberately no api_key — should use client's passthrough key
     "on_error": "pass",
 }
