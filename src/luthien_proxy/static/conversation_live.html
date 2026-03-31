@@ -776,8 +776,59 @@
                 init() {
                     const pathParts = window.location.pathname.split('/');
                     this.conversationId = decodeURIComponent(pathParts[pathParts.length - 1]);
+                    this.setupEventDelegation();
                     this.loadInitial();
                     this.connectSSE();
+                },
+
+                setupEventDelegation() {
+                    const container = document.getElementById('conversation-container');
+                    container.addEventListener('click', (e) => {
+                        const target = e.target.closest('[data-event-timeline]');
+                        if (target) {
+                            const callId = target.getAttribute('data-event-timeline');
+                            const list = target.parentElement.querySelector('.event-list');
+                            if (list) {
+                                list.classList.toggle('visible');
+                                target.classList.toggle('open');
+                            }
+                            return;
+                        }
+
+                        const diffBtn = e.target.closest('[data-diff-toggle]');
+                        if (diffBtn) {
+                            const diffId = diffBtn.getAttribute('data-diff-toggle');
+                            const panel = document.getElementById(diffId);
+                            if (panel) {
+                                panel.classList.toggle('visible');
+                                diffBtn.classList.toggle('open');
+                            }
+                            return;
+                        }
+
+                        const expandBtn = e.target.closest('[data-expand-btn]');
+                        if (expandBtn) {
+                            const contentId = expandBtn.getAttribute('data-expand-btn');
+                            const el = document.getElementById(contentId);
+                            if (el) {
+                                const expanded = el.classList.contains('expanded');
+                                el.classList.toggle('expanded');
+                                expandBtn.textContent = expanded ? 'Show more' : 'Show less';
+                            }
+                            return;
+                        }
+
+                        const rawBtn = e.target.closest('[data-toggle-raw]');
+                        if (rawBtn) {
+                            const eventKey = rawBtn.getAttribute('data-toggle-raw');
+                            const el = document.getElementById(`raw-${eventKey}`);
+                            if (el) {
+                                el.classList.toggle('visible');
+                                rawBtn.textContent = el.classList.contains('visible') ? 'Hide' : 'Raw';
+                            }
+                            return;
+                        }
+                    });
                 },
 
                 async loadInitial() {
@@ -801,6 +852,7 @@
                         this.processTurns(data);
                         this.updateStats(data);
                         this.updateTimestamp();
+                        this.renderTurns();
                         this.$nextTick(() => this.autoScrollToBottom());
                     } catch (err) {
                         this.showError(`Failed to load: ${err.message}`);
@@ -822,7 +874,8 @@
                         this.evtSource.onmessage = (evt) => {
                             try {
                                 const data = JSON.parse(evt.data);
-                                if (data.session_id === this.conversationId) {
+                                const eventSessionId = data.data?.session_id || data.session_id;
+                                if (eventSessionId === this.conversationId) {
                                     this.handleSSEEvent(data);
                                 }
                             } catch (e) {
@@ -985,36 +1038,6 @@
                     }
 
                     container.innerHTML = this.turns.map((turn, i) => this.renderTurn(turn, i + 1)).join('');
-
-                    this.$nextTick(() => {
-                        this.turns.forEach((turn, i) => {
-                            const turnEl = container.querySelector(`.turn-${i}`);
-                            if (turnEl) {
-                                const timelineBtn = turnEl.querySelector('.event-timeline-toggle');
-                                if (timelineBtn) {
-                                    timelineBtn.addEventListener('click', () => this.toggleEventTimeline(i));
-                                }
-
-                                const diffBtns = turnEl.querySelectorAll('[data-diff-toggle]');
-                                diffBtns.forEach(btn => {
-                                    const diffId = btn.getAttribute('data-diff-toggle');
-                                    btn.addEventListener('click', () => this.toggleDiff(diffId));
-                                });
-
-                                const expandBtns = turnEl.querySelectorAll('[data-expand-btn]');
-                                expandBtns.forEach(btn => {
-                                    const contentId = btn.getAttribute('data-expand-btn');
-                                    btn.addEventListener('click', () => this.toggleContentExpand(contentId));
-                                });
-
-                                const rawToggles = turnEl.querySelectorAll('[data-toggle-raw]');
-                                rawToggles.forEach(btn => {
-                                    const eventKey = btn.getAttribute('data-toggle-raw');
-                                    btn.addEventListener('click', () => this.toggleEventRaw(eventKey));
-                                });
-                            }
-                        });
-                    });
                 },
 
                 renderTurn(turn, number) {
