@@ -189,9 +189,7 @@ class TestAutoProvisionDefaults:
         result = auto_provision_defaults()
 
         assert len(result) == 4
-        assert all(
-            k in result for k in ("DATABASE_URL", "ADMIN_API_KEY", "POLICY_CONFIG", "POLICY_SOURCE")
-        )
+        assert all(k in result for k in ("DATABASE_URL", "ADMIN_API_KEY", "POLICY_CONFIG", "POLICY_SOURCE"))
         assert "PROXY_API_KEY" not in result
 
 
