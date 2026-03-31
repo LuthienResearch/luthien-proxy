@@ -7,6 +7,12 @@ into a single comprehensive version.
 Can be used standalone with static rules in YAML config, or driven dynamically
 by another policy that sets rules via request state using set_rules_for_request().
 
+**Latency note:** Each rule fires one LLM call (in parallel via asyncio.gather).
+If 2+ rules apply, an additional refinement call merges them. With N rules, the
+worst case is N+1 LLM calls per text block. Because this policy extends
+SimplePolicy, streaming content is buffered — the client sees no output until all
+rule calls complete. Keep rule count low (default max_rules=5) to limit latency.
+
 Example config (static rules):
     policy:
       class: "luthien_proxy.policies.parallel_rules_policy:ParallelRulesPolicy"
@@ -24,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -31,13 +38,21 @@ from pydantic import BaseModel, Field
 
 from luthien_proxy.policies.rules_llm_utils import call_llm
 from luthien_proxy.policies.simple_policy import SimplePolicy
+from luthien_proxy.policy_core.anthropic_execution_interface import (
+    AnthropicPolicyEmission,
+    AnthropicPolicyIOProtocol,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from luthien_proxy.policy_core.policy_context import PolicyContext
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_RULES = 10
+DEFAULT_MAX_RULES = 5
+
+_FENCED_BLOCK_RE = re.compile(r"^`{3,}\w*\n(.*?)`{3,}\s*$", re.DOTALL)
 
 
 @dataclass(frozen=True)
@@ -98,13 +113,10 @@ def _parse_rule_decision(raw: str) -> tuple[bool, str] | None:
     """
     text = raw.strip()
 
-    # Strip markdown fences if present
-    if text.startswith("```"):
-        text = text.lstrip("`")
-        nl = text.find("\n")
-        if nl != -1:
-            text = text[nl + 1:]
-        text = text.rstrip("`").strip()
+    # Strip markdown fences if present (handles ```, ```json, `````, etc.)
+    match = _FENCED_BLOCK_RE.match(text)
+    if match:
+        text = match.group(1).strip()
 
     try:
         data = json.loads(text)
@@ -129,7 +141,21 @@ class ParallelRulesPolicy(SimplePolicy):
     3. Merge — if 0-1 rules applied, use that version directly.
        If 2+ rules applied, run a refinement LLM call that sees all
        versions and produces a comprehensive merge.
+
+    **Cost model:** N rules → N parallel LLM calls + 1 refinement if 2+ apply.
+    Streaming is buffered (SimplePolicy), so latency = slowest rule call + refinement.
     """
+
+    def run_anthropic(
+        self, io: AnthropicPolicyIOProtocol, context: "PolicyContext"
+    ) -> "AsyncIterator[AnthropicPolicyEmission]":
+        """Delegate to AnthropicHookPolicy.run_anthropic.
+
+        Explicit override avoids a Python 3.13 runtime_checkable Protocol
+        MRO issue where the Protocol's abstract stub can shadow the concrete
+        implementation from AnthropicHookPolicy in some environments.
+        """
+        return super().run_anthropic(io, context)
 
     def __init__(self, config: ParallelRulesConfig | dict[str, Any] | None = None) -> None:
         """Initialize with config and convert static rules to immutable tuple."""
@@ -256,8 +282,8 @@ class ParallelRulesPolicy(SimplePolicy):
                 context,
             )
         except Exception:
-            logger.exception("Refinement failed, using first changed result as fallback")
-            return changed_results[0].rewritten
+            logger.exception("Refinement failed, returning original text unmodified")
+            return original
 
 
 __all__ = ["ParallelRulesPolicy", "Rule"]
