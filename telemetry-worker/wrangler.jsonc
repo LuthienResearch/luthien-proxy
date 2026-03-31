@@ -1,5 +1,6 @@
 {
   "name": "luthien-telemetry",
+  "account_id": "3b64ed6e5367ead1f221c01a17592b19",
   "main": "src/index.ts",
   "compatibility_date": "2025-04-01",
   "workers_dev": false,
