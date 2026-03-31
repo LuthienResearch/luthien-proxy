@@ -16,6 +16,7 @@ from litellm import acompletion
 from litellm.types.utils import Choices, Message, ModelResponse
 from pydantic import BaseModel, Field
 
+from luthien_proxy.llm.types.anthropic import JSONObject
 from luthien_proxy.policies.tool_call_judge_utils import parse_judge_response
 
 logger = logging.getLogger(__name__)
@@ -81,7 +82,7 @@ class ReplacementBlock:
     type: str
     text: str | None = None
     name: str | None = None
-    input: dict[str, Any] | None = None
+    input: JSONObject | None = None
 
 
 @dataclass(frozen=True)

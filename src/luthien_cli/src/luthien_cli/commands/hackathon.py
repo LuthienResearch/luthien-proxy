@@ -184,16 +184,14 @@ def _read_existing_keys(env_path: Path) -> tuple[str | None, str | None]:
     return proxy_key, admin_key
 
 
-def _write_env(repo_path: Path, proxy_key: str, admin_key: str, port: int) -> tuple[str, str]:
+def _write_env(repo_path: Path, admin_key: str, port: int) -> str:
     """Write .env for hackathon mode (SQLite, from source).
 
-    Preserves existing API keys on re-runs to avoid breaking active sessions.
-    Returns (proxy_key, admin_key) actually written (may differ from args if reusing existing).
+    Preserves existing admin key on re-runs to avoid breaking active sessions.
+    Returns admin_key actually written (may differ from arg if reusing existing).
     """
     env_path = repo_path / ".env"
-    existing_proxy, existing_admin = _read_existing_keys(env_path)
-    if existing_proxy:
-        proxy_key = existing_proxy
+    _existing_proxy, existing_admin = _read_existing_keys(env_path)
     if existing_admin:
         admin_key = existing_admin
 
@@ -202,7 +200,6 @@ def _write_env(repo_path: Path, proxy_key: str, admin_key: str, port: int) -> tu
 
     env_content = (
         f"DATABASE_URL=sqlite:///{db_path}\n"
-        f"PROXY_API_KEY={proxy_key}\n"
         f"ADMIN_API_KEY={admin_key}\n"
         f"POLICY_SOURCE=file\n"
         f"POLICY_CONFIG={policy_path}\n"
@@ -213,7 +210,7 @@ def _write_env(repo_path: Path, proxy_key: str, admin_key: str, port: int) -> tu
     )
     env_path.write_text(env_content)
     os.chmod(env_path, 0o600)
-    return proxy_key, admin_key
+    return admin_key
 
 
 def _write_policy_config(repo_path: Path, policy_class_ref: str, gateway_url: str) -> None:
@@ -518,13 +515,12 @@ def hackathon(path: str, proxy_ref: str | None, yes: bool) -> None:
     policy_class_ref, policy_name = _pick_policy(console, yes)
 
     # 4. Configure
-    proxy_key = _generate_key("sk-luthien")
     admin_key = _generate_key("admin")
     gateway_port = find_free_port(8000)
     gateway_url = f"http://localhost:{gateway_port}"
 
     console.print("\n[blue]Configuring gateway...[/blue]")
-    proxy_key, admin_key = _write_env(clone_path, proxy_key, admin_key, gateway_port)
+    admin_key = _write_env(clone_path, admin_key, gateway_port)
     _write_policy_config(clone_path, policy_class_ref, gateway_url)
 
     # 5. Start gateway from source
@@ -535,7 +531,7 @@ def hackathon(path: str, proxy_ref: str | None, yes: bool) -> None:
     # 6. Save CLI config
     config = load_config(DEFAULT_CONFIG_PATH)
     config.gateway_url = gateway_url
-    config.api_key = proxy_key
+    config.api_key = None
     config.admin_key = admin_key
     config.mode = "local"
     config.repo_path = str(clone_path)

@@ -2,13 +2,13 @@
 
 ## Overview
 
-A standalone, pipx-installable CLI tool (`luthien`) for managing and interacting with luthien-proxy gateways. Acts as a client-side tool that talks to gateways over HTTP, with optional local docker-compose stack management.
+A standalone CLI tool (`luthien`) for managing and interacting with luthien-proxy gateways, installed via `uv tool install`. Acts as a client-side tool that talks to gateways over HTTP, with optional local docker-compose stack management.
 
 ## Package
 
 - **Name**: `luthien-cli`
 - **Command**: `luthien`
-- **Install**: `pipx install luthien-cli`
+- **Install**: `uv tool install luthien-cli`
 - **Location**: `luthien-cli/` directory in the luthien-proxy repo (own pyproject.toml)
 
 ### Dependencies (minimal)

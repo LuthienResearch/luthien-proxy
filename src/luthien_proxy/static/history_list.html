@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Conversation History</title>
+    <title>Sessions — Conversation History</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -274,11 +274,34 @@
             margin-top: 2px;
         }
 
+        .session-right {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
         .session-time {
             font-size: 11px;
             color: #555;
             white-space: nowrap;
             text-align: right;
+        }
+
+        .session-arrow {
+            font-size: 12px;
+            color: #444;
+            transition: color 0.2s;
+        }
+
+        .session-card:hover .session-arrow {
+            color: #4ade80;
+        }
+
+        .session-preview-empty {
+            color: #555;
+            font-style: italic;
         }
 
         .interventions-none {
@@ -330,8 +353,8 @@
     <div class="container">
         <header>
             <div class="header-left">
-                <h1>Conversation History</h1>
-                <span class="page-description">Browse and search past AI sessions</span>
+                <h1>Sessions</h1>
+                <span class="page-description">Each session is one conversation — click to view</span>
             </div>
         </header>
 
@@ -534,7 +557,7 @@
                     const timeStr = formatTimeRange(firstTime, lastTime);
                     const messageCount = session.turn_count;
 
-                    const previewText = session.preview_message || 'No preview available';
+                    const previewText = session.preview_message || '(no message preview)';
 
                     // Build meta line
                     let metaParts = [`${messageCount} message${messageCount !== 1 ? 's' : ''}`];
@@ -547,13 +570,17 @@
                         interventionsHtml = `<span class="interventions-none">no policies triggered</span>`;
                     }
 
+                    const hasPreview = !!session.preview_message;
                     html += `
                         <div class="session-card" onclick="viewSession('${escapeHtml(session.session_id)}')">
                             <div class="session-main">
-                                <div class="session-preview">${escapeHtml(previewText)}</div>
+                                <div class="session-preview${hasPreview ? '' : ' session-preview-empty'}">${escapeHtml(previewText)}</div>
                                 <div class="session-meta">${metaParts.join(' · ')} · ${interventionsHtml}</div>
                             </div>
-                            <div class="session-time">${timeStr}</div>
+                            <div class="session-right">
+                                <div class="session-time">${timeStr}</div>
+                                <div class="session-arrow">→</div>
+                            </div>
                         </div>
                     `;
                 }

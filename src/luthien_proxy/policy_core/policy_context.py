@@ -219,7 +219,7 @@ class PolicyContext:
         new_ctx._emitter = self._emitter  # holds db/redis pool — share, not copy
 
         # Independently mutable: each sub-policy gets its own copy
-        new_ctx.request = self.request.model_copy(deep=True) if self.request is not None else None
+        new_ctx.request = copy.deepcopy(self.request, memo) if self.request is not None else None
         new_ctx._scratchpad = copy.deepcopy(self._scratchpad, memo)
         # _request_state keys are (id(owner), type). After deepcopy the keys still reference
         # the original policy instance IDs, so each parallel sub-policy that calls

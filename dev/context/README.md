@@ -12,6 +12,7 @@ These documents are actively maintained and reflect current architecture:
 - **[`gotchas.md`](gotchas.md)** - Non-obvious behaviors, edge cases, common mistakes
 - **[`observability_records.md`](observability_records.md)** - Event recording patterns and observability architecture
 - **[`otel-conventions.md`](otel-conventions.md)** - OpenTelemetry naming conventions and attribute schemas
+- **[`sentry.md`](sentry.md)** - Sentry error tracking: integration design, data scrubbing, per-environment setup
 - **[`streaming_response_structures.md`](streaming_response_structures.md)** - Streaming chunk structures and SSE format
 
 ## Historical Documents (Archived)

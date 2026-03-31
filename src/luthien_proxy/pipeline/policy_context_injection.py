@@ -10,11 +10,14 @@ history, the injected context persists across the session without re-injection.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import (
+        AnthropicContentBlock,
+        AnthropicMessage,
         AnthropicRequest,
+        AnthropicTextBlock,
     )
 
 logger = logging.getLogger(__name__)
@@ -35,7 +38,7 @@ def build_awareness_message(policy_names: list[str]) -> str:
     return _AWARENESS_TEMPLATE.format(policy_names=", ".join(policy_names))
 
 
-def _already_injected(messages: list[Any]) -> bool:
+def _already_injected(messages: list[AnthropicMessage]) -> bool:
     """Check if any message already contains the policy context tag."""
     for msg in messages:
         content = msg.get("content", "") if isinstance(msg, dict) else ""
@@ -49,7 +52,7 @@ def _already_injected(messages: list[Any]) -> bool:
     return False
 
 
-def _find_first_user_message_index(messages: list[Any]) -> int | None:
+def _find_first_user_message_index(messages: list[AnthropicMessage]) -> int | None:
     """Find the index of the first user message."""
     for i, msg in enumerate(messages):
         if isinstance(msg, dict) and msg.get("role") == "user":
@@ -80,7 +83,8 @@ def inject_policy_awareness_anthropic(request: AnthropicRequest, policy_names: l
     user_msg = messages[user_idx]
     content = user_msg.get("content", "")
     if isinstance(content, list):
-        injected_content: str | list[Any] = [{"type": "text", "text": awareness_text}] + content
+        awareness_block: AnthropicTextBlock = {"type": "text", "text": awareness_text}
+        injected_content: str | list[AnthropicContentBlock] = [awareness_block] + content
     else:
         text = content if isinstance(content, str) else ""
         injected_content = awareness_text + "\n\n" + text
