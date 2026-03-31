@@ -104,7 +104,14 @@ def _download_files(dest: Path) -> None:
                 r = httpx.get(url, timeout=15.0, follow_redirects=True)
                 r.raise_for_status()
             except httpx.HTTPStatusError as e:
-                console.print(f"[red]Failed to download {url}: HTTP {e.response.status_code}[/red]")
+                if e.response.status_code in (401, 403):
+                    console.print(
+                        f"[red]Failed to download {url}: HTTP {e.response.status_code} (access denied).[/red]\n"
+                        "The resource may not be publicly accessible.\n"
+                        "If this is a private repository, check your GitHub credentials."
+                    )
+                else:
+                    console.print(f"[red]Failed to download {url}: HTTP {e.response.status_code}[/red]")
                 raise SystemExit(1)
             except httpx.HTTPError as e:
                 console.print(
