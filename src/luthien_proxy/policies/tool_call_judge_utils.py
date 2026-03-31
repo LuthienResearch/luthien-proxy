@@ -175,7 +175,7 @@ def parse_judge_response(content: str) -> dict[str, Any]:
         newline_index = text.find("\n")
         if newline_index != -1:
             prefix = text[:newline_index].strip().lower()
-            if prefix in {"json", "```json", ""}:
+            if prefix in {"json", ""}:
                 text = text[newline_index + 1 :]
         text = text.rstrip("`").strip()
 
