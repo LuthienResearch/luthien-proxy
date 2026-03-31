@@ -5,6 +5,16 @@
 
 set -e
 
+cd "$(dirname "$0")/.."
+
+# Auto-create .env from .env.local.example if missing (first-time dev setup)
+if [[ ! -f .env ]] && [[ -f .env.local.example ]]; then
+    echo "No .env found — creating from .env.local.example (continuing with defaults)."
+    echo "  -> Edit .env to add your ANTHROPIC_API_KEY for API key auth."
+    cp .env.local.example .env
+    echo ""
+fi
+
 # Load environment variables from .env if it exists
 if [[ -f .env ]]; then
     echo "Loading environment from .env..."
@@ -39,4 +49,4 @@ PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$(pwd)/src"
 export PYTHONPATH
 
 # Start the gateway
-cd "$(dirname "$0")/.." && exec uv run python -m luthien_proxy.main
+exec uv run python -m luthien_proxy.main

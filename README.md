@@ -334,7 +334,20 @@ rm -rf ~/.luthien  # removes all conversation logs and config
 
 ## Development
 
-For development setup, tooling, architecture, and API details, see **[dev-README.md](dev-README.md)**.
+### Quick Start (from source, no Docker)
+
+Clone the repo and start the gateway with SQLite — no Postgres or Redis needed:
+
+```bash
+git clone https://github.com/LuthienResearch/luthien-proxy.git
+cd luthien-proxy
+uv sync  # Install uv first if needed: https://docs.astral.sh/uv/getting-started/installation/
+./scripts/start_gateway.sh
+```
+
+To use API key auth, edit `.env` (auto-created on first run) and add your `ANTHROPIC_API_KEY`.
+
+The gateway starts at `http://localhost:8000`. For full development setup, tooling, architecture, and API details, see **[dev-README.md](dev-README.md)**.
 
 ## License
 
