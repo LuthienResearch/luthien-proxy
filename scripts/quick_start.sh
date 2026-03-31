@@ -47,6 +47,20 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
+if ! docker compose version > /dev/null 2>&1; then
+    if command -v docker-compose &> /dev/null; then
+        echo "❌ You have Docker Compose v1 ('docker-compose'), but v2 ('docker compose') is required."
+        echo "   Docker Compose v1 reached end-of-life in July 2023."
+        echo "   Upgrade to v2 by installing Docker Desktop: https://www.docker.com/products/docker-desktop/"
+        echo "   Or install the Compose plugin: https://docs.docker.com/compose/install/"
+    else
+        echo "❌ Docker Compose v2 is required but not found."
+        echo "   Install Docker Desktop (includes Compose v2): https://www.docker.com/products/docker-desktop/"
+        echo "   Or install the plugin: https://docs.docker.com/compose/install/"
+    fi
+    exit 1
+fi
+
 if ! command -v uv &> /dev/null; then
     echo "❌ uv is not installed. Please install uv first: https://docs.astral.sh/uv/"
     exit 1

@@ -16,9 +16,17 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Generate token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Get latest CLI tag
         id: latest
@@ -53,8 +61,7 @@ jobs:
 
       - name: Run CLI tests
         if: steps.changes.outputs.count != '0'
-        working-directory: src/luthien_cli
-        run: uv run --extra dev pytest tests/ -v
+        run: uv run pytest tests/luthien_cli/ -v
 
       - name: Bump patch and tag
         if: steps.changes.outputs.count != '0'

@@ -246,6 +246,46 @@ class TestAnthropicClientComplete:
         call_kwargs = mock_async_client.messages.create.call_args.kwargs
         assert call_kwargs["thinking"] == {"type": "enabled", "budget_tokens": 10000}
 
+    @pytest.mark.asyncio
+    async def test_complete_forwards_cache_tokens_when_present(self, sample_request: AnthropicRequest):
+        client = AnthropicClient(api_key="test-key")
+        message_with_cache = Message(
+            id="msg_cache",
+            type="message",
+            role="assistant",
+            content=[TextBlock(type="text", text="cached")],
+            model=DEFAULT_TEST_MODEL,
+            stop_reason="end_turn",
+            usage=Usage(
+                input_tokens=10,
+                output_tokens=5,
+                cache_creation_input_tokens=100,
+                cache_read_input_tokens=50,
+            ),
+        )
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(return_value=message_with_cache)
+        client._client = mock_async_client
+
+        result = await client.complete(sample_request)
+
+        assert result["usage"]["cache_creation_input_tokens"] == 100
+        assert result["usage"]["cache_read_input_tokens"] == 50
+
+    @pytest.mark.asyncio
+    async def test_complete_omits_cache_tokens_when_absent(
+        self, sample_request: AnthropicRequest, sample_message: Message
+    ):
+        client = AnthropicClient(api_key="test-key")
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        client._client = mock_async_client
+
+        result = await client.complete(sample_request)
+
+        assert "cache_creation_input_tokens" not in result["usage"]
+        assert "cache_read_input_tokens" not in result["usage"]
+
 
 class TestAnthropicClientStream:
     """Test AnthropicClient.stream() method."""

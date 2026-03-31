@@ -34,6 +34,7 @@ from luthien_proxy.observability.event_publisher import (
     InProcessEventPublisher,
 )
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
+from luthien_proxy.observability.sentry import init_sentry
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.request_log import router as request_log_router
 from luthien_proxy.session import login_page_router
@@ -63,6 +64,8 @@ from luthien_proxy.utils.migration_check import check_migrations
 configure_tracing()
 configure_logging()
 instrument_redis()
+
+init_sentry()
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +132,7 @@ async def request_validation_error_handler(request: Request, exc: Exception) -> 
 
 
 def create_app(
-    api_key: str,
+    api_key: str | None,
     admin_key: str | None,
     db_pool: db.DatabasePool,
     redis_client: Redis | None,
@@ -222,6 +225,14 @@ def create_app(
         else:
             logger.info("Upstream auth mode: passthrough — client credentials forwarded directly to Anthropic.")
 
+        if api_key is None and _resolved_mode == "proxy_key":
+            raise RuntimeError(
+                "AUTH_MODE=proxy_key requires PROXY_API_KEY to be set. "
+                "Either set PROXY_API_KEY or switch to AUTH_MODE=both or AUTH_MODE=passthrough."
+            )
+        elif api_key is None and _resolved_mode == "both":
+            logger.info("PROXY_API_KEY is not set — proxy-key auth unavailable, using passthrough only")
+
         # Check if request logging is enabled
         _enable_request_logging = get_settings().enable_request_logging
         if _enable_request_logging:
@@ -295,7 +306,10 @@ def create_app(
     class StaticCacheMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
             response = await call_next(request)
-            if request.url.path.startswith("/static/"):
+            if request.url.path.startswith("/api/") or request.url.path == "/health":
+                # Prevent CDN/edge caching of API and health responses (Railway, Cloudflare, etc.)
+                response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            elif request.url.path.startswith("/static/"):
                 path = request.url.path
                 if path.endswith((".js", ".html", ".css")):
                     response.headers["Cache-Control"] = "no-cache"
@@ -446,11 +460,8 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
     except ValidationError as e:
         raise ValueError(f"Invalid configuration: {e}")
 
-    if settings.proxy_api_key is None:
-        errors.append("PROXY_API_KEY environment variable required")
-
-    # admin_api_key is optional — admin endpoints return 500 if not set,
-    # but the gateway still serves proxy traffic without it.
+    # Both api keys are optional — passthrough mode doesn't need PROXY_API_KEY,
+    # and admin endpoints degrade gracefully without ADMIN_API_KEY.
 
     database_url = settings.database_url
     if not database_url:
@@ -474,16 +485,12 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
     }
 
 
-def configure_local_mode() -> dict[str, str]:
+def configure_local_mode() -> None:
     """Force-set env vars for dockerless local mode.
 
     Infrastructure vars (DATABASE_URL, REDIS_URL, etc.) are force-set because
     litellm calls dotenv.load_dotenv() at import time, polluting os.environ
-    with Docker-internal values from .env. API keys use setdefault so users
-    can pre-set them intentionally.
-
-    Returns:
-        Dict with proxy_api_key (whether generated or existing).
+    with Docker-internal values from .env.
     """
     data_dir = os.path.join(os.path.expanduser("~"), ".luthien")
     os.makedirs(data_dir, exist_ok=True)
@@ -493,16 +500,53 @@ def configure_local_mode() -> dict[str, str]:
     os.environ["POLICY_CONFIG"] = "config/policy_config.yaml"
     os.environ["POLICY_SOURCE"] = "file"
 
-    if not os.environ.get("PROXY_API_KEY"):
-        key = f"sk-local-{secrets.token_urlsafe(16)}"
-        os.environ["PROXY_API_KEY"] = key
 
-    return {
-        "proxy_api_key": os.environ["PROXY_API_KEY"],
-    }
+def auto_provision_defaults() -> dict[str, str]:
+    """Auto-provision sensible defaults for missing environment variables.
+
+    Ensures the app can boot on fresh PaaS deployments (Railway, Render, etc.)
+    without any pre-configured environment variables. Only sets values that are
+    not already present — never overrides explicit configuration.
+
+    Returns:
+        Dict of variable names to auto-provisioned values (empty if nothing was provisioned).
+    """
+    provisioned: dict[str, str] = {}
+
+    if not os.environ.get("DATABASE_URL"):
+        data_dir = os.path.join(os.path.expanduser("~"), ".luthien")
+        os.makedirs(data_dir, exist_ok=True)
+        db_path = os.path.join(data_dir, "local.db")
+        value = f"sqlite:///{db_path}"
+        os.environ["DATABASE_URL"] = value
+        provisioned["DATABASE_URL"] = value
+
+    if not os.environ.get("ADMIN_API_KEY"):
+        value = f"admin-{secrets.token_urlsafe(16)}"
+        os.environ["ADMIN_API_KEY"] = value
+        provisioned["ADMIN_API_KEY"] = value
+
+    if not os.environ.get("POLICY_CONFIG"):
+        value = "config/policy_config.yaml"
+        os.environ["POLICY_CONFIG"] = value
+        provisioned["POLICY_CONFIG"] = value
+
+    if not os.environ.get("POLICY_SOURCE"):
+        value = "file"
+        os.environ["POLICY_SOURCE"] = value
+        provisioned["POLICY_SOURCE"] = value
+
+    return provisioned
 
 
-__all__ = ["create_app", "load_config_from_env", "connect_db", "connect_redis", "configure_local_mode"]
+__all__ = [
+    "create_app",
+    "load_config_from_env",
+    "connect_db",
+    "connect_redis",
+    "configure_local_mode",
+    "auto_provision_defaults",
+]
 
 
 if __name__ == "__main__":
@@ -519,10 +563,21 @@ if __name__ == "__main__":
         args = parser.parse_args()
 
         if args.local:
-            keys = configure_local_mode()
+            configure_local_mode()
             clear_settings_cache()
             print(f"[local mode] DATABASE_URL={os.environ['DATABASE_URL']}")
-            print(f"[local mode] PROXY_API_KEY={keys['proxy_api_key']}")
+
+        # Auto-provision missing env vars so fresh deploys boot without config
+        provisioned = auto_provision_defaults()
+        if provisioned:
+            clear_settings_cache()
+            print("=" * 60)
+            print("AUTO-CONFIGURED: Missing environment variables were set")
+            print("to defaults. Set these in your platform dashboard for")
+            print("production use:")
+            for key, value in provisioned.items():
+                print(f"  {key}={value}")
+            print("=" * 60)
 
         config = load_config_from_env()
 
@@ -551,7 +606,16 @@ if __name__ == "__main__":
                 auth_mode=config.get("auth_mode", AuthMode.BOTH),
             )
 
-            server_config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="debug")
+            _valid_log_levels = {"critical", "error", "warning", "info", "debug", "trace"}
+            log_level = os.environ.get("LOG_LEVEL", "info").lower()
+            if log_level not in _valid_log_levels:
+                logger.warning(
+                    f"Invalid LOG_LEVEL '{log_level}', falling back to 'info'. "
+                    f"Valid levels: {', '.join(sorted(_valid_log_levels))}"
+                )
+                log_level = "info"
+            logger.info(f"Using log level: {log_level}")
+            server_config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level=log_level)
             server = uvicorn.Server(server_config)
             await server.serve()
         finally:

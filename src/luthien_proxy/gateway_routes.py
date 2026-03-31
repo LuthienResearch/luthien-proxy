@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 async def verify_token(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    api_key: str = Depends(get_api_key),
+    api_key: str | None = Depends(get_api_key),
     credential_manager: CredentialManager | None = Depends(get_credential_manager),
 ) -> str:
     """Verify API key, supporting proxy_key, passthrough, and both auth modes."""
@@ -53,14 +53,14 @@ async def verify_token(
     is_bearer = bearer_token is not None
 
     if credential_manager is None:
-        if secrets.compare_digest(token, api_key):
+        if api_key is not None and secrets.compare_digest(token, api_key):
             return token
         raise HTTPException(status_code=401, detail="Invalid API key")
 
     auth_mode = credential_manager.config.auth_mode
 
     if auth_mode == AuthMode.PROXY_KEY:
-        if secrets.compare_digest(token, api_key):
+        if api_key is not None and secrets.compare_digest(token, api_key):
             return token
         raise HTTPException(status_code=401, detail="Invalid API key")
 
@@ -71,7 +71,7 @@ async def verify_token(
         return token
 
     # BOTH mode: try proxy key first, fall through to passthrough
-    if secrets.compare_digest(token, api_key):
+    if api_key is not None and secrets.compare_digest(token, api_key):
         return token
     if credential_manager.config.validate_credentials:
         if not await credential_manager.validate_credential(token, is_bearer=is_bearer):
@@ -82,7 +82,7 @@ async def verify_token(
 async def resolve_anthropic_client(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    api_key: str = Depends(get_api_key),
+    api_key: str | None = Depends(get_api_key),
     credential_manager: CredentialManager | None = Depends(get_credential_manager),
     base_client: AnthropicClient | None = Depends(get_anthropic_client),
     _: str = Depends(verify_token),
@@ -115,14 +115,18 @@ async def resolve_anthropic_client(
         return await anthropic_client_cache.get_client(explicit_key, auth_type="api_key", base_url=base_url)
 
     # Passthrough: forward the request credential to Anthropic
-    matches_proxy_key = secrets.compare_digest(token, api_key)
+    matches_proxy_key = api_key is not None and secrets.compare_digest(token, api_key)
     use_passthrough = not matches_proxy_key or auth_mode == AuthMode.PASSTHROUGH
     if use_passthrough:
         # OAuth tokens arrive via Bearer header and are not Anthropic API keys.
-        # x-api-key header tokens are always treated as API keys regardless of format.
-        if is_bearer and not is_anthropic_api_key(token):
-            await _record_credential_type("oauth")
-            return await anthropic_client_cache.get_client(token, auth_type="auth_token", base_url=base_url)
+        # In passthrough mode, x-api-key tokens that don't look like Anthropic
+        # API keys (sk-ant-*) are also treated as OAuth tokens — Claude Code
+        # may send OAuth tokens via either header depending on configuration.
+        if not is_anthropic_api_key(token):
+            cred_type = "oauth" if is_bearer else "oauth_via_api_key"
+            await _record_credential_type(cred_type)
+            auth_type = "auth_token" if is_bearer else "api_key"
+            return await anthropic_client_cache.get_client(token, auth_type=auth_type, base_url=base_url)
         await _record_credential_type("client_api_key")
         return await anthropic_client_cache.get_client(token, auth_type="api_key", base_url=base_url)
 

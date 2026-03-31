@@ -25,8 +25,7 @@ jobs:
           python-version: "3.13"
 
       - name: Run tests
-        working-directory: src/luthien_cli
-        run: uv run --extra dev pytest tests/ -v
+        run: uv run pytest tests/luthien_cli/ -v
 
       - name: Build luthien-cli
         working-directory: src/luthien_cli

@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, TypedDict, cast
 
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
@@ -55,11 +55,21 @@ from luthien_proxy.utils.constants import DEFAULT_JUDGE_MAX_TOKENS, TOOL_ARGS_TR
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import (
+        AnthropicContentBlock,
         AnthropicResponse,
+        AnthropicToolUseBlock,
     )
     from luthien_proxy.policy_core.policy_context import PolicyContext
 
 logger = logging.getLogger(__name__)
+
+
+class ToolCallDict(TypedDict):
+    """Extracted tool call with normalized arguments."""
+
+    id: str
+    name: str
+    arguments: str
 
 
 @dataclass
@@ -205,13 +215,13 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         if not content:
             return response
 
-        new_content: list[Any] = []
+        new_content: list[AnthropicContentBlock] = []
         modified = False
 
         for block in content:
             if isinstance(block, dict) and block.get("type") == "tool_use":
-                # Cast to dict[str, Any] since we've verified it's a dict with type="tool_use"
-                tool_call = self._extract_tool_call_from_anthropic_block(cast(dict[str, Any], block))
+                # Cast to AnthropicToolUseBlock since we've verified it's a dict with type="tool_use"
+                tool_call = self._extract_tool_call_from_anthropic_block(cast("AnthropicToolUseBlock", block))
                 blocked_result = await self._evaluate_and_maybe_block_anthropic(tool_call, context)
 
                 if blocked_result is not None:
@@ -348,7 +358,7 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
             cast(MessageStreamEvent, event),
         ]
 
-    def _extract_tool_call_from_anthropic_block(self, block: dict[str, Any]) -> dict[str, Any]:
+    def _extract_tool_call_from_anthropic_block(self, block: "AnthropicToolUseBlock") -> ToolCallDict:
         """Extract tool call dict from a tool_use content block dict."""
         return {
             "id": block.get("id", ""),
@@ -356,7 +366,7 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
             "arguments": json.dumps(block.get("input", {})),
         }
 
-    def _tool_call_from_anthropic_buffer(self, buffered: _BufferedAnthropicToolUse) -> dict[str, Any]:
+    def _tool_call_from_anthropic_buffer(self, buffered: _BufferedAnthropicToolUse) -> ToolCallDict:
         """Create tool call dict from buffered data."""
         return {
             "id": buffered.id,
@@ -366,7 +376,7 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
 
     async def _evaluate_and_maybe_block_anthropic(
         self,
-        tool_call: dict[str, Any],
+        tool_call: ToolCallDict,
         context: "PolicyContext",
     ) -> JudgeResult | None:
         """Evaluate a tool call and return JudgeResult if blocked, None if allowed."""
@@ -422,7 +432,7 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
 
     def _format_anthropic_blocked_message(
         self,
-        tool_call: dict[str, Any],
+        tool_call: ToolCallDict,
         judge_result: JudgeResult,
     ) -> str:
         """Format blocked message using template."""

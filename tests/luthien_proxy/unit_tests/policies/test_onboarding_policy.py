@@ -5,13 +5,17 @@ from __future__ import annotations
 import pytest
 from anthropic.types import (
     InputJSONDelta,
+    MessageDeltaUsage,
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
+    RawMessageDeltaEvent,
+    RawMessageStopEvent,
     TextBlock,
     TextDelta,
     ToolUseBlock,
 )
+from anthropic.types.raw_message_delta_event import Delta
 
 from luthien_proxy.policies.onboarding_policy import (
     OnboardingPolicy,
@@ -199,8 +203,45 @@ class TestNonStreamingResponse:
 
 class TestStreamingHooks:
     @pytest.mark.asyncio
-    async def test_stream_complete_emits_welcome_on_first_turn(self, policy, context):
-        """on_anthropic_stream_complete injects suffix delta + flushes held stop."""
+    async def test_suffix_flushed_before_message_delta(self, policy, context):
+        """Suffix + held stop are flushed when message_delta arrives, not in stream_complete."""
+        request = {"messages": [{"role": "user", "content": "hi"}]}
+        await policy.on_anthropic_request(request, context)
+
+        start_event = RawContentBlockStartEvent(
+            type="content_block_start",
+            index=0,
+            content_block=TextBlock(type="text", text=""),
+        )
+        stop_event = RawContentBlockStopEvent(type="content_block_stop", index=0)
+        message_delta = RawMessageDeltaEvent(
+            type="message_delta",
+            delta=Delta(stop_reason="end_turn", stop_sequence=None),
+            usage=MessageDeltaUsage(output_tokens=20),
+        )
+
+        await policy.on_anthropic_stream_event(start_event, context)
+        await policy.on_anthropic_stream_event(stop_event, context)
+
+        # message_delta should trigger suffix flush
+        events = await policy.on_anthropic_stream_event(message_delta, context)
+        # Should emit: suffix text_delta, held content_block_stop, message_delta
+        assert len(events) == 3
+        assert isinstance(events[0], RawContentBlockDeltaEvent)
+        assert isinstance(events[0].delta, TextDelta)
+        assert "Luthien" in events[0].delta.text
+        assert events[0].index == 0
+        assert isinstance(events[1], RawContentBlockStopEvent)
+        assert events[1].index == 0
+        assert isinstance(events[2], RawMessageDeltaEvent)
+
+        # stream_complete should have nothing left
+        complete_events = await policy.on_anthropic_stream_complete(context)
+        assert complete_events == []
+
+    @pytest.mark.asyncio
+    async def test_stream_complete_fallback_without_message_delta(self, policy, context):
+        """If stream ends without message_delta, stream_complete still flushes."""
         request = {"messages": [{"role": "user", "content": "hi"}]}
         await policy.on_anthropic_request(request, context)
 
@@ -214,15 +255,12 @@ class TestStreamingHooks:
         await policy.on_anthropic_stream_event(start_event, context)
         await policy.on_anthropic_stream_event(stop_event, context)
 
+        # No message_delta — stream_complete should still flush
         events = await policy.on_anthropic_stream_complete(context)
-        # Should emit: suffix text_delta + held content_block_stop
         assert len(events) == 2
         assert isinstance(events[0], RawContentBlockDeltaEvent)
-        assert isinstance(events[0].delta, TextDelta)
         assert "Luthien" in events[0].delta.text
-        assert events[0].index == 0
         assert isinstance(events[1], RawContentBlockStopEvent)
-        assert events[1].index == 0
 
     @pytest.mark.asyncio
     async def test_stream_complete_empty_on_subsequent_turn(self, policy, context):
@@ -346,3 +384,126 @@ class TestToolUseInterleaving:
         suffix_pos = all_events_out.index(welcome_deltas[0])
         tool_start_pos = all_events_out.index(starts[1])
         assert suffix_pos < tool_start_pos
+
+
+# =============================================================================
+# Streaming protocol ordering — content blocks must precede message_delta
+# =============================================================================
+
+
+class TestStreamingProtocolOrdering:
+    """Verify that injected content blocks always appear before message_delta.
+
+    Reproduces the bug from onboarding dogfood findings (March 26):
+    OnboardingPolicy was emitting content blocks in on_anthropic_stream_complete,
+    which fires AFTER message_delta and message_stop have already been sent.
+    """
+
+    @pytest.mark.asyncio
+    async def test_full_stream_text_only_protocol_order(self, policy, context):
+        """Text-only response: suffix + held stop appear before message_delta."""
+        request = {"messages": [{"role": "user", "content": "hi"}]}
+        await policy.on_anthropic_request(request, context)
+
+        events_in = [
+            RawContentBlockStartEvent(
+                type="content_block_start",
+                index=0,
+                content_block=TextBlock(type="text", text=""),
+            ),
+            RawContentBlockDeltaEvent(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta(type="text_delta", text="Hello!"),
+            ),
+            RawContentBlockStopEvent(type="content_block_stop", index=0),
+            RawMessageDeltaEvent(
+                type="message_delta",
+                delta=Delta(stop_reason="end_turn", stop_sequence=None),
+                usage=MessageDeltaUsage(output_tokens=5),
+            ),
+            RawMessageStopEvent(type="message_stop"),
+        ]
+
+        all_out = []
+        for event in events_in:
+            result = await policy.on_anthropic_stream_event(event, context)
+            all_out.extend(result)
+        complete = await policy.on_anthropic_stream_complete(context)
+        all_out.extend(complete)
+
+        # Find positions
+        message_delta_events = [e for e in all_out if isinstance(e, RawMessageDeltaEvent)]
+        content_block_events = [
+            e
+            for e in all_out
+            if isinstance(e, (RawContentBlockStartEvent, RawContentBlockDeltaEvent, RawContentBlockStopEvent))
+        ]
+        assert len(message_delta_events) == 1
+
+        # ALL content block events must precede message_delta
+        md_pos = all_out.index(message_delta_events[0])
+        for cb_event in content_block_events:
+            cb_pos = all_out.index(cb_event)
+            assert cb_pos < md_pos, (
+                f"{type(cb_event).__name__} at position {cb_pos} appeared after message_delta at position {md_pos}"
+            )
+
+        # stream_complete should have nothing left
+        assert complete == []
+
+    @pytest.mark.asyncio
+    async def test_full_stream_with_tool_use_protocol_order(self, policy, context):
+        """Text + tool_use response: suffix injected before tool_use, all before message_delta."""
+        request = {"messages": [{"role": "user", "content": "hi"}]}
+        await policy.on_anthropic_request(request, context)
+
+        events_in = [
+            RawContentBlockStartEvent(
+                type="content_block_start",
+                index=0,
+                content_block=TextBlock(type="text", text=""),
+            ),
+            RawContentBlockDeltaEvent(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta(type="text_delta", text="Let me check."),
+            ),
+            RawContentBlockStopEvent(type="content_block_stop", index=0),
+            RawContentBlockStartEvent(
+                type="content_block_start",
+                index=1,
+                content_block=ToolUseBlock(type="tool_use", id="t1", name="Read", input={}),
+            ),
+            RawContentBlockDeltaEvent(
+                type="content_block_delta",
+                index=1,
+                delta=InputJSONDelta(type="input_json_delta", partial_json="{}"),
+            ),
+            RawContentBlockStopEvent(type="content_block_stop", index=1),
+            RawMessageDeltaEvent(
+                type="message_delta",
+                delta=Delta(stop_reason="tool_use", stop_sequence=None),
+                usage=MessageDeltaUsage(output_tokens=5),
+            ),
+            RawMessageStopEvent(type="message_stop"),
+        ]
+
+        all_out = []
+        for event in events_in:
+            result = await policy.on_anthropic_stream_event(event, context)
+            all_out.extend(result)
+        complete = await policy.on_anthropic_stream_complete(context)
+        all_out.extend(complete)
+
+        # ALL content block events must precede message_delta
+        message_delta_events = [e for e in all_out if isinstance(e, RawMessageDeltaEvent)]
+        content_block_events = [
+            e
+            for e in all_out
+            if isinstance(e, (RawContentBlockStartEvent, RawContentBlockDeltaEvent, RawContentBlockStopEvent))
+        ]
+        md_pos = all_out.index(message_delta_events[0])
+        for cb_event in content_block_events:
+            cb_pos = all_out.index(cb_event)
+            assert cb_pos < md_pos

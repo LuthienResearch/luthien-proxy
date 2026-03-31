@@ -117,7 +117,7 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
   - `ui/`: Activity monitoring and diff viewer interfaces
   - `llm/`: LiteLLM client wrapper and format converters
   - `utils/`: Shared utilities (db, redis, validation)
-- `src/luthien_cli/`: Standalone CLI (`pipx install luthien-cli`); `luthien onboard` auto-downloads proxy artifacts
+- `src/luthien_cli/`: Standalone CLI (`uv tool install luthien-cli`); `luthien onboard` auto-downloads proxy artifacts
   - `commands/`: Click commands — `onboard`, `claude`, `status`, `up`/`down`, `logs`, `config`
   - `repo.py`: Manages `~/.luthien/luthien-proxy/` — downloads and updates proxy artifacts from GitHub
 - `config/`: `policy_config.yaml`

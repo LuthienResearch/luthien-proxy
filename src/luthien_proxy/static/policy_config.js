@@ -112,7 +112,7 @@ const testState = { proposed: {}, active: {} };
 // ============================================================
 async function apiCall(endpoint, options = {}) {
     const headers = { 'Content-Type': 'application/json', ...options.headers };
-    const response = await fetch(endpoint, { ...options, headers, credentials: 'same-origin' });
+    const response = await fetch(endpoint, { ...options, headers, credentials: 'same-origin', cache: 'no-store' });
     if (response.status === 403) {
         window.location.href = '/login?error=required&next=' + encodeURIComponent(window.location.pathname);
         throw new Error('Session expired');

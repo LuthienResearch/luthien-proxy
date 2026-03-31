@@ -26,6 +26,7 @@ from anthropic.types import (
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
+    RawMessageDeltaEvent,
     TextBlock,
     TextDelta,
     ToolUseBlock,
@@ -148,13 +149,52 @@ class TextModifierPolicy(BasePolicy):
             state.held_stop = event
             return result
 
+        # Flush suffix + held stop before message_delta to preserve protocol ordering.
+        # Content blocks must precede message_delta; emitting them in
+        # on_anthropic_stream_complete would place them after message_delta/message_stop.
+        if isinstance(event, RawMessageDeltaEvent):
+            return self._flush_before_message_delta(state, event)
+
         if isinstance(event, RawContentBlockDeltaEvent) and isinstance(event.delta, TextDelta):
             new_delta = event.delta.model_copy(update={"text": self.modify_text(event.delta.text)})
             return [event.model_copy(update={"delta": new_delta})]
         return [event]
 
+    def _flush_before_message_delta(
+        self, state: _StreamState, message_delta_event: MessageStreamEvent
+    ) -> list[MessageStreamEvent]:
+        """Emit pending suffix + held stop before the message_delta event.
+
+        Content blocks must precede message_delta in the Anthropic streaming
+        protocol. This method is called from on_anthropic_stream_event when
+        a RawMessageDeltaEvent arrives.
+        """
+        if state.held_stop is None:
+            return [message_delta_event]
+
+        result: list[MessageStreamEvent] = []
+        suffix = self.extra_text()
+        if suffix is not None and not state.extra_text_emitted:
+            state.extra_text_emitted = True
+            result.append(
+                RawContentBlockDeltaEvent(
+                    type="content_block_delta",
+                    index=state.last_text_index,
+                    delta=TextDelta(type="text_delta", text=suffix),
+                )
+            )
+        result.append(state.held_stop)
+        state.held_stop = None
+        result.append(message_delta_event)
+        return result
+
     async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
-        """Flush held stop and inject suffix if no tool_use was seen."""
+        """Safety net: flush anything not already flushed by _flush_before_message_delta.
+
+        Normally _flush_before_message_delta handles suffix injection when the
+        message_delta event arrives. This method only emits events if the stream
+        ended without a message_delta (e.g. abrupt disconnection).
+        """
         state = context.get_request_state(self, _StreamState, _StreamState)
         if state.held_stop is None:
             suffix = self.extra_text()
@@ -166,9 +206,11 @@ class TextModifierPolicy(BasePolicy):
                 )
             return []
 
+        # Stream ended without message_delta — flush remaining events.
         result: list[AnthropicPolicyEmission] = []
         suffix = self.extra_text()
         if suffix is not None and not state.extra_text_emitted:
+            state.extra_text_emitted = True
             result.append(
                 RawContentBlockDeltaEvent(
                     type="content_block_delta",
@@ -177,6 +219,7 @@ class TextModifierPolicy(BasePolicy):
                 )
             )
         result.append(state.held_stop)
+        state.held_stop = None
         return result
 
 

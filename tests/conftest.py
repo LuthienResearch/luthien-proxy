@@ -10,6 +10,13 @@ def pytest_sessionstart(session):
     os.environ.setdefault("POLICY_CONFIG", str(REPO_ROOT / "config" / "policy_config.yaml"))
     os.environ.setdefault("OTEL_ENABLED", "false")
 
+    # Disable Sentry during tests to avoid sending expected test errors
+    # (startup validation, policy load failures) to the real Sentry project.
+    # Tests that need Sentry use monkeypatch with a fake DSN.
+    os.environ.setdefault("SENTRY_ENABLED", "false")
+
+    os.environ.setdefault("ENVIRONMENT", "test")
+
 
 def pytest_configure(config):
     """Disable timeout for e2e test runs."""

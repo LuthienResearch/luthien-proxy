@@ -40,8 +40,8 @@ GATEWAY_PORT_VAR="${GATEWAY_PORT:-8000}"
 echo -e "${YELLOW}🔍 Checking gateway status...${NC}"
 
 if ! curl -sf "http://localhost:${GATEWAY_PORT_VAR}/health" > /dev/null 2>&1; then
-    echo -e "${YELLOW}⚠️  gateway not detected. Starting observability stack...${NC}"
-    ./scripts/observability.sh up -d
+    echo -e "${YELLOW}⚠️  Gateway not detected. Starting gateway...${NC}"
+    ./scripts/start_gateway.sh &
 
     # Wait for gateway to be healthy
     echo -e "${YELLOW}⏳ Waiting for gateway to be ready...${NC}"

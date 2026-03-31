@@ -55,7 +55,7 @@ class BasePolicy:
         tuple/frozenset for config-time collections and ``PolicyContext`` for
         request-scoped state.
         """
-        mutable_types: tuple[type[Any], ...] = (MutableMapping, MutableSequence, MutableSet, bytearray)
+        mutable_types: tuple[type, ...] = (MutableMapping, MutableSequence, MutableSet, bytearray)
 
         for attr_name, value in vars(self).items():
             if isinstance(value, mutable_types):
