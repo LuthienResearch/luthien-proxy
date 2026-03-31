@@ -27,36 +27,26 @@ def test_write_policy(tmp_path):
     assert "http://localhost:8000" in content
 
 
-def test_write_local_env_without_admin_key(tmp_path):
-    """Default local env omits ADMIN_API_KEY so the gateway uses its default."""
+def test_write_local_env(tmp_path):
+    """Local env uses passthrough auth with admin key, no proxy key."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    _write_local_env(str(repo), "sk-test-key")
+    _write_local_env(str(repo), "admin-test-key")
     env_content = (repo / ".env").read_text()
-    assert "PROXY_API_KEY=sk-test-key" in env_content
-    assert "ADMIN_API_KEY" not in env_content
+    assert "PROXY_API_KEY" not in env_content
+    assert "ADMIN_API_KEY=admin-test-key" in env_content
     assert "AUTH_MODE=both" in env_content
     assert "POLICY_SOURCE=file" in env_content
     assert "sqlite:///" in env_content
     assert "REDIS_URL" not in env_content
 
 
-def test_write_local_env_with_admin_key(tmp_path):
-    """When admin_key is provided, it's written to .env."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _write_local_env(str(repo), "sk-test-key", admin_key="admin-test-key")
-    env_content = (repo / ".env").read_text()
-    assert "PROXY_API_KEY=sk-test-key" in env_content
-    assert "ADMIN_API_KEY=admin-test-key" in env_content
-
-
 def test_ensure_docker_env_creates_from_scratch(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
-    _ensure_docker_env(str(repo), "sk-test-key", "admin-test-key")
+    _ensure_docker_env(str(repo), "admin-test-key")
     env_content = (repo / ".env").read_text()
-    assert "PROXY_API_KEY=sk-test-key" in env_content
+    assert "PROXY_API_KEY" not in env_content
     assert "ADMIN_API_KEY=admin-test-key" in env_content
     assert "AUTH_MODE=both" in env_content
     assert "POLICY_SOURCE=file" in env_content
@@ -65,20 +55,19 @@ def test_ensure_docker_env_creates_from_scratch(tmp_path):
 def test_ensure_docker_env_updates_existing(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
-    (repo / ".env").write_text("PROXY_API_KEY=old-key\nADMIN_API_KEY=old-admin\nSOME_OTHER=value\n")
-    _ensure_docker_env(str(repo), "sk-new-key", "admin-new-key")
+    (repo / ".env").write_text("ADMIN_API_KEY=old-admin\nSOME_OTHER=value\n")
+    _ensure_docker_env(str(repo), "admin-new-key")
     env_content = (repo / ".env").read_text()
-    assert "PROXY_API_KEY=sk-new-key" in env_content
     assert "ADMIN_API_KEY=admin-new-key" in env_content
     assert "SOME_OTHER=value" in env_content
-    assert "old-key" not in env_content
+    assert "old-admin" not in env_content
 
 
 def test_ensure_docker_env_uncomments_auth_mode(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / ".env").write_text("# AUTH_MODE=passthrough\n")
-    _ensure_docker_env(str(repo), "sk-key", "admin-key")
+    _ensure_docker_env(str(repo), "admin-key")
     env_content = (repo / ".env").read_text()
     assert "AUTH_MODE=both" in env_content
     assert "# AUTH_MODE" not in env_content
@@ -88,7 +77,7 @@ def test_ensure_docker_env_comments_out_compose_project_name(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / ".env").write_text("COMPOSE_PROJECT_NAME=luthien-proxy\nOTHER=val\n")
-    _ensure_docker_env(str(repo), "sk-key", "admin-key")
+    _ensure_docker_env(str(repo), "admin-key")
     env_content = (repo / ".env").read_text()
     assert "\nCOMPOSE_PROJECT_NAME=" not in env_content
     assert "# COMPOSE_PROJECT_NAME=luthien-proxy" in env_content
@@ -99,7 +88,7 @@ def test_ensure_docker_env_leaves_already_commented_compose_project_name(tmp_pat
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / ".env").write_text("# COMPOSE_PROJECT_NAME=luthien-proxy\n")
-    _ensure_docker_env(str(repo), "sk-key", "admin-key")
+    _ensure_docker_env(str(repo), "admin-key")
     env_content = (repo / ".env").read_text()
     assert env_content.count("COMPOSE_PROJECT_NAME") == 1
 
@@ -107,10 +96,9 @@ def test_ensure_docker_env_leaves_already_commented_compose_project_name(tmp_pat
 def test_ensure_docker_env_falls_back_to_example(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
-    (repo / ".env.example").write_text("PROXY_API_KEY=placeholder\n# AUTH_MODE=both\n")
-    _ensure_docker_env(str(repo), "sk-key", "admin-key")
+    (repo / ".env.example").write_text("# AUTH_MODE=both\n")
+    _ensure_docker_env(str(repo), "admin-key")
     env_content = (repo / ".env").read_text()
-    assert "PROXY_API_KEY=sk-key" in env_content
     assert "AUTH_MODE=both" in env_content
 
 
@@ -145,10 +133,11 @@ def test_onboard_local_full_flow(tmp_path):
     policy = (repo_path / "config" / "policy_config.yaml").read_text()
     assert "OnboardingPolicy" in policy
 
-    # Verify .env has sqlite and ADMIN_API_KEY persisted
+    # Verify .env has sqlite and admin key, no proxy key
     env_content = (repo_path / ".env").read_text()
     assert "sqlite:///" in env_content
     assert "ADMIN_API_KEY=" in env_content
+    assert "PROXY_API_KEY" not in env_content
 
 
 def test_onboard_docker_full_flow(tmp_path):
@@ -158,7 +147,7 @@ def test_onboard_docker_full_flow(tmp_path):
     repo_path = tmp_path / "managed-repo"
     repo_path.mkdir()
     (repo_path / "docker-compose.yaml").touch()
-    (repo_path / ".env.example").write_text("PROXY_API_KEY=placeholder\n")
+    (repo_path / ".env.example").write_text("# AUTH_MODE=both\n")
 
     with (
         patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path),
@@ -316,7 +305,7 @@ def test_onboard_shows_config_locations(tmp_path):
 
     assert result.exit_code == 0, result.output
     assert "config.toml" in result.output
-    assert "luthien status" in result.output
+    assert "luthien config" in result.output
     assert "luthien-proxy" in result.output
 
 

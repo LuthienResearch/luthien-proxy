@@ -107,12 +107,12 @@ class TestWriteEnv:
         """Verify .env file is created with correct content."""
         repo_path = tmp_path / "repo"
         repo_path.mkdir()
-        _write_env(repo_path, "sk-test-key", "admin-test-key", 9000)
+        _write_env(repo_path, "admin-test-key", 9000)
 
         env_file = repo_path / ".env"
         assert env_file.exists()
         content = env_file.read_text()
-        assert "PROXY_API_KEY=sk-test-key" in content
+        assert "PROXY_API_KEY" not in content
         assert "ADMIN_API_KEY=admin-test-key" in content
         assert "GATEWAY_PORT=9000" in content
 
@@ -120,7 +120,7 @@ class TestWriteEnv:
         """Verify .env file has 0o600 permissions."""
         repo_path = tmp_path / "repo"
         repo_path.mkdir()
-        _write_env(repo_path, "sk-test-key", "admin-test-key", 9000)
+        _write_env(repo_path, "admin-test-key", 9000)
 
         env_file = repo_path / ".env"
         file_stat = env_file.stat()
@@ -131,13 +131,12 @@ class TestWriteEnv:
         """Verify all expected keys are present."""
         repo_path = tmp_path / "repo"
         repo_path.mkdir()
-        _write_env(repo_path, "sk-proxy", "admin-admin", 8888)
+        _write_env(repo_path, "admin-admin", 8888)
 
         env_file = repo_path / ".env"
         content = env_file.read_text()
         expected_keys = [
             "DATABASE_URL",
-            "PROXY_API_KEY",
             "ADMIN_API_KEY",
             "POLICY_SOURCE",
             "POLICY_CONFIG",
@@ -148,12 +147,13 @@ class TestWriteEnv:
         ]
         for key in expected_keys:
             assert f"{key}=" in content
+        assert "PROXY_API_KEY" not in content
 
     def test_write_env_sqlite_path(self, tmp_path):
         """Verify SQLite path is correctly set."""
         repo_path = tmp_path / "repo"
         repo_path.mkdir()
-        _write_env(repo_path, "sk-test", "admin-test", 8000)
+        _write_env(repo_path, "admin-test", 8000)
 
         env_file = repo_path / ".env"
         content = env_file.read_text()
@@ -164,7 +164,7 @@ class TestWriteEnv:
         """Verify policy config path is correctly set."""
         repo_path = tmp_path / "repo"
         repo_path.mkdir()
-        _write_env(repo_path, "sk-test", "admin-test", 8000)
+        _write_env(repo_path, "admin-test", 8000)
 
         env_file = repo_path / ".env"
         content = env_file.read_text()
@@ -327,29 +327,26 @@ class TestReadExistingKeys:
 class TestWriteEnvKeyPreservation:
     """Tests for _write_env key preservation on re-runs."""
 
-    def test_preserves_existing_keys(self, tmp_path):
+    def test_preserves_existing_admin_key(self, tmp_path):
         repo_path = tmp_path / "repo"
         repo_path.mkdir()
         # First run
-        _write_env(repo_path, "sk-first", "admin-first", 8000)
-        # Second run with different keys
-        proxy, admin = _write_env(repo_path, "sk-second", "admin-second", 9000)
-        assert proxy == "sk-first"
+        _write_env(repo_path, "admin-first", 8000)
+        # Second run with different key
+        admin = _write_env(repo_path, "admin-second", 9000)
         assert admin == "admin-first"
 
-    def test_uses_new_keys_on_first_run(self, tmp_path):
+    def test_uses_new_key_on_first_run(self, tmp_path):
         repo_path = tmp_path / "repo"
         repo_path.mkdir()
-        proxy, admin = _write_env(repo_path, "sk-new", "admin-new", 8000)
-        assert proxy == "sk-new"
+        admin = _write_env(repo_path, "admin-new", 8000)
         assert admin == "admin-new"
 
-    def test_returns_actual_keys_used(self, tmp_path):
+    def test_returns_actual_key_used(self, tmp_path):
         repo_path = tmp_path / "repo"
         repo_path.mkdir()
-        result = _write_env(repo_path, "sk-test", "admin-test", 8000)
-        assert isinstance(result, tuple)
-        assert len(result) == 2
+        result = _write_env(repo_path, "admin-test", 8000)
+        assert isinstance(result, str)
 
 
 class TestCloneRepo:
