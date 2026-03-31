@@ -113,4 +113,9 @@ def clear_settings_cache() -> None:
     get_settings.cache_clear()
 
 
-__all__ = ["Settings", "get_settings", "clear_settings_cache"]
+def client_error_detail(verbose_detail: str, generic_detail: str = "Internal server error") -> str:
+    """Pick the client-facing error message based on VERBOSE_CLIENT_ERRORS."""
+    return verbose_detail if get_settings().verbose_client_errors else generic_detail
+
+
+__all__ = ["Settings", "get_settings", "clear_settings_cache", "client_error_detail"]

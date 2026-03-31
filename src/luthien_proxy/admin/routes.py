@@ -20,7 +20,7 @@ from luthien_proxy.policy_manager import (
     PolicyInfo,
     PolicyManager,
 )
-from luthien_proxy.settings import get_settings
+from luthien_proxy.settings import client_error_detail, get_settings
 from luthien_proxy.usage_telemetry.config import resolve_telemetry_config
 from luthien_proxy.utils import db
 
@@ -172,10 +172,7 @@ async def get_current_policy(
         )
     except Exception as e:
         logger.error(f"Failed to get current policy: {repr(e)}", exc_info=True)
-        detail = (
-            f"Failed to get current policy: {e}" if get_settings().verbose_client_errors else "Internal server error"
-        )
-        raise HTTPException(status_code=500, detail=detail)
+        raise HTTPException(status_code=500, detail=client_error_detail(f"Failed to get current policy: {e}"))
 
 
 @router.post("/policy/set", response_model=PolicyEnableResponse)
@@ -228,17 +225,13 @@ async def set_policy(
         return PolicyEnableResponse(
             success=False,
             error="Validation error",
-            troubleshooting=[
-                str(e)
-                if get_settings().verbose_client_errors
-                else "Check the policy configuration values and try again."
-            ],
+            troubleshooting=[client_error_detail(str(e), "Check the policy configuration values and try again.")],
         )
     except (ImportError, AttributeError, TypeError) as e:
         logger.warning(f"Policy load error: {repr(e)}")
         return PolicyEnableResponse(
             success=False,
-            error=str(e) if get_settings().verbose_client_errors else "Failed to load policy class.",
+            error=client_error_detail(str(e), "Failed to load policy class."),
             troubleshooting=[
                 "Check that the policy class reference is correct",
                 "Verify the policy module exists and is importable",
@@ -249,8 +242,7 @@ async def set_policy(
         raise
     except Exception as e:
         logger.error(f"Failed to set policy: {repr(e)}", exc_info=True)
-        detail = str(e) if get_settings().verbose_client_errors else "Internal server error"
-        raise HTTPException(status_code=500, detail=detail)
+        raise HTTPException(status_code=500, detail=client_error_detail(str(e)))
 
 
 @router.get("/policy/list", response_model=PolicyListResponse)
@@ -393,7 +385,7 @@ async def send_chat(
         logger.error(f"Test chat failed: {repr(e)}", exc_info=True)
         return ChatResponse(
             success=False,
-            error=str(e) if get_settings().verbose_client_errors else "An unexpected error occurred",
+            error=client_error_detail(str(e), "An unexpected error occurred"),
             model=body.model,
         )
 

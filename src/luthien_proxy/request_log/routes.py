@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from luthien_proxy.auth import verify_admin_token
 from luthien_proxy.dependencies import get_db_pool
-from luthien_proxy.settings import get_settings
+from luthien_proxy.settings import client_error_detail
 
 from .models import RequestLogDetailResponse, RequestLogListResponse
 from .service import get_transaction_logs, list_request_logs
@@ -60,8 +60,7 @@ async def list_logs(
         )
     except Exception as exc:
         logger.error(f"Failed to list request logs: {exc}", exc_info=True)
-        detail = f"Database error: {exc}" if get_settings().verbose_client_errors else "Internal server error"
-        raise HTTPException(status_code=500, detail=detail)
+        raise HTTPException(status_code=500, detail=client_error_detail(f"Database error: {exc}"))
 
 
 @router.get("/{transaction_id}", response_model=RequestLogDetailResponse)
@@ -80,8 +79,7 @@ async def get_transaction(
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
         logger.error(f"Failed to get transaction logs for {transaction_id}: {exc}", exc_info=True)
-        detail = f"Database error: {exc}" if get_settings().verbose_client_errors else "Internal server error"
-        raise HTTPException(status_code=500, detail=detail)
+        raise HTTPException(status_code=500, detail=client_error_detail(f"Database error: {exc}"))
 
 
 __all__ = ["router"]
