@@ -86,14 +86,13 @@ def _write_local_env(
 
 def _ensure_docker_env(
     repo_path: str,
-    proxy_key: str,
     admin_key: str,
     sentry_enabled: bool = False,
     sentry_dsn: str = "",
 ) -> None:
     """Create or update .env with Docker onboard settings.
 
-    Sets both the proxy keys and the Postgres/Redis connection vars that
+    Sets the admin key and Postgres/Redis connection vars that
     Docker Compose requires at pull/start time.
     """
     env_path = f"{repo_path}/.env"
@@ -111,7 +110,6 @@ def _ensure_docker_env(
 
     pg_password = secrets.token_urlsafe(16)
     overrides: dict[str, str] = {
-        "PROXY_API_KEY": proxy_key,
         "ADMIN_API_KEY": admin_key,
         "AUTH_MODE": "both",
         "POLICY_SOURCE": "file",
@@ -275,7 +273,7 @@ def _onboard_local(
 
 
 def _onboard_docker(
-    console: Console, config, proxy_key: str, admin_key: str, sentry_enabled: bool = False, sentry_dsn: str = ""
+    console: Console, config, admin_key: str, sentry_enabled: bool = False, sentry_dsn: str = ""
 ) -> None:
     """Onboard in Docker mode: PostgreSQL + Redis via docker compose."""
     # 1. Ensure proxy files
@@ -284,7 +282,7 @@ def _onboard_docker(
 
     # 2. Write env config
     console.print("\n[blue]Configuring gateway...[/blue]")
-    _ensure_docker_env(config.repo_path, proxy_key, admin_key, sentry_enabled, sentry_dsn)
+    _ensure_docker_env(config.repo_path, admin_key, sentry_enabled, sentry_dsn)
 
     # 3. Start Docker stack
     console.print("\n[blue]Starting gateway...[/blue]")
@@ -334,7 +332,7 @@ def _onboard_docker(
         raise SystemExit(1)
 
     config.gateway_url = actual_gateway_url
-    config.api_key = proxy_key
+    config.api_key = None
     config.admin_key = admin_key
     config.mode = "docker"
     save_config(config, DEFAULT_CONFIG_PATH)
@@ -402,8 +400,7 @@ def onboard(use_docker: bool, proxy_ref: str | None, yes: bool):
             sentry_dsn = click.prompt("Sentry DSN", default="")
 
     if use_docker:
-        proxy_key = _generate_key("sk-luthien")
-        _onboard_docker(console, config, proxy_key, admin_key, sentry_enabled, sentry_dsn)
+        _onboard_docker(console, config, admin_key, sentry_enabled, sentry_dsn)
     else:
         _onboard_local(
             console,
