@@ -598,6 +598,7 @@ async def _handle_execution_streaming(
                 response_span.set_attribute("luthien.phase", "process_response")
                 response_span.set_attribute("luthien.streaming", True)
 
+                caught_exception = False
                 try:
                     with tracer.start_as_current_span("policy_execute"):
                         async for emitted in emissions:
@@ -612,6 +613,7 @@ async def _handle_execution_streaming(
                             accumulated_events.append(cast(MessageStreamEvent, emitted))
                             yield _format_sse_event(cast(MessageStreamEvent, emitted))
                 except Exception as e:
+                    caught_exception = True
                     # Headers may already be sent, so emit an in-stream error event.
                     policy_ctx.record_event(
                         "policy.execution.streaming_error",
@@ -626,16 +628,27 @@ async def _handle_execution_streaming(
                     error_event = _build_error_event(e, call_id)
                     yield _format_sse_event(error_event)
                 finally:
-                    if not emitted_any:
+                    if not emitted_any and not caught_exception:
                         io.ensure_request_recorded()
                         logger.warning(
-                            "[%s] Execution policy emitted zero streaming events; returning empty stream",
+                            "[%s] Execution policy emitted zero streaming events; yielding error event",
                             call_id,
                         )
                         policy_ctx.record_event(
                             "policy.execution.empty_stream",
                             {"summary": "Execution policy emitted zero streaming events"},
                         )
+                        final_status = 500
+                        # Yield an Anthropic-compatible error event so the client
+                        # gets a clear signal instead of a silent empty HTTP 200.
+                        empty_stream_error = _StreamErrorEvent(
+                            type="error",
+                            error=_ErrorDetail(
+                                type="api_error",
+                                message="Request blocked: policy evaluation unavailable. Contact your administrator.",
+                            ),
+                        )
+                        yield _format_sse_event(empty_stream_error)
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
 
                     # Validate streaming protocol compliance (log-and-warn).

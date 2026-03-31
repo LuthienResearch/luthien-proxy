@@ -894,6 +894,62 @@ class TestMidStreamErrorHandling:
         assert '"type": "api_connection_error"' in last_event
 
 
+class TestEmptyStreamErrorEvent:
+    """Tests that empty streams yield an error event instead of silent HTTP 200."""
+
+    @pytest.fixture
+    def mock_policy(self):
+        return _EmptyStreamPolicy()
+
+    @pytest.mark.asyncio
+    async def test_empty_stream_yields_error_event(self, mock_policy):
+        """When a policy emits zero streaming events, the client gets an error event."""
+        anthropic_body: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+
+        async def empty_stream(req, extra_headers=None):
+            # Yield nothing — simulates a backend that returns no events
+            return
+            yield  # make this an async generator
+
+        mock_client = MagicMock()
+        mock_client.stream = empty_stream
+
+        mock_fastapi_request = MagicMock()
+        mock_fastapi_request.headers = {}
+        mock_fastapi_request.method = "POST"
+        mock_fastapi_request.url = MagicMock()
+        mock_fastapi_request.url.path = "/v1/messages"
+        mock_fastapi_request.json = AsyncMock(return_value=anthropic_body)
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await process_anthropic_request(
+                request=mock_fastapi_request,
+                policy=mock_policy,
+                anthropic_client=mock_client,
+                emitter=MagicMock(),
+            )
+
+            events = []
+            async for chunk in response.body_iterator:
+                events.append(chunk)
+
+        # Should have at least one event: the error event
+        assert len(events) >= 1
+        last_event = events[-1]
+        assert "event: error" in last_event
+        assert '"type": "api_error"' in last_event
+        assert "policy evaluation unavailable" in last_event
+
+
 class TestHandleAnthropicError:
     """Tests for _handle_anthropic_error error classification.
 
@@ -979,6 +1035,24 @@ class _InvalidStreamCompletePolicy:
                 "usage": {"input_tokens": 0, "output_tokens": 0},
             }
         ]
+
+
+class _EmptyStreamPolicy:
+    """Hook-based policy that suppresses all streaming events (emits nothing)."""
+
+    async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
+        return request
+
+    async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
+        return response
+
+    async def on_anthropic_stream_event(
+        self, event: MessageStreamEvent, context: PolicyContext
+    ) -> list[MessageStreamEvent]:
+        return []  # suppress all events
+
+    async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
+        return []
 
 
 class _GenericErrorPolicy:
@@ -1268,6 +1342,46 @@ class TestExecutionPolicyRuntime:
         assert "event: error" in full_stream
         # Internal error details must not leak to clients
         assert "must emit streaming events" not in full_stream
+
+    @pytest.mark.asyncio
+    async def test_exception_before_any_events_yields_exactly_one_error(
+        self,
+        mock_request,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """When a policy raises before emitting any events, the client gets exactly one error event.
+
+        Regression: the finally block used to unconditionally yield a second
+        empty-stream error when emitted_any was False, even though the except
+        block had already yielded an error event for the exception.
+        """
+        mock_request.json = AsyncMock(
+            return_value={
+                "model": DEFAULT_TEST_MODEL,
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 64,
+                "stream": True,
+            }
+        )
+        policy = _GenericErrorPolicy()
+
+        response = await process_anthropic_request(
+            request=mock_request,
+            policy=policy,
+            anthropic_client=mock_anthropic_client,
+            emitter=mock_emitter,
+        )
+
+        assert isinstance(response, FastAPIStreamingResponse)
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+        full_stream = "".join(chunks)
+
+        # Count "event: error" occurrences — must be exactly one
+        error_count = full_stream.count("event: error")
+        assert error_count == 1, f"Expected exactly 1 error event but found {error_count}. Full stream: {full_stream!r}"
 
     @pytest.mark.asyncio
     async def test_anthropic_beta_header_forwarded_to_upstream_client(
