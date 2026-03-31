@@ -145,7 +145,7 @@ class TestPolicyList:
             mock.return_value.get_current_policy.return_value = ACTIVE_POLICY
             result = runner.invoke(cli, ["policy", "list"])
         assert "3 policies" in result.output
-        assert "1 presets" in result.output
+        assert "1 preset" in result.output
 
     def test_list_verbose_shows_class_refs(self):
         runner = CliRunner()
@@ -283,9 +283,7 @@ class TestPolicySet:
         with _patch_client() as mock:
             mock.return_value.list_policies.return_value = SAMPLE_POLICIES
             mock.return_value.set_policy.return_value = {"success": True}
-            result = runner.invoke(
-                cli, ["policy", "set", "StringReplacementPolicy", "--config", config_json]
-            )
+            result = runner.invoke(cli, ["policy", "set", "StringReplacementPolicy", "--config", config_json])
         assert result.exit_code == 0
         call_args = mock.return_value.set_policy.call_args
         assert call_args[0][1]["replacements"][0]["pattern"] == "foo"

@@ -1,5 +1,7 @@
 """Tests for gateway client."""
 
+import json
+
 import httpx
 import pytest
 
@@ -83,15 +85,11 @@ def test_set_policy(client, httpx_mock):
         url="http://localhost:8000/api/admin/policy/set",
         json={"success": True, "policy": "NoOpPolicy"},
     )
-    result = client.set_policy(
-        "luthien_proxy.policies.noop_policy:NoOpPolicy", {"key": "val"}
-    )
+    result = client.set_policy("luthien_proxy.policies.noop_policy:NoOpPolicy", {"key": "val"})
     assert result["success"] is True
 
     # Verify the POST body
     request = httpx_mock.get_request()
-    import json
-
     body = json.loads(request.content)
     assert body["policy_class_ref"] == "luthien_proxy.policies.noop_policy:NoOpPolicy"
     assert body["config"] == {"key": "val"}
@@ -103,8 +101,6 @@ def test_set_policy_default_config(client, httpx_mock):
         json={"success": True},
     )
     client.set_policy("luthien_proxy.policies.noop_policy:NoOpPolicy")
-    import json
-
     request = httpx_mock.get_request()
     body = json.loads(request.content)
     assert body["config"] == {}

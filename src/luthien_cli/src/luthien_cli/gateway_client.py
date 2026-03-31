@@ -29,9 +29,7 @@ class GatewayClient:
     ) -> dict[str, Any]:
         headers = self._admin_headers() if admin else {}
         try:
-            response = httpx.request(
-                method, f"{self.base_url}{path}", headers=headers, json=json, timeout=10.0
-            )
+            response = httpx.request(method, f"{self.base_url}{path}", headers=headers, json=json, timeout=10.0)
         except httpx.ConnectError:
             raise GatewayError(f"Cannot connect to gateway at {self.base_url}")
         except httpx.TimeoutException:
@@ -63,9 +61,7 @@ class GatewayClient:
         data = self._get("/api/admin/policy/list", admin=True)
         return data["policies"]
 
-    def set_policy(
-        self, policy_class_ref: str, config: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    def set_policy(self, policy_class_ref: str, config: dict[str, Any] | None = None) -> dict[str, Any]:
         return self._post(
             "/api/admin/policy/set",
             json={"policy_class_ref": policy_class_ref, "config": config or {}},

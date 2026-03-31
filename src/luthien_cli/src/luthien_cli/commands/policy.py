@@ -55,9 +55,7 @@ def _truncate(text: str, max_len: int = 40) -> str:
     return text[: max_len - 1] + "\u2026"
 
 
-def _policy_completions(
-    ctx: click.Context, param: click.Parameter, incomplete: str
-) -> list[str]:
+def _policy_completions(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
     """Shell completion callback for policy names."""
     try:
         client = _make_client()
@@ -97,8 +95,8 @@ def _interactive_pick(policies: list[dict], active_ref: str) -> int | None:
     if active_idx is not None:
         entries.append(_entry(policies[active_idx], highlight=True))
         menu_to_policy.append(active_idx)
-        entries.append("  ───────────────────────────────────")  # divider
-        menu_to_policy.append(-1)  # not selectable
+        entries.append("")  # empty line as divider (skipped by skip_empty_entries)
+        menu_to_policy.append(-1)  # not selectable (skipped)
 
     # Cursor starts on the first non-active policy (after the divider)
     first_other = len(entries)
@@ -201,10 +199,11 @@ def list_policies(verbose: bool):
             is_active = p["class_ref"] == active_ref
             marker = "[green]>[/green]" if is_active else " "
             name = _short_name(p["class_ref"])
-            name_style = f"[green]{name}[/green]" if is_active else name
             desc = _truncate(p.get("description", ""))
-            # Single compact line: marker + name padded + description
-            padded_name = f"{name_style:<30}" if not is_active else name_style.ljust(30)
+            # Pad the raw name before applying markup so alignment is correct
+            padded_name = name.ljust(30)
+            if is_active:
+                padded_name = f"[green]{padded_name}[/green]"
             console.print(f"    {marker} [bold]{padded_name}[/bold] [dim]{desc}[/dim]")
             if verbose:
                 console.print(f"      [dim]{p['class_ref']}[/dim]")
@@ -218,7 +217,9 @@ def list_policies(verbose: bool):
 
     n_core = len(core)
     n_preset = len(presets)
-    console.print(f"  [dim]{n_core} policies + {n_preset} presets  |  [green]>[/green] = active[/dim]")
+    policy_word = "policy" if n_core == 1 else "policies"
+    preset_word = "preset" if n_preset == 1 else "presets"
+    console.print(f"  [dim]{n_core} {policy_word} + {n_preset} {preset_word}  |  [green]>[/green] = active[/dim]")
     console.print()
 
 
@@ -237,16 +238,26 @@ def show(name: str | None):
 
     try:
         policies = client.list_policies()
-        active = client.get_current_policy()
     except GatewayError as e:
         console.print(f"[red]{e}[/red]")
         raise SystemExit(1)
 
-    active_ref = active.get("class_ref", "")
-
     if name is None:
+        try:
+            active = client.get_current_policy()
+        except GatewayError as e:
+            console.print(f"[red]{e}[/red]")
+            raise SystemExit(1)
+        active_ref = active.get("class_ref", "")
         class_ref = active_ref
     else:
+        # Best-effort: fetch active policy for the "(active)" label,
+        # but don't fail if the gateway is unreachable.
+        try:
+            active = client.get_current_policy()
+            active_ref = active.get("class_ref", "")
+        except GatewayError:
+            active_ref = ""
         class_ref = _resolve_class_ref(name, policies)
         if class_ref is None:
             console.print(f"[red]No policy found matching '{name}'[/red]")
