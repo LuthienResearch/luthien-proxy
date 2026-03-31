@@ -757,6 +757,28 @@ def export_session_markdown(session: SessionDetail) -> str:
     return "\n".join(lines)
 
 
+def export_session_jsonl(session: SessionDetail) -> str:
+    """Export a session as JSONL (one JSON object per turn).
+
+    Each line contains a turn with call_id, session_id, model,
+    request/response messages, and annotations.
+    """
+    lines: list[str] = []
+    for turn in session.turns:
+        record = {
+            "call_id": turn.call_id,
+            "session_id": session.session_id,
+            "timestamp": turn.timestamp,
+            "model": turn.model,
+            "request_messages": [m.model_dump(mode="json") for m in turn.request_messages],
+            "response_messages": [m.model_dump(mode="json") for m in turn.response_messages],
+            "annotations": [a.model_dump(mode="json") for a in turn.annotations],
+            "had_policy_intervention": turn.had_policy_intervention,
+        }
+        lines.append(json.dumps(record, default=str))
+    return "\n".join(lines)
+
+
 def _format_message_markdown(msg: ConversationMessage) -> str:
     """Format a single message as markdown."""
     type_labels = {
@@ -793,4 +815,5 @@ __all__ = [
     "fetch_session_list",
     "fetch_session_detail",
     "export_session_markdown",
+    "export_session_jsonl",
 ]
