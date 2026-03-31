@@ -12,8 +12,8 @@ from luthien_proxy.policies.parallel_rules_policy import (
     ParallelRulesConfig,
     ParallelRulesPolicy,
     Rule,
-    _RuleResult,
     _parse_rule_decision,
+    _RuleResult,
 )
 from luthien_proxy.policies.simple_policy import SimplePolicy
 from luthien_proxy.policy_core import AnthropicExecutionInterface
