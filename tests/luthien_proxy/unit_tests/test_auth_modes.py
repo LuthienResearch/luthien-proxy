@@ -220,3 +220,96 @@ class TestAuthModeBoth:
             )
 
         assert response.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# TestAuthWithNoProxyKey — api_key=None scenarios
+# ---------------------------------------------------------------------------
+
+
+class TestAuthWithNoProxyKey:
+    """Verify auth behavior when PROXY_API_KEY is not configured (api_key=None)."""
+
+    @pytest.fixture
+    def proxy_key_mode_no_key(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """App in proxy_key mode with no PROXY_API_KEY — should reject everything."""
+        app = create_app(
+            api_key=None,
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+            auth_mode=AuthMode.PROXY_KEY,
+        )
+        return app
+
+    @pytest.fixture
+    def both_mode_no_key(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """App in both mode with no PROXY_API_KEY — falls through to passthrough."""
+        app = create_app(
+            api_key=None,
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+            auth_mode=AuthMode.BOTH,
+        )
+        return app
+
+    @pytest.fixture
+    def passthrough_mode_no_key(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """App in passthrough mode with no PROXY_API_KEY."""
+        app = create_app(
+            api_key=None,
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+            auth_mode=AuthMode.PASSTHROUGH,
+        )
+        return app
+
+    def test_proxy_key_mode_rejects_all_when_no_key(self, proxy_key_mode_no_key):
+        """proxy_key mode with no PROXY_API_KEY rejects all requests (fail-closed)."""
+        with TestClient(proxy_key_mode_no_key) as client:
+            response = client.post(
+                "/v1/messages",
+                json=_MINIMAL_BODY,
+                headers={"Authorization": "Bearer sk-ant-some-key"},
+            )
+        assert response.status_code in (401, 403)
+
+    def test_both_mode_falls_through_to_passthrough_when_no_key(self, both_mode_no_key):
+        """both mode with no PROXY_API_KEY skips proxy-key check, uses passthrough.
+
+        The request may fail downstream (500) due to mock backend, but auth should pass.
+        """
+        with TestClient(both_mode_no_key, raise_server_exceptions=False) as client:
+            response = client.post(
+                "/v1/messages",
+                json=_MINIMAL_BODY,
+                headers={"Authorization": "Bearer sk-ant-some-key"},
+            )
+        assert response.status_code not in (401, 403)
+
+    def test_passthrough_mode_works_without_key(self, passthrough_mode_no_key):
+        """passthrough mode works normally without PROXY_API_KEY.
+
+        The request may fail downstream (500) due to mock backend, but auth should pass.
+        """
+        with TestClient(passthrough_mode_no_key, raise_server_exceptions=False) as client:
+            response = client.post(
+                "/v1/messages",
+                json=_MINIMAL_BODY,
+                headers={"Authorization": "Bearer sk-ant-some-key"},
+            )
+        assert response.status_code not in (401, 403)
+
+    def test_missing_auth_rejected_when_no_key(self, both_mode_no_key):
+        """Requests with no credentials are still rejected even without PROXY_API_KEY."""
+        with TestClient(both_mode_no_key) as client:
+            response = client.post(
+                "/v1/messages",
+                json=_MINIMAL_BODY,
+            )
+        assert response.status_code in (401, 403)

@@ -225,6 +225,11 @@ def create_app(
         else:
             logger.info("Upstream auth mode: passthrough — client credentials forwarded directly to Anthropic.")
 
+        if api_key is None and _resolved_mode == "proxy_key":
+            logger.warning("PROXY_API_KEY is not set but AUTH_MODE=proxy_key — all requests will be rejected")
+        elif api_key is None and _resolved_mode == "both":
+            logger.info("PROXY_API_KEY is not set — proxy-key auth unavailable, using passthrough only")
+
         # Check if request logging is enabled
         _enable_request_logging = get_settings().enable_request_logging
         if _enable_request_logging:

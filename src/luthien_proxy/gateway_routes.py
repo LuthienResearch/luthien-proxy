@@ -53,14 +53,14 @@ async def verify_token(
     is_bearer = bearer_token is not None
 
     if credential_manager is None:
-        if api_key and secrets.compare_digest(token, api_key):
+        if api_key is not None and secrets.compare_digest(token, api_key):
             return token
         raise HTTPException(status_code=401, detail="Invalid API key")
 
     auth_mode = credential_manager.config.auth_mode
 
     if auth_mode == AuthMode.PROXY_KEY:
-        if api_key and secrets.compare_digest(token, api_key):
+        if api_key is not None and secrets.compare_digest(token, api_key):
             return token
         raise HTTPException(status_code=401, detail="Invalid API key")
 
