@@ -617,6 +617,7 @@ async def _handle_execution_streaming(
                             "policy.execution.empty_stream",
                             {"summary": "Execution policy emitted zero streaming events"},
                         )
+                        final_status = 500
                         # Yield an Anthropic-compatible error event so the client
                         # gets a clear signal instead of a silent empty HTTP 200.
                         empty_stream_error = _StreamErrorEvent(
