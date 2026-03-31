@@ -183,9 +183,18 @@ def _show_results(
             textwrap.dedent(f"""\
                 [green bold]Gateway is running![/green bold]
 
+                [bold]What was installed:[/bold]
+                  [bold]luthien[/bold] CLI      — manage, configure, and interact with the proxy
+                  [bold]luthien-proxy[/bold]    — the gateway server itself
+
                 [bold]Gateway URL:[/bold]  {gateway_url}
                 [bold]Policy:[/bold]       OnboardingPolicy (welcome on first turn)
                 [bold]Mode:[/bold]         {mode}
+
+                [bold]Configuration:[/bold]
+                  CLI config:    [cyan]~/.luthien/config.toml[/cyan]
+                  Gateway .env:  [cyan]~/.luthien/luthien-proxy/.env[/cyan]
+                  View config:   [bold]luthien config[/bold]
 
                 [bold]Configure policies:[/bold]  {config_url}
 
