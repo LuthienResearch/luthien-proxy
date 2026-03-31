@@ -85,9 +85,9 @@ class TestGetCallEventsRoute:
 
     @pytest.mark.asyncio
     async def test_database_error(self):
-        """Test 500 error when database query fails."""
+        """Test 500 error when database query fails does not leak exception details."""
         mock_conn = AsyncMock()
-        mock_conn.fetch.side_effect = Exception("Database connection failed")
+        mock_conn.fetch.side_effect = Exception("Database connection failed at 10.0.0.5:5432")
 
         mock_pool = MagicMock()
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
@@ -96,7 +96,26 @@ class TestGetCallEventsRoute:
             await get_call_events("test-call-id", _=AUTH_TOKEN, db_pool=mock_pool)
 
         assert exc_info.value.status_code == 500
-        assert "Database error" in exc_info.value.detail
+        assert exc_info.value.detail == "Internal server error"
+        assert "connection" not in exc_info.value.detail.lower()
+        assert "10.0.0.5" not in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_database_error_verbose(self, monkeypatch):
+        """Test that VERBOSE_CLIENT_ERRORS=true exposes exception details."""
+        monkeypatch.setenv("VERBOSE_CLIENT_ERRORS", "true")
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch.side_effect = Exception("Database connection failed at 10.0.0.5:5432")
+
+        mock_pool = MagicMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_call_events("test-call-id", _=AUTH_TOKEN, db_pool=mock_pool)
+
+        assert exc_info.value.status_code == 500
+        assert "10.0.0.5" in exc_info.value.detail
 
 
 class TestGetCallDiffRoute:
@@ -153,9 +172,9 @@ class TestGetCallDiffRoute:
 
     @pytest.mark.asyncio
     async def test_database_error(self):
-        """Test 500 error when database query fails."""
+        """Test 500 error when database query fails does not leak exception details."""
         mock_conn = AsyncMock()
-        mock_conn.fetch.side_effect = Exception("Database connection failed")
+        mock_conn.fetch.side_effect = Exception("Database connection failed at 10.0.0.5:5432")
 
         mock_pool = MagicMock()
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
@@ -164,7 +183,9 @@ class TestGetCallDiffRoute:
             await get_call_diff("test-call-id", _=AUTH_TOKEN, db_pool=mock_pool)
 
         assert exc_info.value.status_code == 500
-        assert "Database error" in exc_info.value.detail
+        assert exc_info.value.detail == "Internal server error"
+        assert "connection" not in exc_info.value.detail.lower()
+        assert "10.0.0.5" not in exc_info.value.detail
 
 
 class TestListRecentCallsRoute:
@@ -224,9 +245,9 @@ class TestListRecentCallsRoute:
 
     @pytest.mark.asyncio
     async def test_database_error(self):
-        """Test 500 error when database query fails."""
+        """Test 500 error when database query fails does not leak exception details."""
         mock_conn = AsyncMock()
-        mock_conn.fetch.side_effect = Exception("Database connection failed")
+        mock_conn.fetch.side_effect = Exception("Database connection failed at 10.0.0.5:5432")
 
         mock_pool = MagicMock()
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
@@ -235,4 +256,6 @@ class TestListRecentCallsRoute:
             await list_recent_calls(limit=10, _=AUTH_TOKEN, db_pool=mock_pool)
 
         assert exc_info.value.status_code == 500
-        assert "Database error" in exc_info.value.detail
+        assert exc_info.value.detail == "Internal server error"
+        assert "connection" not in exc_info.value.detail.lower()
+        assert "10.0.0.5" not in exc_info.value.detail

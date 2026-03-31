@@ -86,6 +86,11 @@ class Settings(BaseSettings):
     # from killing the proxy they communicate through
     dogfood_mode: bool = False
 
+    # Include exception details in client-facing error responses.
+    # Useful for local debugging; should stay False in production to
+    # avoid leaking internal paths, DB connection strings, etc.
+    verbose_client_errors: bool = False
+
     # Sentry error tracking (opt-in: set SENTRY_ENABLED=true to enable)
     sentry_enabled: bool = False
     sentry_dsn: str = ""
@@ -108,4 +113,9 @@ def clear_settings_cache() -> None:
     get_settings.cache_clear()
 
 
-__all__ = ["Settings", "get_settings", "clear_settings_cache"]
+def client_error_detail(verbose_detail: str, generic_detail: str = "Internal server error") -> str:
+    """Pick the client-facing error message based on VERBOSE_CLIENT_ERRORS."""
+    return verbose_detail if get_settings().verbose_client_errors else generic_detail
+
+
+__all__ = ["Settings", "get_settings", "clear_settings_cache", "client_error_detail"]

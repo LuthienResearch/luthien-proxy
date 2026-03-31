@@ -223,8 +223,12 @@ class PolicyManager:
 
             except Exception as e:
                 logger.error(f"Failed to enable policy: {repr(e)}", exc_info=True)
+                from luthien_proxy.settings import client_error_detail  # noqa: PLC0415
+
                 return PolicyEnableResult(
-                    success=False, error=str(e), troubleshooting=self._generate_troubleshooting(e)
+                    success=False,
+                    error=client_error_detail(str(e), "Failed to enable policy."),
+                    troubleshooting=self._generate_troubleshooting(e),
                 )
 
     async def _persist_to_db(self, policy_class_ref: str, config: dict[str, Any], enabled_by: str) -> None:

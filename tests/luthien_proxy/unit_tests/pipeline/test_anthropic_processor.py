@@ -745,6 +745,7 @@ class TestBuildErrorEvent:
 
         assert event.get("type") == "error"
         assert event.get("error", {}).get("type") == "api_connection_error"
+        assert event.get("error", {}).get("message") == "An error occurred while connecting to the API."
 
     def test_builds_generic_error_event(self):
         """Generic exceptions produce a sanitized error event — internal details are not forwarded."""
@@ -754,8 +755,7 @@ class TestBuildErrorEvent:
 
         assert event.get("type") == "error"
         assert event.get("error", {}).get("type") == "api_error"
-        # Raw exception message must not leak to clients
-        assert "Something went wrong" not in event.get("error", {}).get("message", "")
+        assert event.get("error", {}).get("message") == "An internal error occurred while processing the request."
 
 
 class TestMidStreamErrorHandling:
@@ -1340,8 +1340,7 @@ class TestExecutionPolicyRuntime:
             chunks.append(chunk)
         full_stream = "".join(chunks)
         assert "event: error" in full_stream
-        # Internal error details must not leak to clients
-        assert "must emit streaming events" not in full_stream
+        assert '"type": "api_error"' in full_stream
 
     @pytest.mark.asyncio
     async def test_exception_before_any_events_yields_exactly_one_error(
