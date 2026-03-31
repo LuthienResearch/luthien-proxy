@@ -113,7 +113,7 @@ class TestTextBlockStreaming:
 
     @pytest.mark.asyncio
     async def test_text_replaced_with_text(self):
-        """Text block judged 'replace' emits replacement start + delta + stop."""
+        """Text block judged 'replace' emits delta + stop (start was already emitted)."""
         policy = _make_policy()
         ctx = _make_context()
 
@@ -121,15 +121,23 @@ class TestTextBlockStreaming:
         with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
             mock_judge.return_value = JudgeAction(action="replace", blocks=(replacement,))
 
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(0)), ctx)
+            # Start is emitted immediately
+            start_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(0)), ctx)
+            assert event_types(start_events) == ["content_block_start"]
+
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("secret", 0)), ctx)
 
+            # Stop triggers judge; replacement skips start since it was already emitted
             stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
             assert event_types(stop_events) == [
-                "content_block_start",
                 "content_block_delta",
                 "content_block_stop",
             ]
+            # Verify replacement text
+            delta = stop_events[0]
+            assert isinstance(delta, RawContentBlockDeltaEvent)
+            assert isinstance(delta.delta, TextDelta)
+            assert delta.delta.text == "[REDACTED]"
 
 
 # ============================================================================
@@ -341,6 +349,169 @@ class TestJudgeFailure:
                 if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
             ]
             assert any(JUDGE_UNAVAILABLE_WARNING in d.delta.text for d in warning_deltas)
+
+
+# ============================================================================
+# Protocol correctness: index tracking and block triplets
+# ============================================================================
+
+
+class TestStreamingProtocolCorrectness:
+    """Verify the streaming output satisfies Anthropic protocol invariants."""
+
+    @pytest.mark.asyncio
+    async def test_blocked_tool_has_correct_index(self):
+        """Blocked tool_use emits a replacement text block at the correct index."""
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="block")
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta("{}", 0)), ctx)
+
+            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            # All events in the replacement block should use index 0
+            for ev in stop_events:
+                assert ev.index == 0, f"Expected index 0, got {ev.index} on {ev.type}"
+
+    @pytest.mark.asyncio
+    async def test_judge_failure_block_tool_has_complete_triplet(self):
+        """on_error='block' + judge failure on tool_use emits start+delta+stop."""
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="block", judge_failed=True)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"cmd":"x"}', 0)), ctx)
+
+            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            types = event_types(stop_events)
+            assert types == ["content_block_start", "content_block_delta", "content_block_stop"]
+
+            # Verify the text explains what was blocked
+            delta = [e for e in stop_events if isinstance(e, RawContentBlockDeltaEvent)][0]
+            assert isinstance(delta.delta, TextDelta)
+            assert "Bash" in delta.delta.text
+            assert "blocked" in delta.delta.text
+
+    @pytest.mark.asyncio
+    async def test_text_then_blocked_tool_indices_sequential(self):
+        """After a text block passes, a blocked tool gets the next sequential index."""
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+
+        pass_action = JudgeAction(action="pass")
+        block_action = JudgeAction(action="block")
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = [pass_action, block_action]
+
+            # Text block at index 0
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("hello", 0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            # Tool block at index 1 — blocked
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta("{}", 1)), ctx)
+            tool_stop = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+            # Replacement text block should use index 1
+            for ev in tool_stop:
+                assert ev.index == 1, f"Expected index 1, got {ev.index} on {ev.type}"
+
+    @pytest.mark.asyncio
+    async def test_replacement_each_block_has_own_stop(self):
+        """When a tool is replaced with multiple blocks, each gets start+delta+stop."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        replacements = (
+            ReplacementBlock(type="text", text="first"),
+            ReplacementBlock(type="text", text="second"),
+        )
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="replace", blocks=replacements)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta("{}", 0)), ctx)
+
+            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            types = event_types(stop_events)
+            # Each replacement block: start + delta + stop
+            assert types == [
+                "content_block_start",
+                "content_block_delta",
+                "content_block_stop",
+                "content_block_start",
+                "content_block_delta",
+                "content_block_stop",
+            ]
+
+            # First block at index 0, second at index 1
+            starts = [e for e in stop_events if isinstance(e, RawContentBlockStartEvent)]
+            assert starts[0].index == 0
+            assert starts[1].index == 1
+
+    @pytest.mark.asyncio
+    async def test_text_replacement_no_duplicate_start(self):
+        """Text replacement must not emit a duplicate content_block_start."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        replacement = ReplacementBlock(type="text", text="[REDACTED]")
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="replace", blocks=(replacement,))
+
+            # Collect ALL events emitted to the client
+            all_events: list[MessageStreamEvent] = []
+
+            events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(0)), ctx)
+            all_events.extend(events)
+
+            events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("secret", 0)), ctx)
+            all_events.extend(events)
+
+            events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            all_events.extend(events)
+
+            # Should have exactly one start, one delta, one stop
+            types = event_types(all_events)
+            assert types == [
+                "content_block_start",
+                "content_block_delta",
+                "content_block_stop",
+            ]
+
+    @pytest.mark.asyncio
+    async def test_warning_index_accounts_for_all_emitted_blocks(self):
+        """Warning block index should follow all blocks sent to client, not just emitted_blocks."""
+        policy = _make_policy(on_error="pass")
+        ctx = _make_context()
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="pass", judge_failed=True)
+
+            # Two tool blocks that pass through
+            for tool_idx in range(2):
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(tool_idx)), ctx)
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta("{}", tool_idx)), ctx)
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(tool_idx)), ctx)
+
+            # Warning should be at index 2
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+            warning_starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+            assert len(warning_starts) == 1
+            assert warning_starts[0].index == 2
 
 
 # ============================================================================
