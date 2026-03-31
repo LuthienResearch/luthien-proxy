@@ -264,7 +264,11 @@ def show(name: str | None):
             console.print("[dim]Run [bold]luthien policy list[/bold] to see available policies.[/dim]")
             raise SystemExit(1)
 
-    p = next(p for p in policies if p["class_ref"] == class_ref)
+    p = next((p for p in policies if p["class_ref"] == class_ref), None)
+    if p is None:
+        console.print(f"[red]Active policy '{class_ref}' not found in policy list.[/red]")
+        console.print("[dim]Run [bold]luthien policy list[/bold] to see available policies.[/dim]")
+        raise SystemExit(1)
 
     body_parts = [f"[dim]{p['class_ref']}[/dim]"]
 

@@ -39,7 +39,10 @@ class GatewayClient:
             raise GatewayError("Authentication failed — check your admin_key")
         if response.status_code == 403:
             raise GatewayError("Forbidden — admin access required")
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            raise GatewayError(f"Gateway returned HTTP {response.status_code}: {e}") from e
         return response.json()
 
     def _get(self, path: str, admin: bool = False) -> dict[str, Any]:
