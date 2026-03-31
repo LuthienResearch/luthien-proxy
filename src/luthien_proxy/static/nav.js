@@ -15,48 +15,182 @@ document.addEventListener('alpine:init', () => {
         ],
         async init() {
             const navEl = this.$el;
+            // Sticky-yellow: once any request in this page session used an API key,
+            // the badge stays yellow until ALL traffic routes through OAuth.
+            // This avoids confusing badge flicker in "both" auth mode.
+            let sawApiKey = false;
+            let activeTooltip = null;
+            let activeBadge = null;
+
+            const positionTooltip = () => {
+                if (!activeTooltip || !activeBadge) return;
+                const infoBtn = activeBadge.querySelector('.nav-billing-info');
+                const anchor = infoBtn || activeBadge;
+                const rect = anchor.getBoundingClientRect();
+                // Position to the right of the ⓘ icon, with left-pointing caret
+                activeTooltip.style.top = (rect.top - 4) + 'px';
+                activeTooltip.style.left = (rect.right + 10) + 'px';
+                activeTooltip.style.right = 'auto';
+            };
+
+            const closeTooltip = () => {
+                if (activeTooltip) {
+                    activeTooltip.classList.remove('visible');
+                }
+            };
+
             const updateBadge = async () => {
-                // Show a billing mode badge so users know whether requests are billed
-                // to a server-side Anthropic API key or forwarded via Claude Pro/Max OAuth.
                 try {
                     const data = await fetch('/health').then(r => r.json());
-                    let badgeTitle = null;
-                    if (data.auth_mode === 'proxy_key' || data.last_credential_type === 'proxy_key_fallback') {
-                        badgeTitle =
-                            'Requests are billed to the server ANTHROPIC_API_KEY. ' +
-                            'To use your Claude Pro/Max subscription instead, ' +
-                            'remove ANTHROPIC_API_KEY from .env and restart the gateway.';
-                    } else if (data.last_credential_type === 'client_api_key') {
-                        badgeTitle =
-                            'Requests are billed to your Anthropic API key, not your Claude Pro/Max subscription. ' +
-                            'To use Claude Max instead, run: claude auth login';
+                    let badgeType = null; // 'warning' or 'ok'
+                    let badgeLabel = null;
+                    let tooltipText = null;
+
+                    const isApiKeyCredential =
+                        data.auth_mode === 'proxy_key' ||
+                        data.last_credential_type === 'proxy_key_fallback' ||
+                        data.last_credential_type === 'client_api_key';
+
+                    if (isApiKeyCredential) {
+                        sawApiKey = true;
                     }
+
+                    if (data.auth_mode === 'proxy_key') {
+                        badgeType = 'warning';
+                        badgeLabel = '\u26A0 API key billing';
+                        tooltipText =
+                            'Traffic is using an API key. You are being billed per token.';
+                    } else if (sawApiKey) {
+                        badgeType = 'warning';
+                        badgeLabel = '\u26A0 API key billing';
+                        if (data.last_credential_type === 'client_api_key') {
+                            tooltipText =
+                                'Traffic is using your Anthropic API key, not your Claude subscription. ' +
+                                'To use Claude Max instead, run: claude auth login';
+                        } else {
+                            tooltipText =
+                                'Some requests are billed to an API key. ' +
+                                'You are being billed per token for at least some traffic.';
+                        }
+                    } else if (
+                        data.last_credential_type === 'oauth' ||
+                        data.last_credential_type === 'oauth_via_api_key'
+                    ) {
+                        badgeType = 'ok';
+                        badgeLabel = '\u2714 Claude plan active';
+                        tooltipText =
+                            'Usage applies to your Claude subscription. No per-token charges.';
+                    }
+
                     const existing = navEl.querySelector('.nav-billing-badge');
-                    if (badgeTitle && !existing) {
-                        const badge = document.createElement('span');
-                        badge.className = 'nav-billing-badge';
-                        badge.textContent = '⚠ API billing';
-                        badge.title = badgeTitle;
-                        const navRight = navEl.querySelector('.nav-right');
-                        if (navRight) navRight.prepend(badge);
-                    } else if (badgeTitle && existing) {
-                        existing.title = badgeTitle;
-                    } else if (!badgeTitle && existing) {
-                        existing.remove();
+                    if (badgeType) {
+                        if (!existing) {
+                            const { badge, tip } = createBadgeElement(badgeType, badgeLabel, tooltipText);
+                            const navRight = navEl.querySelector('.nav-right');
+                            if (navRight) navRight.prepend(badge);
+                            document.body.appendChild(tip);
+                            activeBadge = badge;
+                            activeTooltip = tip;
+                        } else {
+                            existing.className = 'nav-billing-badge nav-billing-badge--' + badgeType;
+                            const label = existing.querySelector('.nav-billing-label');
+                            if (label) label.textContent = badgeLabel;
+                            if (activeTooltip) activeTooltip.textContent = tooltipText;
+                        }
+                    } else {
+                        if (existing) existing.remove();
+                        if (activeTooltip) {
+                            activeTooltip.remove();
+                            activeTooltip = null;
+                            activeBadge = null;
+                        }
                     }
                 } catch (_) {
                     // Health check failure is not fatal — nav still works without the badge.
                 }
             };
+
+            function createBadgeElement(type, label, tooltip) {
+                const badge = document.createElement('span');
+                badge.className = 'nav-billing-badge nav-billing-badge--' + type;
+                badge.setAttribute('tabindex', '0');
+                badge.setAttribute('role', 'status');
+
+                const labelSpan = document.createElement('span');
+                labelSpan.className = 'nav-billing-label';
+                labelSpan.textContent = label;
+                badge.appendChild(labelSpan);
+
+                const tipId = 'nav-billing-tip';
+
+                const infoBtn = document.createElement('span');
+                infoBtn.className = 'nav-billing-info';
+                // Solid filled ⓘ icon via inline SVG (no user input — static markup)
+                const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                svg.setAttribute('width', '14');
+                svg.setAttribute('height', '14');
+                svg.setAttribute('viewBox', '0 0 16 16');
+                svg.setAttribute('fill', 'currentColor');
+                const bg = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                bg.setAttribute('cx', '8'); bg.setAttribute('cy', '8'); bg.setAttribute('r', '8');
+                bg.setAttribute('opacity', '0.3');
+                const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                dot.setAttribute('cx', '8'); dot.setAttribute('cy', '4.5'); dot.setAttribute('r', '1.2');
+                const bar = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                bar.setAttribute('x', '7'); bar.setAttribute('y', '6.8');
+                bar.setAttribute('width', '2'); bar.setAttribute('height', '5');
+                bar.setAttribute('rx', '0.5');
+                svg.append(bg, dot, bar);
+                infoBtn.appendChild(svg);
+                infoBtn.setAttribute('role', 'button');
+                infoBtn.setAttribute('aria-label', 'Billing info');
+                infoBtn.setAttribute('aria-describedby', tipId);
+                infoBtn.setAttribute('tabindex', '0');
+                badge.appendChild(infoBtn);
+
+                const tip = document.createElement('span');
+                tip.className = 'nav-billing-tooltip';
+                tip.id = tipId;
+                tip.setAttribute('role', 'tooltip');
+                tip.textContent = tooltip;
+
+                infoBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const isVisible = tip.classList.contains('visible');
+                    closeTooltip();
+                    if (!isVisible) {
+                        positionTooltip();
+                        tip.classList.add('visible');
+                    }
+                });
+
+                infoBtn.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        infoBtn.click();
+                    }
+                });
+
+                return { badge, tip };
+            }
+
+            document.addEventListener('click', closeTooltip);
+            window.addEventListener('resize', positionTooltip);
+
             await updateBadge();
-            setInterval(updateBadge, 30000);
+            const intervalId = setInterval(updateBadge, 30000);
+            this.$cleanup(() => {
+                clearInterval(intervalId);
+                if (activeTooltip) activeTooltip.remove();
+                document.removeEventListener('click', closeTooltip);
+                window.removeEventListener('resize', positionTooltip);
+            });
         },
         isActive(href) {
             if (href === '/') return this.currentPath === '/';
             return this.currentPath.startsWith(href);
         },
         isAuthenticated() {
-            // Check if user has a session cookie (luthien_session)
             return document.cookie.split(';').some(cookie =>
                 cookie.trim().startsWith('luthien_session=')
             );
