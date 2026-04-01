@@ -118,6 +118,7 @@ def test_onboard_local_full_flow(tmp_path):
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open"),
+        patch("luthien_cli.commands.claude._exec_claude"),
     ):
         result = runner.invoke(cli, ["onboard"], input="y\nn\nq\n")
 
@@ -156,6 +157,7 @@ def test_onboard_docker_full_flow(tmp_path):
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_docker_ports", return_value={"GATEWAY_PORT": "9123"}),
         patch("luthien_cli.commands.onboard.webbrowser.open"),
+        patch("luthien_cli.commands.claude._exec_claude"),
     ):
         mock_run.return_value = MagicMock(returncode=0)
         result = runner.invoke(cli, ["onboard", "--docker"], input="y\nn\nq\n")
@@ -311,6 +313,7 @@ def test_onboard_shows_config_locations(tmp_path):
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open"),
+        patch("luthien_cli.commands.claude._exec_claude"),
     ):
         result = runner.invoke(cli, ["onboard"], input="y\nn\nq\n")
 
@@ -335,6 +338,7 @@ def test_onboard_shows_uninstall_instructions(tmp_path):
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open"),
+        patch("luthien_cli.commands.claude._exec_claude"),
     ):
         result = runner.invoke(cli, ["onboard"], input="y\nn\nq\n")
 
@@ -357,6 +361,7 @@ def test_onboard_opens_browser(tmp_path):
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open") as mock_browser,
+        patch("luthien_cli.commands.claude._exec_claude"),
     ):
         result = runner.invoke(cli, ["onboard"], input="y\nn\nq\n")
 
@@ -380,6 +385,7 @@ def test_onboard_local_with_proxy_ref(tmp_path):
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open"),
+        patch("luthien_cli.commands.claude._exec_claude"),
     ):
         result = runner.invoke(cli, ["onboard", "--proxy-ref", "abc123"], input="y\nn\nq\n")
 
@@ -416,6 +422,7 @@ def test_onboard_local_with_pr_ref(tmp_path):
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open"),
+        patch("luthien_cli.commands.claude._exec_claude"),
     ):
         result = runner.invoke(cli, ["onboard", "--proxy-ref", "#123"], input="y\nn\nq\n")
 

@@ -7,6 +7,27 @@ export PATH="$HOME/.local/bin:$PATH"
 
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
+# --- git (required for uv to fetch from GitHub) ------------------------
+# On macOS, /usr/bin/git is a shim that triggers the Xcode Command Line
+# Tools installer.  When stdin is piped (curl | bash) the interactive
+# dialog cannot run and `git` silently exits with status 1.  Detect this
+# early so users get a clear message instead of a cryptic uv failure.
+if ! git --version >/dev/null 2>&1; then
+    echo ""
+    echo "ERROR: A working 'git' is required but was not found."
+    if [ "$(uname -s)" = "Darwin" ]; then
+        echo ""
+        echo "On macOS, install the Xcode Command Line Tools first:"
+        echo ""
+        echo "    xcode-select --install"
+        echo ""
+        echo "After the installation finishes, re-run this script."
+    else
+        echo "Please install git and re-run this script."
+    fi
+    exit 1
+fi
+
 # --- uv ---------------------------------------------------------------
 if ! command_exists uv; then
     echo "Installing uv..."
@@ -21,7 +42,13 @@ fi
 
 # --- luthien-cli -------------------------------------------------------
 echo "Installing luthien-cli..."
-uv tool install --force --upgrade luthien-cli --from "git+https://github.com/LuthienResearch/luthien-proxy.git#subdirectory=src/luthien_cli"
+LUTHIEN_REF="${LUTHIEN_REF:-}"
+if [ -n "$LUTHIEN_REF" ]; then
+    GIT_SOURCE="git+https://github.com/LuthienResearch/luthien-proxy.git@${LUTHIEN_REF}#subdirectory=src/luthien_cli"
+else
+    GIT_SOURCE="git+https://github.com/LuthienResearch/luthien-proxy.git#subdirectory=src/luthien_cli"
+fi
+uv tool install --force --upgrade luthien-cli --from "$GIT_SOURCE"
 
 # --- onboard -----------------------------------------------------------
 # Restore stdin from the terminal so interactive prompts work

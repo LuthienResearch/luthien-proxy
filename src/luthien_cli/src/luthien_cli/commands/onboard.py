@@ -36,10 +36,24 @@ def _read_single_key() -> str:
     old_settings = termios.tcgetattr(fd)
     try:
         tty.setraw(fd)
-        ch = sys.stdin.read(1)
+        # Use os.read() — NOT sys.stdin.read().  sys.stdin is a
+        # buffered TextIOWrapper whose underlying BufferedReader calls
+        # os.read(fd, 8192), consuming ALL available bytes from the
+        # kernel input buffer into Python's userspace buffer.  Only the
+        # one requested character is returned; the rest are trapped.
+        # After os.execvpe replaces this process, that buffer is
+        # destroyed — the bytes are gone.  If they included terminal
+        # escape-sequence responses, Claude Code's Ink TUI will never
+        # see them, hang waiting for answers the terminal already sent,
+        # and freeze the terminal in raw mode.
+        #
+        # os.read(fd, 1) is a raw syscall: exactly one byte is removed
+        # from the kernel buffer.  Everything else stays for tcflush or
+        # the next process to consume.
+        ch = os.read(fd, 1)
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-    return ch
+    return ch.decode("ascii", errors="replace")
 
 
 ONBOARDING_PROMPT = (
@@ -232,10 +246,10 @@ def _show_results(
     except (KeyboardInterrupt, EOFError):
         return
 
-    # Launch Claude Code through the proxy with the onboarding prompt
-    from luthien_cli.commands.claude import _launch_claude
+    # Launch Claude Code through the proxy with the onboarding prompt.
+    from luthien_cli.commands.claude import _exec_claude
 
-    _launch_claude(console, [ONBOARDING_PROMPT])
+    _exec_claude(gateway_url, [ONBOARDING_PROMPT])
 
 
 def _onboard_local(
@@ -252,17 +266,18 @@ def _onboard_local(
     config.repo_path = ensure_gateway_venv(proxy_ref=proxy_ref, force_reinstall=True)
     console.print("[green]luthien CLI and proxy installed.[/green]")
 
-    # 2. Find a free port (needed before writing policy config)
+    # 2. Stop any existing gateway BEFORE selecting a port, so the old
+    #    gateway's port is freed and find_free_port can reclaim it.
+    stop_gateway(config.repo_path)
+
+    # 3. Find a free port (needed before writing policy config)
     gateway_port = find_free_port(8000)
     actual_gateway_url = f"http://localhost:{gateway_port}"
 
-    # 3. Write config files
+    # 4. Write config files
     console.print("\n[blue]Configuring gateway...[/blue]")
     _write_policy(config.repo_path, actual_gateway_url)
     _write_local_env(config.repo_path, admin_key, sentry_enabled, sentry_dsn)
-
-    # 4. Stop any existing gateway
-    stop_gateway(config.repo_path)
 
     # 5. Start the gateway
     console.print(f"\n[blue]Starting gateway on port {gateway_port}...[/blue]")
@@ -445,16 +460,10 @@ def onboard(use_docker: bool, proxy_ref: str | None, yes: bool):
 
     admin_key = _generate_key("admin")
 
+    # Sentry is off by default.  Users can enable it post-install by setting
+    # SENTRY_ENABLED=true and SENTRY_DSN=<dsn> in ~/.luthien/luthien-proxy/.env.
     sentry_enabled = False
     sentry_dsn = ""
-    if not yes:
-        console.print(
-            "\n[bold]Enable Sentry error tracking?[/bold]\n"
-            "[dim]Sends error reports (with sensitive data scrubbed) to help debug gateway issues.[/dim]"
-        )
-        sentry_enabled = click.confirm("Enable Sentry", default=False)
-        if sentry_enabled:
-            sentry_dsn = click.prompt("Sentry DSN", default="")
 
     if use_docker:
         _onboard_docker(console, config, admin_key, sentry_enabled, sentry_dsn, yes=yes)
