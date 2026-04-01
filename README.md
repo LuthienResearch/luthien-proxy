@@ -50,9 +50,19 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 
 ### Enforce arbitrary policies
 
-1. **Did it do what I asked?** — catch when it deletes a failing test instead of fixing it, claims "all tests pass" while suppressing errors, or rewrites code you didn't ask it to touch
-2. **Did it follow CLAUDE.md?** — enforce package standards (`uv add` not `pip install`), scope boundaries, de-slop AI writing tics
-3. **Did it do something suspicious?** — block `rm -rf`, `git push --force`, dropping database tables, `curl` to unknown URLs
+1. **Did it do what I asked?**
+   - Catch when it deletes a failing test instead of fixing it
+   - Flag "all tests pass" when it actually suppressed the error
+   - Detect code changes outside the requested scope
+2. **Did it follow CLAUDE.md?**
+   - Enforce package standards (`uv add` not `pip install`)
+   - Enforce scope boundaries
+   - De-slop AI writing tics
+3. **Did it do something suspicious?**
+   - Block `rm -rf` or recursive deletes
+   - Block `git push --force` to main
+   - Block database drops
+   - Block `curl` to unknown URLs
 
 Policies can run **sequentially** (evaluate before execution, can prevent the action) or **in parallel** (no added latency, flag violations after the fact). Each policy's mode is set in config.
 
