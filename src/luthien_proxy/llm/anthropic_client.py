@@ -69,6 +69,10 @@ class AnthropicClient:
     # Fields the Anthropic SDK accepts as named parameters to messages.create().
     # Any request field NOT in this set is forwarded via extra_body so the proxy
     # stays transparent as the API evolves (new fields, beta features, etc.).
+    #
+    # Note: "stream" is listed here so it doesn't leak into extra_body, but it
+    # is intentionally NOT forwarded as a kwarg — the caller controls streaming
+    # by choosing complete() vs stream(), not via a request field.
     _SDK_KNOWN_FIELDS: frozenset[str] = frozenset(
         {
             "model",
@@ -98,7 +102,7 @@ class AnthropicClient:
         kwargs: dict = {
             "model": request["model"],
             "messages": request["messages"],
-            "max_tokens": request.get("max_tokens", 4096),
+            "max_tokens": request["max_tokens"],
         }
 
         # Optional SDK-known fields — only include if present.

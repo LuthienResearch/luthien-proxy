@@ -38,6 +38,10 @@ logger = logging.getLogger(__name__)
 
 ANTHROPIC_API_BASE = "https://api.anthropic.com"
 
+# Shared httpx client for the passthrough proxy.  Reusing a single client
+# avoids creating and tearing down a connection pool on every request.
+_passthrough_client = httpx.AsyncClient(timeout=30.0)
+
 
 # === AUTH ===
 
@@ -169,6 +173,8 @@ async def anthropic_messages(
     )
 
 
+# IMPORTANT: This catch-all MUST be registered after /v1/messages to avoid
+# shadowing it.  FastAPI matches routes in registration order.
 @router.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def proxy_passthrough(
     request: Request,
@@ -193,14 +199,13 @@ async def proxy_passthrough(
     body = await request.body()
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            upstream_response = await client.request(
-                method=request.method,
-                url=upstream_url,
-                headers=forward_headers,
-                content=body if body else None,
-                params=dict(request.query_params),
-            )
+        upstream_response = await _passthrough_client.request(
+            method=request.method,
+            url=upstream_url,
+            headers=forward_headers,
+            content=body if body else None,
+            params=dict(request.query_params),
+        )
     except httpx.RequestError as e:
         logger.warning("Proxy passthrough error for /v1/%s: %s", path, repr(e))
         raise HTTPException(status_code=502, detail="Failed to connect to upstream API")

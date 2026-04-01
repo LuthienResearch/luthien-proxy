@@ -550,17 +550,13 @@ class TestProxyPassthrough:
 
     def test_passthrough_forwards_to_anthropic(self, mock_app):
         """Test that /v1/models is forwarded to Anthropic API."""
-        with patch("luthien_proxy.gateway_routes.httpx.AsyncClient") as MockHttpx:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.content = b'{"data": []}'
-            mock_response.headers = {"content-type": "application/json"}
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b'{"data": []}'
+        mock_response.headers = {"content-type": "application/json"}
 
-            mock_client_instance = AsyncMock()
-            mock_client_instance.request = AsyncMock(return_value=mock_response)
-            mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-            mock_client_instance.__aexit__ = AsyncMock(return_value=None)
-            MockHttpx.return_value = mock_client_instance
+        with patch("luthien_proxy.gateway_routes._passthrough_client") as mock_client:
+            mock_client.request = AsyncMock(return_value=mock_response)
 
             client = TestClient(mock_app, raise_server_exceptions=False)
             response = client.get(
@@ -569,8 +565,8 @@ class TestProxyPassthrough:
             )
 
             assert response.status_code == 200
-            mock_client_instance.request.assert_called_once()
-            call_kwargs = mock_client_instance.request.call_args.kwargs
+            mock_client.request.assert_called_once()
+            call_kwargs = mock_client.request.call_args.kwargs
             assert call_kwargs["url"] == "https://api.anthropic.com/v1/models"
 
     def test_passthrough_requires_auth(self, mock_app):
