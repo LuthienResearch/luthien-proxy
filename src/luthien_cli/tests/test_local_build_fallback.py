@@ -79,7 +79,7 @@ class TestLocalBuildFallback:
             ),
         ]
 
-        _onboard_docker(console, config, "sk-test", "admin-test")
+        _onboard_docker(console, config, "admin-test")
 
         # Verify clone was called
         mock_clone.assert_called_once()
@@ -109,7 +109,7 @@ class TestLocalBuildFallback:
         )
 
         with pytest.raises(SystemExit):
-            _onboard_docker(console, config, "sk-test", "admin-test")
+            _onboard_docker(console, config, "admin-test")
 
         printed = " ".join(str(call) for call in console.print.call_args_list)
         assert "luthien onboard" in printed
@@ -151,7 +151,7 @@ class TestLocalBuildFallback:
         ]
 
         with pytest.raises(SystemExit):
-            _onboard_docker(console, config, "sk-test", "admin-test")
+            _onboard_docker(console, config, "admin-test")
 
         printed = " ".join(str(call) for call in console.print.call_args_list)
         assert "luthien onboard" in printed
@@ -183,7 +183,7 @@ class TestLocalBuildFallback:
             stderr="",
         )
 
-        _onboard_docker(console, config, "sk-test", "admin-test")
+        _onboard_docker(console, config, "admin-test")
 
         printed = " ".join(str(call) for call in console.print.call_args_list)
         assert "Could not pull" not in printed

@@ -54,7 +54,7 @@ ONBOARDING_PROMPT = (
 ONBOARDING_POLICY_CLASS = "luthien_proxy.policies.onboarding_policy:OnboardingPolicy"
 
 _LOCAL_MODE_HINT = (
-    "\n[bold]Alternative:[/bold] Try local mode instead (no Docker required):\n  [green]luthien onboard[/green]"
+    "\n[bold]Alternative:[/bold] Try local mode instead (no Docker required):\n  [green]luthien onboard[/green] (without [cyan]--docker[/cyan])"
 )
 
 
