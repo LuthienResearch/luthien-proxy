@@ -340,7 +340,8 @@ def _onboard_docker(
                     text=True,
                 )
             if build_result.returncode != 0:
-                console.print(f"[red]docker compose build failed:[/red]\n{build_result.stderr}")
+                output = (build_result.stdout or "") + (build_result.stderr or "")
+                console.print(f"[red]docker compose build failed:[/red]\n{output.strip()}")
                 console.print(_LOCAL_MODE_HINT)
                 raise SystemExit(1)
             console.print("[green]Docker images built successfully.[/green]")
