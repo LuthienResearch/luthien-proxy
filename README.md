@@ -71,6 +71,15 @@ policy:
       Block 'git push --force' to main or master.
 ```
 
+> The `class:` field is a Python import path (`module:ClassName`). You can use any of the [built-in policies](#core-policies) or write your own.
+
+Policies run in one of two modes:
+
+- **Blocking** -- the policy evaluates the request *before* it reaches the API. If the judge says block, the action is prevented entirely.
+- **Monitoring** -- the policy evaluates *alongside* normal execution, checking after the fact whether the agent followed rules. This adds no latency to the main request.
+
+`ToolCallJudgePolicy` runs in blocking mode by default. For monitoring-only setups, see [docs/policies.md](docs/policies.md).
+
 ### Log everything passing through the proxy
 
 Every request and response between Claude Code and the Anthropic API is recorded automatically.
