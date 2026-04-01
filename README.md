@@ -48,14 +48,13 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 
 ## What can it do?
 
-### Enforce arbitrary rules/policies
+### Enforce arbitrary policies
 
-- **Block dangerous operations** - `rm -rf`, `git push --force`, dropping database tables
-- **Enforce package standards** - block `pip install`, suggest `uv add` instead
-- **Clean up AI writing tics** - remove em dashes, curly quotes, over-bulleting
-- **Enforce scope boundaries** - only allow changes to files mentioned in the request
+Luthien calls a fast judge model (like Haiku) to evaluate every request and response. Policies run in two modes:
 
-**Example: ToolCallJudgePolicy** - an LLM judge that evaluates every tool call:
+**1. Block dangerous actions** *(blocking mode — evaluates before execution)*
+
+The judge reviews tool calls *before* they run. If it says block, the action is prevented entirely.
 
 ```yaml
 # config/policy_config.yaml
@@ -71,14 +70,22 @@ policy:
       Block 'git push --force' to main or master.
 ```
 
+**2. Catch dishonest or inconsistent behavior** *(monitoring mode — evaluates in parallel, no added latency)*
+
+The judge checks *after the fact* whether the agent actually did what it claimed — running alongside normal execution so it doesn't slow anything down. Catches things like: agent says "all tests passing" but actually deleted the failing test, or claims a file was cleaned up but really just hid the error.
+
+```yaml
+policy:
+  class: "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
+  config:
+    model: "anthropic/claude-haiku-4-5-20251001"
+    instructions: >
+      Flag if the agent claims tests pass but modified test files instead of source files.
+      Flag if the agent says it fixed an error but just suppressed or caught the exception.
+      Flag if the agent deleted files it wasn't asked to touch.
+```
+
 > The `class:` field is a Python import path (`module:ClassName`). You can use any of the [built-in policies](#core-policies) or write your own.
-
-Policies run in one of two modes:
-
-- **Blocking** -- the policy evaluates the request *before* it reaches the API. If the judge says block, the action is prevented entirely.
-- **Monitoring** -- the policy evaluates *alongside* normal execution, checking after the fact whether the agent followed rules. This adds no latency to the main request.
-
-`ToolCallJudgePolicy` runs in blocking mode by default. For monitoring-only setups, see [docs/policies.md](docs/policies.md).
 
 ### Log everything passing through the proxy
 
