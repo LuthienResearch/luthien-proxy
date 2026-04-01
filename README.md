@@ -62,8 +62,8 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
-    model: "openai/gpt-4o-mini"
-    probability_threshold: 0.6  # block if judge confidence >= 60%
+    model: "anthropic/claude-haiku-4-5-20251001"  # fast + cheap; swap for a larger model if your rules need deeper reasoning
+    probability_threshold: 0.6  # block if judge confidence >= 60% (confidence = next-token probability of "BLOCK" vs "ALLOW")
     judge_instructions: >
       Block any 'pip install' commands. Suggest 'uv add' instead.
       Block 'rm -rf' or any recursive delete on project directories.
@@ -166,7 +166,7 @@ ADMIN_API_KEY=admin-dev-key          # API key for admin/policy management UI (H
 ```bash
 # Only needed if NOT using Claude Pro/Max OAuth passthrough
 ANTHROPIC_API_KEY=your_anthropic_api_key_here  # optional — per-token billing, see warning above
-OPENAI_API_KEY=your_openai_api_key_here        # optional — needed for OpenAI-format judge policies
+OPENAI_API_KEY=your_openai_api_key_here        # optional — needed if using OpenAI-format judge models
 ```
 
 ### Core Infrastructure
@@ -197,7 +197,7 @@ POLICY_CONFIG=./config/policy_config.yaml
 
 ```bash
 # Configuration for judge-based policies (ToolCallJudgePolicy)
-LLM_JUDGE_MODEL=openai/gpt-4                         # Model for judge
+LLM_JUDGE_MODEL=anthropic/claude-haiku-4-5-20251001   # Model for judge
 LLM_JUDGE_API_BASE=http://localhost:11434/v1         # API base URL
 LLM_JUDGE_API_KEY=your_judge_api_key                 # API key for judge
 ```
@@ -214,8 +214,8 @@ Example policy configuration:
 policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
-    model: "openai/gpt-4o-mini"
-    probability_threshold: 0.6  # block if judge confidence >= 60% (higher = more permissive)
+    model: "anthropic/claude-haiku-4-5-20251001"  # fast + cheap; swap for a larger model if your rules need deeper reasoning
+    probability_threshold: 0.6  # block if judge confidence >= 60% (confidence = next-token probability of "BLOCK" vs "ALLOW")
     temperature: 0.0
     max_tokens: 256
 ```
