@@ -8,6 +8,7 @@ automatic get_config() for Pydantic-based configs.
 from __future__ import annotations
 
 from collections.abc import MutableMapping, MutableSequence, MutableSet
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel
@@ -17,6 +18,21 @@ if TYPE_CHECKING:
     from luthien_proxy.types import RawHttpRequest
 
 T = TypeVar("T", bound=BaseModel)
+
+
+@dataclass(frozen=True)
+class JudgeCredential:
+    """Credential resolved for judge LLM calls.
+
+    Attributes:
+        value: The credential string (API key or OAuth token).
+        is_bearer: True when the credential came from an Authorization: Bearer
+            header (i.e. an OAuth token that must be forwarded via the same
+            header type, not via x-api-key).
+    """
+
+    value: str
+    is_bearer: bool = False
 
 
 class BasePolicy:
@@ -121,34 +137,47 @@ class BasePolicy:
         return config
 
     @staticmethod
-    def _extract_passthrough_key(raw_http_request: "RawHttpRequest | None") -> str | None:
-        """Extract the upstream API key from the incoming request headers.
+    def _extract_passthrough_key(raw_http_request: "RawHttpRequest | None") -> JudgeCredential | None:
+        """Extract the upstream credential from the incoming request headers.
 
         Checks Authorization (Bearer) then x-api-key. Returns None if absent.
-        Used to forward the client's own key to judge LLM calls.
+        The transport header determines credential type: Bearer tokens are
+        OAuth and must be forwarded via Authorization header, not x-api-key.
         """
         if raw_http_request is None:
             return None
         headers = raw_http_request.headers
         auth = headers.get("authorization", "")
         if auth.lower().startswith("bearer "):
-            return auth[7:] or None
-        return headers.get("x-api-key") or None
+            value = auth[7:] or None
+            if value is None:
+                return None
+            return JudgeCredential(value=value, is_bearer=True)
+        x_api_key = headers.get("x-api-key") or None
+        if x_api_key is None:
+            return None
+        return JudgeCredential(value=x_api_key, is_bearer=False)
 
-    def _resolve_judge_api_key(
+    def _resolve_judge_credential(
         self,
         context: "PolicyContext",
         explicit_key: str | None,
         fallback_key: str | None,
-    ) -> str | None:
-        """Resolve the API key for judge LLM calls.
+    ) -> JudgeCredential | None:
+        """Resolve the credential for judge LLM calls.
 
         Priority: explicit per-policy key → passthrough (client's key) → server fallback.
+        Explicit and fallback keys are plain API keys (is_bearer=False).
+        Passthrough preserves the original transport type.
         """
         if explicit_key:
-            return explicit_key
+            return JudgeCredential(value=explicit_key, is_bearer=False)
         passthrough = self._extract_passthrough_key(context.raw_http_request)
-        return passthrough or fallback_key
+        if passthrough is not None:
+            return passthrough
+        if fallback_key:
+            return JudgeCredential(value=fallback_key, is_bearer=False)
+        return None
 
 
-__all__ = ["BasePolicy"]
+__all__ = ["BasePolicy", "JudgeCredential"]

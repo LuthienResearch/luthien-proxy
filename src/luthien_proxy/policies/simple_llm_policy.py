@@ -186,11 +186,21 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         (returning "pass" or "block") so callers never handle None.
         """
         try:
+            credential = self._resolve_judge_credential(context, self._config.api_key, self._fallback_api_key)
+            # OAuth tokens must go via Authorization header, not x-api-key
+            if credential is not None and credential.is_bearer:
+                judge_api_key = None
+                judge_extra_headers = {"authorization": f"Bearer {credential.value}"}
+            else:
+                judge_api_key = credential.value if credential is not None else None
+                judge_extra_headers = None
+
             result = await call_simple_llm_judge(
                 self._config,
                 descriptor,
                 tuple(emitted_blocks),
-                api_key=self._resolve_judge_api_key(context, self._config.api_key, self._fallback_api_key),
+                api_key=judge_api_key,
+                extra_headers=judge_extra_headers,
             )
             context.record_event(
                 "policy.simple_llm.judge_result",

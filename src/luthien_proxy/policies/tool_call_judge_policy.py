@@ -390,12 +390,22 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
 
         # Call judge with fail-secure error handling
         try:
+            credential = self._resolve_judge_credential(context, self._config.api_key, self._fallback_api_key)
+            # OAuth tokens must go via Authorization header, not x-api-key
+            if credential is not None and credential.is_bearer:
+                judge_api_key = None
+                judge_extra_headers = {"authorization": f"Bearer {credential.value}"}
+            else:
+                judge_api_key = credential.value if credential is not None else None
+                judge_extra_headers = None
+
             judge_result = await call_judge(
                 name,
                 arguments,
                 self._config,
                 self._judge_instructions,
-                api_key=self._resolve_judge_api_key(context, self._config.api_key, self._fallback_api_key),
+                api_key=judge_api_key,
+                extra_headers=judge_extra_headers,
             )
         except Exception as exc:
             logger.error(
