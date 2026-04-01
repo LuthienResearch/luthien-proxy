@@ -308,9 +308,9 @@ class TestGatewayAuthAndClientResolution:
             )
             mock_cache.get_client.assert_called_once_with("my-anthropic-token", auth_type="auth_token", base_url=None)
 
-    def test_passthrough_bearer_with_api_key_prefix_creates_api_key_client(self, mock_app):
-        """In passthrough mode, API keys via Bearer header create api_key client.
-        API keys are always sent via api_key regardless of transport header."""
+    def test_passthrough_bearer_with_api_key_prefix_creates_auth_token_client(self, mock_app):
+        """In passthrough mode, Bearer transport is authoritative — even if the token
+        looks like an API key, it's treated as auth_token because Bearer said so."""
         app, _, credential_manager, _ = mock_app
         credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
 
@@ -330,7 +330,9 @@ class TestGatewayAuthAndClientResolution:
                 },
                 headers={"Authorization": "Bearer sk-ant-api03-test-key"},
             )
-            mock_cache.get_client.assert_called_once_with("sk-ant-api03-test-key", auth_type="api_key", base_url=None)
+            mock_cache.get_client.assert_called_once_with(
+                "sk-ant-api03-test-key", auth_type="auth_token", base_url=None
+            )
 
     def test_passthrough_api_key_creates_api_key_client(self, mock_app):
         """In passthrough mode, an x-api-key credential creates an api_key client."""
@@ -451,8 +453,8 @@ class TestGatewayAuthAndClientResolution:
             assert deps.last_credential_info["type"] == "client_api_key"
             assert "timestamp" in deps.last_credential_info
 
-    def test_passthrough_x_api_key_non_anthropic_records_oauth(self, mock_app):
-        """In passthrough mode, x-api-key with non-Anthropic token records oauth_via_api_key."""
+    def test_passthrough_x_api_key_non_anthropic_records_client_api_key(self, mock_app):
+        """In passthrough mode, any x-api-key token records client_api_key (transport header is authoritative)."""
         app, _, credential_manager, deps = mock_app
         credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
         deps.last_credential_info = {}
@@ -473,7 +475,7 @@ class TestGatewayAuthAndClientResolution:
                 },
                 headers={"x-api-key": "oauth-token-not-sk-ant"},
             )
-            assert deps.last_credential_info["type"] == "oauth_via_api_key"
+            assert deps.last_credential_info["type"] == "client_api_key"
             assert "timestamp" in deps.last_credential_info
 
     def test_passthrough_x_api_key_anthropic_records_client_api_key(self, mock_app):

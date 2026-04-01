@@ -9,7 +9,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from luthien_proxy.credential_manager import AuthMode, CredentialManager, is_anthropic_api_key
+from luthien_proxy.credential_manager import AuthMode, CredentialManager
 from luthien_proxy.dependencies import (
     get_anthropic_client,
     get_anthropic_policy,
@@ -114,19 +114,14 @@ async def resolve_anthropic_client(
         await _record_credential_type("client_api_key")
         return await anthropic_client_cache.get_client(explicit_key, auth_type="api_key", base_url=base_url)
 
-    # Passthrough: forward the request credential to Anthropic
+    # Passthrough: forward the request credential to Anthropic.
+    # The transport header is authoritative: Bearer = OAuth, x-api-key = API key.
     matches_proxy_key = api_key is not None and secrets.compare_digest(token, api_key)
     use_passthrough = not matches_proxy_key or auth_mode == AuthMode.PASSTHROUGH
     if use_passthrough:
-        # OAuth tokens arrive via Bearer header and are not Anthropic API keys.
-        # In passthrough mode, x-api-key tokens that don't look like Anthropic
-        # API keys (sk-ant-*) are also treated as OAuth tokens — Claude Code
-        # may send OAuth tokens via either header depending on configuration.
-        if not is_anthropic_api_key(token):
-            cred_type = "oauth" if is_bearer else "oauth_via_api_key"
-            await _record_credential_type(cred_type)
-            auth_type = "auth_token" if is_bearer else "api_key"
-            return await anthropic_client_cache.get_client(token, auth_type=auth_type, base_url=base_url)
+        if is_bearer:
+            await _record_credential_type("oauth")
+            return await anthropic_client_cache.get_client(token, auth_type="auth_token", base_url=base_url)
         await _record_credential_type("client_api_key")
         return await anthropic_client_cache.get_client(token, auth_type="api_key", base_url=base_url)
 
