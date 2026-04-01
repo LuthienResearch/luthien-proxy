@@ -282,6 +282,28 @@ class TestCreateApp:
         mock_redis_client.close.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_passthrough_client_closed_on_shutdown(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """_passthrough_client.aclose() is called during gateway shutdown."""
+        from unittest.mock import AsyncMock, patch
+
+        app = create_app(
+            api_key="test-api-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        mock_client = AsyncMock()
+        mock_client.aclose = AsyncMock()
+
+        with patch("luthien_proxy.main._passthrough_client", mock_client):
+            with TestClient(app):
+                pass
+
+        mock_client.aclose.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_create_app_routes_included(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Test that all expected routes are included."""
         app = create_app(
