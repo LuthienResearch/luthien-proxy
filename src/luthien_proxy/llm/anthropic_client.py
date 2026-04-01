@@ -156,6 +156,11 @@ class AnthropicClient:
     ) -> AnthropicResponse:
         """Get complete response from Anthropic API.
 
+        Uses streaming internally and accumulates the final message.
+        Some models (e.g. Opus) require streaming — using messages.stream()
+        for all models avoids 400/500 errors for models that reject
+        non-streaming requests, while returning the same AnthropicResponse.
+
         Args:
             request: Anthropic Messages API request.
             extra_headers: Additional headers to forward to the API (e.g. anthropic-beta).
@@ -170,7 +175,8 @@ class AnthropicClient:
             kwargs = self._prepare_request_kwargs(request)
             if extra_headers:
                 kwargs["extra_headers"] = extra_headers
-            message = await self._client.messages.create(**kwargs)
+            async with self._client.messages.stream(**kwargs) as stream:
+                message = await stream.get_final_message()
             return self._message_to_response(message)
 
     async def stream(

@@ -131,6 +131,20 @@ class TestAnthropicClientInit:
         assert client._client.api_key == "test-api-key"
 
 
+def _mock_stream_for_message(mock_async_client: AsyncMock, message: Message) -> None:
+    """Set up mock_async_client.messages.stream to return a context manager
+    whose get_final_message() resolves to the given Message.
+
+    complete() now uses messages.stream() internally (some models like Opus
+    require streaming), so all complete() tests need this mock pattern.
+    """
+    mock_stream = MagicMock()
+    mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+    mock_stream.__aexit__ = AsyncMock(return_value=None)
+    mock_stream.get_final_message = AsyncMock(return_value=message)
+    mock_async_client.messages.stream = MagicMock(return_value=mock_stream)
+
+
 class TestAnthropicClientComplete:
     """Test AnthropicClient.complete() method."""
 
@@ -140,7 +154,7 @@ class TestAnthropicClientComplete:
         client = AnthropicClient(api_key="test-key")
 
         mock_async_client = AsyncMock()
-        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        _mock_stream_for_message(mock_async_client, sample_message)
         client._client = mock_async_client
 
         result = await client.complete(sample_request)
@@ -154,8 +168,8 @@ class TestAnthropicClientComplete:
         assert result["content"][0]["type"] == "text"
         assert result["content"][0]["text"] == "Hi there!"
 
-        mock_async_client.messages.create.assert_called_once()
-        call_kwargs = mock_async_client.messages.create.call_args.kwargs
+        mock_async_client.messages.stream.assert_called_once()
+        call_kwargs = mock_async_client.messages.stream.call_args.kwargs
         assert call_kwargs["model"] == DEFAULT_TEST_MODEL
         assert call_kwargs["max_tokens"] == 100
         assert len(call_kwargs["messages"]) == 1
@@ -172,12 +186,12 @@ class TestAnthropicClientComplete:
         )
 
         mock_async_client = AsyncMock()
-        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        _mock_stream_for_message(mock_async_client, sample_message)
         client._client = mock_async_client
 
         await client.complete(request)
 
-        call_kwargs = mock_async_client.messages.create.call_args.kwargs
+        call_kwargs = mock_async_client.messages.stream.call_args.kwargs
         assert call_kwargs["system"] == "You are a helpful assistant."
 
     @pytest.mark.asyncio
@@ -195,12 +209,12 @@ class TestAnthropicClientComplete:
         )
 
         mock_async_client = AsyncMock()
-        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        _mock_stream_for_message(mock_async_client, sample_message)
         client._client = mock_async_client
 
         await client.complete(request)
 
-        call_kwargs = mock_async_client.messages.create.call_args.kwargs
+        call_kwargs = mock_async_client.messages.stream.call_args.kwargs
         assert call_kwargs["temperature"] == 0.7
         assert call_kwargs["top_p"] == 0.9
         assert call_kwargs["top_k"] == 40
@@ -218,12 +232,12 @@ class TestAnthropicClientComplete:
         )
 
         mock_async_client = AsyncMock()
-        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        _mock_stream_for_message(mock_async_client, sample_message)
         client._client = mock_async_client
 
         await client.complete(request)
 
-        call_kwargs = mock_async_client.messages.create.call_args.kwargs
+        call_kwargs = mock_async_client.messages.stream.call_args.kwargs
         assert "temperature" not in call_kwargs
 
     @pytest.mark.asyncio
@@ -238,12 +252,12 @@ class TestAnthropicClientComplete:
         )
 
         mock_async_client = AsyncMock()
-        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        _mock_stream_for_message(mock_async_client, sample_message)
         client._client = mock_async_client
 
         await client.complete(request)
 
-        call_kwargs = mock_async_client.messages.create.call_args.kwargs
+        call_kwargs = mock_async_client.messages.stream.call_args.kwargs
         assert call_kwargs["thinking"] == {"type": "enabled", "budget_tokens": 10000}
 
     @pytest.mark.asyncio
@@ -264,7 +278,7 @@ class TestAnthropicClientComplete:
             ),
         )
         mock_async_client = AsyncMock()
-        mock_async_client.messages.create = AsyncMock(return_value=message_with_cache)
+        _mock_stream_for_message(mock_async_client, message_with_cache)
         client._client = mock_async_client
 
         result = await client.complete(sample_request)
@@ -278,7 +292,7 @@ class TestAnthropicClientComplete:
     ):
         client = AnthropicClient(api_key="test-key")
         mock_async_client = AsyncMock()
-        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        _mock_stream_for_message(mock_async_client, sample_message)
         client._client = mock_async_client
 
         result = await client.complete(sample_request)
@@ -391,12 +405,12 @@ class TestAnthropicClientStream:
         }
 
         mock_async_client = AsyncMock()
-        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        _mock_stream_for_message(mock_async_client, sample_message)
         client._client = mock_async_client
 
         await client.complete(request)
 
-        call_kwargs = mock_async_client.messages.create.call_args.kwargs
+        call_kwargs = mock_async_client.messages.stream.call_args.kwargs
         assert "extra_body" in call_kwargs
         assert call_kwargs["extra_body"]["output_config"] == {"format": {"type": "json"}}
         assert call_kwargs["extra_body"]["service_tier"] == "auto"
@@ -412,10 +426,10 @@ class TestAnthropicClientStream:
         )
 
         mock_async_client = AsyncMock()
-        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        _mock_stream_for_message(mock_async_client, sample_message)
         client._client = mock_async_client
 
         await client.complete(request)
 
-        call_kwargs = mock_async_client.messages.create.call_args.kwargs
+        call_kwargs = mock_async_client.messages.stream.call_args.kwargs
         assert "extra_body" not in call_kwargs
