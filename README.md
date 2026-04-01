@@ -63,7 +63,7 @@ policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
     model: "anthropic/claude-haiku-4-5-20251001"  # swap for a larger model if needed
-    probability_threshold: 0.6  # block when judge rates risk at >= 0.6 (higher = more permissive)
+    probability_threshold: 0.6  # block when judge LLM's subjective risk score >= 0.6 (higher = more permissive)
     judge_instructions: >
       Block any 'pip install' commands. Suggest 'uv add' instead.
       Block 'rm -rf' or any recursive delete on project directories.
@@ -213,7 +213,7 @@ policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
     model: "anthropic/claude-haiku-4-5-20251001"  # swap for a larger model if needed
-    probability_threshold: 0.6  # block when judge rates risk at >= 0.6 (higher = more permissive)
+    probability_threshold: 0.6  # block when judge LLM's subjective risk score >= 0.6 (higher = more permissive)
     temperature: 0.0
     max_tokens: 256
 ```
