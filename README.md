@@ -199,8 +199,7 @@ POLICY_CONFIG=./config/policy_config.yaml
 ```bash
 # Configuration for judge-based policies (ToolCallJudgePolicy)
 LLM_JUDGE_MODEL=anthropic/claude-haiku-4-5-20251001   # Model for judge
-LLM_JUDGE_API_KEY=your_judge_api_key                 # API key for judge
-# LLM_JUDGE_API_BASE=http://localhost:11434/v1       # only needed for self-hosted/proxy endpoints
+LLM_JUDGE_API_KEY=your_judge_api_key                 # optional — only if judge needs a different key than the client's
 ```
 
 See `.env.example` for all available options and defaults.
