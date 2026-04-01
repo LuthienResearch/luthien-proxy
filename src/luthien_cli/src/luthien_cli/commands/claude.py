@@ -35,6 +35,20 @@ def _exec_claude(gateway_url: str, extra_args: list[str] | None = None) -> None:
     print("Tip: run luthien commands with ! such as !luthien status, !luthien logs, !luthien up, and !luthien down")
     sys.stdout.flush()
 
+    # When launched via `curl | bash`, the shell redirect `</dev/tty`
+    # opens /dev/tty as O_RDONLY for fd 0.  Bun's kevent-based input
+    # polling needs a read-write fd.  Reopen /dev/tty as O_RDWR and
+    # replace only fd 0 — leave fd 1/2 alone since they are already
+    # proper pty fds and dup2'ing /dev/tty onto them breaks Bun's
+    # kqueue (EINVAL on the indirect /dev/tty device node).
+    try:
+        tty_fd = os.open("/dev/tty", os.O_RDWR)
+        if tty_fd != 0:
+            os.dup2(tty_fd, 0)
+            os.close(tty_fd)
+    except OSError:
+        pass  # not a terminal — best effort
+
     args = ["claude", *(extra_args or [])]
     os.execvpe("claude", args, env)
 
