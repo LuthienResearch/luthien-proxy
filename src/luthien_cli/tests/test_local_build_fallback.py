@@ -83,11 +83,12 @@ class TestLocalBuildFallback:
 
         # Verify clone was called
         mock_clone.assert_called_once()
-        # Verify config.repo_path was updated to clone dir
-        assert config.repo_path == str(clone_dir)
-        # Verify build was run
+        # repo_path stays on the managed artifact dir (not the clone)
+        assert config.repo_path == str(tmp_path)
+        # Verify build was run against the clone dir
         build_call = mock_run.call_args_list[1]
         assert build_call[0][0] == ["docker", "compose", "build"]
+        assert build_call[1]["cwd"] == str(clone_dir)
 
     @patch("luthien_cli.commands.onboard.click.confirm", return_value=False)
     @patch("luthien_cli.commands.onboard.subprocess.run")

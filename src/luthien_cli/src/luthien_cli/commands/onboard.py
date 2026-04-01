@@ -287,7 +287,13 @@ def _onboard_local(
 
 
 def _onboard_docker(
-    console: Console, config, admin_key: str, sentry_enabled: bool = False, sentry_dsn: str = ""
+    console: Console,
+    config,
+    admin_key: str,
+    sentry_enabled: bool = False,
+    sentry_dsn: str = "",
+    *,
+    yes: bool = False,
 ) -> None:
     """Onboard in Docker mode: PostgreSQL + Redis via docker compose."""
     # 1. Ensure proxy files
@@ -317,25 +323,23 @@ def _onboard_docker(
         console.print(f"[dim]{(pull_result.stderr or '').strip()}[/dim]")
         console.print()
 
-        if click.confirm(
+        if yes or click.confirm(
             "Would you like to build the Docker images locally instead? (requires git and takes a few minutes)",
             default=True,
         ):
             clone_path = ensure_repo_clone()
-            # Intentionally call _ensure_docker_env a second time: the first
-            # call (above) wrote env vars into config.repo_path (the managed
-            # artifact directory), but the local-build fallback switches to
-            # clone_path which is a full git clone.  Docker Compose reads .env
-            # from its working directory, so we must re-write the env file
-            # into the clone directory.
+            # Build images from the clone, but keep config.repo_path on the
+            # managed artifact directory.  The clone has the full source tree
+            # needed for `docker compose build`, but the managed dir has the
+            # stripped docker-compose.yaml (no bind mounts / build: blocks)
+            # that subsequent `luthien up/down` should use.
             _ensure_docker_env(clone_path, admin_key, sentry_enabled, sentry_dsn)
-            config.repo_path = clone_path
             use_local_build = True
 
             with console.status("Building Docker images locally (this may take a few minutes)..."):
                 build_result = subprocess.run(
                     ["docker", "compose", "build"],
-                    cwd=config.repo_path,
+                    cwd=clone_path,
                     capture_output=True,
                     text=True,
                 )
@@ -453,7 +457,7 @@ def onboard(use_docker: bool, proxy_ref: str | None, yes: bool):
             sentry_dsn = click.prompt("Sentry DSN", default="")
 
     if use_docker:
-        _onboard_docker(console, config, admin_key, sentry_enabled, sentry_dsn)
+        _onboard_docker(console, config, admin_key, sentry_enabled, sentry_dsn, yes=yes)
     else:
         _onboard_local(
             console,
