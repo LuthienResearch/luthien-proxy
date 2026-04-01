@@ -162,8 +162,8 @@ class AnthropicClient:
 
         Uses streaming internally and accumulates the final message.
         Some models (e.g. Opus) require streaming — using messages.stream()
-        for all models avoids 400/500 errors for models that reject
-        non-streaming requests, while returning the same AnthropicResponse.
+        for all models avoids SDK errors for models that reject
+        non-streaming requests with high max_tokens.
 
         Args:
             request: Anthropic Messages API request.

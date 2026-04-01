@@ -507,3 +507,17 @@ class TestStreamingProtocolOrdering:
         for cb_event in content_block_events:
             cb_pos = all_out.index(cb_event)
             assert cb_pos < md_pos
+
+        # No duplicate content_block_stop for the same index — regression for the
+        # bug where held_stop was emitted by the tool_use flush path but not cleared,
+        # causing _flush_before_message_delta to emit it a second time and producing
+        # a "block was already stopped" streaming protocol violation on the first turn.
+        stops_by_index: dict[int, int] = {}
+        for event in all_out:
+            if isinstance(event, RawContentBlockStopEvent):
+                stops_by_index[event.index] = stops_by_index.get(event.index, 0) + 1
+        for idx, count in stops_by_index.items():
+            assert count == 1, f"content_block_stop for index {idx} emitted {count} times (expected 1)"
+
+        # stream_complete should have nothing left
+        assert complete == []
