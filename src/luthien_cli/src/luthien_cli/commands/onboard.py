@@ -252,17 +252,18 @@ def _onboard_local(
     config.repo_path = ensure_gateway_venv(proxy_ref=proxy_ref, force_reinstall=True)
     console.print("[green]luthien CLI and proxy installed.[/green]")
 
-    # 2. Find a free port (needed before writing policy config)
+    # 2. Stop any existing gateway BEFORE selecting a port, so the old
+    #    gateway's port is freed and find_free_port can reclaim it.
+    stop_gateway(config.repo_path)
+
+    # 3. Find a free port (needed before writing policy config)
     gateway_port = find_free_port(8000)
     actual_gateway_url = f"http://localhost:{gateway_port}"
 
-    # 3. Write config files
+    # 4. Write config files
     console.print("\n[blue]Configuring gateway...[/blue]")
     _write_policy(config.repo_path, actual_gateway_url)
     _write_local_env(config.repo_path, admin_key, sentry_enabled, sentry_dsn)
-
-    # 4. Stop any existing gateway
-    stop_gateway(config.repo_path)
 
     # 5. Start the gateway
     console.print(f"\n[blue]Starting gateway on port {gateway_port}...[/blue]")
@@ -445,16 +446,10 @@ def onboard(use_docker: bool, proxy_ref: str | None, yes: bool):
 
     admin_key = _generate_key("admin")
 
+    # Sentry is off by default.  Users can enable it post-install by setting
+    # SENTRY_ENABLED=true and SENTRY_DSN=<dsn> in ~/.luthien/luthien-proxy/.env.
     sentry_enabled = False
     sentry_dsn = ""
-    if not yes:
-        console.print(
-            "\n[bold]Enable Sentry error tracking?[/bold]\n"
-            "[dim]Sends error reports (with sensitive data scrubbed) to help debug gateway issues.[/dim]"
-        )
-        sentry_enabled = click.confirm("Enable Sentry", default=False)
-        if sentry_enabled:
-            sentry_dsn = click.prompt("Sentry DSN", default="")
 
     if use_docker:
         _onboard_docker(console, config, admin_key, sentry_enabled, sentry_dsn, yes=yes)
