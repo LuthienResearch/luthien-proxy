@@ -192,17 +192,28 @@ def test_onboard_docker_failure(tmp_path):
     repo_path = tmp_path / "managed-repo"
     repo_path.mkdir()
     (repo_path / "docker-compose.yaml").touch()
+    (repo_path / ".env.example").write_text("PROXY_API_KEY=placeholder\n")
+
+    clone_dir = tmp_path / "clone"
+    clone_dir.mkdir()
+    (clone_dir / ".env.example").write_text("")
 
     with (
         patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path),
         patch("luthien_cli.commands.onboard.ensure_repo", return_value=str(repo_path)),
+        patch("luthien_cli.commands.onboard.ensure_repo_clone", return_value=str(clone_dir)),
         patch("luthien_cli.commands.onboard.subprocess.run") as mock_run,
     ):
-        mock_run.return_value = MagicMock(returncode=1, stderr="compose error")
+        # pull fails, then build also fails (--yes auto-accepts the fallback)
+        mock_run.side_effect = [
+            MagicMock(returncode=1, stderr="compose error"),  # pull
+            MagicMock(returncode=1, stdout="", stderr="build error"),  # build
+        ]
         result = runner.invoke(cli, ["onboard", "--docker", "-y"])
 
     assert result.exit_code != 0
-    assert "failed" in result.output.lower()
+    assert "could not pull" in result.output.lower()
+    assert "luthien onboard" in result.output
 
 
 def test_onboard_local_gateway_unhealthy(tmp_path):

@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from luthien_cli.commands.onboard import _ensure_docker_env
+from unittest.mock import MagicMock, patch
+
+import pytest
+from rich.console import Console
+
+from luthien_cli.commands.onboard import _ensure_docker_env, _onboard_docker
 
 
 class TestEnsureDockerEnv:
@@ -81,3 +86,37 @@ class TestEnsureDockerEnv:
         env_path = repo / ".env"
         mode = oct(env_path.stat().st_mode & 0o777)
         assert mode == "0o600"
+
+
+class TestOnboardDockerCloneSystemExit:
+    """Verify SystemExit from ensure_repo_clone propagates out of _onboard_docker."""
+
+    def test_ensure_repo_clone_system_exit_propagates(self, tmp_path):
+        """If ensure_repo_clone raises SystemExit (e.g. git not installed), it
+        should propagate up through _onboard_docker without being caught."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".env.example").write_text("# placeholder\n")
+
+        config = MagicMock()
+        config.repo_path = str(repo)
+
+        console = Console(file=MagicMock(), stderr=False)
+
+        # Simulate: docker compose pull fails, user accepts build prompt,
+        # but ensure_repo_clone raises SystemExit (e.g. git not found).
+        failed_pull = MagicMock(returncode=1, stderr="pull failed")
+
+        with (
+            patch(
+                "luthien_cli.commands.onboard.subprocess.run",
+                return_value=failed_pull,
+            ),
+            patch("luthien_cli.commands.onboard.click.confirm", return_value=True),
+            patch(
+                "luthien_cli.commands.onboard.ensure_repo_clone",
+                side_effect=SystemExit(1),
+            ),
+            pytest.raises(SystemExit),
+        ):
+            _onboard_docker(console, config, "admin-test")
