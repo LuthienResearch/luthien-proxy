@@ -13,28 +13,6 @@ from luthien_cli.commands.up import ensure_gateway_up
 from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config
 
 
-def _reopen_stdio_from_tty() -> None:
-    """Replace fd 0/1/2 with a fresh /dev/tty opened O_RDWR.
-
-    After the onboard flow (especially when launched via ``curl | bash``),
-    the standard file descriptors may be in a bad state — wrong open
-    mode, buffered-IO artefacts, or not a TTY at all.  Reopening all
-    three from /dev/tty gives the exec'd process a clean, read-write
-    connection to the controlling terminal.
-    """
-    try:
-        tty_fd = os.open("/dev/tty", os.O_RDWR)
-    except OSError:
-        return  # no controlling terminal
-
-    try:
-        for target_fd in (0, 1, 2):
-            os.dup2(tty_fd, target_fd)
-    finally:
-        if tty_fd > 2:
-            os.close(tty_fd)
-
-
 def _exec_claude(gateway_url: str, extra_args: list[str] | None = None) -> None:
     """Replace the current process with Claude Code.
 
@@ -56,9 +34,6 @@ def _exec_claude(gateway_url: str, extra_args: list[str] | None = None) -> None:
     print(f"Routing through {gateway_url} (OAuth passthrough)")
     print("Tip: run luthien commands with ! such as !luthien status, !luthien logs, !luthien up, and !luthien down")
     sys.stdout.flush()
-
-    # Give fd 0/1/2 a clean, read-write /dev/tty before exec.
-    _reopen_stdio_from_tty()
 
     args = ["claude", *(extra_args or [])]
     os.execvpe("claude", args, env)
