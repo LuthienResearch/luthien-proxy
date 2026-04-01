@@ -22,7 +22,7 @@
 3. Make sure we're on a feature branch (not `main`)
 4. Commit the changes, push to origin, and open a draft PR (to `main`)
 5. Implement the OBJECTIVE. Add any items that should be done but are out of scope for the current OBJECTIVE to the [Trello board](https://trello.com/b/ehoxykPf/luthien?filter=label:luthien-proxy%20TODO) (e.g. noticing an implementation bug, incorrect documentation, or code that should be refactored).
-6. Regularly run `scripts/dev_checks.sh`, then commit and push any formatting/lint fixes along with your changes to origin (on the feature branch).
+6. Regularly run `scripts/fast_checks.sh` during development (parallel pyright+pytest, no coverage, changed-file tests only). Run `scripts/dev_checks.sh` for the full gate before marking a PR ready.
 7. When the OBJECTIVE is complete, add a changelog fragment to `changelog.d/` (see `changelog.d/README.md`)
 8. Clear `dev/OBJECTIVE.md` and `dev/NOTES.md`
 9. Mark the PR as ready.
@@ -73,6 +73,7 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 2. **Develop**
 
    - Format everything with `"$(git rev-parse --show-toplevel)/scripts/format_all.sh"`.
+   - Fast iteration checks: `"$(git rev-parse --show-toplevel)/scripts/fast_checks.sh"` (parallel, no coverage, changed-file tests only).
    - Full lint + tests + type check: `"$(git rev-parse --show-toplevel)/scripts/dev_checks.sh"`.
    - Quick unit pass: `uv run pytest tests/luthien_proxy/unit_tests`.
    - *infrequently* run full e2e tests using `uv run pytest -m e2e`. This is SLOW and should be used sparingly to validate that core functionality remains intact.
@@ -137,6 +138,7 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 - Start gateway (dockerless): `./scripts/start_gateway.sh` — runs the gateway as a local Python process with SQLite, no Docker/Postgres/Redis needed
 - Run tests: `uv run pytest` (coverage: `uv run pytest --cov=src -q`)
 - Lint/format: `uv run ruff format` then `uv run ruff check --fix`. The `scripts/dev_checks.sh` script applies formatting automatically, and VS Code formats on save via Ruff. See `scripts/format_all.sh` for a quick all-in-one solution.
+- Fast checks: `scripts/fast_checks.sh` — runs ruff, shellcheck, pyright, and pytest in parallel with no coverage. By default only tests files changed since the merge-base with main; use `--all` for the full unit suite.
 - Type check: `uv run pyright`
 
 ### Deployment Modes
