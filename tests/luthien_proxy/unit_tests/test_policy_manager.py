@@ -535,6 +535,27 @@ class TestPolicyManagerEnablePolicy:
         assert result.troubleshooting is not None
 
     @pytest.mark.asyncio
+    async def test_enable_policy_error_does_not_leak_details(self):
+        """Internal exception details must not appear in the error result by default."""
+        mock_redis = MagicMock()
+        mock_lock = AsyncMock()
+        mock_lock.acquire = AsyncMock(return_value=True)
+        mock_lock.release = AsyncMock()
+        mock_redis.lock = MagicMock(return_value=mock_lock)
+
+        manager = PolicyManager(db_pool=MagicMock(), redis_client=mock_redis)
+
+        result = await manager.enable_policy(
+            policy_class_ref="nonexistent.module:NonexistentPolicy",
+            config={},
+            enabled_by="test",
+        )
+
+        assert result.success is False
+        assert result.error == "Failed to enable policy."
+        assert "nonexistent" not in (result.error or "").lower()
+
+    @pytest.mark.asyncio
     async def test_enable_policy_lock_not_acquired(self):
         mock_redis = MagicMock()
         mock_lock = AsyncMock()

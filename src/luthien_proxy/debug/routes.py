@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from luthien_proxy.auth import verify_admin_token
 from luthien_proxy.dependencies import get_db_pool
+from luthien_proxy.settings import client_error_detail
 from luthien_proxy.utils.constants import DEBUG_CALLS_DEFAULT_LIMIT, DEBUG_CALLS_MAX_LIMIT
 
 from .models import CallDiffResponse, CallEventsResponse, CallListResponse
@@ -60,8 +61,8 @@ async def get_call_events(
         # No events found
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
-        logger.error(f"Failed to fetch events for call {call_id}: {exc}")
-        raise HTTPException(status_code=500, detail=f"Database error: {exc}")
+        logger.error(f"Failed to fetch events for call {call_id}: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=client_error_detail(f"Database error: {exc}"))
 
 
 @router.get("/calls/{call_id}/diff", response_model=CallDiffResponse)
@@ -91,8 +92,8 @@ async def get_call_diff(
         # No events found
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
-        logger.error(f"Failed to compute diff for call {call_id}: {exc}")
-        raise HTTPException(status_code=500, detail=f"Database error: {exc}")
+        logger.error(f"Failed to compute diff for call {call_id}: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=client_error_detail(f"Database error: {exc}"))
 
 
 @router.get("/calls", response_model=CallListResponse)
@@ -119,8 +120,8 @@ async def list_recent_calls(
     try:
         return await fetch_recent_calls(limit, db_pool)
     except Exception as exc:
-        logger.error(f"Failed to list recent calls: {exc}")
-        raise HTTPException(status_code=500, detail=f"Database error: {exc}")
+        logger.error(f"Failed to list recent calls: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=client_error_detail(f"Database error: {exc}"))
 
 
 __all__ = ["router"]

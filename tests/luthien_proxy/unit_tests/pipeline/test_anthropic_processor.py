@@ -1,5 +1,6 @@
 """Unit tests for the Anthropic-native pipeline processor module."""
 
+import json
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -24,8 +25,9 @@ from httpx import Response as HttpxResponse
 from tests.constants import DEFAULT_TEST_MODEL
 
 from luthien_proxy.exceptions import BackendAPIError
-from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
+from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse, build_usage
 from luthien_proxy.pipeline.anthropic_processor import (
+    _AnthropicPolicyIO,
     _build_error_event,
     _format_sse_event,
     _handle_anthropic_error,
@@ -215,6 +217,25 @@ class TestProcessRequest:
 
         assert exc_info.value.status_code == 413
         assert "payload too large" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_malformed_json_returns_400(self, mock_request, mock_emitter, mock_span):
+        """Test that malformed JSON in request body returns 400 error."""
+        mock_request.json = AsyncMock(side_effect=json.JSONDecodeError("Expecting value", "", 0))
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            with pytest.raises(HTTPException) as exc_info:
+                await _process_request(
+                    request=mock_request,
+                    call_id="test-call-id",
+                    emitter=mock_emitter,
+                )
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail == "Invalid JSON in request body"
 
     @pytest.mark.asyncio
     async def test_missing_model_returns_400(self, mock_request, mock_emitter, mock_span):
@@ -724,6 +745,7 @@ class TestBuildErrorEvent:
 
         assert event.get("type") == "error"
         assert event.get("error", {}).get("type") == "api_connection_error"
+        assert event.get("error", {}).get("message") == "An error occurred while connecting to the API."
 
     def test_builds_generic_error_event(self):
         """Generic exceptions produce a sanitized error event — internal details are not forwarded."""
@@ -733,8 +755,7 @@ class TestBuildErrorEvent:
 
         assert event.get("type") == "error"
         assert event.get("error", {}).get("type") == "api_error"
-        # Raw exception message must not leak to clients
-        assert "Something went wrong" not in event.get("error", {}).get("message", "")
+        assert event.get("error", {}).get("message") == "An internal error occurred while processing the request."
 
 
 class TestMidStreamErrorHandling:
@@ -873,6 +894,62 @@ class TestMidStreamErrorHandling:
         assert '"type": "api_connection_error"' in last_event
 
 
+class TestEmptyStreamErrorEvent:
+    """Tests that empty streams yield an error event instead of silent HTTP 200."""
+
+    @pytest.fixture
+    def mock_policy(self):
+        return _EmptyStreamPolicy()
+
+    @pytest.mark.asyncio
+    async def test_empty_stream_yields_error_event(self, mock_policy):
+        """When a policy emits zero streaming events, the client gets an error event."""
+        anthropic_body: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+
+        async def empty_stream(req, extra_headers=None):
+            # Yield nothing — simulates a backend that returns no events
+            return
+            yield  # make this an async generator
+
+        mock_client = MagicMock()
+        mock_client.stream = empty_stream
+
+        mock_fastapi_request = MagicMock()
+        mock_fastapi_request.headers = {}
+        mock_fastapi_request.method = "POST"
+        mock_fastapi_request.url = MagicMock()
+        mock_fastapi_request.url.path = "/v1/messages"
+        mock_fastapi_request.json = AsyncMock(return_value=anthropic_body)
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await process_anthropic_request(
+                request=mock_fastapi_request,
+                policy=mock_policy,
+                anthropic_client=mock_client,
+                emitter=MagicMock(),
+            )
+
+            events = []
+            async for chunk in response.body_iterator:
+                events.append(chunk)
+
+        # Should have at least one event: the error event
+        assert len(events) >= 1
+        last_event = events[-1]
+        assert "event: error" in last_event
+        assert '"type": "api_error"' in last_event
+        assert "policy evaluation unavailable" in last_event
+
+
 class TestHandleAnthropicError:
     """Tests for _handle_anthropic_error error classification.
 
@@ -958,6 +1035,24 @@ class _InvalidStreamCompletePolicy:
                 "usage": {"input_tokens": 0, "output_tokens": 0},
             }
         ]
+
+
+class _EmptyStreamPolicy:
+    """Hook-based policy that suppresses all streaming events (emits nothing)."""
+
+    async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
+        return request
+
+    async def on_anthropic_response(self, response: AnthropicResponse, context: PolicyContext) -> AnthropicResponse:
+        return response
+
+    async def on_anthropic_stream_event(
+        self, event: MessageStreamEvent, context: PolicyContext
+    ) -> list[MessageStreamEvent]:
+        return []  # suppress all events
+
+    async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
+        return []
 
 
 class _GenericErrorPolicy:
@@ -1245,8 +1340,47 @@ class TestExecutionPolicyRuntime:
             chunks.append(chunk)
         full_stream = "".join(chunks)
         assert "event: error" in full_stream
-        # Internal error details must not leak to clients
-        assert "must emit streaming events" not in full_stream
+        assert '"type": "api_error"' in full_stream
+
+    @pytest.mark.asyncio
+    async def test_exception_before_any_events_yields_exactly_one_error(
+        self,
+        mock_request,
+        mock_emitter,
+        mock_anthropic_client,
+    ):
+        """When a policy raises before emitting any events, the client gets exactly one error event.
+
+        Regression: the finally block used to unconditionally yield a second
+        empty-stream error when emitted_any was False, even though the except
+        block had already yielded an error event for the exception.
+        """
+        mock_request.json = AsyncMock(
+            return_value={
+                "model": DEFAULT_TEST_MODEL,
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 64,
+                "stream": True,
+            }
+        )
+        policy = _GenericErrorPolicy()
+
+        response = await process_anthropic_request(
+            request=mock_request,
+            policy=policy,
+            anthropic_client=mock_anthropic_client,
+            emitter=mock_emitter,
+        )
+
+        assert isinstance(response, FastAPIStreamingResponse)
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+        full_stream = "".join(chunks)
+
+        # Count "event: error" occurrences — must be exactly one
+        error_count = full_stream.count("event: error")
+        assert error_count == 1, f"Expected exactly 1 error event but found {error_count}. Full stream: {full_stream!r}"
 
     @pytest.mark.asyncio
     async def test_anthropic_beta_header_forwarded_to_upstream_client(
@@ -1382,6 +1516,134 @@ class TestReconstructResponseFromStreamEvents:
     def test_empty_events_returns_none(self):
         """Returns None for an empty event list."""
         assert _reconstruct_response_from_stream_events([]) is None
+
+    def test_includes_cache_tokens_from_message_start_when_present(self):
+        events = [
+            RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_abc",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": DEFAULT_TEST_MODEL,
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 0,
+                        "cache_creation_input_tokens": 100,
+                        "cache_read_input_tokens": 50,
+                    },
+                },
+            ),
+            RawMessageDeltaEvent(
+                type="message_delta",
+                delta={"stop_reason": "end_turn", "stop_sequence": None},
+                usage={"output_tokens": 5},
+            ),
+            RawMessageStopEvent(type="message_stop"),
+        ]
+
+        result = _reconstruct_response_from_stream_events(events)
+
+        assert result is not None
+        assert result["usage"]["cache_creation_input_tokens"] == 100
+        assert result["usage"]["cache_read_input_tokens"] == 50
+
+    def test_omits_cache_tokens_when_absent(self):
+        events = [
+            self._message_start(input_tokens=10),
+            RawMessageDeltaEvent(
+                type="message_delta",
+                delta={"stop_reason": "end_turn", "stop_sequence": None},
+                usage={"output_tokens": 5},
+            ),
+            RawMessageStopEvent(type="message_stop"),
+        ]
+
+        result = _reconstruct_response_from_stream_events(events)
+
+        assert result is not None
+        assert "cache_creation_input_tokens" not in result["usage"]
+        assert "cache_read_input_tokens" not in result["usage"]
+
+    def test_includes_only_present_cache_field(self):
+        events = [
+            RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_abc",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": DEFAULT_TEST_MODEL,
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 10, "output_tokens": 0, "cache_read_input_tokens": 50},
+                },
+            ),
+            RawMessageStopEvent(type="message_stop"),
+        ]
+
+        result = _reconstruct_response_from_stream_events(events)
+
+        assert result is not None
+        assert result["usage"]["cache_read_input_tokens"] == 50
+        assert "cache_creation_input_tokens" not in result["usage"]
+
+    def test_cache_tokens_from_message_delta_override_message_start(self):
+        events = [
+            RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_abc",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": DEFAULT_TEST_MODEL,
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 10, "output_tokens": 0, "cache_read_input_tokens": 50},
+                },
+            ),
+            RawMessageDeltaEvent(
+                type="message_delta",
+                delta={"stop_reason": "end_turn", "stop_sequence": None},
+                usage={"output_tokens": 5, "cache_read_input_tokens": 75},
+            ),
+            RawMessageStopEvent(type="message_stop"),
+        ]
+
+        result = _reconstruct_response_from_stream_events(events)
+
+        assert result is not None
+        assert result["usage"]["cache_read_input_tokens"] == 75
+
+
+class TestBuildUsage:
+    def test_required_fields_only(self):
+        result = build_usage(10, 20)
+        assert result == {"input_tokens": 10, "output_tokens": 20}
+        assert "cache_creation_input_tokens" not in result
+        assert "cache_read_input_tokens" not in result
+
+    def test_all_fields(self):
+        result = build_usage(10, 20, cache_creation_input_tokens=100, cache_read_input_tokens=50)
+        assert result["input_tokens"] == 10
+        assert result["output_tokens"] == 20
+        assert result["cache_creation_input_tokens"] == 100
+        assert result["cache_read_input_tokens"] == 50
+
+    def test_only_one_cache_field(self):
+        result = build_usage(5, 10, cache_read_input_tokens=30)
+        assert result["cache_read_input_tokens"] == 30
+        assert "cache_creation_input_tokens" not in result
+
+    def test_none_cache_fields_omitted(self):
+        result = build_usage(5, 10, cache_creation_input_tokens=None, cache_read_input_tokens=None)
+        assert "cache_creation_input_tokens" not in result
+        assert "cache_read_input_tokens" not in result
 
 
 class TestStreamingResponseRecording:
@@ -1706,3 +1968,58 @@ class TestRunPolicyHooks:
 
         assert len(emissions) == 1
         assert emissions[0]["content"][0]["text"] == "GOODBYE WORLD"
+
+
+class TestAnthropicPolicyIOBuffering:
+    """Tests for _AnthropicPolicyIO raw event buffering behaviour."""
+
+    def _make_io(self, *, is_streaming: bool) -> _AnthropicPolicyIO:
+        request: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "max_tokens": 100,
+            "messages": [{"role": "user", "content": "hi"}],
+        }
+        return _AnthropicPolicyIO(
+            initial_request=request,
+            anthropic_client=MagicMock(),
+            emitter=MagicMock(),
+            call_id="test-call",
+            session_id=None,
+            request_log_recorder=MagicMock(),
+            is_streaming=is_streaming,
+        )
+
+    def test_buffer_raw_events_false_when_streaming(self):
+        """Streaming requests should NOT buffer raw events (memory optimisation)."""
+        io = self._make_io(is_streaming=True)
+        assert io._buffer_raw_events is False
+
+    def test_buffer_raw_events_true_when_not_streaming(self):
+        """Non-streaming requests should buffer raw events for response reconstruction."""
+        io = self._make_io(is_streaming=False)
+        assert io._buffer_raw_events is True
+
+    def test_raw_backend_events_starts_empty(self):
+        """Raw backend events list starts empty regardless of streaming mode."""
+        for streaming in (True, False):
+            io = self._make_io(is_streaming=streaming)
+            assert io._raw_backend_events == []
+
+    def test_streaming_fallback_uses_accumulated_events(self):
+        """When buffering is disabled (streaming), raw_events should come from
+        accumulated_events, not from the empty _raw_backend_events list."""
+        io = self._make_io(is_streaming=True)
+        accumulated_events = [MagicMock(spec=MessageStreamEvent)]
+
+        # This mirrors the logic in the streaming response path
+        raw_events = accumulated_events if not io._buffer_raw_events else io._raw_backend_events
+        assert raw_events is accumulated_events
+
+    def test_non_streaming_uses_raw_backend_events(self):
+        """When buffering is enabled (non-streaming), raw_events should come
+        from _raw_backend_events, even when it is empty."""
+        io = self._make_io(is_streaming=False)
+        accumulated_events = [MagicMock(spec=MessageStreamEvent)]
+
+        raw_events = accumulated_events if not io._buffer_raw_events else io._raw_backend_events
+        assert raw_events is io._raw_backend_events

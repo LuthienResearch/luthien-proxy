@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
 from anthropic.lib.streaming import MessageStreamEvent
@@ -52,7 +52,10 @@ from luthien_proxy.settings import get_settings
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import (
+        AnthropicContentBlock,
         AnthropicResponse,
+        AnthropicTextBlock,
+        JSONObject,
     )
     from luthien_proxy.policy_core.policy_context import PolicyContext
 
@@ -70,9 +73,17 @@ JUDGE_UNAVAILABLE_WARNING = (
     "\u26a0\ufe0f Safety judge unavailable \u2014 this response was not evaluated by the safety policy."
 )
 
+JUDGE_ERROR_BLOCKED_MESSAGE = (
+    "\u274c Response blocked: the safety judge encountered an error and the policy requires blocking on failure."
+)
+
 
 def _blocked_tool_message(name: str) -> str:
     return f"[Tool call `{name}` was blocked by policy]"
+
+
+def _blocked_tool_judge_failed_message(name: str) -> str:
+    return f"[Tool call `{name}` blocked: policy evaluation unavailable]"
 
 
 @dataclass
@@ -143,7 +154,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
     def _block_descriptor_from_text(self, text: str) -> BlockDescriptor:
         return BlockDescriptor(type="text", content=text)
 
-    def _block_descriptor_from_tool(self, name: str, input_data: Any) -> BlockDescriptor:
+    def _block_descriptor_from_tool(self, name: str, input_data: "JSONObject | str") -> BlockDescriptor:
         input_str = json.dumps(input_data) if not isinstance(input_data, str) else input_data
         return BlockDescriptor(type="tool_use", content=f"{name}({input_str})")
 
@@ -153,7 +164,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             return BlockDescriptor(type="tool_use", content=f"{block.name}({input_str})")
         return BlockDescriptor(type="text", content=block.text or "")
 
-    def _replacement_to_anthropic_block(self, block: ReplacementBlock) -> dict[str, Any]:
+    def _replacement_to_anthropic_block(self, block: ReplacementBlock) -> "AnthropicContentBlock":
         if block.type == "tool_use":
             return {
                 "type": "tool_use",
@@ -202,11 +213,13 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             )
             return JudgeAction(action=self._config.on_error, judge_failed=True)
 
-    def _correct_anthropic_stop_reason(self, response: dict[str, Any], content: list[dict[str, Any]]) -> dict[str, Any]:
+    def _correct_anthropic_stop_reason(
+        self, response: "AnthropicResponse", content: list["AnthropicContentBlock"]
+    ) -> "AnthropicResponse":
         has_tool_use = any(b.get("type") == "tool_use" for b in content)
         expected = "tool_use" if has_tool_use else "end_turn"
         if response.get("stop_reason") != expected:
-            response = dict(response)
+            response = cast("AnthropicResponse", dict(response))  # shallow copy preserves TypedDict shape
             response["stop_reason"] = expected
         return response
 
@@ -223,7 +236,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             return response
 
         emitted_blocks: list[BlockDescriptor] = []
-        new_content: list[Any] = []
+        new_content: list["AnthropicContentBlock"] = []
         judge_error_occurred = False
 
         for block in content:
@@ -256,16 +269,24 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                     emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
                     new_content.append(self._replacement_to_anthropic_block(rblock))
             elif action.action == "block" and block_type == "tool_use":
-                blocked_text = _blocked_tool_message(block.get("name", ""))
+                if action.judge_failed:
+                    blocked_text = _blocked_tool_judge_failed_message(block.get("name", ""))
+                else:
+                    blocked_text = _blocked_tool_message(block.get("name", ""))
                 emitted_blocks.append(self._block_descriptor_from_text(blocked_text))
-                new_content.append({"type": "text", "text": blocked_text})
+                blocked_block: AnthropicTextBlock = {"type": "text", "text": blocked_text}
+                new_content.append(blocked_block)
 
         if judge_error_occurred and self._config.on_error == "pass":
-            new_content.append({"type": "text", "text": JUDGE_UNAVAILABLE_WARNING})
+            warning_block: AnthropicTextBlock = {"type": "text", "text": JUDGE_UNAVAILABLE_WARNING}
+            new_content.append(warning_block)
+        elif judge_error_occurred and not new_content:
+            error_block: AnthropicTextBlock = {"type": "text", "text": JUDGE_ERROR_BLOCKED_MESSAGE}
+            new_content.append(error_block)
 
-        modified_response = dict(response)
+        modified_response = cast("AnthropicResponse", dict(response))
         modified_response["content"] = new_content
-        return cast("AnthropicResponse", self._correct_anthropic_stop_reason(modified_response, new_content))
+        return self._correct_anthropic_stop_reason(modified_response, new_content)
 
     # ========================================================================
     # Anthropic streaming
@@ -352,7 +373,9 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         if index in state.tool_buffer:
             buffered = state.tool_buffer.pop(index)
             try:
-                input_data = json.loads(buffered.input_json) if buffered.input_json else {}
+                input_data: "JSONObject | str" = (
+                    json.loads(buffered.input_json) if buffered.input_json else {}
+                )  # tool inputs are always objects in practice
             except json.JSONDecodeError:
                 logger.warning(f"Malformed tool input JSON for '{buffered.name}', using raw string")
                 input_data = {"_raw": buffered.input_json}
@@ -368,7 +391,10 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                 return self._emit_anthropic_replacement_events(index, action, state, event)
             # Tool start was suppressed — emit a text block so the client
             # knows the tool call was blocked and can continue the conversation.
-            blocked_text = _blocked_tool_message(buffered.name)
+            if action.judge_failed:
+                blocked_text = _blocked_tool_judge_failed_message(buffered.name)
+            else:
+                blocked_text = _blocked_tool_message(buffered.name)
             state.emitted_blocks.append(self._block_descriptor_from_text(blocked_text))
             return self._make_anthropic_text_block_events(index, blocked_text)
 
@@ -390,6 +416,8 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         if state.judge_error_occurred and self._config.on_error == "pass":
             warning_index = len(state.emitted_blocks)
             events.extend(self._make_anthropic_warning_events(warning_index))
+        elif state.judge_error_occurred and not state.emitted_blocks:
+            events.extend(self._make_anthropic_text_block_events(0, JUDGE_ERROR_BLOCKED_MESSAGE))
 
         # Correct stop_reason if the emitted block types differ from the original
         has_emitted_tool = any(b.type == "tool_use" for b in state.emitted_blocks)

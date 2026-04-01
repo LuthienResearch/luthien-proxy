@@ -171,7 +171,7 @@ class TestGetSessionRoute:
                 await get_session(session_id="nonexistent", _=AUTH_TOKEN, db_pool=mock_db_pool)
 
             assert exc_info.value.status_code == 404
-            assert "No events found" in exc_info.value.detail
+            assert exc_info.value.detail == "Session not found."
 
 
 class TestExportSessionRoute:
@@ -226,7 +226,7 @@ class TestExportSessionRoute:
                 await export_session(session_id="nonexistent", _=AUTH_TOKEN, db_pool=mock_db_pool)
 
             assert exc_info.value.status_code == 404
-            assert "No events found" in exc_info.value.detail
+            assert exc_info.value.detail == "Session not found."
 
     @pytest.mark.asyncio
     async def test_export_filename_sanitization(self):

@@ -12,7 +12,7 @@ import json
 import logging
 import re
 from datetime import datetime
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 from luthien_proxy.utils.db import DatabasePool, parse_db_ts
 
@@ -25,6 +25,9 @@ from .models import (
     SessionListResponse,
     SessionSummary,
 )
+
+# DB row payload type: asyncpg returns dict, aiosqlite returns str, may be NULL
+_PreviewPayload = dict[str, Any] | str | None
 
 
 class StoredEvent(TypedDict):
@@ -257,7 +260,7 @@ _FIRST_MESSAGE_MAX_LENGTH = 100
 _SYSTEM_REMINDER_PATTERN = re.compile(r"<system-reminder>.*?</system-reminder>\s*", re.DOTALL)
 
 
-def _extract_preview_message(payload: Any) -> str | None:
+def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None:
     """Extract the first meaningful user message from a request payload for preview.
 
     Used to generate a session preview/title. Returns truncated text.
@@ -410,7 +413,7 @@ async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int 
             total_events=int(row["total_events"]),  # type: ignore[arg-type]
             policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
             models_used=list(row["models"]) if row["models"] else [],  # type: ignore[arg-type]
-            preview_message=_extract_preview_message(row["request_payload"]),
+            preview_message=_extract_preview_message(cast(_PreviewPayload, row["request_payload"])),
         )
         for row in rows
     ]
@@ -509,7 +512,7 @@ async def _fetch_session_list_sqlite(limit: int, db_pool: DatabasePool, offset: 
     for r in preview_rows:
         sid = str(r["session_id"])
         if sid not in preview_by_session:
-            preview_by_session[sid] = _extract_preview_message(r["request_payload"])
+            preview_by_session[sid] = _extract_preview_message(cast(_PreviewPayload, r["request_payload"]))
 
     sessions = [
         SessionSummary(

@@ -89,16 +89,21 @@ async def test_valid_api_key_succeeds(mock_anthropic: MockAnthropicServer, gatew
 
 
 @pytest.mark.asyncio
-async def test_admin_endpoint_rejects_regular_key(gateway_healthy):
-    """The admin policy endpoint rejects requests authenticated with the regular API key."""
+async def test_admin_endpoint_accessible_on_localhost(gateway_healthy):
+    """Admin endpoints are accessible without admin key on localhost (LOCALHOST_AUTH_BYPASS by design).
+
+    PR #405 intentionally extended LOCALHOST_AUTH_BYPASS to cover /api/admin/* routes.
+    Local installations bypass auth entirely — this is the expected behavior for
+    single-user local deployments. Auth is enforced in production (non-localhost) mode.
+    """
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.get(
             f"{GATEWAY_URL}/api/admin/policy/current",
             headers={"Authorization": f"Bearer {API_KEY}"},
         )
 
-    assert response.status_code in (401, 403), (
-        f"Expected 401 or 403 for regular key on admin endpoint, got {response.status_code}: {response.text}"
+    assert response.status_code == 200, (
+        f"Admin endpoint should be accessible on localhost, got {response.status_code}: {response.text}"
     )
 
 
@@ -112,3 +117,11 @@ async def test_admin_endpoint_accepts_admin_key(gateway_healthy):
         )
 
     assert response.status_code == 200, f"Expected 200 for admin key, got {response.status_code}: {response.text}"
+
+
+# NOTE: A test for "admin endpoints require auth in non-localhost mode" is not
+# implemented here because mock_e2e tests run against an out-of-process gateway,
+# making in-process patching of is_localhost_request ineffective.
+# To test this properly: add localhost_auth_bypass to the admin settings API
+# (PUT /api/admin/gateway/settings), then toggle it off, assert 401, toggle back.
+# Alternatively, implement as a sqlite_e2e test where the gateway runs in-process.

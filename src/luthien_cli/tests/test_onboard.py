@@ -31,12 +31,11 @@ class TestEnsureDockerEnv:
             "AUTH_MODE=proxy_key\n"
         )
 
-        _ensure_docker_env(str(repo), "pk-test", "ak-test")
+        _ensure_docker_env(str(repo), admin_key="ak-test")
 
         env_content = (repo / ".env").read_text()
 
-        # Proxy keys set
-        assert "PROXY_API_KEY=pk-test" in env_content
+        # Admin key set
         assert "ADMIN_API_KEY=ak-test" in env_content
 
         # Postgres vars uncommented and populated
@@ -70,7 +69,7 @@ class TestEnsureDockerEnv:
         repo = tmp_path / "repo"
         repo.mkdir()
 
-        _ensure_docker_env(str(repo), "pk-test", "ak-test")
+        _ensure_docker_env(str(repo), admin_key="ak-test")
 
         env_content = (repo / ".env").read_text()
         assert "POSTGRES_USER=luthien" in env_content
@@ -82,7 +81,7 @@ class TestEnsureDockerEnv:
         repo = tmp_path / "repo"
         repo.mkdir()
 
-        _ensure_docker_env(str(repo), "pk-test", "ak-test")
+        _ensure_docker_env(str(repo), admin_key="ak-test")
 
         env_path = repo / ".env"
         mode = oct(env_path.stat().st_mode & 0o777)

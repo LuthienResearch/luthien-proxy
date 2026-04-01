@@ -42,6 +42,7 @@ from luthien_proxy.llm.types.anthropic import (
     AnthropicContentBlock,
     AnthropicRequest,
     AnthropicResponse,
+    build_usage,
 )
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.pipeline.client_format import ClientFormat
@@ -59,7 +60,7 @@ from luthien_proxy.policy_core.anthropic_execution_interface import (
 from luthien_proxy.policy_core.base_policy import BasePolicy
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.request_log.recorder import RequestLogRecorder, create_recorder
-from luthien_proxy.settings import get_settings
+from luthien_proxy.settings import client_error_detail, get_settings
 from luthien_proxy.telemetry import restore_context
 from luthien_proxy.types import RawHttpRequest
 from luthien_proxy.usage_telemetry.collector import UsageCollector
@@ -111,6 +112,11 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         self._extra_headers = extra_headers
         self._request_recorded = False
         self._first_backend_response: AnthropicResponse | None = None
+        # Raw backend events are only buffered when needed for non-streaming
+        # response reconstruction (e.g., diff recording). Streaming responses
+        # can reconstruct from the post-policy accumulated_events instead,
+        # avoiding duplicate event buffering that doubles memory usage.
+        self._buffer_raw_events = not is_streaming
         self._raw_backend_events: list[MessageStreamEvent] = []
 
     @property
@@ -188,7 +194,8 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
             with tracer.start_as_current_span("send_upstream") as span:
                 span.set_attribute("luthien.phase", "send_upstream")
                 async for event in self._anthropic_client.stream(final_request, extra_headers=extra_headers):
-                    self._raw_backend_events.append(event)
+                    if self._buffer_raw_events:
+                        self._raw_backend_events.append(event)
                     yield event
 
         return _stream()
@@ -209,6 +216,8 @@ def _reconstruct_response_from_stream_events(
     model: str | None = None
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_creation_input_tokens: int | None = None
+    cache_read_input_tokens: int | None = None
     stop_reason: str | None = None
     stop_sequence: str | None = None
 
@@ -225,6 +234,8 @@ def _reconstruct_response_from_stream_events(
             model = msg.model
             if msg.usage:
                 input_tokens = msg.usage.input_tokens
+                cache_creation_input_tokens = msg.usage.cache_creation_input_tokens
+                cache_read_input_tokens = msg.usage.cache_read_input_tokens
 
         elif t == "content_block_start":
             idx: int = event.index  # type: ignore[union-attr]
@@ -262,6 +273,12 @@ def _reconstruct_response_from_stream_events(
             usage = getattr(event, "usage", None)
             if usage:
                 output_tokens = getattr(usage, "output_tokens", 0)
+                _cache_create = getattr(usage, "cache_creation_input_tokens", None)
+                _cache_read = getattr(usage, "cache_read_input_tokens", None)
+                if _cache_create is not None:
+                    cache_creation_input_tokens = _cache_create
+                if _cache_read is not None:
+                    cache_read_input_tokens = _cache_read
 
     if message_id is None or model is None:
         return None
@@ -281,7 +298,7 @@ def _reconstruct_response_from_stream_events(
             stop_reason,
         ),
         stop_sequence=stop_sequence,
-        usage={"input_tokens": input_tokens, "output_tokens": output_tokens},
+        usage=build_usage(input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens),
     )
 
 
@@ -437,7 +454,11 @@ async def _process_request(
         if content_length and int(content_length) > MAX_REQUEST_PAYLOAD_BYTES:
             raise HTTPException(status_code=413, detail="Request payload too large")
 
-        body = await request.json()
+        try:
+            body = await request.json()
+        except json.JSONDecodeError as e:
+            logger.error(f"[{call_id}] Malformed JSON in Anthropic request: {repr(e)}")
+            raise HTTPException(status_code=400, detail="Invalid JSON in request body")
         headers = {k.lower(): v for k, v in request.headers.items()}
 
         # Capture raw HTTP request before any processing
@@ -577,6 +598,7 @@ async def _handle_execution_streaming(
                 response_span.set_attribute("luthien.phase", "process_response")
                 response_span.set_attribute("luthien.streaming", True)
 
+                caught_exception = False
                 try:
                     with tracer.start_as_current_span("policy_execute"):
                         async for emitted in emissions:
@@ -591,10 +613,11 @@ async def _handle_execution_streaming(
                             accumulated_events.append(cast(MessageStreamEvent, emitted))
                             yield _format_sse_event(cast(MessageStreamEvent, emitted))
                 except Exception as e:
+                    caught_exception = True
                     # Headers may already be sent, so emit an in-stream error event.
                     policy_ctx.record_event(
                         "policy.execution.streaming_error",
-                        {"summary": "Execution policy raised during streaming", "error": str(e)},
+                        {"summary": "Execution policy raised during streaming", "error": repr(e)},
                     )
                     if isinstance(e, AnthropicStatusError):
                         final_status = e.status_code or 500
@@ -605,16 +628,27 @@ async def _handle_execution_streaming(
                     error_event = _build_error_event(e, call_id)
                     yield _format_sse_event(error_event)
                 finally:
-                    if not emitted_any:
+                    if not emitted_any and not caught_exception:
                         io.ensure_request_recorded()
                         logger.warning(
-                            "[%s] Execution policy emitted zero streaming events; returning empty stream",
+                            "[%s] Execution policy emitted zero streaming events; yielding error event",
                             call_id,
                         )
                         policy_ctx.record_event(
                             "policy.execution.empty_stream",
                             {"summary": "Execution policy emitted zero streaming events"},
                         )
+                        final_status = 500
+                        # Yield an Anthropic-compatible error event so the client
+                        # gets a clear signal instead of a silent empty HTTP 200.
+                        empty_stream_error = _StreamErrorEvent(
+                            type="error",
+                            error=_ErrorDetail(
+                                type="api_error",
+                                message="Request blocked: policy evaluation unavailable. Contact your administrator.",
+                            ),
+                        )
+                        yield _format_sse_event(empty_stream_error)
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
 
                     # Validate streaming protocol compliance (log-and-warn).
@@ -648,7 +682,15 @@ async def _handle_execution_streaming(
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
                     reconstructed = _reconstruct_response_from_stream_events(accumulated_events)
                     if reconstructed is not None:
-                        raw_reconstructed = _reconstruct_response_from_stream_events(io._raw_backend_events)
+                        # Use raw backend events for original response if buffered,
+                        # otherwise fall back to accumulated (post-policy) events.
+                        # Trade-off: for streaming requests, raw events are NOT buffered
+                        # separately (_buffer_raw_events=False) to avoid doubling memory
+                        # usage. This means the diff viewer will show identical original
+                        # and final responses for streaming requests. Non-streaming
+                        # requests still capture true pre-policy vs post-policy diffs.
+                        raw_events = accumulated_events if not io._buffer_raw_events else io._raw_backend_events
+                        raw_reconstructed = _reconstruct_response_from_stream_events(raw_events)
                         emitter.record(
                             call_id,
                             "transaction.streaming_response_recorded",
@@ -716,7 +758,7 @@ async def _handle_execution_non_streaming(
             logger.error("[%s] Unexpected error in non-streaming policy execution: %s", call_id, e)
             raise BackendAPIError(
                 status_code=500,
-                message="An internal error occurred while processing the request.",
+                message=client_error_detail(str(e), "An internal error occurred while processing the request."),
                 error_type="api_error",
                 client_format=ClientFormat.ANTHROPIC,
             ) from e
@@ -818,11 +860,11 @@ def _build_error_event(e: Exception, call_id: str) -> _StreamErrorEvent:
         logger.warning(f"[{call_id}] Mid-stream Anthropic API error: {e.status_code} {message}")
     elif isinstance(e, AnthropicConnectionError):
         error_type = "api_connection_error"
-        message = str(e)
-        logger.warning(f"[{call_id}] Mid-stream Anthropic connection error: {message}")
+        message = client_error_detail(str(e), "An error occurred while connecting to the API.")
+        logger.warning(f"[{call_id}] Mid-stream Anthropic connection error: {repr(e)}")
     else:
         error_type = "api_error"
-        message = "An internal error occurred while processing the request."
+        message = client_error_detail(str(e), "An internal error occurred while processing the request.")
         logger.error(f"[{call_id}] Mid-stream error: {repr(e)}")
 
     return _StreamErrorEvent(
@@ -878,7 +920,7 @@ def _handle_anthropic_error(e: Exception, call_id: str) -> None:
         logger.warning(f"[{call_id}] Anthropic connection error: {repr(e)}")
         raise BackendAPIError(
             status_code=502,
-            message=str(e),
+            message=client_error_detail(str(e), "An error occurred while connecting to the API."),
             error_type="api_connection_error",
             client_format=ClientFormat.ANTHROPIC,
             provider="anthropic",

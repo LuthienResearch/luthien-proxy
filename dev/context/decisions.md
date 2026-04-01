@@ -298,4 +298,22 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 ---
 
+## Sentry Error Tracking: Opt-In with Two-Layer Scrubbing (2026-03-14, updated 2026-03-18)
+
+**Decision**: Integrate Sentry with opt-in model (`SENTRY_ENABLED=false` by default, DSN from env var). Use two-layer data scrubbing: Sentry's built-in EventScrubber for credential key-name matching + custom `before_send` for selective LLM content redaction. The `luthien onboard` CLI prompts for Sentry setup and provides a default DSN.
+
+**Rationale**:
+- Opt-in respects user control — Sentry is configured during onboarding, not silently enabled
+- DSN lives in `.env` (set by CLI onboard), not hardcoded in source
+- Nuclear scrubbing (strip everything) was rejected: makes errors undebuggable. Selective scrubbing keeps `call_id`, `model`, `chunk_count`, request body keys while redacting LLM content values and credentials
+- EventScrubber handles `api_key`/`token`/`auth` by key name. `before_send` handles LLM-specific vars (`body`, `messages`, `final_response`) that have generic names the scrubber can't match
+
+**Alternatives rejected**:
+- Server-side scrubbing only: credentials transit the network before scrubbing
+- Strip all local variables: loses debugging context (`call_id`, `is_streaming`, `chunk_count`)
+
+**Full details**: See `dev/context/sentry.md`
+
+---
+
 (Add new decisions as they're made with timestamps: YYYY-MM-DD)

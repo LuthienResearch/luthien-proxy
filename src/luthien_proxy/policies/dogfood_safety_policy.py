@@ -22,7 +22,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
@@ -43,7 +43,9 @@ from luthien_proxy.policy_core import (
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import (
+        AnthropicContentBlock,
         AnthropicResponse,
+        JSONObject,
     )
     from luthien_proxy.policy_core.policy_context import PolicyContext
 
@@ -136,7 +138,7 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
     # Core matching logic
     # ========================================================================
 
-    def _is_dangerous(self, tool_name: str, tool_input: dict[str, Any] | str) -> tuple[bool, str]:
+    def _is_dangerous(self, tool_name: str, tool_input: "JSONObject | str") -> tuple[bool, str]:
         """Check if a tool call contains a dangerous command.
 
         Returns (is_blocked, command_string).
@@ -154,7 +156,7 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
 
         return False, ""
 
-    def _extract_command(self, tool_input: dict[str, Any] | str) -> str:
+    def _extract_command(self, tool_input: "JSONObject | str") -> str:
         """Extract command string from tool input (handles Claude Code's format)."""
         if isinstance(tool_input, str):
             try:
@@ -184,7 +186,7 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
         if not content:
             return response
 
-        new_content: list[Any] = []
+        new_content: list[AnthropicContentBlock] = []
         modified = False
 
         for block in content:
