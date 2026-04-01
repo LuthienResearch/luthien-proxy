@@ -36,13 +36,19 @@ def _exec_claude(gateway_url: str, extra_args: list[str] | None = None) -> None:
     sys.stdout.flush()
 
     # When launched via `curl | bash`, the shell redirect `</dev/tty`
-    # opens /dev/tty as O_RDONLY for fd 0.  Bun's kevent-based input
-    # polling needs a read-write fd.  Reopen /dev/tty as O_RDWR and
-    # replace only fd 0 — leave fd 1/2 alone since they are already
-    # proper pty fds and dup2'ing /dev/tty onto them breaks Bun's
-    # kqueue (EINVAL on the indirect /dev/tty device node).
+    # opens /dev/tty as O_RDONLY for fd 0.  Claude Code (Bun) uses
+    # macOS kqueue/kevent for input polling, but kqueue cannot monitor
+    # the indirect /dev/tty device node — only real pty devices like
+    # /dev/ttys000.  The O_RDONLY + indirect device causes kevent to
+    # silently return no events, so stdin appears dead and the TUI
+    # freezes.
+    #
+    # Fix: get the real pty path from stdout (which is already a proper
+    # pty fd), open it O_RDWR, and dup2 onto fd 0.  Leave fd 1/2
+    # alone — they already work.
     try:
-        tty_fd = os.open("/dev/tty", os.O_RDWR)
+        real_tty = os.ttyname(1)  # e.g. "/dev/ttys000"
+        tty_fd = os.open(real_tty, os.O_RDWR)
         if tty_fd != 0:
             os.dup2(tty_fd, 0)
             os.close(tty_fd)
