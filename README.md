@@ -56,7 +56,7 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 - **Enforce scope boundaries** - only allow changes to files mentioned in the request
 - **Catch dishonest behavior** - flag when the agent deletes a failing test instead of fixing it, or claims "all tests pass" when it just suppressed the error
 
-Policies call a fast judge model (like Haiku) and run in two modes: **blocking** (evaluate *before* execution) or **monitoring** (evaluate *in parallel*, no added latency).
+Policies run in two modes: **blocking** (evaluate *before* execution, prevent the action) or **monitoring** (evaluate *in parallel*, no added latency). Either mode can use any judge model — a fast one like Haiku for simple rules, or a larger one for complex reasoning.
 
 ```yaml
 # config/policy_config.yaml
