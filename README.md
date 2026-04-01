@@ -50,21 +50,12 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 
 ### Enforce arbitrary policies
 
-1. **Did it do what I asked?**
-   - Catch when it deletes a failing test instead of fixing it
-   - Flag "all tests pass" when it actually suppressed the error
-   - Detect code changes outside the requested scope
-2. **Did it follow CLAUDE.md?**
-   - Enforce package standards (`uv add` not `pip install`)
-   - Enforce scope boundaries
-   - De-slop AI writing tics
-3. **Did it do something suspicious?**
-   - Block `rm -rf` or recursive deletes
-   - Block `git push --force` to main
-   - Block database drops
-   - Block `curl` to unknown URLs
+- **Block dangerous operations** — `rm -rf`, `git push --force`, dropping database tables
+- **Enforce package standards** — block `pip install`, suggest `uv add` instead
+- **Clean up AI writing tics** — remove em dashes, curly quotes, over-bulleting
+- **Enforce scope boundaries** — only allow changes to files mentioned in the request
 
-Policies can run **sequentially** (evaluate before execution, can prevent the action) or **in parallel** (no added latency, flag violations after the fact). Each policy's mode is set in config.
+**Example: ToolCallJudgePolicy** — an LLM judge that evaluates every tool call:
 
 ```yaml
 # config/policy_config.yaml
@@ -72,8 +63,7 @@ policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
     model: "anthropic/claude-haiku-4-5-20251001"  # swap for a larger model if needed
-    probability_threshold: 0.6  # block if >= 60%
-    # confidence = judge model's next-token probability of BLOCK vs ALLOW
+    probability_threshold: 0.6  # block when judge rates risk at >= 0.6 (higher = more permissive)
     judge_instructions: >
       Block any 'pip install' commands. Suggest 'uv add' instead.
       Block 'rm -rf' or any recursive delete on project directories.
@@ -101,10 +91,6 @@ You <-> Claude Code <-> Luthien <-> Anthropic API
                           |
                    logs every request and response
                    enforces the rules you define
-                          |
-                          |-- did it do what I asked?
-                          |-- did it follow CLAUDE.md?
-                          +-- did it do something suspicious?
 ```
 
 Luthien sits in line as a transparent proxy. Every request and response flows through it, adding roughly 5-15ms of overhead. You define rules in YAML or Python, and Luthien enforces them on every request. It can call a separate "judge" model (like Claude Haiku) to evaluate responses in parallel, so enforcement does not block your workflow.
@@ -210,8 +196,8 @@ POLICY_CONFIG=./config/policy_config.yaml
 ```bash
 # Configuration for judge-based policies (ToolCallJudgePolicy)
 LLM_JUDGE_MODEL=anthropic/claude-haiku-4-5-20251001   # Model for judge
-LLM_JUDGE_API_BASE=http://localhost:11434/v1         # API base URL
 LLM_JUDGE_API_KEY=your_judge_api_key                 # API key for judge
+# LLM_JUDGE_API_BASE=http://localhost:11434/v1       # only needed for self-hosted/proxy endpoints
 ```
 
 See `.env.example` for all available options and defaults.
@@ -227,8 +213,7 @@ policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
     model: "anthropic/claude-haiku-4-5-20251001"  # swap for a larger model if needed
-    probability_threshold: 0.6  # block if >= 60%
-    # confidence = judge model's next-token probability of BLOCK vs ALLOW
+    probability_threshold: 0.6  # block when judge rates risk at >= 0.6 (higher = more permissive)
     temperature: 0.0
     max_tokens: 256
 ```
