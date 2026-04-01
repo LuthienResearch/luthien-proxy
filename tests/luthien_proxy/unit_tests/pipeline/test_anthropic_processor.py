@@ -284,8 +284,8 @@ class TestProcessRequest:
         assert "messages" in exc_info.value.detail.lower()
 
     @pytest.mark.asyncio
-    async def test_missing_max_tokens_defaults_to_4096(self, mock_request, mock_emitter, mock_span):
-        """Test that missing max_tokens gets a default value instead of 400."""
+    async def test_missing_max_tokens_returns_400(self, mock_request, mock_emitter, mock_span):
+        """Test that missing max_tokens raises a 400 error."""
         body = {
             "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello"}],
@@ -296,35 +296,15 @@ class TestProcessRequest:
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            request_obj, _, _ = await _process_request(
-                request=mock_request,
-                call_id="test-call-id",
-                emitter=mock_emitter,
-            )
+            with pytest.raises(HTTPException) as exc_info:
+                await _process_request(
+                    request=mock_request,
+                    call_id="test-call-id",
+                    emitter=mock_emitter,
+                )
 
-        assert request_obj["max_tokens"] == 4096
-
-    @pytest.mark.asyncio
-    async def test_max_output_tokens_copied_to_max_tokens(self, mock_request, mock_emitter, mock_span):
-        """Test that max_output_tokens is accepted as alternative to max_tokens."""
-        body = {
-            "model": DEFAULT_TEST_MODEL,
-            "messages": [{"role": "user", "content": "Hello"}],
-            "max_output_tokens": 2048,
-        }
-        mock_request.json = AsyncMock(return_value=body)
-
-        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
-            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
-            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
-
-            request_obj, _, _ = await _process_request(
-                request=mock_request,
-                call_id="test-call-id",
-                emitter=mock_emitter,
-            )
-
-        assert request_obj["max_tokens"] == 2048
+        assert exc_info.value.status_code == 400
+        assert "max_tokens" in exc_info.value.detail
 
 
 class TestAnthropicRequestFlow:

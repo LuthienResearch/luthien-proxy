@@ -481,13 +481,8 @@ async def _process_request(
             raise HTTPException(status_code=400, detail="Missing required field: model")
         if "messages" not in body:
             raise HTTPException(status_code=400, detail="Missing required field: messages")
-        # Accept max_tokens or max_output_tokens (the API accepts both).
-        # If neither is present, default max_tokens so the SDK call doesn't fail.
         if "max_tokens" not in body:
-            if "max_output_tokens" in body:
-                body["max_tokens"] = body["max_output_tokens"]
-            else:
-                body["max_tokens"] = 4096
+            raise HTTPException(status_code=400, detail="Missing required field: max_tokens")
 
         # Create typed request
         anthropic_request: AnthropicRequest = body
