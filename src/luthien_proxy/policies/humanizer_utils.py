@@ -1,0 +1,412 @@
+"""Utilities for HumanizerPolicy LLM calls.
+
+Handles prompt construction and LiteLLM calls for transforming AI-generated
+text into more natural, human-sounding writing. Based on the humanizer project
+(https://github.com/blader/humanizer) which catalogs 25 categories of AI
+writing patterns from Wikipedia's "Signs of AI writing" guide.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import re
+from typing import Any, cast
+
+from litellm import acompletion
+from litellm.types.utils import Choices, Message, ModelResponse
+from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
+
+
+class HumanizerConfig(BaseModel):
+    """Configuration for HumanizerPolicy."""
+
+    model: str = Field(
+        default="claude-haiku-4-5",
+        description="Any LiteLLM model string, e.g. 'claude-haiku-4-5', 'gpt-4o', 'ollama/llama3'",
+    )
+    api_base: str | None = Field(
+        default=None,
+        description="Optional. Leave blank to use the model's default backend.",
+    )
+    api_key: str | None = Field(
+        default=None,
+        description="API key for authentication",
+        json_schema_extra={"format": "password"},
+    )
+    temperature: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=2.0,
+        description="Sampling temperature. Higher values produce more varied rewrites.",
+    )
+    max_tokens: int = Field(
+        default=8192,
+        description="Maximum output tokens for the humanizer LLM call.",
+    )
+    extra_instructions: str = Field(
+        default="",
+        description="Additional instructions appended to the humanizer prompt.",
+    )
+    min_text_length: int = Field(
+        default=40,
+        ge=0,
+        description="Text blocks shorter than this (in characters) are passed through unchanged.",
+    )
+    chunk_size: int = Field(
+        default=500,
+        ge=50,
+        description="Minimum buffer size (chars) before looking for a paragraph split point.",
+    )
+    force_chunk_size: int = Field(
+        default=1500,
+        ge=100,
+        description="Force a split even without a paragraph boundary if buffer exceeds this.",
+    )
+    context_overlap: int = Field(
+        default=200,
+        ge=0,
+        description="Characters of previous humanized output to include as context for style continuity.",
+    )
+    max_retries: int = Field(
+        default=2,
+        ge=0,
+        le=10,
+        description="Max retry attempts on transient failures (0 = no retries).",
+    )
+    retry_delay: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=30.0,
+        description="Seconds to wait between retries.",
+    )
+
+    model_config = {"frozen": True}
+
+
+_CODE_BLOCK_PATTERN = re.compile(r"(```[\s\S]*?```|`[^`\n]+`)")
+
+_PLACEHOLDER_PREFIX = "\u200b\u200bCODE_BLOCK_"
+
+
+def extract_code_blocks(text: str) -> tuple[str, dict[str, str]]:
+    """Replace code blocks with placeholders to protect them from rewriting."""
+    blocks: dict[str, str] = {}
+    counter = 0
+
+    def _replace(match: re.Match[str]) -> str:
+        nonlocal counter
+        placeholder = f"{_PLACEHOLDER_PREFIX}{counter}\u200b\u200b"
+        blocks[placeholder] = match.group(0)
+        counter += 1
+        return placeholder
+
+    masked = _CODE_BLOCK_PATTERN.sub(_replace, text)
+    return masked, blocks
+
+
+def restore_code_blocks(text: str, blocks: dict[str, str]) -> str:
+    """Restore code block placeholders with original content."""
+    for placeholder, original in blocks.items():
+        text = text.replace(placeholder, original)
+    return text
+
+
+_HUMANIZER_SYSTEM_PROMPT = """\
+You are a text rewriter. Your job is to take AI-generated text and rewrite it \
+to sound naturally human-written, while preserving meaning and technical accuracy.
+
+# AI Writing Patterns to Eliminate
+
+## Content Patterns
+1. Undue emphasis on significance/legacy — "stands as," "testament," "crucial," "pivotal," "underscores"
+2. Notability inflation — claiming broad recognition without evidence
+3. Superficial -ing analyses — tacking present participle phrases for fake depth ("symbolizing," "reflecting")
+4. Promotional language — "vibrant," "breathtaking," "nestled," "stunning," "renowned"
+5. Vague attributions — "Experts argue," "Industry reports," "Some critics"
+6. Formulaic sections — generic "Challenges and Future Prospects" outlines
+
+## Language & Grammar
+7. Overused AI vocabulary — additionally, align, crucial, delve, enhance, fostering, garner, \
+highlight, interplay, intricate, landscape, pivotal, showcase, tapestry, testament, underscore, \
+valuable, vibrant, multifaceted, comprehensive, innovative, leverage, streamline, utilize, \
+cutting-edge, paradigm, holistic, synergy
+8. Copula avoidance — "serves as," "stands as," "features," "boasts" instead of plain "is/are"
+9. Negative parallelisms — "Not only...but..." or "It's not just...it's..." constructions
+10. Rule of three overuse — forcing ideas into groups of three
+11. Elegant variation — excessive synonym cycling to avoid repeating words
+12. False ranges — "From X to Y" where X and Y aren't on a meaningful scale
+
+## Style
+13. Em dash overuse — more frequent than natural writing
+14. Excessive boldface — mechanical emphasis
+15. Inline-header vertical lists — bolded headers with colons and descriptions
+16. Title Case In Every Heading — should be sentence case
+17. Decorative emojis in headings or bullets
+18. Curly quotation marks (typographic tell from ChatGPT)
+
+## Communication
+19. Chatbot artifacts — "I hope this helps," "Of course!," "Certainly!," "Let me know"
+20. Knowledge-cutoff disclaimers — "As of my last training update"
+21. Sycophantic tone — overly positive, people-pleasing language
+
+## Filler & Hedging
+22. Filler phrases — "In order to," "Due to the fact that," "At this point in time," \
+"It is worth noting that," "It's important to note"
+23. Excessive hedging — over-qualifying with "could potentially possibly"
+24. Generic positive conclusions — "The future looks bright"
+25. Consistent hyphenation — humans are inconsistent with compound modifiers
+
+# How to Rewrite
+
+- Code blocks have been replaced with placeholders (CODE_BLOCK_0, etc.) — reproduce \
+these placeholders exactly as they appear, do not modify or remove them
+- Preserve ALL technical content, data, and factual claims exactly
+- Replace AI-isms with plain, direct language
+- Vary sentence rhythm — mix short and long
+- Use "is/are" instead of "serves as/stands as/features"
+- Cut filler phrases entirely rather than replacing them
+- Remove promotional adjectives; let facts speak
+- Keep the same overall structure and information ordering
+- Do NOT add new information or opinions
+- Do NOT wrap the output in quotes or markdown fences
+- Output ONLY the rewritten text, nothing else\
+"""
+
+_CHUNK_ADDENDUM = """
+
+# Fragment Mode
+
+You are rewriting a fragment of a larger text, not a complete document. \
+Do NOT add introductions, conclusions, or transitional phrases that weren't \
+in the original. Maintain consistent style with the preceding context if provided.\
+"""
+
+
+def build_humanizer_prompt(
+    text: str,
+    extra_instructions: str = "",
+) -> list[dict[str, str]]:
+    """Build the message list for a full-text humanizer LLM call."""
+    system = _HUMANIZER_SYSTEM_PROMPT
+    if extra_instructions:
+        system += f"\n\n# Additional Instructions\n{extra_instructions}"
+
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": text},
+    ]
+
+
+def build_humanizer_chunk_prompt(
+    chunk: str,
+    previous_context: str = "",
+    extra_instructions: str = "",
+    is_final: bool = False,
+) -> list[dict[str, str]]:
+    """Build the message list for a chunk-mode humanizer call.
+
+    Includes the preceding humanized output as style context so the
+    rewriter maintains consistency across chunks.
+    """
+    system = _HUMANIZER_SYSTEM_PROMPT + _CHUNK_ADDENDUM
+    if is_final:
+        system += "\nThis is the final fragment of the text."
+    if extra_instructions:
+        system += f"\n\n# Additional Instructions\n{extra_instructions}"
+
+    if previous_context:
+        user_content = (
+            f"[PRECEDING CONTEXT \u2014 do not rewrite, for style reference only]\n"
+            f"{previous_context}\n\n"
+            f"[TEXT TO REWRITE]\n{chunk}"
+        )
+    else:
+        user_content = chunk
+
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user_content},
+    ]
+
+
+class HumanizerTruncatedError(Exception):
+    """Raised when the humanizer LLM output appears truncated."""
+
+
+async def _call_litellm(
+    messages: list[dict[str, str]],
+    config: HumanizerConfig,
+    api_key: str | None = None,
+    extra_headers: dict[str, str] | None = None,
+    raise_on_truncation: bool = True,
+) -> str:
+    """Shared LiteLLM call with retry logic.
+
+    When raise_on_truncation is False (chunk mode), truncated output is
+    returned as-is instead of raising.
+    """
+    resolved_key = api_key if api_key is not None else config.api_key
+    kwargs: dict[str, Any] = {
+        "model": config.model,
+        "messages": messages,
+        "temperature": config.temperature,
+        "max_tokens": config.max_tokens,
+    }
+    if config.api_base:
+        kwargs["api_base"] = config.api_base
+    if resolved_key:
+        kwargs["api_key"] = resolved_key
+    if extra_headers:
+        kwargs["extra_headers"] = extra_headers
+
+    max_attempts = 1 + config.max_retries
+    last_exc: Exception | None = None
+
+    for attempt in range(max_attempts):
+        try:
+            response = await acompletion(**kwargs)
+            response = cast(ModelResponse, response)
+
+            first_choice: Choices = cast(Choices, response.choices[0])
+            finish_reason = first_choice.finish_reason
+            if finish_reason == "length" and raise_on_truncation:
+                raise HumanizerTruncatedError(
+                    f"Humanizer output truncated (hit max_tokens={config.max_tokens}). "
+                    "The original text is too long for the configured max_tokens."
+                )
+
+            message: Message = first_choice.message
+            if message.content is None:
+                raise ValueError("Humanizer response content is None")
+
+            return message.content
+        except HumanizerTruncatedError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            is_last_attempt = attempt == max_attempts - 1
+            if is_last_attempt:
+                break
+            logger.warning(
+                "Humanizer attempt %d/%d failed: %r — retrying in %.1fs",
+                attempt + 1,
+                max_attempts,
+                exc,
+                config.retry_delay,
+            )
+            if config.retry_delay > 0:
+                await asyncio.sleep(config.retry_delay)
+
+    assert last_exc is not None
+    raise last_exc
+
+
+async def call_humanizer(
+    text: str,
+    config: HumanizerConfig,
+    api_key: str | None = None,
+    extra_headers: dict[str, str] | None = None,
+) -> str:
+    """Call the humanizer LLM to rewrite a complete text.
+
+    Extracts code blocks before sending to the LLM and restores them after.
+    Detects truncation via finish_reason and raises HumanizerTruncatedError.
+    """
+    masked_text, code_blocks = extract_code_blocks(text)
+    prompt = build_humanizer_prompt(masked_text, config.extra_instructions)
+    result = await _call_litellm(prompt, config, api_key, extra_headers, raise_on_truncation=True)
+    if code_blocks:
+        result = restore_code_blocks(result, code_blocks)
+    return result
+
+
+async def call_humanizer_chunk(
+    chunk: str,
+    config: HumanizerConfig,
+    previous_context: str = "",
+    is_final: bool = False,
+    api_key: str | None = None,
+    extra_headers: dict[str, str] | None = None,
+) -> str:
+    """Call the humanizer LLM to rewrite a text chunk.
+
+    Like call_humanizer but uses chunk-mode prompting with context overlap.
+    On truncation, returns partial output instead of raising (graceful
+    degradation for streaming chunks).
+    """
+    masked_chunk, code_blocks = extract_code_blocks(chunk)
+    prompt = build_humanizer_chunk_prompt(
+        masked_chunk,
+        previous_context=previous_context,
+        extra_instructions=config.extra_instructions,
+        is_final=is_final,
+    )
+    result = await _call_litellm(prompt, config, api_key, extra_headers, raise_on_truncation=False)
+    if code_blocks:
+        result = restore_code_blocks(result, code_blocks)
+    return result
+
+
+def split_into_chunks(
+    text: str,
+    chunk_size: int = 500,
+    force_chunk_size: int = 1500,
+) -> list[str]:
+    """Split text into paragraph-aligned chunks for independent humanization.
+
+    Used by the non-streaming path to break a complete text block into
+    chunks that can each be humanized without hitting token limits.
+    """
+    if len(text) <= chunk_size:
+        return [text]
+
+    chunks: list[str] = []
+    remaining = text
+
+    while remaining:
+        if len(remaining) <= chunk_size:
+            chunks.append(remaining)
+            break
+
+        # Look for \n\n after chunk_size
+        split_pos = remaining.find("\n\n", chunk_size)
+        if split_pos != -1 and split_pos < force_chunk_size:
+            chunk = remaining[: split_pos + 2]
+            remaining = remaining[split_pos + 2 :]
+        elif len(remaining) > force_chunk_size:
+            # Force split — try sentence boundary first
+            force_region = remaining[:force_chunk_size]
+            sentence_end = max(
+                force_region.rfind(". "),
+                force_region.rfind("! "),
+                force_region.rfind("? "),
+            )
+            if sentence_end > chunk_size:
+                chunk = remaining[: sentence_end + 2]
+                remaining = remaining[sentence_end + 2 :]
+            else:
+                chunk = remaining[:force_chunk_size]
+                remaining = remaining[force_chunk_size:]
+        else:
+            chunks.append(remaining)
+            break
+
+        chunks.append(chunk)
+
+    return chunks
+
+
+__all__ = [
+    "HumanizerConfig",
+    "HumanizerTruncatedError",
+    "build_humanizer_chunk_prompt",
+    "build_humanizer_prompt",
+    "call_humanizer",
+    "call_humanizer_chunk",
+    "extract_code_blocks",
+    "restore_code_blocks",
+    "split_into_chunks",
+]
