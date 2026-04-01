@@ -66,37 +66,65 @@ class AnthropicClient:
         """Create a new client with a bearer/OAuth token, preserving base_url."""
         return AnthropicClient(auth_token=auth_token, base_url=self._base_url)
 
-    def _prepare_request_kwargs(self, request: AnthropicRequest) -> dict:
-        """Extract non-None values from request for SDK call.
+    # Fields the Anthropic SDK accepts as named parameters to messages.create().
+    # Any request field NOT in this set is forwarded via extra_body so the proxy
+    # stays transparent as the API evolves (new fields, beta features, etc.).
+    _SDK_KNOWN_FIELDS: frozenset[str] = frozenset(
+        {
+            "model",
+            "messages",
+            "max_tokens",
+            "system",
+            "tools",
+            "tool_choice",
+            "temperature",
+            "top_p",
+            "top_k",
+            "stop_sequences",
+            "metadata",
+            "thinking",
+            "stream",
+        }
+    )
 
-        The Anthropic SDK uses Omit sentinels for optional parameters,
-        so we only pass keys that are explicitly set in the request.
+    def _prepare_request_kwargs(self, request: AnthropicRequest) -> dict:
+        """Extract request fields for SDK call, forwarding unknown fields via extra_body.
+
+        Known SDK parameters are passed as named kwargs. Any additional fields
+        present in the request (e.g. output_config, service_tier, container)
+        are forwarded via extra_body so they reach the Anthropic API even if
+        the proxy's SDK version doesn't have explicit support for them yet.
         """
         kwargs: dict = {
             "model": request["model"],
             "messages": request["messages"],
-            "max_tokens": request["max_tokens"],
+            "max_tokens": request.get("max_tokens", 4096),
         }
 
-        # Optional fields - only include if present in request
-        if "system" in request:
-            kwargs["system"] = request["system"]
-        if "tools" in request:
-            kwargs["tools"] = request["tools"]
-        if "tool_choice" in request:
-            kwargs["tool_choice"] = request["tool_choice"]
-        if "temperature" in request:
-            kwargs["temperature"] = request["temperature"]
-        if "top_p" in request:
-            kwargs["top_p"] = request["top_p"]
-        if "top_k" in request:
-            kwargs["top_k"] = request["top_k"]
-        if "stop_sequences" in request:
-            kwargs["stop_sequences"] = request["stop_sequences"]
-        if "metadata" in request:
-            kwargs["metadata"] = request["metadata"]
-        if "thinking" in request:
-            kwargs["thinking"] = request["thinking"]
+        # Optional SDK-known fields — only include if present.
+        # Use dict-level access to avoid Pyright reportTypedDictNotRequiredAccess
+        # (these fields are checked with `in` before access).
+        raw: dict = request  # type: ignore[assignment]
+        for field in (
+            "system",
+            "tools",
+            "tool_choice",
+            "temperature",
+            "top_p",
+            "top_k",
+            "stop_sequences",
+            "metadata",
+            "thinking",
+        ):
+            if field in raw:
+                kwargs[field] = raw[field]
+
+        # Forward any fields the SDK doesn't know about via extra_body.
+        # This ensures new API features (output_config, service_tier, etc.)
+        # aren't silently dropped by the proxy.
+        extra_body = {k: v for k, v in request.items() if k not in self._SDK_KNOWN_FIELDS}
+        if extra_body:
+            kwargs["extra_body"] = extra_body
 
         return kwargs
 

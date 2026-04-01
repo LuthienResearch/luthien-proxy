@@ -377,3 +377,45 @@ class TestAnthropicClientStream:
                 text_deltas.append(event.delta.text)
 
         assert text_deltas == ["Hi", " there!"]
+
+    @pytest.mark.asyncio
+    async def test_complete_forwards_unknown_fields_via_extra_body(self, sample_message: Message):
+        """Test that unknown request fields are forwarded via extra_body."""
+        client = AnthropicClient(api_key="test-key")
+        request: dict = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 100,
+            "output_config": {"format": {"type": "json"}},
+            "service_tier": "auto",
+        }
+
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        client._client = mock_async_client
+
+        await client.complete(request)
+
+        call_kwargs = mock_async_client.messages.create.call_args.kwargs
+        assert "extra_body" in call_kwargs
+        assert call_kwargs["extra_body"]["output_config"] == {"format": {"type": "json"}}
+        assert call_kwargs["extra_body"]["service_tier"] == "auto"
+
+    @pytest.mark.asyncio
+    async def test_complete_no_extra_body_when_all_fields_known(self, sample_message: Message):
+        """Test that extra_body is not set when request only has known fields."""
+        client = AnthropicClient(api_key="test-key")
+        request = AnthropicRequest(
+            model=DEFAULT_TEST_MODEL,
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=100,
+        )
+
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(return_value=sample_message)
+        client._client = mock_async_client
+
+        await client.complete(request)
+
+        call_kwargs = mock_async_client.messages.create.call_args.kwargs
+        assert "extra_body" not in call_kwargs

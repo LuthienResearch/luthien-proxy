@@ -6,7 +6,9 @@ import logging
 import secrets
 import time
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from luthien_proxy.credential_manager import AuthMode, CredentialManager, is_anthropic_api_key
@@ -33,6 +35,8 @@ from luthien_proxy.utils import db
 router = APIRouter(tags=["gateway"])
 security = HTTPBearer(auto_error=False)
 logger = logging.getLogger(__name__)
+
+ANTHROPIC_API_BASE = "https://api.anthropic.com"
 
 
 # === AUTH ===
@@ -162,6 +166,55 @@ async def anthropic_messages(
         db_pool=db_pool,
         enable_request_logging=deps.enable_request_logging,
         usage_collector=usage_collector,
+    )
+
+
+@router.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+async def proxy_passthrough(
+    request: Request,
+    path: str,
+    _: str = Depends(verify_token),
+):
+    """Transparent proxy for /v1/* endpoints not explicitly handled.
+
+    Forwards requests to the Anthropic API so Claude Code can use endpoints
+    like /v1/messages/count_tokens, /v1/models, etc. without getting 404.
+    """
+    # Build upstream URL
+    upstream_url = f"{ANTHROPIC_API_BASE}/v1/{path}"
+
+    # Forward relevant headers (auth, content-type, anthropic-specific)
+    forward_headers: dict[str, str] = {}
+    for key in ("authorization", "x-api-key", "content-type", "anthropic-version", "anthropic-beta"):
+        if value := request.headers.get(key):
+            forward_headers[key] = value
+
+    # Read request body (if any)
+    body = await request.body()
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            upstream_response = await client.request(
+                method=request.method,
+                url=upstream_url,
+                headers=forward_headers,
+                content=body if body else None,
+                params=dict(request.query_params),
+            )
+    except httpx.RequestError as e:
+        logger.warning("Proxy passthrough error for /v1/%s: %s", path, repr(e))
+        raise HTTPException(status_code=502, detail="Failed to connect to upstream API")
+
+    # Forward the response back to the client
+    response_headers = {}
+    for key in ("content-type", "x-request-id", "request-id"):
+        if value := upstream_response.headers.get(key):
+            response_headers[key] = value
+
+    return Response(
+        content=upstream_response.content,
+        status_code=upstream_response.status_code,
+        headers=response_headers,
     )
 
 
