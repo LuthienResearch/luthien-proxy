@@ -236,12 +236,15 @@ def _show_results(
     except Exception:
         console.print(f"[dim]Open {config_url} in your browser to configure policies[/dim]")
 
-    # Prompt user to launch Claude Code (single keypress, no Enter needed)
+    # Prompt user before launching Claude Code.
+    # NOTE: We use plain input() here — NOT _read_single_key() which
+    # toggles the terminal into raw mode.  The raw-mode toggle was
+    # suspected of leaving terminal state that prevents Claude Code's
+    # TUI from initialising after os.execvpe.
     console.print()
-    console.print("[bold]Press any key to launch Claude Code through Luthien Proxy, or q to quit.[/bold]")
     try:
-        key = _read_single_key()
-        if key.lower() == "q":
+        answer = console.input("[bold]Press Enter to launch Claude Code through Luthien Proxy, or q to quit: [/bold]")
+        if answer.strip().lower() == "q":
             return
     except (KeyboardInterrupt, EOFError):
         return
