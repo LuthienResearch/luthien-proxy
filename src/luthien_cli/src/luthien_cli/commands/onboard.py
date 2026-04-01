@@ -36,10 +36,24 @@ def _read_single_key() -> str:
     old_settings = termios.tcgetattr(fd)
     try:
         tty.setraw(fd)
-        ch = sys.stdin.read(1)
+        # Use os.read() — NOT sys.stdin.read().  sys.stdin is a
+        # buffered TextIOWrapper whose underlying BufferedReader calls
+        # os.read(fd, 8192), consuming ALL available bytes from the
+        # kernel input buffer into Python's userspace buffer.  Only the
+        # one requested character is returned; the rest are trapped.
+        # After os.execvpe replaces this process, that buffer is
+        # destroyed — the bytes are gone.  If they included terminal
+        # escape-sequence responses, Claude Code's Ink TUI will never
+        # see them, hang waiting for answers the terminal already sent,
+        # and freeze the terminal in raw mode.
+        #
+        # os.read(fd, 1) is a raw syscall: exactly one byte is removed
+        # from the kernel buffer.  Everything else stays for tcflush or
+        # the next process to consume.
+        ch = os.read(fd, 1)
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-    return ch
+    return ch.decode("ascii", errors="replace")
 
 
 ONBOARDING_PROMPT = (
