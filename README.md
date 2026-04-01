@@ -91,6 +91,10 @@ You <-> Claude Code <-> Luthien <-> Anthropic API
                           |
                    logs every request and response
                    enforces the rules you define
+                          |
+                          |-- did it do what I asked?
+                          |-- did it follow CLAUDE.md?
+                          +-- did it do something suspicious?
 ```
 
 Luthien sits in line as a transparent proxy. Every request and response flows through it, adding roughly 5-15ms of overhead. You define rules in YAML or Python, and Luthien enforces them on every request. It can call a separate "judge" model (like Claude Haiku) to evaluate responses in parallel, so enforcement does not block your workflow.
@@ -164,7 +168,6 @@ ADMIN_API_KEY=admin-dev-key          # API key for admin/policy management UI (H
 ```bash
 # Only needed if NOT using Claude Pro/Max OAuth passthrough
 ANTHROPIC_API_KEY=your_anthropic_api_key_here  # optional — per-token billing, see warning above
-OPENAI_API_KEY=your_openai_api_key_here        # optional — needed if using OpenAI-format judge models
 ```
 
 ### Core Infrastructure
