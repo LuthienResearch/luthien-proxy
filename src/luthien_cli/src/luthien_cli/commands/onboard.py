@@ -232,10 +232,16 @@ def _show_results(
     except (KeyboardInterrupt, EOFError):
         return
 
-    # Launch Claude Code through the proxy with the onboarding prompt
-    from luthien_cli.commands.claude import _launch_claude
+    # Launch Claude Code through the proxy with the onboarding prompt.
+    # Use _exec_claude directly — the gateway is already confirmed
+    # healthy above, and the keypress provides a human-scale delay
+    # that lets all prior Rich ANSI terminal responses arrive and be
+    # drained before exec.  Calling _launch_claude would re-run
+    # ensure_gateway_up (Rich output) right before exec, re-opening
+    # the ANSI race window.
+    from luthien_cli.commands.claude import _exec_claude
 
-    _launch_claude(console, [ONBOARDING_PROMPT])
+    _exec_claude(gateway_url, [ONBOARDING_PROMPT])
 
 
 def _onboard_local(
