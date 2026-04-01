@@ -50,10 +50,13 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 
 ### Enforce arbitrary policies
 
-Policies call a fast judge model (like Haiku) and run in two modes:
+- **Block dangerous operations** - `rm -rf`, `git push --force`, dropping database tables
+- **Enforce package standards** - block `pip install`, suggest `uv add` instead
+- **Clean up AI writing tics** - remove em dashes, curly quotes, over-bulleting
+- **Enforce scope boundaries** - only allow changes to files mentioned in the request
+- **Catch dishonest behavior** - flag when the agent deletes a failing test instead of fixing it, or claims "all tests pass" when it just suppressed the error
 
-- **Blocking** — evaluate *before* execution. Block `rm -rf`, `git push --force`, `pip install`, etc.
-- **Monitoring** — evaluate *in parallel*, no added latency. Catch the agent deleting a failing test instead of fixing it, or claiming "all tests pass" when it just suppressed the error.
+Policies call a fast judge model (like Haiku) and run in two modes: **blocking** (evaluate *before* execution) or **monitoring** (evaluate *in parallel*, no added latency).
 
 ```yaml
 # config/policy_config.yaml
