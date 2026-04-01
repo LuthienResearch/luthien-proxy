@@ -62,8 +62,9 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
-    model: "anthropic/claude-haiku-4-5-20251001"  # fast + cheap; swap for a larger model if your rules need deeper reasoning
-    probability_threshold: 0.6  # block if judge confidence >= 60% (confidence = next-token probability of "BLOCK" vs "ALLOW")
+    model: "anthropic/claude-haiku-4-5-20251001"  # swap for a larger model if needed
+    probability_threshold: 0.6  # block if >= 60%
+    # confidence = judge model's next-token probability of BLOCK vs ALLOW
     judge_instructions: >
       Block any 'pip install' commands. Suggest 'uv add' instead.
       Block 'rm -rf' or any recursive delete on project directories.
@@ -214,8 +215,9 @@ Example policy configuration:
 policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
-    model: "anthropic/claude-haiku-4-5-20251001"  # fast + cheap; swap for a larger model if your rules need deeper reasoning
-    probability_threshold: 0.6  # block if judge confidence >= 60% (confidence = next-token probability of "BLOCK" vs "ALLOW")
+    model: "anthropic/claude-haiku-4-5-20251001"  # swap for a larger model if needed
+    probability_threshold: 0.6  # block if >= 60%
+    # confidence = judge model's next-token probability of BLOCK vs ALLOW
     temperature: 0.0
     max_tokens: 256
 ```
