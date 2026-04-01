@@ -119,4 +119,4 @@ class TestOnboardDockerCloneSystemExit:
             ),
             pytest.raises(SystemExit),
         ):
-            _onboard_docker(console, config, "pk-test", "ak-test")
+            _onboard_docker(console, config, "admin-test")
