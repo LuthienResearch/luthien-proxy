@@ -20,7 +20,7 @@ def _launch_claude(console: Console, extra_args: list[str] | None = None) -> Non
     """
     claude_path = shutil.which("claude")
     if not claude_path:
-        console.print("[red]Claude Code CLI not found. Install: npm install -g @anthropic-ai/claude-cli[/red]")
+        console.print("[red]Claude Code CLI not found. Install: npm install -g @anthropic-ai/claude-code[/red]")
         raise SystemExit(1)
 
     # Ensure the gateway is running before handing off to Claude Code.
