@@ -62,18 +62,23 @@ def _launch_claude(console: Console, extra_args: list[str] | None = None) -> Non
     # passthrough without warning about conflicting credentials.
     env.pop("ANTHROPIC_API_KEY", None)
 
-    # Use plain print() — NOT Rich console.print() — between the keypress
-    # and os.execvpe.  Rich emits ANSI escape sequences that query terminal
-    # capabilities; the terminal's async responses land in stdin and corrupt
-    # Claude Code's own TUI initialisation, causing a hang.
-    print(f"Routing through {config.gateway_url} (OAuth passthrough)")
-    print("Tip: run luthien commands with ! such as !luthien status, !luthien logs, !luthien up, and !luthien down")
-
-    args = list(extra_args or [])
-
-    # Drain stale terminal I/O so Claude Code's TUI starts clean.
+    # ── No Rich output past this point. ──────────────────────────────
+    # Rich emits ANSI escape sequences that query terminal capabilities.
+    # The terminal sends responses back on stdin *asynchronously*.  If
+    # any response is still in flight when os.execvpe hands control to
+    # Claude Code, Ink reads the stale bytes instead of its own terminal
+    # query replies and the TUI hangs in raw mode.
+    #
+    # _flush_terminal() drains what is in the kernel buffer NOW, but
+    # cannot drain what hasn't arrived yet.  So we must ensure no ANSI-
+    # emitting code runs between here and exec.  Use only plain print().
     _flush_terminal()
 
+    print(f"Routing through {config.gateway_url} (OAuth passthrough)")
+    print("Tip: run luthien commands with ! such as !luthien status, !luthien logs, !luthien up, and !luthien down")
+    sys.stdout.flush()
+
+    args = list(extra_args or [])
     os.execvpe("claude", ["claude", *args], env)
 
 
