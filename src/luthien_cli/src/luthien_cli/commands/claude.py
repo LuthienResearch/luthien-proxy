@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import shutil
 import sys
-import time
 
 import click
 from rich.console import Console
@@ -14,41 +13,49 @@ from luthien_cli.commands.up import ensure_gateway_up
 from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config
 
 
-def _flush_terminal() -> None:
-    """Flush stdout/stderr and drain any stale input from the terminal.
+def _ensure_tty_stdin() -> None:
+    """Reopen /dev/tty as fd 0 so the exec'd process gets a real TTY.
 
-    Rich and other ANSI-aware libraries query terminal capabilities via
-    escape sequences.  Responses arrive on stdin asynchronously.  If a
-    response is still in the kernel's input buffer when os.execvpe hands
-    off to Claude Code, Ink (Claude Code's TUI) reads that stale data
-    instead of the reply to its own terminal queries and hangs.
+    When the install script runs via ``curl | bash``, bash's stdin is a
+    pipe.  The script redirects with ``</dev/tty``, but the resulting fd
+    may be O_RDONLY or may have been disturbed by Python's buffered-IO
+    layer during the onboard flow.  Node.js (Claude Code) checks
+    ``process.stdin.isTTY``; if that is false, Ink's TUI cannot
+    initialise and the terminal freezes in raw mode.
+
+    Opening ``/dev/tty`` with O_RDWR and dup2-ing it onto fd 0
+    guarantees the next process inherits a fully functional TTY on
+    stdin — regardless of how this process was launched.
     """
+    try:
+        tty_fd = os.open("/dev/tty", os.O_RDWR)
+        if tty_fd != 0:
+            os.dup2(tty_fd, 0)
+            os.close(tty_fd)
+    except OSError:
+        pass  # No controlling terminal — best-effort
+
+
+def _flush_terminal() -> None:
+    """Flush stdout/stderr and drain any stale input from the terminal."""
     sys.stdout.flush()
     sys.stderr.flush()
 
-    if sys.stdin.isatty():
-        try:
-            import termios
+    try:
+        import termios
 
-            termios.tcflush(sys.stdin.fileno(), termios.TCIOFLUSH)
-        except (ImportError, termios.error, OSError):
-            pass
+        if os.isatty(0):
+            termios.tcflush(0, termios.TCIOFLUSH)
+    except (ImportError, termios.error, OSError):
+        pass
 
 
 def _exec_claude(gateway_url: str, extra_args: list[str] | None = None) -> None:
     """Replace the current process with Claude Code.
 
     IMPORTANT: This function must not use Rich, click, or any library
-    that emits ANSI terminal-capability queries.  Any such query
-    triggers an asynchronous response on stdin that can corrupt Claude
-    Code's Ink TUI initialisation — causing the terminal to freeze in
-    raw mode.
-
-    Only plain print() + sys.stdout.flush() are safe here.  The caller
-    is responsible for completing all Rich output *before* invoking this
-    function — ideally with human-scale delay (e.g. a keypress) between
-    the last Rich call and this function so all async terminal responses
-    have time to arrive and be drained by _flush_terminal().
+    that emits ANSI terminal-capability queries.  Only plain print() is
+    safe here.
     """
     claude_path = shutil.which("claude")
     if not claude_path:
@@ -61,10 +68,10 @@ def _exec_claude(gateway_url: str, extra_args: list[str] | None = None) -> None:
     env["ANTHROPIC_BASE_URL"] = url
     env.pop("ANTHROPIC_API_KEY", None)
 
-    # Drain all ANSI responses that accumulated from prior Rich output.
-    # A short sleep gives the terminal time to deliver any responses
-    # that are still in flight from the last Rich call.
-    time.sleep(0.05)
+    # Ensure fd 0 is a real read-write TTY for Claude Code's Ink TUI.
+    _ensure_tty_stdin()
+
+    # Drain any stale bytes from prior Rich output / terminal queries.
     _flush_terminal()
 
     print(f"Routing through {gateway_url} (OAuth passthrough)")
@@ -81,12 +88,8 @@ def _launch_claude(console: Console, extra_args: list[str] | None = None) -> Non
     Called by `luthien claude`.  Ensures the gateway is running (Rich
     output), then hands off to _exec_claude for the actual exec.
     """
-    # Ensure the gateway is running before handing off to Claude Code.
-    # ensure_gateway_up is idempotent — returns immediately if already healthy.
     ensure_gateway_up(console)
     config = load_config(DEFAULT_CONFIG_PATH)
-
-    # ── No Rich output past this point. ──────────────────────────────
     _exec_claude(config.gateway_url, extra_args)
 
 
