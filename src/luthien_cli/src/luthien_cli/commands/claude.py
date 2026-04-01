@@ -61,11 +61,13 @@ def _launch_claude(console: Console, extra_args: list[str] | None = None) -> Non
     # Always remove any inherited API key so Claude Code uses OAuth
     # passthrough without warning about conflicting credentials.
     env.pop("ANTHROPIC_API_KEY", None)
-    console.print(f"[blue]Routing through {config.gateway_url} (OAuth passthrough)[/blue]")
 
-    console.print(
-        "[dim]Tip: run luthien commands with ! such as !luthien status, !luthien logs, !luthien up, and !luthien down[/dim]"
-    )
+    # Use plain print() — NOT Rich console.print() — between the keypress
+    # and os.execvpe.  Rich emits ANSI escape sequences that query terminal
+    # capabilities; the terminal's async responses land in stdin and corrupt
+    # Claude Code's own TUI initialisation, causing a hang.
+    print(f"Routing through {config.gateway_url} (OAuth passthrough)")
+    print("Tip: run luthien commands with ! such as !luthien status, !luthien logs, !luthien up, and !luthien down")
 
     args = list(extra_args or [])
 
