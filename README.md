@@ -50,11 +50,10 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 
 ### Enforce arbitrary policies
 
-Luthien calls a fast judge model (like Haiku) to evaluate every request and response. Policies run in two modes:
+Policies call a fast judge model (like Haiku) and run in two modes:
 
-**1. Block dangerous actions** *(blocking mode — evaluates before execution)*
-
-The judge reviews tool calls *before* they run. If it says block, the action is prevented entirely.
+- **Blocking** — evaluate *before* execution. Block `rm -rf`, `git push --force`, `pip install`, etc.
+- **Monitoring** — evaluate *in parallel*, no added latency. Catch the agent deleting a failing test instead of fixing it, or claiming "all tests pass" when it just suppressed the error.
 
 ```yaml
 # config/policy_config.yaml
@@ -68,21 +67,6 @@ policy:
       Block any 'pip install' commands. Suggest 'uv add' instead.
       Block 'rm -rf' or any recursive delete on project directories.
       Block 'git push --force' to main or master.
-```
-
-**2. Catch dishonest or inconsistent behavior** *(monitoring mode — evaluates in parallel, no added latency)*
-
-The judge checks *after the fact* whether the agent actually did what it claimed — running alongside normal execution so it doesn't slow anything down. Catches things like: agent says "all tests passing" but actually deleted the failing test, or claims a file was cleaned up but really just hid the error.
-
-```yaml
-policy:
-  class: "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
-  config:
-    model: "anthropic/claude-haiku-4-5-20251001"
-    instructions: >
-      Flag if the agent claims tests pass but modified test files instead of source files.
-      Flag if the agent says it fixed an error but just suppressed or caught the exception.
-      Flag if the agent deleted files it wasn't asked to touch.
 ```
 
 > The `class:` field is a Python import path (`module:ClassName`). You can use any of the [built-in policies](#core-policies) or write your own.
