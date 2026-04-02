@@ -16,6 +16,7 @@ async def call_llm(
     max_tokens: int = 4096,
     api_base: str | None = None,
     api_key: str | None = None,
+    response_format: dict[str, str] | None = None,
 ) -> str:
     """Call an LLM and return the text content of its response."""
     kwargs: dict[str, Any] = {
@@ -24,6 +25,8 @@ async def call_llm(
         "max_tokens": max_tokens,
         "messages": messages,
     }
+    if response_format:
+        kwargs["response_format"] = response_format
     if api_base:
         kwargs["api_base"] = api_base
     if api_key:

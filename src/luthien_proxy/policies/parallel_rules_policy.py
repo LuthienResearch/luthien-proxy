@@ -43,6 +43,7 @@ from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicPolicyIOProtocol,
 )
 from luthien_proxy.policy_core.anthropic_hook_policy import AnthropicHookPolicy
+from luthien_proxy.settings import get_settings
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -158,9 +159,22 @@ class ParallelRulesPolicy(SimplePolicy):
         """
         return AnthropicHookPolicy.run_anthropic(self, io, context)
 
-    def __init__(self, config: ParallelRulesConfig | dict[str, Any] | None = None) -> None:
+    def __init__(self, config: ParallelRulesConfig | None = None) -> None:
         """Initialize with config and convert static rules to immutable tuple."""
-        self.config = self._init_config(config, ParallelRulesConfig)
+        parsed = self._init_config(config, ParallelRulesConfig)
+        settings = get_settings()
+        self.config = ParallelRulesConfig(
+            model=settings.llm_judge_model or parsed.model,
+            api_base=settings.llm_judge_api_base or parsed.api_base,
+            api_key=parsed.api_key,
+            temperature=parsed.temperature,
+            max_tokens=parsed.max_tokens,
+            max_rules=parsed.max_rules,
+            rules=parsed.rules,
+        )
+        self._fallback_api_key: str | None = (
+            settings.llm_judge_api_key or settings.litellm_master_key or None
+        )
         self._static_rules: tuple[Rule, ...] = tuple(
             Rule(name=r["name"], instruction=r["instruction"]) for r in self.config.rules
         )
@@ -186,9 +200,15 @@ class ParallelRulesPolicy(SimplePolicy):
 
     def _resolve_api_key(self, context: "PolicyContext") -> str | None:
         """Resolve API key: explicit config → client passthrough → env fallback."""
-        return self._resolve_judge_api_key(context, self.config.api_key, None)
+        return self._resolve_judge_api_key(context, self.config.api_key, self._fallback_api_key)
 
-    async def _call_llm(self, messages: list[dict[str, str]], context: "PolicyContext") -> str:
+    async def _call_llm(
+        self,
+        messages: list[dict[str, str]],
+        context: "PolicyContext",
+        *,
+        response_format: dict[str, str] | None = None,
+    ) -> str:
         """Call LLM using this policy's config and the resolved API key."""
         return await call_llm(
             messages,
@@ -197,6 +217,7 @@ class ParallelRulesPolicy(SimplePolicy):
             max_tokens=self.config.max_tokens,
             api_base=self.config.api_base,
             api_key=self._resolve_api_key(context),
+            response_format=response_format,
         )
 
     async def simple_on_response_content(self, content: str, context: "PolicyContext") -> str:
@@ -237,6 +258,7 @@ class ParallelRulesPolicy(SimplePolicy):
                     {"role": "user", "content": text},
                 ],
                 context,
+                response_format={"type": "json_object"},
             )
             decision = _parse_rule_decision(raw)
             if decision is None:
