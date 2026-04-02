@@ -17,7 +17,7 @@ Run:
 import os
 
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
+from tests.luthien_proxy.e2e_tests.conftest import policy_context
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response, tool_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 from tests.luthien_proxy.e2e_tests.mock_anthropic.simulator import ClaudeCodeSimulator
@@ -28,7 +28,12 @@ pytestmark = pytest.mark.mock_e2e
 
 
 @pytest.mark.asyncio
-async def test_realistic_request_reaches_backend(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_realistic_request_reaches_backend(
+    mock_anthropic: MockAnthropicServer,
+    gateway_healthy,
+    gateway_url,
+    api_key,
+):
     """Full chain fires: simulator → gateway (auth + pipeline) → mock backend.
 
     Asserts both sides:
@@ -36,7 +41,7 @@ async def test_realistic_request_reaches_backend(mock_anthropic: MockAnthropicSe
     - Mock received a realistic Claude Code-shaped request (gateway → mock)
     """
     mock_anthropic.enqueue(text_response("Hello from the gateway"))
-    session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
+    session = ClaudeCodeSimulator(gateway_url, api_key)
 
     turn = await session.send("Hello")
 
@@ -51,10 +56,14 @@ async def test_realistic_request_reaches_backend(mock_anthropic: MockAnthropicSe
 
 
 @pytest.mark.asyncio
-async def test_bad_auth_rejected_before_backend(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_bad_auth_rejected_before_backend(
+    mock_anthropic: MockAnthropicServer,
+    gateway_healthy,
+    gateway_url,
+):
     """Gateway auth: bad key gets 401 (proxy_key mode) or passes through (both mode)."""
     mock_anthropic.enqueue(text_response("passthrough or blocked"))
-    session = ClaudeCodeSimulator(GATEWAY_URL, api_key="sk-bad-key")
+    session = ClaudeCodeSimulator(gateway_url, api_key="sk-bad-key")
 
     if AUTH_MODE == "both":
         turn = await session.send("hello")
@@ -71,13 +80,18 @@ async def test_bad_auth_rejected_before_backend(mock_anthropic: MockAnthropicSer
 
 
 @pytest.mark.asyncio
-async def test_single_tool_use_loop(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_single_tool_use_loop(
+    mock_anthropic: MockAnthropicServer,
+    gateway_healthy,
+    gateway_url,
+    api_key,
+):
     """Complete one tool use cycle with a realistic request shape.
 
     user → model calls Bash → provide result → model responds with text.
     Asserts the message history is built correctly for the second request.
     """
-    session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
+    session = ClaudeCodeSimulator(gateway_url, api_key)
 
     mock_anthropic.enqueue(tool_response("Bash", {"command": "echo hello"}))
     turn1 = await session.send("Run echo hello")
@@ -100,15 +114,23 @@ async def test_single_tool_use_loop(mock_anthropic: MockAnthropicServer, gateway
 
 
 @pytest.mark.asyncio
-async def test_policy_pipeline_fires_on_realistic_request(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_policy_pipeline_fires_on_realistic_request(
+    mock_anthropic: MockAnthropicServer,
+    gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
+):
     """Policy pipeline runs on realistic Claude Code-shaped streaming requests.
 
     If the pipeline short-circuited, AllCapsPolicy would not uppercase the response.
     """
     mock_anthropic.enqueue(text_response("hello world"))
-    session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
+    session = ClaudeCodeSimulator(gateway_url, api_key)
 
-    async with policy_context("luthien_proxy.policies.all_caps_policy:AllCapsPolicy", {}):
+    async with policy_context(
+        "luthien_proxy.policies.all_caps_policy:AllCapsPolicy", {}, gateway_url=gateway_url, admin_api_key=admin_api_key
+    ):
         turn = await session.send("Say hello")
 
     assert turn.text == "HELLO WORLD", f"Policy pipeline did not run — got: {turn.text!r}"

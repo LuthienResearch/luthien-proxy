@@ -20,7 +20,7 @@ import asyncio
 
 import httpx
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import BASE_REQUEST, GATEWAY_URL, MOCK_HEADERS
+from tests.luthien_proxy.e2e_tests.conftest import BASE_REQUEST
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
@@ -33,16 +33,16 @@ pytestmark = pytest.mark.mock_e2e
 
 
 @pytest.mark.asyncio
-async def test_malformed_json_returns_400(gateway_healthy):
+async def test_malformed_json_returns_400(gateway_healthy, gateway_url, auth_headers):
     """Gateway returns a 4xx/5xx error for unparseable JSON body.
 
     Ideally 400; PR #336 (not yet merged) fixes the current 500 response.
     """
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             content=b"not valid json {",
-            headers={**MOCK_HEADERS, "Content-Type": "application/json"},
+            headers={**auth_headers, "Content-Type": "application/json"},
         )
 
     # TODO: tighten to == 400 once PR #336 merges (currently returns 500)
@@ -50,20 +50,20 @@ async def test_malformed_json_returns_400(gateway_healthy):
 
 
 @pytest.mark.asyncio
-async def test_empty_body_returns_error(gateway_healthy):
+async def test_empty_body_returns_error(gateway_healthy, gateway_url, auth_headers):
     """Gateway returns an error for an empty request body."""
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             content=b"",
-            headers={**MOCK_HEADERS, "Content-Type": "application/json"},
+            headers={**auth_headers, "Content-Type": "application/json"},
         )
 
     assert response.status_code >= 400  # 400/422 ideal; 500 until PR #336 merges
 
 
 @pytest.mark.asyncio
-async def test_missing_model_field_returns_error(gateway_healthy):
+async def test_missing_model_field_returns_error(gateway_healthy, gateway_url, auth_headers):
     """Gateway rejects a request missing the required 'model' field."""
     payload = {
         "messages": [{"role": "user", "content": "hello"}],
@@ -72,16 +72,16 @@ async def test_missing_model_field_returns_error(gateway_healthy):
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json=payload,
-            headers=MOCK_HEADERS,
+            headers=auth_headers,
         )
 
     assert response.status_code in (400, 422)
 
 
 @pytest.mark.asyncio
-async def test_missing_messages_field_returns_error(gateway_healthy):
+async def test_missing_messages_field_returns_error(gateway_healthy, gateway_url, auth_headers):
     """Gateway rejects a request missing the required 'messages' field."""
     payload = {
         "model": "claude-haiku-4-5",
@@ -90,9 +90,9 @@ async def test_missing_messages_field_returns_error(gateway_healthy):
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json=payload,
-            headers=MOCK_HEADERS,
+            headers=auth_headers,
         )
 
     assert response.status_code in (400, 422)
@@ -102,6 +102,8 @@ async def test_missing_messages_field_returns_error(gateway_healthy):
 async def test_empty_messages_array_returns_error(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
 ):
     """Gateway handles a request with an empty messages array without crashing."""
     mock_anthropic.enqueue(text_response("ok"))
@@ -113,9 +115,9 @@ async def test_empty_messages_array_returns_error(
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json=payload,
-            headers=MOCK_HEADERS,
+            headers=auth_headers,
         )
 
     assert response.status_code != 500  # gateway must not crash
@@ -125,6 +127,8 @@ async def test_empty_messages_array_returns_error(
 async def test_invalid_role_in_messages_returns_error(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
 ):
     """Gateway handles a request with an invalid message role without crashing."""
     mock_anthropic.enqueue(text_response("ok"))
@@ -136,9 +140,9 @@ async def test_invalid_role_in_messages_returns_error(
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json=payload,
-            headers=MOCK_HEADERS,
+            headers=auth_headers,
         )
 
     assert response.status_code != 500  # gateway must not crash
@@ -153,6 +157,8 @@ async def test_invalid_role_in_messages_returns_error(
 async def test_concurrent_requests_all_succeed(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
 ):
     """Five concurrent requests all complete with 200 without interfering."""
     for i in range(5):
@@ -160,9 +166,9 @@ async def test_concurrent_requests_all_succeed(
 
     async def make_request(client: httpx.AsyncClient) -> httpx.Response:
         return await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json=BASE_REQUEST,
-            headers=MOCK_HEADERS,
+            headers=auth_headers,
         )
 
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -178,6 +184,8 @@ async def test_concurrent_requests_all_succeed(
 async def test_concurrent_requests_responses_are_valid(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
 ):
     """Three concurrent requests each return a valid Anthropic message response."""
     for i in range(3):
@@ -185,9 +193,9 @@ async def test_concurrent_requests_responses_are_valid(
 
     async def make_request(client: httpx.AsyncClient) -> httpx.Response:
         return await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json=BASE_REQUEST,
-            headers=MOCK_HEADERS,
+            headers=auth_headers,
         )
 
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -207,11 +215,11 @@ async def test_concurrent_requests_responses_are_valid(
 
 
 @pytest.mark.asyncio
-async def test_missing_auth_header_returns_401(gateway_healthy):
+async def test_missing_auth_header_returns_401(gateway_healthy, gateway_url):
     """Gateway returns 401 when no Authorization header is provided."""
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json=BASE_REQUEST,
         )
 
@@ -222,6 +230,7 @@ async def test_missing_auth_header_returns_401(gateway_healthy):
 async def test_invalid_auth_token_returns_401(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
 ):
     """Gateway rejects an invalid Bearer token.
 
@@ -232,7 +241,7 @@ async def test_invalid_auth_token_returns_401(
     mock_anthropic.enqueue(text_response("ok"))
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json=BASE_REQUEST,
             headers={"Authorization": "Bearer invalid-token-xyz"},
         )
@@ -251,9 +260,9 @@ async def test_invalid_auth_token_returns_401(
 
 
 @pytest.mark.asyncio
-async def test_health_endpoint_returns_200(gateway_healthy):
+async def test_health_endpoint_returns_200(gateway_healthy, gateway_url):
     """Health endpoint responds with 200."""
     async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.get(f"{GATEWAY_URL}/health")
+        response = await client.get(f"{gateway_url}/health")
 
     assert response.status_code == 200

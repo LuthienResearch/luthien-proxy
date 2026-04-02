@@ -28,7 +28,7 @@ import os
 
 import httpx
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
+from tests.luthien_proxy.e2e_tests.conftest import policy_context
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import error_response, text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
@@ -41,7 +41,6 @@ _BASE_REQUEST = {
     "messages": [{"role": "user", "content": "hello"}],
     "max_tokens": 100,
 }
-_HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
 # The Anthropic SDK retries up to 2 times on 5xx/429, so we need 3 queue items
 # (1 initial + 2 retries) to ensure all attempts see an error and the gateway
@@ -50,7 +49,9 @@ _SDK_MAX_ATTEMPTS = 3
 
 
 @pytest.mark.asyncio
-async def test_backend_500_propagates_error_response(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_backend_500_propagates_error_response(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url, auth_headers
+):
     """Gateway propagates a backend 500 as an Anthropic-format error response.
 
     Enqueues 3 errors to exhaust SDK retries so the gateway always sees a failure.
@@ -60,9 +61,9 @@ async def test_backend_500_propagates_error_response(mock_anthropic: MockAnthrop
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={**_BASE_REQUEST, "stream": False},
-            headers=_HEADERS,
+            headers=auth_headers,
         )
 
     assert response.status_code == 500, f"Expected 500, got {response.status_code}: {response.text}"
@@ -72,7 +73,9 @@ async def test_backend_500_propagates_error_response(mock_anthropic: MockAnthrop
 
 
 @pytest.mark.asyncio
-async def test_backend_429_propagates_error_response(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_backend_429_propagates_error_response(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url, auth_headers
+):
     """Gateway propagates a backend 429 as an Anthropic-format error response.
 
     Enqueues 3 errors to exhaust SDK retries.
@@ -82,9 +85,9 @@ async def test_backend_429_propagates_error_response(mock_anthropic: MockAnthrop
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={**_BASE_REQUEST, "stream": False},
-            headers=_HEADERS,
+            headers=auth_headers,
         )
 
     assert response.status_code == 429, f"Expected 429, got {response.status_code}: {response.text}"
@@ -94,7 +97,9 @@ async def test_backend_429_propagates_error_response(mock_anthropic: MockAnthrop
 
 
 @pytest.mark.asyncio
-async def test_backend_400_propagates_error_response(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_backend_400_propagates_error_response(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url, auth_headers
+):
     """Gateway propagates a backend 400 as an Anthropic-format error response.
 
     400 errors are not retried by the SDK, so a single enqueued error suffices.
@@ -103,9 +108,9 @@ async def test_backend_400_propagates_error_response(mock_anthropic: MockAnthrop
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={**_BASE_REQUEST, "stream": False},
-            headers=_HEADERS,
+            headers=auth_headers,
         )
 
     assert response.status_code == 400, f"Expected 400, got {response.status_code}: {response.text}"
@@ -115,7 +120,9 @@ async def test_backend_400_propagates_error_response(mock_anthropic: MockAnthrop
 
 
 @pytest.mark.asyncio
-async def test_error_then_success_queue_order(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_error_then_success_queue_order(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url, auth_headers
+):
     """Mock queue is FIFO: error response consumes one slot, next request gets the next slot.
 
     This verifies that enqueueing an error followed by a text response results in
@@ -128,14 +135,14 @@ async def test_error_then_success_queue_order(mock_anthropic: MockAnthropicServe
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         first_response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={**_BASE_REQUEST, "stream": False},
-            headers=_HEADERS,
+            headers=auth_headers,
         )
         second_response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={**_BASE_REQUEST, "stream": False},
-            headers=_HEADERS,
+            headers=auth_headers,
         )
 
     # Second request must get the "recovery" response, not the error
@@ -153,7 +160,9 @@ async def test_error_then_success_queue_order(mock_anthropic: MockAnthropicServe
 
 
 @pytest.mark.asyncio
-async def test_error_response_differs_from_success(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_error_response_differs_from_success(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url, auth_headers
+):
     """A backend error response is distinguishable from a normal success response.
 
     Even if the gateway returns 200 for both, the body should differ.
@@ -164,14 +173,14 @@ async def test_error_response_differs_from_success(mock_anthropic: MockAnthropic
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         error_resp = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={**_BASE_REQUEST, "stream": False},
-            headers=_HEADERS,
+            headers=auth_headers,
         )
         success_resp = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={**_BASE_REQUEST, "stream": False},
-            headers=_HEADERS,
+            headers=auth_headers,
         )
 
     # The error response must be a 400 with Anthropic error envelope
@@ -186,7 +195,9 @@ async def test_error_response_differs_from_success(mock_anthropic: MockAnthropic
 
 
 @pytest.mark.asyncio
-async def test_policy_active_during_backend_error(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_policy_active_during_backend_error(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url, auth_headers, admin_api_key
+):
     """Gateway with an active policy doesn't crash when the backend errors.
 
     Verifies that policies don't interfere with error handling — the gateway
@@ -196,19 +207,24 @@ async def test_policy_active_during_backend_error(mock_anthropic: MockAnthropicS
     mock_anthropic.enqueue(error_response(400, "invalid_request_error", "error"))
     mock_anthropic.enqueue(text_response("after error"))
 
-    async with policy_context("luthien_proxy.policies.all_caps_policy:AllCapsPolicy", {}):
+    async with policy_context(
+        "luthien_proxy.policies.all_caps_policy:AllCapsPolicy",
+        {},
+        gateway_url=gateway_url,
+        admin_api_key=admin_api_key,
+    ):
         async with httpx.AsyncClient(timeout=15.0) as client:
             # First request hits the error
             error_resp = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": False},
-                headers=_HEADERS,
+                headers=auth_headers,
             )
             # Second request should succeed normally
             success_resp = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": False},
-                headers=_HEADERS,
+                headers=auth_headers,
             )
 
     # Gateway must still be responsive after the error
@@ -221,7 +237,9 @@ async def test_policy_active_during_backend_error(mock_anthropic: MockAnthropicS
 
 
 @pytest.mark.asyncio
-async def test_streaming_backend_error_gateway_responds(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_streaming_backend_error_gateway_responds(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url, auth_headers
+):
     """Gateway responds without hanging when the backend errors during a streaming request."""
     for _ in range(_SDK_MAX_ATTEMPTS):
         mock_anthropic.enqueue(error_response(500, "internal_server_error", "stream error"))
@@ -229,9 +247,9 @@ async def test_streaming_backend_error_gateway_responds(mock_anthropic: MockAnth
     async with httpx.AsyncClient(timeout=15.0) as client:
         async with client.stream(
             "POST",
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={**_BASE_REQUEST, "stream": True},
-            headers=_HEADERS,
+            headers=auth_headers,
         ) as response:
             # Consume the entire response to verify no hang
             lines = []
@@ -247,7 +265,9 @@ async def test_streaming_backend_error_gateway_responds(mock_anthropic: MockAnth
 
 
 @pytest.mark.asyncio
-async def test_streaming_backend_error_contains_error_signal(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_streaming_backend_error_contains_error_signal(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url, auth_headers
+):
     """Backend errors during streaming are communicated to the client — not silently swallowed.
 
     When backend errors occur, the gateway either:
@@ -264,9 +284,9 @@ async def test_streaming_backend_error_contains_error_signal(mock_anthropic: Moc
     async with httpx.AsyncClient(timeout=15.0) as client:
         async with client.stream(
             "POST",
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={**_BASE_REQUEST, "stream": True},
-            headers=_HEADERS,
+            headers=auth_headers,
         ) as response:
             response_status = response.status_code
             async for line in response.aiter_lines():
@@ -299,11 +319,11 @@ async def test_streaming_backend_error_contains_error_signal(mock_anthropic: Moc
 
 
 @pytest.mark.asyncio
-async def test_missing_auth_header_returns_401(gateway_healthy):
+async def test_missing_auth_header_returns_401(gateway_healthy, gateway_url):
     """Gateway rejects requests with no Authorization header with 401."""
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={**_BASE_REQUEST, "stream": False},
             # No Authorization header
         )
@@ -312,14 +332,14 @@ async def test_missing_auth_header_returns_401(gateway_healthy):
 
 
 @pytest.mark.asyncio
-async def test_invalid_api_key_returns_401(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_invalid_api_key_returns_401(mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url):
     """Gateway rejects wrong API key (proxy_key) or forwards as passthrough (both)."""
     if AUTH_MODE == "both":
         mock_anthropic.enqueue(text_response("passthrough response"))
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={**_BASE_REQUEST, "stream": False},
             headers={"Authorization": "Bearer sk-this-is-not-a-valid-key"},
         )
@@ -335,30 +355,30 @@ async def test_invalid_api_key_returns_401(mock_anthropic: MockAnthropicServer, 
 
 
 @pytest.mark.asyncio
-async def test_missing_model_field_returns_400(gateway_healthy):
+async def test_missing_model_field_returns_400(gateway_healthy, gateway_url, auth_headers):
     """Gateway rejects Anthropic requests missing the required 'model' field with 400."""
     request_without_model = {k: v for k, v in _BASE_REQUEST.items() if k != "model"}
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={**request_without_model, "stream": False},
-            headers=_HEADERS,
+            headers=auth_headers,
         )
 
     assert response.status_code == 400, f"Expected 400 for missing 'model', got {response.status_code}: {response.text}"
 
 
 @pytest.mark.asyncio
-async def test_missing_messages_field_returns_400(gateway_healthy):
+async def test_missing_messages_field_returns_400(gateway_healthy, gateway_url, auth_headers):
     """Gateway rejects Anthropic requests missing the required 'messages' field with 400."""
     request_without_messages = {k: v for k, v in _BASE_REQUEST.items() if k != "messages"}
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={**request_without_messages, "stream": False},
-            headers=_HEADERS,
+            headers=auth_headers,
         )
 
     assert response.status_code == 400, (
@@ -367,15 +387,15 @@ async def test_missing_messages_field_returns_400(gateway_healthy):
 
 
 @pytest.mark.asyncio
-async def test_missing_max_tokens_field_returns_400(gateway_healthy):
+async def test_missing_max_tokens_field_returns_400(gateway_healthy, gateway_url, auth_headers):
     """Gateway rejects Anthropic requests missing the required 'max_tokens' field with 400."""
     request_without_max_tokens = {k: v for k, v in _BASE_REQUEST.items() if k != "max_tokens"}
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={**request_without_max_tokens, "stream": False},
-            headers=_HEADERS,
+            headers=auth_headers,
         )
 
     assert response.status_code == 400, (
@@ -384,7 +404,9 @@ async def test_missing_max_tokens_field_returns_400(gateway_healthy):
 
 
 @pytest.mark.asyncio
-async def test_gateway_responsive_after_malformed_requests(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_gateway_responsive_after_malformed_requests(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url, auth_headers
+):
     """Gateway remains responsive after receiving several malformed requests.
 
     Verifies that invalid requests don't corrupt gateway state — a valid request
@@ -398,14 +420,14 @@ async def test_gateway_responsive_after_malformed_requests(mock_anthropic: MockA
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         # No auth — always rejected
-        no_auth_resp = await client.post(f"{GATEWAY_URL}/v1/messages", json={**_BASE_REQUEST})
+        no_auth_resp = await client.post(f"{gateway_url}/v1/messages", json={**_BASE_REQUEST})
         assert no_auth_resp.status_code in (400, 401, 403, 422), (
             f"No-auth request should be rejected, got {no_auth_resp.status_code}"
         )
 
         # Wrong key — rejected in proxy_key mode, passthrough in both mode
         wrong_key_resp = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={**_BASE_REQUEST},
             headers={"Authorization": "Bearer wrong-key"},
         )
@@ -420,9 +442,9 @@ async def test_gateway_responsive_after_malformed_requests(mock_anthropic: MockA
 
         # Missing required field — always rejected
         missing_field_resp = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={"messages": _BASE_REQUEST["messages"], "max_tokens": 100},
-            headers=_HEADERS,
+            headers=auth_headers,
         )
         assert missing_field_resp.status_code in (400, 401, 422), (
             f"Missing-field request should be rejected, got {missing_field_resp.status_code}"
@@ -430,9 +452,9 @@ async def test_gateway_responsive_after_malformed_requests(mock_anthropic: MockA
 
         # A valid request must still work
         good_response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={**_BASE_REQUEST, "stream": False},
-            headers=_HEADERS,
+            headers=auth_headers,
         )
 
     assert good_response.status_code == 200, (

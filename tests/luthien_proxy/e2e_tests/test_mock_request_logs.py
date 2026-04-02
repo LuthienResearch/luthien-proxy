@@ -30,14 +30,11 @@ from pathlib import Path
 
 import httpx
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import ADMIN_API_KEY, API_KEY, GATEWAY_URL, find_repo_roots
+from tests.luthien_proxy.e2e_tests.conftest import find_repo_roots
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
 pytestmark = pytest.mark.mock_e2e
-
-_ADMIN_HEADERS = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
-_REGULAR_HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
 
 _BASE_REQUEST = {
@@ -59,12 +56,12 @@ def _find_roots() -> tuple[Path, Path]:
     return find_repo_roots(checkout)
 
 
-def _wait_for_gateway(timeout: float = 30.0) -> None:
+def _wait_for_gateway(gateway_url: str, timeout: float = 30.0) -> None:
     """Poll the health endpoint until the gateway is ready."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            resp = httpx.get(f"{GATEWAY_URL}/health", timeout=3.0)
+            resp = httpx.get(f"{gateway_url}/health", timeout=3.0)
             if resp.status_code == 200:
                 return
         except (httpx.ConnectError, httpx.RemoteProtocolError):
@@ -73,7 +70,7 @@ def _wait_for_gateway(timeout: float = 30.0) -> None:
     raise TimeoutError(f"Gateway not healthy after {timeout}s")
 
 
-def _compose_up_gateway(extra_env: dict[str, str] | None = None) -> None:
+def _compose_up_gateway(gateway_url: str, extra_env: dict[str, str] | None = None) -> None:
     """Recreate the gateway container via docker compose with optional env overrides.
 
     Uses a temporary docker-compose override file to inject extra environment
@@ -124,11 +121,11 @@ def _compose_up_gateway(extra_env: dict[str, str] | None = None) -> None:
         if override_path:
             os.unlink(override_path)
 
-    _wait_for_gateway()
+    _wait_for_gateway(gateway_url)
 
 
 @pytest.fixture(scope="module")
-def _enable_request_logging():
+def _enable_request_logging(gateway_url):
     """Ensure the gateway runs with ENABLE_REQUEST_LOGGING=true for this module.
 
     When the env var is already set (CI / dockerless mode), the gateway was
@@ -139,17 +136,17 @@ def _enable_request_logging():
     if already_enabled:
         yield
         return
-    _compose_up_gateway(extra_env={"ENABLE_REQUEST_LOGGING": "true"})
+    _compose_up_gateway(gateway_url, extra_env={"ENABLE_REQUEST_LOGGING": "true"})
     yield
-    _compose_up_gateway(extra_env={"ENABLE_REQUEST_LOGGING": "false"})
+    _compose_up_gateway(gateway_url, extra_env={"ENABLE_REQUEST_LOGGING": "false"})
 
 
-async def _make_gateway_request(client: httpx.AsyncClient) -> None:
+async def _make_gateway_request(client: httpx.AsyncClient, gateway_url: str, auth_headers: dict) -> None:
     """Fire a single request through the gateway (response is ignored)."""
     response = await client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json=_BASE_REQUEST,
-        headers=_REGULAR_HEADERS,
+        headers=auth_headers,
     )
     # Accept any non-5xx status; the important thing is the log entry is written.
     assert response.status_code < 500, f"Gateway error on test request: {response.status_code}: {response.text}"
@@ -157,17 +154,22 @@ async def _make_gateway_request(client: httpx.AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_request_logs_list_returns_results(
-    mock_anthropic: MockAnthropicServer, _enable_request_logging, gateway_healthy
+    mock_anthropic: MockAnthropicServer,
+    _enable_request_logging,
+    gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_headers,
 ):
     """Populate a log entry then GET /request-logs returns 200 with 'logs' list and 'total' int."""
     mock_anthropic.enqueue(text_response("hello from the assistant"))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        await _make_gateway_request(client)
+        await _make_gateway_request(client, gateway_url, auth_headers)
 
         response = await client.get(
-            f"{GATEWAY_URL}/request-logs",
-            headers=_ADMIN_HEADERS,
+            f"{gateway_url}/request-logs",
+            headers=admin_headers,
         )
 
     assert response.status_code == 200, f"Unexpected status: {response.status_code}: {response.text}"
@@ -179,17 +181,24 @@ async def test_request_logs_list_returns_results(
 
 
 @pytest.mark.asyncio
-async def test_request_logs_limit_param(mock_anthropic: MockAnthropicServer, _enable_request_logging, gateway_healthy):
+async def test_request_logs_limit_param(
+    mock_anthropic: MockAnthropicServer,
+    _enable_request_logging,
+    gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_headers,
+):
     """GET /request-logs?limit=1 returns at most 1 log entry."""
     mock_anthropic.enqueue(text_response("first response"))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        await _make_gateway_request(client)
+        await _make_gateway_request(client, gateway_url, auth_headers)
 
         response = await client.get(
-            f"{GATEWAY_URL}/request-logs",
+            f"{gateway_url}/request-logs",
             params={"limit": 1},
-            headers=_ADMIN_HEADERS,
+            headers=admin_headers,
         )
 
     assert response.status_code == 200, f"Unexpected status: {response.status_code}: {response.text}"
@@ -199,22 +208,29 @@ async def test_request_logs_limit_param(mock_anthropic: MockAnthropicServer, _en
 
 
 @pytest.mark.asyncio
-async def test_request_logs_offset_param(mock_anthropic: MockAnthropicServer, _enable_request_logging, gateway_healthy):
+async def test_request_logs_offset_param(
+    mock_anthropic: MockAnthropicServer,
+    _enable_request_logging,
+    gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_headers,
+):
     """Two requests then offset=0 and offset=1 each return distinct transaction IDs."""
     mock_anthropic.enqueue(text_response("first response"))
     mock_anthropic.enqueue(text_response("second response"))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        await _make_gateway_request(client)
-        await _make_gateway_request(client)
+        await _make_gateway_request(client, gateway_url, auth_headers)
+        await _make_gateway_request(client, gateway_url, auth_headers)
 
         # Poll until the recorder has flushed at least 2 entries
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
             resp = await client.get(
-                f"{GATEWAY_URL}/request-logs",
+                f"{gateway_url}/request-logs",
                 params={"limit": 10},
-                headers=_ADMIN_HEADERS,
+                headers=admin_headers,
             )
             if resp.status_code == 200 and resp.json().get("total", 0) >= 2:
                 break
@@ -224,9 +240,9 @@ async def test_request_logs_offset_param(mock_anthropic: MockAnthropicServer, _e
         # may produce multiple rows (inbound + outbound), so limit=1 per page
         # can return the same transaction_id at adjacent offsets.
         response = await client.get(
-            f"{GATEWAY_URL}/request-logs",
+            f"{gateway_url}/request-logs",
             params={"limit": 10, "offset": 0},
-            headers=_ADMIN_HEADERS,
+            headers=admin_headers,
         )
 
     assert response.status_code == 200, f"Unexpected status: {response.status_code}: {response.text}"
@@ -242,30 +258,35 @@ async def test_request_logs_offset_param(mock_anthropic: MockAnthropicServer, _e
 
 @pytest.mark.asyncio
 async def test_request_log_transaction_detail(
-    mock_anthropic: MockAnthropicServer, _enable_request_logging, gateway_healthy
+    mock_anthropic: MockAnthropicServer,
+    _enable_request_logging,
+    gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_headers,
 ):
     """Make a request, fetch the most recent log, then GET /request-logs/{transaction_id}."""
     mock_anthropic.enqueue(text_response("detail test response"))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        await _make_gateway_request(client)
+        await _make_gateway_request(client, gateway_url, auth_headers)
 
         # Poll until the recorder has flushed the entry
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
             resp = await client.get(
-                f"{GATEWAY_URL}/request-logs",
+                f"{gateway_url}/request-logs",
                 params={"limit": 1},
-                headers=_ADMIN_HEADERS,
+                headers=admin_headers,
             )
             if resp.status_code == 200 and resp.json().get("logs"):
                 break
             await asyncio.sleep(0.1)
 
         list_response = await client.get(
-            f"{GATEWAY_URL}/request-logs",
+            f"{gateway_url}/request-logs",
             params={"limit": 1},
-            headers=_ADMIN_HEADERS,
+            headers=admin_headers,
         )
 
     assert list_response.status_code == 200, (
@@ -278,8 +299,8 @@ async def test_request_log_transaction_detail(
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         detail_response = await client.get(
-            f"{GATEWAY_URL}/request-logs/{transaction_id}",
-            headers=_ADMIN_HEADERS,
+            f"{gateway_url}/request-logs/{transaction_id}",
+            headers=admin_headers,
         )
 
     assert detail_response.status_code == 200, (

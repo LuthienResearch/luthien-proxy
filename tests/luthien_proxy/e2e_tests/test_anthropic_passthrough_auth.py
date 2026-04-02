@@ -30,7 +30,6 @@ import os
 import httpx
 import pytest
 from tests.constants import DEFAULT_TEST_MODEL
-from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL
 from tests.luthien_proxy.e2e_tests.test_claude_code import (
     ClaudeCodeResult,
     parse_stream_json,
@@ -51,7 +50,7 @@ def anthropic_key():
 
 
 @pytest.fixture
-async def passthrough_mode(http_client, gateway_healthy):
+async def passthrough_mode(http_client, gateway_healthy, gateway_url, api_key):
     """Verify gateway supports passthrough auth mode.
 
     Sends a real Anthropic key as the Bearer token (not via x-anthropic-api-key).
@@ -62,7 +61,7 @@ async def passthrough_mode(http_client, gateway_healthy):
         pytest.skip("ANTHROPIC_API_KEY not set (needed for passthrough mode tests)")
 
     response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json={
             "model": ANTHROPIC_MODEL,
             "messages": [{"role": "user", "content": "hi"}],
@@ -80,17 +79,17 @@ async def passthrough_mode(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_client_anthropic_key_non_streaming(gateway_healthy, http_client, anthropic_key):
+async def test_client_anthropic_key_non_streaming(gateway_healthy, http_client, anthropic_key, gateway_url, api_key):
     """Client-provided Anthropic key works for non-streaming requests."""
     response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json={
             "model": ANTHROPIC_MODEL,
             "messages": [{"role": "user", "content": "Say 'hello'"}],
             "max_tokens": 10,
         },
         headers={
-            "Authorization": f"Bearer {API_KEY}",
+            "Authorization": f"Bearer {api_key}",
             "x-anthropic-api-key": anthropic_key,
         },
     )
@@ -103,12 +102,12 @@ async def test_client_anthropic_key_non_streaming(gateway_healthy, http_client, 
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_client_anthropic_key_streaming(gateway_healthy, anthropic_key):
+async def test_client_anthropic_key_streaming(gateway_healthy, anthropic_key, gateway_url, api_key):
     """Client-provided Anthropic key works for streaming requests."""
     async with httpx.AsyncClient(timeout=30.0) as client:
         async with client.stream(
             "POST",
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={
                 "model": ANTHROPIC_MODEL,
                 "messages": [{"role": "user", "content": "Say 'hello'"}],
@@ -116,7 +115,7 @@ async def test_client_anthropic_key_streaming(gateway_healthy, anthropic_key):
                 "stream": True,
             },
             headers={
-                "Authorization": f"Bearer {API_KEY}",
+                "Authorization": f"Bearer {api_key}",
                 "x-anthropic-api-key": anthropic_key,
             },
         ) as response:
@@ -140,17 +139,17 @@ async def test_client_anthropic_key_streaming(gateway_healthy, anthropic_key):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_invalid_client_key_rejected(gateway_healthy, http_client):
+async def test_invalid_client_key_rejected(gateway_healthy, http_client, gateway_url, api_key):
     """Invalid client Anthropic key is rejected by the backend."""
     response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json={
             "model": ANTHROPIC_MODEL,
             "messages": [{"role": "user", "content": "Say 'hello'"}],
             "max_tokens": 10,
         },
         headers={
-            "Authorization": f"Bearer {API_KEY}",
+            "Authorization": f"Bearer {api_key}",
             "x-anthropic-api-key": "sk-ant-invalid-key-00000",
         },
     )
@@ -160,17 +159,17 @@ async def test_invalid_client_key_rejected(gateway_healthy, http_client):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_empty_client_key_rejected(gateway_healthy, http_client):
+async def test_empty_client_key_rejected(gateway_healthy, http_client, gateway_url, api_key):
     """Empty x-anthropic-api-key header returns 401."""
     response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json={
             "model": ANTHROPIC_MODEL,
             "messages": [{"role": "user", "content": "Say 'hello'"}],
             "max_tokens": 10,
         },
         headers={
-            "Authorization": f"Bearer {API_KEY}",
+            "Authorization": f"Bearer {api_key}",
             "x-anthropic-api-key": "",
         },
     )
@@ -180,16 +179,16 @@ async def test_empty_client_key_rejected(gateway_healthy, http_client):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_fallback_to_proxy_key(gateway_healthy, http_client):
+async def test_fallback_to_proxy_key(gateway_healthy, http_client, gateway_url, api_key):
     """Without x-anthropic-api-key, the proxy's own key is used."""
     response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json={
             "model": ANTHROPIC_MODEL,
             "messages": [{"role": "user", "content": "Say 'hello'"}],
             "max_tokens": 10,
         },
-        headers={"Authorization": f"Bearer {API_KEY}"},
+        headers={"Authorization": f"Bearer {api_key}"},
     )
 
     assert response.status_code == 200
@@ -199,10 +198,10 @@ async def test_fallback_to_proxy_key(gateway_healthy, http_client):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_proxy_auth_still_required_with_client_key(gateway_healthy, http_client, anthropic_key):
+async def test_proxy_auth_still_required_with_client_key(gateway_healthy, http_client, anthropic_key, gateway_url):
     """Proxy API key (Authorization header) is required even with x-anthropic-api-key."""
     response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json={
             "model": ANTHROPIC_MODEL,
             "messages": [{"role": "user", "content": "Say 'hello'"}],
@@ -222,10 +221,10 @@ async def test_proxy_auth_still_required_with_client_key(gateway_healthy, http_c
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_passthrough_mode_direct_auth(http_client, passthrough_mode):
+async def test_passthrough_mode_direct_auth(http_client, passthrough_mode, gateway_url):
     """In passthrough/both mode, client's Anthropic key works as the Bearer token."""
     response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json={
             "model": ANTHROPIC_MODEL,
             "messages": [{"role": "user", "content": "Say 'hello'"}],
@@ -242,10 +241,10 @@ async def test_passthrough_mode_direct_auth(http_client, passthrough_mode):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_passthrough_mode_invalid_key_rejected(http_client, passthrough_mode):
+async def test_passthrough_mode_invalid_key_rejected(http_client, passthrough_mode, gateway_url):
     """In passthrough/both mode, invalid Anthropic key is rejected."""
     response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json={
             "model": ANTHROPIC_MODEL,
             "messages": [{"role": "user", "content": "Say 'hello'"}],
@@ -259,12 +258,12 @@ async def test_passthrough_mode_invalid_key_rejected(http_client, passthrough_mo
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_passthrough_mode_streaming(passthrough_mode):
+async def test_passthrough_mode_streaming(passthrough_mode, gateway_url):
     """In passthrough/both mode, streaming works with client's key as Bearer token."""
     async with httpx.AsyncClient(timeout=30.0) as client:
         async with client.stream(
             "POST",
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={
                 "model": ANTHROPIC_MODEL,
                 "messages": [{"role": "user", "content": "Say 'hello'"}],
@@ -296,7 +295,7 @@ async def test_passthrough_mode_streaming(passthrough_mode):
 
 async def run_claude_code_oauth(
     prompt: str,
-    gateway_url: str = GATEWAY_URL,
+    gateway_url: str,
     max_turns: int = 1,
     timeout_seconds: int = 120,
 ) -> ClaudeCodeResult:
@@ -363,7 +362,7 @@ async def run_claude_code_oauth(
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_oauth_passthrough(claude_available, passthrough_mode):
+async def test_claude_code_oauth_passthrough(claude_available, passthrough_mode, gateway_url):
     """Claude Code authenticates through the proxy using OAuth credentials.
 
     Requires:
@@ -372,6 +371,7 @@ async def test_claude_code_oauth_passthrough(claude_available, passthrough_mode)
     """
     result = await run_claude_code_oauth(
         prompt="What is 2 + 2? Reply with just the number.",
+        gateway_url=gateway_url,
         max_turns=1,
     )
 

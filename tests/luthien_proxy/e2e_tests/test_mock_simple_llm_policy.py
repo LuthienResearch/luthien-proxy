@@ -17,7 +17,7 @@ Run:
 
 import httpx
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
+from tests.luthien_proxy.e2e_tests.conftest import policy_context
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response, tool_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 from tests.luthien_proxy.e2e_tests.mock_anthropic.simulator import ClaudeCodeSimulator
@@ -34,6 +34,12 @@ _UNREACHABLE_JUDGE = {
     "api_key": "fake-key",
 }
 
+_BASE_REQUEST = {
+    "model": "claude-haiku-4-5",
+    "messages": [{"role": "user", "content": "hello"}],
+    "max_tokens": 100,
+}
+
 
 # =============================================================================
 # on_error='block' (fail-secure): judge failure → content blocked
@@ -44,6 +50,9 @@ _UNREACHABLE_JUDGE = {
 async def test_judge_failure_blocks_text_streaming(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
 ):
     """When judge is unreachable and on_error='block', streaming text is blocked.
 
@@ -53,8 +62,8 @@ async def test_judge_failure_blocks_text_streaming(
     mock_anthropic.enqueue(text_response("This should be blocked"))
     config = {**_UNREACHABLE_JUDGE, "on_error": "block"}
 
-    async with policy_context(_SIMPLE_LLM_POLICY, config):
-        session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
+    async with policy_context(_SIMPLE_LLM_POLICY, config, gateway_url=gateway_url, admin_api_key=admin_api_key):
+        session = ClaudeCodeSimulator(gateway_url, api_key)
         turn = await session.send("Say hello")
 
     assert turn.text == "", f"Expected empty text when judge fails with on_error='block', got: {turn.text!r}"
@@ -64,6 +73,9 @@ async def test_judge_failure_blocks_text_streaming(
 async def test_judge_failure_blocks_tool_use_streaming(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
 ):
     """When judge is unreachable and on_error='block', streaming tool_use is blocked.
 
@@ -72,8 +84,8 @@ async def test_judge_failure_blocks_tool_use_streaming(
     mock_anthropic.enqueue(tool_response("Bash", {"command": "echo hello"}))
     config = {**_UNREACHABLE_JUDGE, "on_error": "block"}
 
-    async with policy_context(_SIMPLE_LLM_POLICY, config):
-        session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
+    async with policy_context(_SIMPLE_LLM_POLICY, config, gateway_url=gateway_url, admin_api_key=admin_api_key):
+        session = ClaudeCodeSimulator(gateway_url, api_key)
         turn = await session.send("Run echo hello")
 
     assert len(turn.tool_calls) == 0, (
@@ -90,6 +102,9 @@ async def test_judge_failure_blocks_tool_use_streaming(
 async def test_judge_failure_passes_text_with_warning_streaming(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
 ):
     """When judge is unreachable and on_error='pass', streaming text passes through
     and a warning notification is injected.
@@ -97,8 +112,8 @@ async def test_judge_failure_passes_text_with_warning_streaming(
     mock_anthropic.enqueue(text_response("Hello from model"))
     config = {**_UNREACHABLE_JUDGE, "on_error": "pass"}
 
-    async with policy_context(_SIMPLE_LLM_POLICY, config):
-        session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
+    async with policy_context(_SIMPLE_LLM_POLICY, config, gateway_url=gateway_url, admin_api_key=admin_api_key):
+        session = ClaudeCodeSimulator(gateway_url, api_key)
         turn = await session.send("Say hello")
 
     assert "Hello from model" in turn.text, f"Expected original text to pass through, got: {turn.text!r}"
@@ -109,6 +124,9 @@ async def test_judge_failure_passes_text_with_warning_streaming(
 async def test_judge_failure_passes_tool_use_with_warning_streaming(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
 ):
     """When judge is unreachable and on_error='pass', streaming tool_use passes through
     and a warning notification is injected as a text block.
@@ -116,8 +134,8 @@ async def test_judge_failure_passes_tool_use_with_warning_streaming(
     mock_anthropic.enqueue(tool_response("Bash", {"command": "echo hello"}))
     config = {**_UNREACHABLE_JUDGE, "on_error": "pass"}
 
-    async with policy_context(_SIMPLE_LLM_POLICY, config):
-        session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
+    async with policy_context(_SIMPLE_LLM_POLICY, config, gateway_url=gateway_url, admin_api_key=admin_api_key):
+        session = ClaudeCodeSimulator(gateway_url, api_key)
         turn = await session.send("Run echo hello")
 
     assert len(turn.tool_calls) == 1, f"Expected tool call to pass through, got: {turn.tool_calls}"
@@ -133,29 +151,25 @@ async def test_judge_failure_passes_tool_use_with_warning_streaming(
 # =============================================================================
 
 
-_BASE_REQUEST = {
-    "model": "claude-haiku-4-5",
-    "messages": [{"role": "user", "content": "hello"}],
-    "max_tokens": 100,
-}
-_HEADERS = {"Authorization": f"Bearer {API_KEY}"}
-
-
 @pytest.mark.asyncio
 async def test_judge_failure_blocks_text_non_streaming(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    api_key,
+    auth_headers,
+    admin_api_key,
 ):
     """Non-streaming: judge failure with on_error='block' produces empty content."""
     mock_anthropic.enqueue(text_response("This should be blocked"))
     config = {**_UNREACHABLE_JUDGE, "on_error": "block"}
 
-    async with policy_context(_SIMPLE_LLM_POLICY, config):
+    async with policy_context(_SIMPLE_LLM_POLICY, config, gateway_url=gateway_url, admin_api_key=admin_api_key):
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": False},
-                headers=_HEADERS,
+                headers=auth_headers,
             )
 
     assert response.status_code == 200
@@ -169,17 +183,21 @@ async def test_judge_failure_blocks_text_non_streaming(
 async def test_judge_failure_passes_text_with_warning_non_streaming(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    api_key,
+    auth_headers,
+    admin_api_key,
 ):
     """Non-streaming: judge failure with on_error='pass' returns original content + warning."""
     mock_anthropic.enqueue(text_response("Hello from model"))
     config = {**_UNREACHABLE_JUDGE, "on_error": "pass"}
 
-    async with policy_context(_SIMPLE_LLM_POLICY, config):
+    async with policy_context(_SIMPLE_LLM_POLICY, config, gateway_url=gateway_url, admin_api_key=admin_api_key):
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": False},
-                headers=_HEADERS,
+                headers=auth_headers,
             )
 
     assert response.status_code == 200

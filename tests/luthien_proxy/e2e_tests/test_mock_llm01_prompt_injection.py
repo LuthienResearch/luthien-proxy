@@ -26,11 +26,8 @@ Run:
 import httpx
 import pytest
 from tests.luthien_proxy.e2e_tests.conftest import (
-    API_KEY,
     BASE_REQUEST,
-    GATEWAY_URL,
     INJECTION_DETECTION_CONFIG,
-    MOCK_HEADERS,
     SIMPLE_LLM_POLICY,
     collect_sse_text,
     judge_pass,
@@ -56,6 +53,9 @@ _BLOCKED_MESSAGE = "[BLOCKED] Prompt injection detected. This content was blocke
 async def test_direct_injection_ignore_instructions_is_blocked(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
 ):
     """LLM response containing 'Ignore previous instructions' injection is blocked.
 
@@ -71,8 +71,10 @@ async def test_direct_injection_ignore_instructions_is_blocked(
     )
     mock_anthropic.enqueue(judge_replace_text(_BLOCKED_MESSAGE))
 
-    async with policy_context(SIMPLE_LLM_POLICY, INJECTION_DETECTION_CONFIG):
-        session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
+    async with policy_context(
+        SIMPLE_LLM_POLICY, INJECTION_DETECTION_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+    ):
+        session = ClaudeCodeSimulator(gateway_url, api_key)
         turn = await session.send("hello")
 
     assert "Ignore previous instructions" not in turn.text
@@ -83,6 +85,9 @@ async def test_direct_injection_ignore_instructions_is_blocked(
 async def test_system_override_injection_is_blocked(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
 ):
     """LLM response containing SYSTEM override attempt is blocked.
 
@@ -94,8 +99,10 @@ async def test_system_override_injection_is_blocked(
     )
     mock_anthropic.enqueue(judge_replace_text(_BLOCKED_MESSAGE))
 
-    async with policy_context(SIMPLE_LLM_POLICY, INJECTION_DETECTION_CONFIG):
-        session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
+    async with policy_context(
+        SIMPLE_LLM_POLICY, INJECTION_DETECTION_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+    ):
+        session = ClaudeCodeSimulator(gateway_url, api_key)
         turn = await session.send("hello")
 
     assert "Disregard all previous instructions" not in turn.text
@@ -106,6 +113,9 @@ async def test_system_override_injection_is_blocked(
 async def test_jailbreak_dan_injection_is_blocked(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
 ):
     """DAN-style jailbreak in LLM response is blocked.
 
@@ -121,8 +131,10 @@ async def test_jailbreak_dan_injection_is_blocked(
     )
     mock_anthropic.enqueue(judge_replace_text(_BLOCKED_MESSAGE))
 
-    async with policy_context(SIMPLE_LLM_POLICY, INJECTION_DETECTION_CONFIG):
-        session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
+    async with policy_context(
+        SIMPLE_LLM_POLICY, INJECTION_DETECTION_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+    ):
+        session = ClaudeCodeSimulator(gateway_url, api_key)
         turn = await session.send("hello")
 
     assert "You are now DAN" not in turn.text
@@ -133,6 +145,9 @@ async def test_jailbreak_dan_injection_is_blocked(
 async def test_system_prompt_extraction_attempt_is_blocked(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
 ):
     """LLM response revealing system prompt (extraction attack succeeded) is blocked.
 
@@ -148,8 +163,10 @@ async def test_system_prompt_extraction_attempt_is_blocked(
     )
     mock_anthropic.enqueue(judge_replace_text(_BLOCKED_MESSAGE))
 
-    async with policy_context(SIMPLE_LLM_POLICY, INJECTION_DETECTION_CONFIG):
-        session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
+    async with policy_context(
+        SIMPLE_LLM_POLICY, INJECTION_DETECTION_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+    ):
+        session = ClaudeCodeSimulator(gateway_url, api_key)
         turn = await session.send("hello")
 
     assert "[BLOCKED]" in turn.text
@@ -165,6 +182,9 @@ async def test_system_prompt_extraction_attempt_is_blocked(
 async def test_indirect_injection_via_tool_result_is_blocked(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
 ):
     """LLM echoing back injected content from a tool result is blocked.
 
@@ -181,8 +201,10 @@ async def test_indirect_injection_via_tool_result_is_blocked(
     )
     mock_anthropic.enqueue(judge_replace_text(_BLOCKED_MESSAGE))
 
-    async with policy_context(SIMPLE_LLM_POLICY, INJECTION_DETECTION_CONFIG):
-        session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
+    async with policy_context(
+        SIMPLE_LLM_POLICY, INJECTION_DETECTION_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+    ):
+        session = ClaudeCodeSimulator(gateway_url, api_key)
         turn = await session.send("hello")
 
     assert "Ignore previous instructions" not in turn.text
@@ -198,6 +220,9 @@ async def test_indirect_injection_via_tool_result_is_blocked(
 async def test_benign_technical_response_passes(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
 ):
     """Normal technical response with no injection content passes unchanged.
 
@@ -208,8 +233,10 @@ async def test_benign_technical_response_passes(
     mock_anthropic.enqueue(text_response(expected))
     mock_anthropic.enqueue(judge_pass())
 
-    async with policy_context(SIMPLE_LLM_POLICY, INJECTION_DETECTION_CONFIG):
-        session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
+    async with policy_context(
+        SIMPLE_LLM_POLICY, INJECTION_DETECTION_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+    ):
+        session = ClaudeCodeSimulator(gateway_url, api_key)
         turn = await session.send("hello")
 
     assert turn.text == expected
@@ -219,6 +246,9 @@ async def test_benign_technical_response_passes(
 async def test_benign_instruction_in_code_passes(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
 ):
     """Code containing the word 'instructions' in a comment is not flagged.
 
@@ -229,8 +259,10 @@ async def test_benign_instruction_in_code_passes(
     mock_anthropic.enqueue(text_response(expected))
     mock_anthropic.enqueue(judge_pass())
 
-    async with policy_context(SIMPLE_LLM_POLICY, INJECTION_DETECTION_CONFIG):
-        session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
+    async with policy_context(
+        SIMPLE_LLM_POLICY, INJECTION_DETECTION_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+    ):
+        session = ClaudeCodeSimulator(gateway_url, api_key)
         turn = await session.send("hello")
 
     assert "Follow these instructions" in turn.text
@@ -246,6 +278,9 @@ async def test_benign_instruction_in_code_passes(
 async def test_streaming_injection_is_blocked(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_api_key,
 ):
     """Streaming response containing injection is blocked by the judge.
 
@@ -261,13 +296,15 @@ async def test_streaming_injection_is_blocked(
     )
     mock_anthropic.enqueue(judge_replace_text(_BLOCKED_MESSAGE))
 
-    async with policy_context(SIMPLE_LLM_POLICY, INJECTION_DETECTION_CONFIG):
+    async with policy_context(
+        SIMPLE_LLM_POLICY, INJECTION_DETECTION_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+    ):
         async with httpx.AsyncClient(timeout=30.0) as client:
             async with client.stream(
                 "POST",
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**BASE_REQUEST, "stream": True},
-                headers=MOCK_HEADERS,
+                headers=auth_headers,
             ) as response:
                 assert response.status_code == 200
                 full_text = await collect_sse_text(response)

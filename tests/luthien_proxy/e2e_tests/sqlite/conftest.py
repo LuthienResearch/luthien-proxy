@@ -1,12 +1,9 @@
-"""Start a SQLite-backed gateway for mock e2e tests.
+"""Start a SQLite-backed gateway for e2e tests — no Docker needed.
 
-This conftest patches the parent conftest's GATEWAY_URL/API_KEY so the
-existing mock e2e test files work without modification. To run:
+Overrides the parent conftest's gateway_url/api_key/admin_api_key fixtures
+so test functions transparently hit the in-process SQLite gateway.
 
-    uv run pytest tests/luthien_proxy/e2e_tests/sqlite/ -v --timeout=30
-
-The test files in this directory import from the mock e2e tests and re-run
-them against the SQLite gateway.
+Run:  uv run pytest -m sqlite_e2e tests/luthien_proxy/e2e_tests/sqlite/ -v --timeout=30
 """
 
 import asyncio
@@ -34,7 +31,7 @@ def _free_port() -> int:
 
 
 @pytest.fixture(scope="session")
-def sqlite_gateway_url():
+def sqlite_gateway_url(mock_anthropic):
     """Start a SQLite-backed gateway on a random port. Returns the base URL."""
     port = _free_port()
     tmp_dir = tempfile.mkdtemp(prefix="luthien_sqlite_e2e_")
@@ -42,13 +39,16 @@ def sqlite_gateway_url():
 
     db_pool = DatabasePool(f"sqlite:///{db_path}")
 
-    # Apply schema before server starts
     loop = asyncio.new_event_loop()
     loop.run_until_complete(check_migrations(db_pool))
 
-    # Point LiteLLM at the mock Anthropic server (parent conftest starts it on 18888)
+    # Point LiteLLM at the mock Anthropic server (parent conftest starts it)
     old_env = {}
-    for k, v in {"ANTHROPIC_BASE_URL": "http://localhost:18888", "ANTHROPIC_API_KEY": "mock-key"}.items():
+    mock_port = mock_anthropic.port
+    for k, v in {
+        "ANTHROPIC_BASE_URL": f"http://localhost:{mock_port}",
+        "ANTHROPIC_API_KEY": "mock-key",
+    }.items():
         old_env[k] = os.environ.get(k)
         os.environ[k] = v
 
@@ -76,71 +76,8 @@ def sqlite_gateway_url():
     else:
         raise RuntimeError("SQLite gateway did not start")
 
-    url = f"http://127.0.0.1:{port}"
+    yield f"http://127.0.0.1:{port}"
 
-    # Patch parent conftest so helpers like policy_context() use the right URL/keys
-    import tests.luthien_proxy.e2e_tests.conftest as parent
-
-    orig = (parent.GATEWAY_URL, parent.API_KEY, parent.ADMIN_API_KEY)
-    parent.GATEWAY_URL = url
-    parent.API_KEY = _API_KEY
-    parent.ADMIN_API_KEY = _ADMIN_API_KEY
-
-    # Test modules do `from ... import GATEWAY_URL` which creates local bindings,
-    # and compute `_HEADERS = {"Authorization": f"Bearer {API_KEY}"}` at import
-    # time. We must patch all of these derived values too.
-    import tests.luthien_proxy.e2e_tests.test_mock_admin_api as m_admin
-    import tests.luthien_proxy.e2e_tests.test_mock_basic as m_basic
-    import tests.luthien_proxy.e2e_tests.test_mock_error_handling as m_errors
-    import tests.luthien_proxy.e2e_tests.test_mock_onboarding_policy as m_onboarding
-    import tests.luthien_proxy.e2e_tests.test_mock_openai_and_tool_use as m_openai
-    import tests.luthien_proxy.e2e_tests.test_mock_policies as m_policies
-    import tests.luthien_proxy.e2e_tests.test_mock_policy_management as m_polmgmt
-    import tests.luthien_proxy.e2e_tests.test_mock_request_forwarding as m_fwd
-    import tests.luthien_proxy.e2e_tests.test_mock_session_history as m_sessions
-    import tests.luthien_proxy.e2e_tests.test_mock_special_chars as m_chars
-    import tests.luthien_proxy.e2e_tests.test_mock_streaming_structure as m_stream
-
-    _test_modules = [
-        m_basic,
-        m_errors,
-        m_admin,
-        m_polmgmt,
-        m_policies,
-        m_fwd,
-        m_sessions,
-        m_stream,
-        m_openai,
-        m_chars,
-        m_onboarding,
-    ]
-
-    # Attributes to patch: the imported constants + derived header dicts
-    _attrs = ("GATEWAY_URL", "API_KEY", "ADMIN_API_KEY", "_HEADERS", "_ADMIN_HEADERS")
-    _new_values = {
-        "GATEWAY_URL": url,
-        "API_KEY": _API_KEY,
-        "ADMIN_API_KEY": _ADMIN_API_KEY,
-        "_HEADERS": {"Authorization": f"Bearer {_API_KEY}"},
-        "_ADMIN_HEADERS": {"Authorization": f"Bearer {_ADMIN_API_KEY}"},
-    }
-
-    _orig_values = []
-    for mod in _test_modules:
-        saved = {attr: getattr(mod, attr, None) for attr in _attrs}
-        _orig_values.append(saved)
-        for attr, new_val in _new_values.items():
-            if hasattr(mod, attr):
-                setattr(mod, attr, new_val)
-
-    yield url
-
-    # Restore everything
-    for mod, saved in zip(_test_modules, _orig_values):
-        for attr, val in saved.items():
-            if val is not None:
-                setattr(mod, attr, val)
-    parent.GATEWAY_URL, parent.API_KEY, parent.ADMIN_API_KEY = orig
     server.should_exit = True
     thread.join(timeout=5)
     loop.run_until_complete(db_pool.close())
@@ -152,6 +89,31 @@ def sqlite_gateway_url():
             os.environ[k] = v
 
 
-@pytest.fixture(autouse=True)
-def _ensure_sqlite_gateway(sqlite_gateway_url):
-    """Autouse: ensure gateway is running for every test in this directory."""
+# --- Fixture overrides ---
+# These override the parent conftest's session-scoped fixtures so all tests
+# in this directory (and re-imported tests) hit the SQLite gateway.
+
+
+@pytest.fixture(scope="session")
+def gateway_url(sqlite_gateway_url):
+    return sqlite_gateway_url
+
+
+@pytest.fixture(scope="session")
+def api_key():
+    return _API_KEY
+
+
+@pytest.fixture(scope="session")
+def admin_api_key():
+    return _ADMIN_API_KEY
+
+
+@pytest.fixture
+def auth_headers(api_key):
+    return {"Authorization": f"Bearer {api_key}"}
+
+
+@pytest.fixture
+def admin_headers(admin_api_key):
+    return {"Authorization": f"Bearer {admin_api_key}"}

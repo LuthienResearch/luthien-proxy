@@ -22,19 +22,14 @@ import uuid
 import httpx
 import pytest
 from tests.luthien_proxy.e2e_tests.conftest import (
-    ADMIN_API_KEY,
     BASE_REQUEST,
     DOGFOOD_SAFETY_POLICY,
-    GATEWAY_URL,
-    MOCK_HEADERS,
     policy_context,
 )
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response, tool_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
 pytestmark = pytest.mark.mock_e2e
-
-_ADMIN_HEADERS = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
 
 
 def _make_session_user_id(session_uuid: str) -> str:
@@ -46,25 +41,33 @@ async def _send_with_session(
     client: httpx.AsyncClient,
     session_uuid: str,
     content: str = "hello",
+    gateway_url: str = "",
+    auth_headers: dict = None,
 ) -> httpx.Response:
     """Send a non-streaming request with session tracking metadata."""
+    if auth_headers is None:
+        auth_headers = {}
     return await client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json={
             **BASE_REQUEST,
             "messages": [{"role": "user", "content": content}],
             "stream": False,
             "metadata": {"user_id": _make_session_user_id(session_uuid)},
         },
-        headers=MOCK_HEADERS,
+        headers=auth_headers,
     )
 
 
-async def _get_session(client: httpx.AsyncClient, session_uuid: str) -> httpx.Response:
+async def _get_session(
+    client: httpx.AsyncClient, session_uuid: str, gateway_url: str = "", admin_headers: dict = None
+) -> httpx.Response:
     """Query the history API for a session."""
+    if admin_headers is None:
+        admin_headers = {}
     return await client.get(
-        f"{GATEWAY_URL}/api/history/sessions/{session_uuid}",
-        headers=_ADMIN_HEADERS,
+        f"{gateway_url}/api/history/sessions/{session_uuid}",
+        headers=admin_headers,
     )
 
 
@@ -72,11 +75,15 @@ async def _poll_for_session(
     client: httpx.AsyncClient,
     session_uuid: str,
     timeout: float = 10.0,
+    gateway_url: str = "",
+    admin_headers: dict = None,
 ) -> httpx.Response:
     """Poll the session history endpoint until the session appears or timeout expires."""
+    if admin_headers is None:
+        admin_headers = {}
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        resp = await _get_session(client, session_uuid)
+        resp = await _get_session(client, session_uuid, gateway_url=gateway_url, admin_headers=admin_headers)
         if resp.status_code == 200:
             return resp
         await asyncio.sleep(0.2)
@@ -92,16 +99,21 @@ async def _poll_for_session(
 async def test_session_stored_after_passthrough_request(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_headers,
 ):
     """A normal (not blocked) request creates a session history entry."""
     session_uuid = str(uuid.uuid4())
     mock_anthropic.enqueue(text_response("Hello, how can I help?"))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await _send_with_session(client, session_uuid)
+        resp = await _send_with_session(client, session_uuid, gateway_url=gateway_url, auth_headers=auth_headers)
         assert resp.status_code == 200
 
-        history_resp = await _poll_for_session(client, session_uuid)
+        history_resp = await _poll_for_session(
+            client, session_uuid, gateway_url=gateway_url, admin_headers=admin_headers
+        )
 
     assert history_resp.status_code == 200, (
         f"Session not found in history (session_uuid={session_uuid}): {history_resp.text}"
@@ -118,17 +130,23 @@ async def test_session_stored_after_passthrough_request(
 async def test_session_stored_after_blocked_request(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_headers,
+    admin_api_key,
 ):
     """A blocked request (DogfoodSafetyPolicy blocks docker compose down) still creates a session entry."""
     session_uuid = str(uuid.uuid4())
     mock_anthropic.enqueue(tool_response("Bash", {"command": "docker compose down"}))
 
-    async with policy_context(DOGFOOD_SAFETY_POLICY, {}):
+    async with policy_context(DOGFOOD_SAFETY_POLICY, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
         async with httpx.AsyncClient(timeout=15.0) as client:
-            await _send_with_session(client, session_uuid)
+            await _send_with_session(client, session_uuid, gateway_url=gateway_url, auth_headers=auth_headers)
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        history_resp = await _poll_for_session(client, session_uuid)
+        history_resp = await _poll_for_session(
+            client, session_uuid, gateway_url=gateway_url, admin_headers=admin_headers
+        )
 
     assert history_resp.status_code == 200, (
         f"Blocked request session not found (session_uuid={session_uuid}): {history_resp.text}"
@@ -141,17 +159,23 @@ async def test_session_stored_after_blocked_request(
 async def test_session_has_turn_after_blocked_request(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_headers,
+    admin_api_key,
 ):
     """The session entry has at least one turn recorded even when the request was blocked."""
     session_uuid = str(uuid.uuid4())
     mock_anthropic.enqueue(tool_response("Bash", {"command": "docker compose down"}))
 
-    async with policy_context(DOGFOOD_SAFETY_POLICY, {}):
+    async with policy_context(DOGFOOD_SAFETY_POLICY, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
         async with httpx.AsyncClient(timeout=15.0) as client:
-            await _send_with_session(client, session_uuid)
+            await _send_with_session(client, session_uuid, gateway_url=gateway_url, auth_headers=auth_headers)
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        history_resp = await _poll_for_session(client, session_uuid)
+        history_resp = await _poll_for_session(
+            client, session_uuid, gateway_url=gateway_url, admin_headers=admin_headers
+        )
 
     assert history_resp.status_code == 200
     data = history_resp.json()
@@ -168,24 +192,38 @@ async def test_session_has_turn_after_blocked_request(
 async def test_multiple_turns_blocked_and_unblocked_all_recorded(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_headers,
+    admin_api_key,
 ):
     """A session with 2 turns (one blocked, one not) has both turns in history."""
     session_uuid = str(uuid.uuid4())
 
     # Turn 1: blocked (docker compose down triggers DogfoodSafetyPolicy)
     mock_anthropic.enqueue(tool_response("Bash", {"command": "docker compose down"}))
-    async with policy_context(DOGFOOD_SAFETY_POLICY, {}):
+    async with policy_context(DOGFOOD_SAFETY_POLICY, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
         async with httpx.AsyncClient(timeout=15.0) as client:
-            await _send_with_session(client, session_uuid, content="run docker compose down")
+            await _send_with_session(
+                client,
+                session_uuid,
+                content="run docker compose down",
+                gateway_url=gateway_url,
+                auth_headers=auth_headers,
+            )
 
     # Turn 2: not blocked (normal text response)
     mock_anthropic.enqueue(text_response("Here is the file listing."))
-    async with policy_context(DOGFOOD_SAFETY_POLICY, {}):
+    async with policy_context(DOGFOOD_SAFETY_POLICY, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
         async with httpx.AsyncClient(timeout=15.0) as client:
-            await _send_with_session(client, session_uuid, content="list the files")
+            await _send_with_session(
+                client, session_uuid, content="list the files", gateway_url=gateway_url, auth_headers=auth_headers
+            )
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        history_resp = await _poll_for_session(client, session_uuid)
+        history_resp = await _poll_for_session(
+            client, session_uuid, gateway_url=gateway_url, admin_headers=admin_headers
+        )
 
     assert history_resp.status_code == 200
     data = history_resp.json()
@@ -202,6 +240,9 @@ async def test_multiple_turns_blocked_and_unblocked_all_recorded(
 async def test_two_sessions_are_independent(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_headers,
 ):
     """Two different session UUIDs produce independent history entries."""
     session_a = str(uuid.uuid4())
@@ -211,15 +252,19 @@ async def test_two_sessions_are_independent(
     mock_anthropic.enqueue(text_response("Reply for B"))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        resp_a = await _send_with_session(client, session_a, content="message for A")
+        resp_a = await _send_with_session(
+            client, session_a, content="message for A", gateway_url=gateway_url, auth_headers=auth_headers
+        )
         assert resp_a.status_code == 200
 
-        resp_b = await _send_with_session(client, session_b, content="message for B")
+        resp_b = await _send_with_session(
+            client, session_b, content="message for B", gateway_url=gateway_url, auth_headers=auth_headers
+        )
         assert resp_b.status_code == 200
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        history_a = await _poll_for_session(client, session_a)
-        history_b = await _poll_for_session(client, session_b)
+        history_a = await _poll_for_session(client, session_a, gateway_url=gateway_url, admin_headers=admin_headers)
+        history_b = await _poll_for_session(client, session_b, gateway_url=gateway_url, admin_headers=admin_headers)
 
     assert history_a.status_code == 200, f"Session A not found: {history_a.text}"
     assert history_b.status_code == 200, f"Session B not found: {history_b.text}"

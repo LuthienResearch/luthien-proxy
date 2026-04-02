@@ -11,7 +11,7 @@ Runs a simple request through the gateway for each policy to verify:
 
 import pytest
 from tests.constants import DEFAULT_TEST_MODEL
-from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
+from tests.luthien_proxy.e2e_tests.conftest import policy_context
 
 # Policy configurations: (policy_class_ref, config, description)
 POLICY_CONFIGS = [
@@ -51,11 +51,11 @@ POLICY_CONFIGS = [
 @pytest.mark.e2e
 @pytest.mark.asyncio
 @pytest.mark.parametrize("policy_class_ref,config", POLICY_CONFIGS)
-async def test_policy_anthropic_non_streaming(policy_class_ref: str, config: dict, http_client):
+async def test_policy_anthropic_non_streaming(policy_class_ref: str, config: dict, http_client, gateway_url, api_key):
     """Test each policy works with Anthropic client, non-streaming."""
     async with policy_context(policy_class_ref, config):
         response = await http_client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={
                 "model": DEFAULT_TEST_MODEL,
                 "messages": [{"role": "user", "content": "Say hello"}],
@@ -63,7 +63,7 @@ async def test_policy_anthropic_non_streaming(policy_class_ref: str, config: dic
                 "stream": False,
             },
             headers={
-                "Authorization": f"Bearer {API_KEY}",
+                "Authorization": f"Bearer {api_key}",
                 "anthropic-version": "2023-06-01",
             },
         )
@@ -78,12 +78,12 @@ async def test_policy_anthropic_non_streaming(policy_class_ref: str, config: dic
 @pytest.mark.e2e
 @pytest.mark.asyncio
 @pytest.mark.parametrize("policy_class_ref,config", POLICY_CONFIGS)
-async def test_policy_anthropic_streaming(policy_class_ref: str, config: dict, http_client):
+async def test_policy_anthropic_streaming(policy_class_ref: str, config: dict, http_client, gateway_url, api_key):
     """Test each policy works with Anthropic client, streaming."""
     async with policy_context(policy_class_ref, config):
         async with http_client.stream(
             "POST",
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={
                 "model": DEFAULT_TEST_MODEL,
                 "messages": [{"role": "user", "content": "Say hello"}],
@@ -91,7 +91,7 @@ async def test_policy_anthropic_streaming(policy_class_ref: str, config: dict, h
                 "stream": True,
             },
             headers={
-                "Authorization": f"Bearer {API_KEY}",
+                "Authorization": f"Bearer {api_key}",
                 "anthropic-version": "2023-06-01",
             },
         ) as response:

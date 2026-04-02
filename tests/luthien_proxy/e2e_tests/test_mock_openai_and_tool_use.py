@@ -15,13 +15,10 @@ import json
 
 import httpx
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import tool_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
 pytestmark = pytest.mark.mock_e2e
-
-_HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
 
 def parse_anthropic_sse_stream(lines: list[str]) -> list[tuple[str, dict]]:
@@ -52,13 +49,15 @@ def parse_anthropic_sse_stream(lines: list[str]) -> list[tuple[str, dict]]:
 
 
 @pytest.mark.asyncio
-async def test_tool_use_non_streaming_response_structure(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_tool_use_non_streaming_response_structure(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url, auth_headers
+):
     """Non-streaming tool_use response has correct structure and stop_reason."""
     mock_anthropic.enqueue(tool_response("get_weather", {"location": "London", "unit": "celsius"}))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={
                 "model": "claude-haiku-4-5",
                 "messages": [{"role": "user", "content": "What's the weather in London?"}],
@@ -79,7 +78,7 @@ async def test_tool_use_non_streaming_response_structure(mock_anthropic: MockAnt
                     }
                 ],
             },
-            headers=_HEADERS,
+            headers=auth_headers,
         )
 
     assert response.status_code == 200
@@ -94,7 +93,9 @@ async def test_tool_use_non_streaming_response_structure(mock_anthropic: MockAnt
 
 
 @pytest.mark.asyncio
-async def test_tool_use_streaming_event_sequence(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_tool_use_streaming_event_sequence(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url, auth_headers
+):
     """Streaming tool_use emits the full required SSE event sequence with correct structure."""
     mock_anthropic.enqueue(tool_response("search", {"query": "test query"}))
 
@@ -102,7 +103,7 @@ async def test_tool_use_streaming_event_sequence(mock_anthropic: MockAnthropicSe
     async with httpx.AsyncClient(timeout=15.0) as client:
         async with client.stream(
             "POST",
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={
                 "model": "claude-haiku-4-5",
                 "messages": [{"role": "user", "content": "search for something"}],
@@ -120,7 +121,7 @@ async def test_tool_use_streaming_event_sequence(mock_anthropic: MockAnthropicSe
                     }
                 ],
             },
-            headers=_HEADERS,
+            headers=auth_headers,
         ) as response:
             assert response.status_code == 200
             async for line in response.aiter_lines():
@@ -165,20 +166,22 @@ async def test_tool_use_streaming_event_sequence(mock_anthropic: MockAnthropicSe
 
 
 @pytest.mark.asyncio
-async def test_tool_use_stop_reason_is_tool_use(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_tool_use_stop_reason_is_tool_use(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url, auth_headers
+):
     """Non-streaming tool_use response always reports stop_reason='tool_use'."""
     mock_anthropic.enqueue(tool_response("calculate", {"expression": "2+2"}))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json={
                 "model": "claude-haiku-4-5",
                 "messages": [{"role": "user", "content": "calculate 2+2"}],
                 "max_tokens": 100,
                 "stream": False,
             },
-            headers=_HEADERS,
+            headers=auth_headers,
         )
 
     assert response.status_code == 200

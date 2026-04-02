@@ -23,7 +23,6 @@ import json
 
 import httpx
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import stream_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
@@ -35,7 +34,6 @@ _REQUEST = {
     "max_tokens": 100,
     "stream": True,
 }
-_HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
 
 # === SSE parse helper (same as in test_streaming_chunk_structure.py) ===
@@ -65,11 +63,11 @@ def parse_anthropic_sse_stream(lines: list[str]) -> list[tuple[str, dict]]:
     return events
 
 
-async def collect_sse_lines(url: str, body: dict, headers: dict) -> list[str]:
+async def collect_sse_lines(url: str, body: dict, auth_headers: dict) -> list[str]:
     """Stream a request and return all SSE lines."""
     lines = []
     async with httpx.AsyncClient(timeout=15.0) as client:
-        async with client.stream("POST", url, json=body, headers=headers) as response:
+        async with client.stream("POST", url, json=body, headers=auth_headers) as response:
             assert response.status_code == 200, f"Unexpected status: {response.status_code}"
             assert "text/event-stream" in response.headers.get("content-type", "")
             async for line in response.aiter_lines():
@@ -83,11 +81,13 @@ async def collect_sse_lines(url: str, body: dict, headers: dict) -> list[str]:
 
 
 @pytest.mark.asyncio
-async def test_anthropic_streaming_event_lifecycle(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_anthropic_streaming_event_lifecycle(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url: str, auth_headers: dict
+):
     """Gateway emits all required Anthropic events in the correct order."""
     mock_anthropic.enqueue(stream_response("hello world"))
 
-    lines = await collect_sse_lines(f"{GATEWAY_URL}/v1/messages", _REQUEST, _HEADERS)
+    lines = await collect_sse_lines(f"{gateway_url}/v1/messages", _REQUEST, auth_headers)
     events = parse_anthropic_sse_stream(lines)
     event_types = [et for et, _ in events]
 
@@ -117,11 +117,13 @@ async def test_anthropic_streaming_event_lifecycle(mock_anthropic: MockAnthropic
 
 
 @pytest.mark.asyncio
-async def test_anthropic_streaming_message_start_structure(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_anthropic_streaming_message_start_structure(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url: str, auth_headers: dict
+):
     """message_start event carries required message metadata."""
     mock_anthropic.enqueue(stream_response("hi"))
 
-    lines = await collect_sse_lines(f"{GATEWAY_URL}/v1/messages", _REQUEST, _HEADERS)
+    lines = await collect_sse_lines(f"{gateway_url}/v1/messages", _REQUEST, auth_headers)
     events = parse_anthropic_sse_stream(lines)
 
     message_start_data = next((data for et, data in events if et == "message_start"), None)
@@ -145,11 +147,13 @@ async def test_anthropic_streaming_message_start_structure(mock_anthropic: MockA
 
 
 @pytest.mark.asyncio
-async def test_anthropic_streaming_content_block_structure(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_anthropic_streaming_content_block_structure(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url: str, auth_headers: dict
+):
     """content_block_start, content_block_delta and content_block_stop are well-formed."""
     mock_anthropic.enqueue(stream_response("abc def ghi", chunks=["abc ", "def ", "ghi"]))
 
-    lines = await collect_sse_lines(f"{GATEWAY_URL}/v1/messages", _REQUEST, _HEADERS)
+    lines = await collect_sse_lines(f"{gateway_url}/v1/messages", _REQUEST, auth_headers)
     events = parse_anthropic_sse_stream(lines)
 
     # content_block_start
@@ -188,11 +192,13 @@ async def test_anthropic_streaming_content_block_structure(mock_anthropic: MockA
 
 
 @pytest.mark.asyncio
-async def test_anthropic_streaming_message_delta_stop_reason(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_anthropic_streaming_message_delta_stop_reason(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url: str, auth_headers: dict
+):
     """message_delta carries stop_reason; message_stop terminates the stream."""
     mock_anthropic.enqueue(stream_response("done"))
 
-    lines = await collect_sse_lines(f"{GATEWAY_URL}/v1/messages", _REQUEST, _HEADERS)
+    lines = await collect_sse_lines(f"{gateway_url}/v1/messages", _REQUEST, auth_headers)
     events = parse_anthropic_sse_stream(lines)
 
     message_deltas = [(et, d) for et, d in events if et == "message_delta"]
@@ -219,11 +225,13 @@ async def test_anthropic_streaming_message_delta_stop_reason(mock_anthropic: Moc
 
 
 @pytest.mark.asyncio
-async def test_anthropic_streaming_sse_wire_format(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_anthropic_streaming_sse_wire_format(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url: str, auth_headers: dict
+):
     """Every 'event:' line is followed by a 'data:' line (Anthropic SSE wire format)."""
     mock_anthropic.enqueue(stream_response("format check"))
 
-    lines = await collect_sse_lines(f"{GATEWAY_URL}/v1/messages", _REQUEST, _HEADERS)
+    lines = await collect_sse_lines(f"{gateway_url}/v1/messages", _REQUEST, auth_headers)
 
     event_lines = [line for line in lines if line.startswith("event: ")]
     assert len(event_lines) > 0, "Should have event: lines"
