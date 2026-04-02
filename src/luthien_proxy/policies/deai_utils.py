@@ -14,7 +14,7 @@ from typing import Any, cast
 
 from litellm import acompletion
 from litellm.types.utils import Choices, Message, ModelResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +83,14 @@ class DeAIConfig(BaseModel):
     )
 
     model_config = {"frozen": True}
+
+    @model_validator(mode="after")
+    def _check_force_chunk_size(self) -> DeAIConfig:
+        if self.force_chunk_size <= self.chunk_size:
+            raise ValueError(
+                f"force_chunk_size ({self.force_chunk_size}) must be greater than chunk_size ({self.chunk_size})"
+            )
+        return self
 
 
 _DEAI_SYSTEM_PROMPT = """\
@@ -273,20 +281,6 @@ async def _call_litellm(
     raise last_exc
 
 
-async def call_deai(
-    text: str,
-    config: DeAIConfig,
-    api_key: str | None = None,
-    extra_headers: dict[str, str] | None = None,
-) -> str:
-    """Call the DeAI LLM to rewrite a complete text.
-
-    Detects truncation via finish_reason and raises DeAITruncatedError.
-    """
-    prompt = build_deai_prompt(text, config.extra_instructions)
-    return await _call_litellm(prompt, config, api_key, extra_headers, raise_on_truncation=True)
-
-
 async def call_deai_chunk(
     chunk: str,
     config: DeAIConfig,
@@ -364,7 +358,6 @@ __all__ = [
     "DeAITruncatedError",
     "build_deai_chunk_prompt",
     "build_deai_prompt",
-    "call_deai",
     "call_deai_chunk",
     "split_into_chunks",
 ]

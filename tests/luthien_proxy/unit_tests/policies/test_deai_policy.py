@@ -125,7 +125,7 @@ class TestDeAINonStreaming:
         with patch("luthien_proxy.policies.deai_policy.call_deai_chunk", side_effect=fake_chunk):
             result = await policy.on_anthropic_response(response, context)
 
-        assert call_count >= 1
+        assert call_count == 4
         result_text = result["content"][0]["text"]
         assert "vibrant" not in result_text or "lively" in result_text
 
@@ -320,6 +320,43 @@ class TestDeAIStreaming:
         assert result[0].delta.text == "humanized prose"
 
 
+class TestDeAIStreamComplete:
+    @pytest.mark.asyncio()
+    async def test_safety_net_flushes_buffer(self, policy: DeAIPolicy, context: PolicyContext):
+        """on_anthropic_stream_complete flushes remaining buffer if stream ended abnormally."""
+        await policy.on_anthropic_stream_event(_text_start(), context)
+        await policy.on_anthropic_stream_event(_text_delta("buffered text here"), context)
+        # No block_stop — stream ends abruptly
+
+        with patch(
+            "luthien_proxy.policies.deai_policy.call_deai_chunk",
+            new_callable=AsyncMock,
+            return_value="flushed text",
+        ):
+            result = await policy.on_anthropic_stream_complete(context)
+
+        assert len(result) == 1
+        assert isinstance(result[0], RawContentBlockDeltaEvent)
+        assert isinstance(result[0].delta, TextDelta)
+        assert result[0].delta.text == "flushed text"
+
+    @pytest.mark.asyncio()
+    async def test_safety_net_noop_when_already_flushed(self, policy: DeAIPolicy, context: PolicyContext):
+        """on_anthropic_stream_complete is a no-op when buffer was already flushed."""
+        await policy.on_anthropic_stream_event(_text_start(), context)
+        await policy.on_anthropic_stream_event(_text_delta("some text"), context)
+
+        with patch(
+            "luthien_proxy.policies.deai_policy.call_deai_chunk",
+            new_callable=AsyncMock,
+            return_value="humanized",
+        ):
+            await policy.on_anthropic_stream_event(_block_stop(), context)
+
+        result = await policy.on_anthropic_stream_complete(context)
+        assert result == []
+
+
 class TestDeAIConfigDefaults:
     def test_default_chunk_size(self):
         config = DeAIConfig(model="test")
@@ -332,3 +369,11 @@ class TestDeAIConfigDefaults:
     def test_default_context_overlap(self):
         config = DeAIConfig(model="test")
         assert config.context_overlap == 200
+
+    def test_force_chunk_size_must_exceed_chunk_size(self):
+        with pytest.raises(ValueError, match="force_chunk_size.*must be greater"):
+            DeAIConfig(model="test", chunk_size=500, force_chunk_size=500)
+
+    def test_force_chunk_size_less_than_chunk_size_rejected(self):
+        with pytest.raises(ValueError, match="force_chunk_size.*must be greater"):
+            DeAIConfig(model="test", chunk_size=500, force_chunk_size=200)

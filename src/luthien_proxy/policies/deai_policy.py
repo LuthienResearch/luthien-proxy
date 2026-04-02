@@ -333,6 +333,7 @@ class DeAIPolicy(BasePolicy, AnthropicHookPolicy):
         chunk = state.buffer
         state.buffer = ""
         humanized = await self._humanize_stream_chunk(chunk, state, context, is_final=True)
+        self._record_stream_summary(state, context)
         return list(self._emit_text_delta(humanized, state.last_event_index))
 
 

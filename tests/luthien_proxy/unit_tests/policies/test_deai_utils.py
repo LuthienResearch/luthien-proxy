@@ -8,10 +8,8 @@ import pytest
 
 from luthien_proxy.policies.deai_utils import (
     DeAIConfig,
-    DeAITruncatedError,
     build_deai_chunk_prompt,
     build_deai_prompt,
-    call_deai,
     call_deai_chunk,
     split_into_chunks,
 )
@@ -128,42 +126,6 @@ class TestSplitIntoChunks:
         assert "".join(chunks) == text
 
 
-class TestCallDeAI:
-    @pytest.mark.asyncio()
-    async def test_successful_call(self):
-        config = DeAIConfig(model="test-model", api_key="test-key", max_retries=0)
-
-        with patch("luthien_proxy.policies.deai_utils.acompletion", new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = _mock_response("Humanized text output.")
-            result = await call_deai("Original AI text.", config)
-
-        assert result == "Humanized text output."
-
-    @pytest.mark.asyncio()
-    async def test_truncation_raises(self):
-        config = DeAIConfig(model="test-model", api_key="key", max_retries=0)
-
-        with patch("luthien_proxy.policies.deai_utils.acompletion", new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = _mock_response("partial...", finish_reason="length")
-            with pytest.raises(DeAITruncatedError, match="truncated"):
-                await call_deai("text", config)
-
-    @pytest.mark.asyncio()
-    async def test_retries_on_failure(self):
-        config = DeAIConfig(model="test-model", api_key="key", max_retries=2, retry_delay=0.0)
-
-        with patch("luthien_proxy.policies.deai_utils.acompletion", new_callable=AsyncMock) as mock_llm:
-            mock_llm.side_effect = [
-                RuntimeError("fail"),
-                RuntimeError("fail again"),
-                _mock_response("success"),
-            ]
-            result = await call_deai("text", config)
-
-        assert result == "success"
-        assert mock_llm.call_count == 3
-
-
 class TestCallDeAIChunk:
     @pytest.mark.asyncio()
     async def test_basic_chunk_call(self):
@@ -188,3 +150,18 @@ class TestCallDeAIChunk:
             result = await call_deai_chunk("long chunk", config)
 
         assert result == "partial output"
+
+    @pytest.mark.asyncio()
+    async def test_retries_on_failure(self):
+        config = DeAIConfig(model="test-model", api_key="key", max_retries=2, retry_delay=0.0)
+
+        with patch("luthien_proxy.policies.deai_utils.acompletion", new_callable=AsyncMock) as mock_llm:
+            mock_llm.side_effect = [
+                RuntimeError("fail"),
+                RuntimeError("fail again"),
+                _mock_response("success"),
+            ]
+            result = await call_deai_chunk("text", config)
+
+        assert result == "success"
+        assert mock_llm.call_count == 3
