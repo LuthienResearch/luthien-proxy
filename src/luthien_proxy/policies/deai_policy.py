@@ -191,8 +191,8 @@ class DeAIPolicy(BasePolicy, AnthropicHookPolicy):
         self, event: RawContentBlockDeltaEvent, context: PolicyContext
     ) -> list[MessageStreamEvent]:
         state = self._state(context)
-        new_text = event.delta.text  # type: ignore[union-attr]
-        state.buffer += new_text
+        assert isinstance(event.delta, TextDelta)
+        state.buffer += event.delta.text
         state.last_event_index = event.index
 
         # Try to extract and humanize a chunk
@@ -311,6 +311,8 @@ class DeAIPolicy(BasePolicy, AnthropicHookPolicy):
 
     async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
         """Safety net: flush if stream ended without stop/message_delta."""
+        # pop removes state from context, but we keep the reference to update
+        # counters and record summary on the now-detached state object.
         state = context.pop_request_state(self, _DeAIStreamState)
         if state is None or not state.buffer:
             return []

@@ -10,6 +10,7 @@ from luthien_proxy.policies.deai_utils import (
     DeAIConfig,
     build_deai_chunk_prompt,
     call_deai_chunk,
+    find_chunk_boundary,
     split_into_chunks,
 )
 
@@ -50,6 +51,35 @@ class TestBuildDeAIChunkPrompt:
     def test_extra_instructions(self):
         prompt = build_deai_chunk_prompt("text", extra_instructions="Be concise.")
         assert "Be concise." in prompt[0]["content"]
+
+
+class TestFindChunkBoundary:
+    def test_too_short_returns_none(self):
+        assert find_chunk_boundary("short", chunk_size=50, force_chunk_size=150) is None
+
+    def test_paragraph_boundary(self):
+        buf = "x" * 60 + "\n\n" + "y" * 30
+        assert find_chunk_boundary(buf, chunk_size=50, force_chunk_size=150) == 62
+
+    def test_paragraph_beyond_force_returns_force(self):
+        buf = "x" * 200 + "\n\n" + "y" * 30
+        assert find_chunk_boundary(buf, chunk_size=50, force_chunk_size=100) == 100
+
+    def test_no_paragraph_below_force_returns_none(self):
+        buf = "x" * 80
+        assert find_chunk_boundary(buf, chunk_size=50, force_chunk_size=150) is None
+
+    def test_force_split_prefers_sentence(self):
+        buf = "x" * 60 + ". " + "y" * 50
+        assert find_chunk_boundary(buf, chunk_size=50, force_chunk_size=100) == 62
+
+    def test_force_split_no_sentence(self):
+        buf = "x" * 150
+        assert find_chunk_boundary(buf, chunk_size=50, force_chunk_size=100) == 100
+
+    def test_exactly_at_chunk_size(self):
+        buf = "x" * 50 + "\n\n" + "y" * 10
+        assert find_chunk_boundary(buf, chunk_size=50, force_chunk_size=150) == 52
 
 
 class TestSplitIntoChunks:
