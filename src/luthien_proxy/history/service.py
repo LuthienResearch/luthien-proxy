@@ -782,7 +782,7 @@ def export_session_jsonl(session: SessionDetail) -> str:
         if turn.original_response_messages is not None:
             record["original_response_messages"] = [m.model_dump(mode="json") for m in turn.original_response_messages]
         lines.append(json.dumps(record, default=str))
-    return "\n".join(lines)
+    return "\n".join(lines) + "\n" if lines else ""
 
 
 def _format_message_markdown(msg: ConversationMessage) -> str:

@@ -1124,7 +1124,6 @@
                     }
 
                     let eventTimelineHtml = '';
-                    const callId = turn.call_id;
                     const events = this.rawEvents[callId] || [];
                     if (events.length > 0) {
                         const eventsHtml = events.map((evt, idx) => {

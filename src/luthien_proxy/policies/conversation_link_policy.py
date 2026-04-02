@@ -68,6 +68,7 @@ class ConversationLinkPolicy(SimplePolicy):
         if not session_id:
             return content
 
+        # Safe in async single-threaded context: no await between check and mark.
         if session_id in _injected_sessions:
             return content
 
