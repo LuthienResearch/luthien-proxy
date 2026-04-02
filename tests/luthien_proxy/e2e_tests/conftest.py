@@ -62,13 +62,6 @@ _DEFAULT_GATEWAY_URL = os.getenv("E2E_GATEWAY_URL", "http://localhost:8000")
 _DEFAULT_API_KEY = os.getenv("E2E_API_KEY", os.getenv("PROXY_API_KEY", "sk-luthien-dev-key"))
 _DEFAULT_ADMIN_API_KEY = os.getenv("E2E_ADMIN_API_KEY", os.getenv("ADMIN_API_KEY", "admin-dev-key"))
 
-# Backward-compat aliases — unmigrated e2e files (test_conversation_history,
-# test_conversation_live_view, test_session_tracking) still import these.
-# TODO: migrate those files to fixtures and remove these aliases.
-GATEWAY_URL = _DEFAULT_GATEWAY_URL
-API_KEY = _DEFAULT_API_KEY
-ADMIN_API_KEY = _DEFAULT_ADMIN_API_KEY
-
 
 # === Shared Fixtures ===
 

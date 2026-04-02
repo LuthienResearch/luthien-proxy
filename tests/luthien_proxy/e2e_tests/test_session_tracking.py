@@ -23,9 +23,6 @@ from tests.constants import DEFAULT_TEST_MODEL
 
 # Import shared config and helpers from conftest
 from tests.luthien_proxy.e2e_tests.conftest import (  # noqa: F401
-    ADMIN_API_KEY,
-    API_KEY,
-    GATEWAY_URL,
     policy_context,
 )
 
