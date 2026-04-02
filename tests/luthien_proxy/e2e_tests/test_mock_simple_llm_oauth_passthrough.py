@@ -12,6 +12,8 @@ Setup:
 - Mock server receives both requests and we inspect their headers.
 
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_simple_llm_oauth_passthrough.py -v
 """
 

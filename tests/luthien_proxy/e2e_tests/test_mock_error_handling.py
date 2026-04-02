@@ -15,11 +15,9 @@ Streaming errors that occur after HTTP headers are sent cannot change the HTTP s
 Instead, the gateway emits an SSE error event: `event: error\\ndata: {...}\\n\\n`. Clients
 must parse SSE content to detect mid-stream failures (HTTP status will be 200).
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_error_handling.py -v
 """
 

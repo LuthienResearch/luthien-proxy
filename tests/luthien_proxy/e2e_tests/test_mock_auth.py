@@ -4,12 +4,9 @@ Verifies that the gateway enforces authentication before proxying requests to
 the backend. The mock Anthropic server ignores auth headers — all assertions
 here target the gateway's own auth layer.
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-  - Mock server auto-started by the mock_anthropic fixture (port 18888).
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_auth.py -v
 """
 

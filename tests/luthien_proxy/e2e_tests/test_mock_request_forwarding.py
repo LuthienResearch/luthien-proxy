@@ -3,11 +3,9 @@
 Checks that fields like temperature, top_p, stop_sequences, system, max_tokens,
 model, messages, and metadata reach the mock Anthropic server unchanged.
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_request_forwarding.py -v
 """
 

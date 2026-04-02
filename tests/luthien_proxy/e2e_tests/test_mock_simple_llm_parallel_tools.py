@@ -14,9 +14,8 @@ violating Anthropic's event ordering. This corrupted the client's
 conversation history, causing all subsequent requests to fail with 400.
 
 Run:
-    E2E_GATEWAY_URL=http://localhost:8001 \
-    E2E_API_KEY=sk-luthien-dev-key \
-    E2E_ADMIN_API_KEY=admin-dev-key \
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_simple_llm_parallel_tools.py -v
 """
 

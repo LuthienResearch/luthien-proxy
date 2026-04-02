@@ -3,12 +3,9 @@
 Unlike the real e2e policy tests which can only check "did it crash?", these tests
 control the mock response exactly, enabling precise assertions on transformed output.
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-  - Mock server auto-started by the mock_anthropic fixture (port 18888).
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_policies.py -v
 """
 

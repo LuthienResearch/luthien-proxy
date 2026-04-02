@@ -7,11 +7,9 @@ of policy outcome.
 Cross-cutting concern: audit trail integrity is required for compliance with
 ISO 42001 Annex C (risk monitoring) and EU AI Act Article 12 (record-keeping).
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_audit_trail.py -v
 """
 

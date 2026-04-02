@@ -3,12 +3,9 @@
 Verifies that policies correctly handle (or gracefully pass through) Unicode,
 emoji, accented characters, and strings containing regex metacharacters.
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-  - Mock server auto-started by the mock_anthropic fixture (port 18888).
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_special_chars.py -v
 """
 

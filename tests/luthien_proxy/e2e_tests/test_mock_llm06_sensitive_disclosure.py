@@ -8,11 +8,9 @@ ISO 42001 Annex C.2: Data privacy and confidentiality risks.
 Real-world incident: Samsung ChatGPT source code leak (March 2023) — engineers
 exfiltrated proprietary semiconductor code via ChatGPT.
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m "mock_e2e and llm06" tests/luthien_proxy/e2e_tests/test_mock_llm06_sensitive_disclosure.py -v
 """
 

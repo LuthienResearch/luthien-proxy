@@ -7,13 +7,9 @@ and verifies the gateway output is correctly transformed.
 The mock server handles both the main backend and the judge (same FIFO queue).
 Order: enqueue main response first, then judge response(s).
 
-Requires:
-  - Gateway running with mock backend (docker-compose.mock.yaml)
-  - LLM_JUDGE_API_BASE=http://127.0.0.1:18888 set in gateway env
-  - Mock Anthropic server on port 18888
-
 Run:
-    docker compose -f docker-compose.yaml -f docker-compose.mock.yaml up -d
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_preset_policies.py -v
 """
 

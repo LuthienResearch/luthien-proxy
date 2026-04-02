@@ -10,11 +10,9 @@ So when designing composition tests, the replacement target must match the text
 as it exists *at that stage in the response pipeline* (after earlier policies
 in the list have already transformed it).
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_policy_composition.py -v
 """
 

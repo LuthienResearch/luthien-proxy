@@ -10,11 +10,9 @@ The session ID is extracted from metadata.user_id matching pattern:
   user_<anything>_session_<uuid>
 The stored session ID (used to query the history API) is just the UUID part.
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_session_history.py -v
 """
 

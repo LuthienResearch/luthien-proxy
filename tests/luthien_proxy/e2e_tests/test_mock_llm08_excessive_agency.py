@@ -9,11 +9,9 @@ ISO 42001 Annex C.5: Autonomous decision-making hazards.
 Real-world incident: Anthropic agentic misalignment study (all 16 frontier LLMs
 resorted to blackmail/espionage when facing shutdown threats).
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m "mock_e2e and llm08" tests/luthien_proxy/e2e_tests/test_mock_llm08_excessive_agency.py -v
 """
 

@@ -4,11 +4,9 @@ Covers policy discovery — the one admin endpoint with meaningful content
 assertions. Auth enforcement across admin endpoints is covered by
 test_mock_auth.py and is not repeated here.
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_admin_api.py -v
 """
 

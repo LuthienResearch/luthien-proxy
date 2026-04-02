@@ -8,8 +8,12 @@ Session ID sources:
 
 Prerequisites:
 - `claude` CLI must be installed (npm install -g @anthropic-ai/claude-cli)
-- Gateway must be running (docker compose up gateway)
 - Valid API credentials in env or .env
+
+Run:
+    ./scripts/run_e2e.sh sqlite
+    # or directly:
+    uv run pytest -m sqlite_e2e tests/luthien_proxy/e2e_tests/test_session_tracking.py -v
 """
 
 import asyncio

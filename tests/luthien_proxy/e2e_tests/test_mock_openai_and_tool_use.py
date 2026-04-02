@@ -3,11 +3,9 @@
 Covers MockToolResponse producing Anthropic tool_use content blocks
 (both non-streaming JSON and SSE streaming with input_json_delta events).
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_openai_and_tool_use.py -v
 """
 

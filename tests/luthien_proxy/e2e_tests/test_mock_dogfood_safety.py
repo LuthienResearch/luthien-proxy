@@ -6,11 +6,9 @@ agent running through the proxy.  The policy works by intercepting tool_use
 blocks in the Anthropic response and replacing any that match a dangerous
 pattern with a text block containing a "BLOCKED" message.
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_dogfood_safety.py -v
 """
 

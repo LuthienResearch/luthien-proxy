@@ -15,11 +15,9 @@ Design note: No dedicated prompt injection policy exists yet. These tests use
 SimpleLLMPolicy with injection detection instructions, demonstrating the framework's
 extensibility. A dedicated PromptInjectionPolicy would be the production solution.
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m "mock_e2e and llm01" tests/luthien_proxy/e2e_tests/test_mock_llm01_prompt_injection.py -v
 """
 
