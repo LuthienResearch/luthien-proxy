@@ -12,6 +12,9 @@
 #
 # Extra pytest args after --:
 #   ./scripts/run_e2e.sh sqlite -- -k "test_streaming" -vv
+#
+# Per-test timeouts: sqlite=60s, mock=120s, real=120s (pytest --timeout)
+# Docker startup timeout: 60s
 
 set -euo pipefail
 
@@ -84,34 +87,40 @@ docker_up() {
     local compose_files=("$@")
     COMPOSE_PROJECT="$(compose_project_name)"
 
+    # Auto-select free ports to avoid conflicts with other running stacks
+    set +u  # find-available-ports.sh uses eval on potentially unset vars
+    # shellcheck disable=SC1091
+    source "$SCRIPT_DIR/find-available-ports.sh"
+    set -u
+
     info "Starting Docker services (project: $COMPOSE_PROJECT)..."
-    local cmd=(docker compose -p "$COMPOSE_PROJECT")
+    local cmd=(docker compose -p "$COMPOSE_PROJECT" --env-file "${ENV_FILE:-$REPO_ROOT/.env}")
     for f in "${compose_files[@]}"; do
         cmd+=(-f "$f")
     done
     "${cmd[@]}" up -d --wait --build 2>&1 | sed 's/^/  /'
 
-    # Wait for gateway health
+    # Wait for gateway health (60s timeout — Docker builds can be slow on first run)
     local gateway_url="http://localhost:${GATEWAY_PORT:-8000}"
     info "Waiting for gateway at $gateway_url..."
     local attempts=0
-    local max_attempts=30
+    local max_attempts=60
     while ! curl -sf "$gateway_url/health" > /dev/null 2>&1; do
         attempts=$((attempts + 1))
         if [[ $attempts -ge $max_attempts ]]; then
             fail "Gateway not ready after ${max_attempts}s"
-            docker compose -p "$COMPOSE_PROJECT" logs gateway 2>&1 | tail -20
+            docker compose -p "$COMPOSE_PROJECT" --env-file "${ENV_FILE:-$REPO_ROOT/.env}" logs gateway 2>&1 | tail -20
             return 1
         fi
         sleep 1
     done
-    ok "Gateway healthy"
+    ok "Gateway healthy on port ${GATEWAY_PORT:-8000}"
 }
 
 docker_down() {
     if [[ -n "$COMPOSE_PROJECT" ]]; then
         info "Tearing down Docker services..."
-        docker compose -p "$COMPOSE_PROJECT" down --remove-orphans 2>&1 | sed 's/^/  /'
+        docker compose -p "$COMPOSE_PROJECT" --env-file "${ENV_FILE:-$REPO_ROOT/.env}" down --remove-orphans 2>&1 | sed 's/^/  /'
         COMPOSE_PROJECT=""
     fi
 }
@@ -136,11 +145,21 @@ check_docker() {
     return 0
 }
 
-# Source .env if it exists (for ANTHROPIC_API_KEY, port overrides, etc.)
-if [[ -f "$REPO_ROOT/.env" ]]; then
+# Source .env — check worktree root first, then follow git worktree pointer
+# to the main repo (worktrees share gitignored files like .env with main).
+ENV_FILE="$REPO_ROOT/.env"
+if [[ ! -f "$ENV_FILE" && -f "$REPO_ROOT/.git" ]]; then
+    # In a git worktree: .git is a file pointing to the main repo
+    MAIN_ROOT="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null | xargs dirname)"
+    if [[ -f "$MAIN_ROOT/.env" ]]; then
+        ENV_FILE="$MAIN_ROOT/.env"
+    fi
+fi
+if [[ -f "$ENV_FILE" ]]; then
+    info "Loading env from $ENV_FILE"
     set -a
-    # shellcheck disable=SC1091
-    source "$REPO_ROOT/.env"
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
     set +a
 fi
 
@@ -173,6 +192,9 @@ run_mock() {
 
     docker_up docker-compose.yaml docker-compose.mock-bridge.yaml
 
+    # Tell pytest fixtures which port the gateway is on
+    export E2E_GATEWAY_URL="http://localhost:${GATEWAY_PORT:-8000}"
+
     info "Running tests..."
     local exit_code=0
     uv run pytest \
@@ -202,6 +224,8 @@ run_real() {
     fi
 
     docker_up docker-compose.yaml
+
+    export E2E_GATEWAY_URL="http://localhost:${GATEWAY_PORT:-8000}"
 
     info "Running tests..."
     local exit_code=0
