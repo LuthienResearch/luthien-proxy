@@ -209,35 +209,48 @@ run_sqlite() {
 # --- Tier: mock ---
 
 run_mock() {
-    header "Mock E2E Tests (Docker + mock Anthropic server)"
+    header "Mock E2E Tests (in-process gateway + mock Anthropic server)"
 
-    if ! check_docker; then
-        warn "Skipping mock tier: Docker not available"
-        return 2
-    fi
+    # Start an in-process gateway + mock server (no Docker needed)
+    info "Starting in-process gateway..."
+    local config_json gateway_pid
+    config_json="$(mktemp /tmp/mock-gateway-XXXXXX.json)"
 
-    # Find a free port for the mock Anthropic server
-    local mock_port
-    mock_port="$(_find_free_port 18888)"
+    uv run python scripts/start_mock_gateway.py > "$config_json" &
+    gateway_pid=$!
+
+    # Wait for the helper to print its config (up to 15s)
+    local attempts=0
+    while [[ ! -s "$config_json" ]]; do
+        if ! kill -0 "$gateway_pid" 2>/dev/null; then
+            fail "Gateway process died during startup"
+            rm -f "$config_json"
+            return 1
+        fi
+        attempts=$((attempts + 1))
+        if [[ $attempts -ge 15 ]]; then
+            fail "Gateway did not start within 15s"
+            kill "$gateway_pid" 2>/dev/null
+            rm -f "$config_json"
+            return 1
+        fi
+        sleep 1
+    done
+
+    # Read config from the helper
+    local gw_url mock_port gw_api_key gw_admin_key
+    gw_url="$(python3 -c "import json; print(json.load(open('$config_json'))['gateway_url'])")"
+    mock_port="$(python3 -c "import json; print(json.load(open('$config_json'))['mock_port'])")"
+    gw_api_key="$(python3 -c "import json; print(json.load(open('$config_json'))['api_key'])")"
+    gw_admin_key="$(python3 -c "import json; print(json.load(open('$config_json'))['admin_api_key'])")"
+    rm -f "$config_json"
+
+    ok "Gateway ready at $gw_url (mock on port $mock_port)"
+
+    export E2E_GATEWAY_URL="$gw_url"
+    export E2E_API_KEY="$gw_api_key"
+    export E2E_ADMIN_API_KEY="$gw_admin_key"
     export MOCK_ANTHROPIC_PORT="$mock_port"
-    info "Mock Anthropic server will use port $mock_port"
-
-    # Generate a compose override pointing the gateway at the mock server
-    local mock_override
-    mock_override="$(mktemp /tmp/compose-mock-XXXXXX.yaml)"
-    cat > "$mock_override" <<YAML
-services:
-  gateway:
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    environment:
-      - ANTHROPIC_BASE_URL=http://host.docker.internal:${mock_port}
-      - ANTHROPIC_API_KEY=mock-key
-YAML
-
-    docker_up docker-compose.yaml "$mock_override"
-
-    export E2E_GATEWAY_URL="http://localhost:${GATEWAY_PORT:-8000}"
 
     info "Running tests..."
     local exit_code=0
@@ -248,8 +261,9 @@ YAML
         "${PYTEST_EXTRA[@]}" \
     || exit_code=$?
 
-    rm -f "$mock_override"
-    docker_down
+    # Shut down the in-process gateway
+    kill "$gateway_pid" 2>/dev/null
+    wait "$gateway_pid" 2>/dev/null
     return "$exit_code"
 }
 

@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""Start an in-process gateway + mock Anthropic server for e2e testing.
+
+Prints JSON with gateway_url, api_key, admin_api_key to stdout,
+then blocks until SIGTERM/SIGINT. Used by run_e2e.sh for the mock tier.
+"""
+
+import asyncio
+import json
+import os
+import signal
+import socket
+import sys
+import tempfile
+import threading
+import time
+
+import uvicorn
+
+from luthien_proxy.main import create_app
+from luthien_proxy.utils.db import DatabasePool
+from luthien_proxy.utils.migration_check import check_migrations
+
+
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("", 0))
+        return s.getsockname()[1]
+
+
+def main():
+    api_key = "test-mock-e2e-key"
+    admin_api_key = "test-mock-e2e-admin-key"
+
+    # The mock Anthropic server is started by pytest's mock_anthropic fixture.
+    # We just need to tell the gateway where it will be.
+    mock_port = int(os.getenv("MOCK_ANTHROPIC_PORT", "0")) or _free_port()
+
+    # Create SQLite gateway
+    gateway_port = _free_port()
+    tmp_dir = tempfile.mkdtemp(prefix="luthien_mock_e2e_")
+    db_path = os.path.join(tmp_dir, "test.db")
+    db_pool = DatabasePool(f"sqlite:///{db_path}")
+
+    loop = asyncio.new_event_loop()
+    loop.run_until_complete(check_migrations(db_pool))
+
+    os.environ["ANTHROPIC_BASE_URL"] = f"http://localhost:{mock_port}"
+    os.environ["ANTHROPIC_API_KEY"] = "mock-key"
+
+    app = create_app(
+        api_key=api_key,
+        admin_key=admin_api_key,
+        db_pool=db_pool,
+        redis_client=None,
+        startup_policy_path="config/policy_config.yaml",
+        policy_source="db-fallback-file",
+    )
+
+    config = uvicorn.Config(app, host="127.0.0.1", port=gateway_port, log_level="warning")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True, name="mock-gateway")
+    thread.start()
+
+    # Wait for gateway to be ready
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", gateway_port), timeout=0.5):
+                break
+        except OSError:
+            time.sleep(0.1)
+    else:
+        print("ERROR: Gateway did not start", file=sys.stderr)
+        sys.exit(1)
+
+    # Print config for the calling script
+    info = {
+        "gateway_url": f"http://127.0.0.1:{gateway_port}",
+        "api_key": api_key,
+        "admin_api_key": admin_api_key,
+        "mock_port": mock_port,
+    }
+    print(json.dumps(info))
+    sys.stdout.flush()
+
+    # Block until signaled
+    stop = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    signal.signal(signal.SIGINT, lambda *_: stop.set())
+    stop.wait()
+
+    server.should_exit = True
+    thread.join(timeout=5)
+    loop.run_until_complete(db_pool.close())
+    loop.close()
+
+
+if __name__ == "__main__":
+    main()
