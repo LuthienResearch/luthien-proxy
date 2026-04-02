@@ -73,9 +73,9 @@ done
 _is_port_free() {
     local port="$1"
     if command -v ss &>/dev/null; then
-        ! ss -tlnH "sport = :${port}" | grep -q .
+        if ss -tlnH "sport = :${port}" | grep -q .; then return 1; else return 0; fi
     else
-        ! (echo >/dev/tcp/localhost/"${port}") 2>/dev/null
+        if (echo >/dev/tcp/localhost/"${port}") 2>/dev/null; then return 1; else return 0; fi
     fi
 }
 
