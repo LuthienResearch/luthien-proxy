@@ -66,6 +66,16 @@ class TestConversationLinkPolicy:
         assert "/conversation/live/sess-2" in r2
 
     @pytest.mark.asyncio
+    async def test_session_id_with_special_chars_is_url_encoded(self):
+        policy = ConversationLinkPolicy(base_url="http://localhost:8000")
+        ctx = self._make_context(session_id="sess with spaces#fragment")
+
+        result = await policy.simple_on_response_content("Hello", ctx)
+
+        assert "sess%20with%20spaces%23fragment" in result
+        assert "sess with spaces" not in result
+
+    @pytest.mark.asyncio
     async def test_request_passes_through(self):
         policy = ConversationLinkPolicy(base_url="http://localhost:8000")
         ctx = self._make_context()

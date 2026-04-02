@@ -893,8 +893,8 @@
                         };
 
                         this.evtSource.onerror = () => {
+                            this.connection = 'reconnecting';
                             if (this.evtSource.readyState === EventSource.CLOSED) {
-                                this.connection = 'reconnecting';
                                 this.evtSource.close();
                                 setTimeout(() => this.connectSSE(), 3000);
                             }
@@ -986,56 +986,6 @@
                     if (!iso) return '';
                     const date = new Date(iso);
                     return date.toLocaleTimeString();
-                },
-
-                toggleEventTimeline(turnIdx) {
-                    this.$nextTick(() => {
-                        const timeline = document.querySelector(`.turn-${turnIdx} .event-list`);
-                        const btn = document.querySelector(`.turn-${turnIdx} .event-timeline-toggle`);
-                        if (timeline) {
-                            timeline.classList.toggle('visible');
-                            btn.classList.toggle('open');
-                        }
-                    });
-                },
-
-                toggleEventRaw(eventKey) {
-                    this.$nextTick(() => {
-                        const el = document.getElementById(`raw-${eventKey}`);
-                        const btn = document.querySelector(`[data-toggle-raw="${eventKey}"]`);
-                        if (el && btn) {
-                            el.classList.toggle('visible');
-                            btn.textContent = el.classList.contains('visible') ? 'Hide' : 'Raw';
-                        }
-                    });
-                },
-
-                toggleContentExpand(contentId) {
-                    this.$nextTick(() => {
-                        const el = document.getElementById(contentId);
-                        const btn = document.querySelector(`[data-expand-btn="${contentId}"]`);
-                        if (el && btn) {
-                            const expanded = el.classList.contains('expanded');
-                            if (expanded) {
-                                el.classList.remove('expanded');
-                                btn.textContent = 'Show more';
-                            } else {
-                                el.classList.add('expanded');
-                                btn.textContent = 'Show less';
-                            }
-                        }
-                    });
-                },
-
-                toggleDiff(diffId) {
-                    this.$nextTick(() => {
-                        const panel = document.getElementById(diffId);
-                        const btn = document.querySelector(`[data-diff-toggle="${diffId}"]`);
-                        if (panel && btn) {
-                            panel.classList.toggle('visible');
-                            btn.classList.toggle('open');
-                        }
-                    });
                 },
 
                 snapshotExpandState() {

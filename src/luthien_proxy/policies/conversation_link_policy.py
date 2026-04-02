@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 from collections import OrderedDict
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 from pydantic import BaseModel, Field
 
@@ -76,7 +77,7 @@ class ConversationLinkPolicy(SimplePolicy):
 
         _mark_session_injected(session_id)
         base = self.config.base_url.rstrip("/")
-        link = f"{base}/conversation/live/{session_id}"
+        link = f"{base}/conversation/live/{quote(session_id, safe='')}"
 
         context.record_event(
             "policy.conversation_link.injected",
