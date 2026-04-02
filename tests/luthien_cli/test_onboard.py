@@ -429,3 +429,42 @@ def test_onboard_local_with_pr_ref(tmp_path):
     assert result.exit_code == 0, result.output
     mock_resolve.assert_called_once_with("#123")
     mock_venv.assert_called_once_with(proxy_ref="feature/cool", force_reinstall=True)
+
+
+def test_onboard_local_stops_gateway_before_finding_port(tmp_path):
+    """Regression: stop_gateway must be called before find_free_port in _onboard_local.
+
+    Bug 5: If stop_gateway is called after find_free_port, the old gateway's port
+    won't be freed in time for the port selection to reclaim it, causing port conflicts.
+    """
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    repo_path = tmp_path / "managed-repo"
+    repo_path.mkdir()
+    (repo_path / "config").mkdir()
+
+    call_order = []
+
+    def track_stop_gateway(*args, **kwargs):
+        call_order.append("stop_gateway")
+
+    def track_find_free_port(*args, **kwargs):
+        call_order.append("find_free_port")
+        return 8000
+
+    with (
+        patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.onboard.ensure_gateway_venv", return_value=str(repo_path)),
+        patch("luthien_cli.commands.onboard.stop_gateway", side_effect=track_stop_gateway),
+        patch("luthien_cli.commands.onboard.start_gateway", return_value=12345),
+        patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
+        patch("luthien_cli.commands.onboard.find_free_port", side_effect=track_find_free_port),
+        patch("luthien_cli.commands.onboard.webbrowser.open"),
+        patch("luthien_cli.commands.claude._exec_claude"),
+    ):
+        result = runner.invoke(cli, ["onboard"], input="y\nn\nq\n")
+
+    assert result.exit_code == 0, result.output
+    assert call_order == ["stop_gateway", "find_free_port"], (
+        f"stop_gateway must be called before find_free_port, got order: {call_order}"
+    )
