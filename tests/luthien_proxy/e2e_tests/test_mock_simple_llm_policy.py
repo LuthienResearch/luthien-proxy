@@ -156,7 +156,6 @@ async def test_judge_failure_blocks_text_non_streaming(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
     gateway_url,
-    api_key,
     auth_headers,
     admin_api_key,
 ):
@@ -184,7 +183,6 @@ async def test_judge_failure_passes_text_with_warning_non_streaming(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
     gateway_url,
-    api_key,
     auth_headers,
     admin_api_key,
 ):

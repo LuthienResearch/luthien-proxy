@@ -32,8 +32,10 @@ def main():
     api_key = "test-mock-e2e-key"
     admin_api_key = "test-mock-e2e-admin-key"
 
-    # The mock Anthropic server is started by pytest's mock_anthropic fixture.
-    # We just need to tell the gateway where it will be.
+    # Port handoff: we pick a port here and configure the gateway's
+    # ANTHROPIC_BASE_URL to point at it. The actual mock server is started
+    # later by pytest's mock_anthropic fixture, which reads MOCK_ANTHROPIC_PORT
+    # from the environment to bind to the same port.
     mock_port = int(os.getenv("MOCK_ANTHROPIC_PORT", "0")) or _free_port()
 
     # Create SQLite gateway
