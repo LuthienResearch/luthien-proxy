@@ -68,6 +68,32 @@ for tier in "${TIERS[@]}"; do
     esac
 done
 
+# --- Port helpers ---
+
+_is_port_free() {
+    local port="$1"
+    if command -v ss &>/dev/null; then
+        ! ss -tlnH "sport = :${port}" | grep -q .
+    else
+        ! (echo >/dev/tcp/localhost/"${port}") 2>/dev/null
+    fi
+}
+
+_find_free_port() {
+    local port="$1"
+    local i=0
+    while [[ $i -lt 100 ]]; do
+        if _is_port_free "$port"; then
+            echo "$port"
+            return 0
+        fi
+        port=$((port + 1))
+        i=$((i + 1))
+    done
+    fail "No free port found starting from $1"
+    return 1
+}
+
 # --- Docker helpers ---
 
 COMPOSE_PROJECT=""
@@ -87,8 +113,8 @@ docker_up() {
     local compose_files=("$@")
     COMPOSE_PROJECT="$(compose_project_name)"
 
-    # Auto-select free ports to avoid conflicts with other running stacks
-    set +u  # find-available-ports.sh uses eval on potentially unset vars
+    # Auto-select free ports for Docker services (Postgres, Redis, Gateway)
+    set +u
     # shellcheck disable=SC1091
     source "$SCRIPT_DIR/find-available-ports.sh"
     set -u
@@ -190,9 +216,27 @@ run_mock() {
         return 2
     fi
 
-    docker_up docker-compose.yaml docker-compose.mock-bridge.yaml
+    # Find a free port for the mock Anthropic server
+    local mock_port
+    mock_port="$(_find_free_port 18888)"
+    export MOCK_ANTHROPIC_PORT="$mock_port"
+    info "Mock Anthropic server will use port $mock_port"
 
-    # Tell pytest fixtures which port the gateway is on
+    # Generate a compose override pointing the gateway at the mock server
+    local mock_override
+    mock_override="$(mktemp /tmp/compose-mock-XXXXXX.yaml)"
+    cat > "$mock_override" <<YAML
+services:
+  gateway:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - ANTHROPIC_BASE_URL=http://host.docker.internal:${mock_port}
+      - ANTHROPIC_API_KEY=mock-key
+YAML
+
+    docker_up docker-compose.yaml "$mock_override"
+
     export E2E_GATEWAY_URL="http://localhost:${GATEWAY_PORT:-8000}"
 
     info "Running tests..."
@@ -200,10 +244,11 @@ run_mock() {
     uv run pytest \
         -m mock_e2e \
         tests/luthien_proxy/e2e_tests/ \
-        -v --timeout=120 --no-cov \
+        -v --timeout=30 --no-cov \
         "${PYTEST_EXTRA[@]}" \
     || exit_code=$?
 
+    rm -f "$mock_override"
     docker_down
     return "$exit_code"
 }

@@ -20,7 +20,7 @@ import httpx
 import pytest
 from dotenv import load_dotenv
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response as _text_response
-from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer  # type: ignore[import]
+from tests.luthien_proxy.e2e_tests.mock_anthropic.server import DEFAULT_MOCK_PORT, MockAnthropicServer
 
 # === Repository Root Finding ===
 
@@ -109,10 +109,12 @@ def mock_anthropic():
     Shared across all e2e test files. Use ``mock_anthropic.enqueue(response)``
     before each test to control what the mock returns.
 
-    Requires gateway started with ANTHROPIC_BASE_URL=http://host.docker.internal:18888.
-    See docker-compose.mock-bridge.yaml.
+    Port is configurable via MOCK_ANTHROPIC_PORT env var (default: 18888).
+    For Docker-based tests, the gateway must be configured with
+    ANTHROPIC_BASE_URL pointing at this port.
     """
-    server = MockAnthropicServer()
+    port = int(os.getenv("MOCK_ANTHROPIC_PORT", str(DEFAULT_MOCK_PORT)))
+    server = MockAnthropicServer(port=port)
     server.start()
     yield server
     server.stop()
