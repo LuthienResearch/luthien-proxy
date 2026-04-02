@@ -1,4 +1,4 @@
-"""Unit tests for humanizer_utils."""
+"""Unit tests for deai_utils."""
 
 from __future__ import annotations
 
@@ -6,13 +6,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from luthien_proxy.policies.humanizer_utils import (
-    HumanizerConfig,
-    HumanizerTruncatedError,
-    build_humanizer_chunk_prompt,
-    build_humanizer_prompt,
-    call_humanizer,
-    call_humanizer_chunk,
+from luthien_proxy.policies.deai_utils import (
+    DeAIConfig,
+    DeAITruncatedError,
+    build_deai_chunk_prompt,
+    build_deai_prompt,
+    call_deai,
+    call_deai_chunk,
     split_into_chunks,
 )
 
@@ -29,16 +29,16 @@ def _mock_response(content: str, finish_reason: str = "stop") -> MagicMock:
     return mock_resp
 
 
-class TestBuildHumanizerPrompt:
+class TestBuildDeAIPrompt:
     def test_basic_prompt_structure(self):
-        prompt = build_humanizer_prompt("Some AI text here.")
+        prompt = build_deai_prompt("Some AI text here.")
         assert len(prompt) == 2
         assert prompt[0]["role"] == "system"
         assert prompt[1]["role"] == "user"
         assert prompt[1]["content"] == "Some AI text here."
 
     def test_system_prompt_contains_patterns(self):
-        prompt = build_humanizer_prompt("text")
+        prompt = build_deai_prompt("text")
         system = prompt[0]["content"]
         assert "testament" in system
         assert "vibrant" in system
@@ -46,19 +46,19 @@ class TestBuildHumanizerPrompt:
         assert "Chatbot artifacts" in system
 
     def test_extra_instructions_appended(self):
-        prompt = build_humanizer_prompt("text", extra_instructions="Write in British English.")
+        prompt = build_deai_prompt("text", extra_instructions="Write in British English.")
         system = prompt[0]["content"]
         assert "Write in British English." in system
 
     def test_no_extra_instructions(self):
-        prompt = build_humanizer_prompt("text", extra_instructions="")
+        prompt = build_deai_prompt("text", extra_instructions="")
         system = prompt[0]["content"]
         assert "Additional Instructions" not in system
 
 
-class TestBuildHumanizerChunkPrompt:
+class TestBuildDeAIChunkPrompt:
     def test_first_chunk_no_context(self):
-        prompt = build_humanizer_chunk_prompt("Some chunk text.")
+        prompt = build_deai_chunk_prompt("Some chunk text.")
         assert len(prompt) == 2
         assert prompt[0]["role"] == "system"
         assert "Fragment Mode" in prompt[0]["content"]
@@ -66,7 +66,7 @@ class TestBuildHumanizerChunkPrompt:
         assert "PRECEDING CONTEXT" not in prompt[1]["content"]
 
     def test_with_previous_context(self):
-        prompt = build_humanizer_chunk_prompt("New chunk.", previous_context="Previous output tail.")
+        prompt = build_deai_chunk_prompt("New chunk.", previous_context="Previous output tail.")
         user = prompt[1]["content"]
         assert "PRECEDING CONTEXT" in user
         assert "Previous output tail." in user
@@ -74,11 +74,11 @@ class TestBuildHumanizerChunkPrompt:
         assert "New chunk." in user
 
     def test_final_chunk_flag(self):
-        prompt = build_humanizer_chunk_prompt("Last bit.", is_final=True)
+        prompt = build_deai_chunk_prompt("Last bit.", is_final=True)
         assert "final fragment" in prompt[0]["content"]
 
     def test_extra_instructions(self):
-        prompt = build_humanizer_chunk_prompt("text", extra_instructions="Be concise.")
+        prompt = build_deai_chunk_prompt("text", extra_instructions="Be concise.")
         assert "Be concise." in prompt[0]["content"]
 
 
@@ -111,50 +111,50 @@ class TestSplitIntoChunks:
         assert len(chunks) == 3
 
 
-class TestCallHumanizer:
+class TestCallDeAI:
     @pytest.mark.asyncio()
     async def test_successful_call(self):
-        config = HumanizerConfig(model="test-model", api_key="test-key", max_retries=0)
+        config = DeAIConfig(model="test-model", api_key="test-key", max_retries=0)
 
-        with patch("luthien_proxy.policies.humanizer_utils.acompletion", new_callable=AsyncMock) as mock_llm:
+        with patch("luthien_proxy.policies.deai_utils.acompletion", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = _mock_response("Humanized text output.")
-            result = await call_humanizer("Original AI text.", config)
+            result = await call_deai("Original AI text.", config)
 
         assert result == "Humanized text output."
 
     @pytest.mark.asyncio()
     async def test_truncation_raises(self):
-        config = HumanizerConfig(model="test-model", api_key="key", max_retries=0)
+        config = DeAIConfig(model="test-model", api_key="key", max_retries=0)
 
-        with patch("luthien_proxy.policies.humanizer_utils.acompletion", new_callable=AsyncMock) as mock_llm:
+        with patch("luthien_proxy.policies.deai_utils.acompletion", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = _mock_response("partial...", finish_reason="length")
-            with pytest.raises(HumanizerTruncatedError, match="truncated"):
-                await call_humanizer("text", config)
+            with pytest.raises(DeAITruncatedError, match="truncated"):
+                await call_deai("text", config)
 
     @pytest.mark.asyncio()
     async def test_retries_on_failure(self):
-        config = HumanizerConfig(model="test-model", api_key="key", max_retries=2, retry_delay=0.0)
+        config = DeAIConfig(model="test-model", api_key="key", max_retries=2, retry_delay=0.0)
 
-        with patch("luthien_proxy.policies.humanizer_utils.acompletion", new_callable=AsyncMock) as mock_llm:
+        with patch("luthien_proxy.policies.deai_utils.acompletion", new_callable=AsyncMock) as mock_llm:
             mock_llm.side_effect = [
                 RuntimeError("fail"),
                 RuntimeError("fail again"),
                 _mock_response("success"),
             ]
-            result = await call_humanizer("text", config)
+            result = await call_deai("text", config)
 
         assert result == "success"
         assert mock_llm.call_count == 3
 
 
-class TestCallHumanizerChunk:
+class TestCallDeAIChunk:
     @pytest.mark.asyncio()
     async def test_basic_chunk_call(self):
-        config = HumanizerConfig(model="test-model", api_key="key", max_retries=0)
+        config = DeAIConfig(model="test-model", api_key="key", max_retries=0)
 
-        with patch("luthien_proxy.policies.humanizer_utils.acompletion", new_callable=AsyncMock) as mock_llm:
+        with patch("luthien_proxy.policies.deai_utils.acompletion", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = _mock_response("humanized chunk")
-            result = await call_humanizer_chunk("original chunk", config, previous_context="prev tail")
+            result = await call_deai_chunk("original chunk", config, previous_context="prev tail")
 
         assert result == "humanized chunk"
         call_messages = mock_llm.call_args[1]["messages"]
@@ -164,10 +164,10 @@ class TestCallHumanizerChunk:
     @pytest.mark.asyncio()
     async def test_truncation_returns_partial(self):
         """Chunk mode returns partial output on truncation instead of raising."""
-        config = HumanizerConfig(model="test-model", api_key="key", max_retries=0)
+        config = DeAIConfig(model="test-model", api_key="key", max_retries=0)
 
-        with patch("luthien_proxy.policies.humanizer_utils.acompletion", new_callable=AsyncMock) as mock_llm:
+        with patch("luthien_proxy.policies.deai_utils.acompletion", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = _mock_response("partial output", finish_reason="length")
-            result = await call_humanizer_chunk("long chunk", config)
+            result = await call_deai_chunk("long chunk", config)
 
         assert result == "partial output"

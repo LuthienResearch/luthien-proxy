@@ -1,4 +1,4 @@
-"""HumanizerPolicy - Rewrite AI-generated text to sound naturally human.
+"""DeAIPolicy - Rewrite AI-generated text to sound naturally human.
 
 Intercepts LLM response text blocks and rewrites them using a secondary LLM
 call to remove common AI writing patterns. Uses paragraph-chunked streaming
@@ -7,7 +7,7 @@ responses without truncation.
 
 Example config:
     policy:
-      class: "luthien_proxy.policies.humanizer_policy:HumanizerPolicy"
+      class: "luthien_proxy.policies.deai_policy:DeAIPolicy"
       config:
         config:
           model: "claude-haiku-4-5"
@@ -32,9 +32,9 @@ from anthropic.types import (
 )
 
 from luthien_proxy.llm.types.anthropic import AnthropicTextBlock
-from luthien_proxy.policies.humanizer_utils import (
-    HumanizerConfig,
-    call_humanizer_chunk,
+from luthien_proxy.policies.deai_utils import (
+    DeAIConfig,
+    call_deai_chunk,
     split_into_chunks,
 )
 from luthien_proxy.policy_core import (
@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class _HumanizerStreamState:
+class _DeAIStreamState:
     buffer: str = ""
     previous_humanized_tail: str = ""
     last_event_index: int = 0
@@ -64,7 +64,7 @@ class _HumanizerStreamState:
     total_chars_out: int = 0
 
 
-class HumanizerPolicy(BasePolicy, AnthropicHookPolicy):
+class DeAIPolicy(BasePolicy, AnthropicHookPolicy):
     """Policy that rewrites AI-generated text to sound more natural.
 
     Accumulates streaming text deltas into a buffer, splits at paragraph
@@ -72,17 +72,17 @@ class HumanizerPolicy(BasePolicy, AnthropicHookPolicy):
     call. Supports indefinite-length responses without truncation.
 
     Non-streaming responses are split into chunks and humanized the same way.
-    On humanizer failure for any chunk, the original text is emitted.
+    On DeAI failure for any chunk, the original text is emitted.
     """
 
     @property
     def short_policy_name(self) -> str:
         """Policy display name."""
-        return "Humanizer"
+        return "DeAI"
 
-    def __init__(self, config: HumanizerConfig | None = None):
-        """Initialize with humanizer config."""
-        parsed = self._init_config(config, HumanizerConfig)
+    def __init__(self, config: DeAIConfig | None = None):
+        """Initialize with DeAI config."""
+        parsed = self._init_config(config, DeAIConfig)
 
         settings = get_settings()
         overrides: dict[str, object] = {}
@@ -93,8 +93,8 @@ class HumanizerPolicy(BasePolicy, AnthropicHookPolicy):
         self._config = parsed.model_copy(update=overrides) if overrides else parsed
         self._fallback_api_key = settings.llm_judge_api_key or settings.litellm_master_key or None
 
-    def _state(self, context: PolicyContext) -> _HumanizerStreamState:
-        return context.get_request_state(self, _HumanizerStreamState, _HumanizerStreamState)
+    def _state(self, context: PolicyContext) -> _DeAIStreamState:
+        return context.get_request_state(self, _DeAIStreamState, _DeAIStreamState)
 
     def _resolved_api_key(self, context: PolicyContext) -> str | None:
         return self._resolve_judge_api_key(context, self._config.api_key, self._fallback_api_key)
@@ -128,7 +128,7 @@ class HumanizerPolicy(BasePolicy, AnthropicHookPolicy):
         for i, chunk in enumerate(chunks):
             is_final = i == len(chunks) - 1
             try:
-                humanized = await call_humanizer_chunk(
+                humanized = await call_deai_chunk(
                     chunk,
                     self._config,
                     previous_context=previous_tail,
@@ -139,14 +139,14 @@ class HumanizerPolicy(BasePolicy, AnthropicHookPolicy):
                 if self._config.context_overlap > 0:
                     previous_tail = humanized[-self._config.context_overlap :]
             except Exception as exc:
-                logger.error("Humanizer chunk %d failed, using original: %s", i, exc)
+                logger.error("DeAI chunk %d failed, using original: %s", i, exc)
                 result_parts.append(chunk)
                 if self._config.context_overlap > 0:
                     previous_tail = chunk[-self._config.context_overlap :]
 
         result = "".join(result_parts)
         context.record_event(
-            "policy.humanizer.rewritten",
+            "policy.deai.rewritten",
             {
                 "summary": f"Humanized {len(text)} chars → {len(result)} chars ({len(chunks)} chunks)",
                 "original_length": len(text),
@@ -223,7 +223,7 @@ class HumanizerPolicy(BasePolicy, AnthropicHookPolicy):
 
     async def _flush_buffer(
         self,
-        state: _HumanizerStreamState,
+        state: _DeAIStreamState,
         context: PolicyContext,
         *,
         is_final: bool = False,
@@ -235,7 +235,7 @@ class HumanizerPolicy(BasePolicy, AnthropicHookPolicy):
         humanized = await self._humanize_stream_chunk(chunk, state, context, is_final=is_final)
         return self._emit_text_delta(humanized, state.last_event_index)
 
-    def _try_extract_chunk(self, state: _HumanizerStreamState) -> tuple[str, str] | None:
+    def _try_extract_chunk(self, state: _DeAIStreamState) -> tuple[str, str] | None:
         """Try to extract a ready chunk from the buffer.
 
         Returns (chunk, remaining) or None if not enough text yet.
@@ -265,7 +265,7 @@ class HumanizerPolicy(BasePolicy, AnthropicHookPolicy):
     async def _humanize_stream_chunk(
         self,
         chunk: str,
-        state: _HumanizerStreamState,
+        state: _DeAIStreamState,
         context: PolicyContext,
         *,
         is_final: bool = False,
@@ -278,7 +278,7 @@ class HumanizerPolicy(BasePolicy, AnthropicHookPolicy):
         state.total_chunks += 1
 
         try:
-            humanized = await call_humanizer_chunk(
+            humanized = await call_deai_chunk(
                 chunk,
                 self._config,
                 previous_context=state.previous_humanized_tail,
@@ -286,9 +286,9 @@ class HumanizerPolicy(BasePolicy, AnthropicHookPolicy):
                 api_key=self._resolved_api_key(context),
             )
         except Exception as exc:
-            logger.error("Humanizer chunk %d failed, using original: %s", state.total_chunks, exc)
+            logger.error("DeAI chunk %d failed, using original: %s", state.total_chunks, exc)
             context.record_event(
-                "policy.humanizer.chunk_error",
+                "policy.deai.chunk_error",
                 {"summary": f"Chunk {state.total_chunks} failed: {exc}", "error": str(exc)},
             )
             humanized = chunk
@@ -307,10 +307,10 @@ class HumanizerPolicy(BasePolicy, AnthropicHookPolicy):
             )
         ]
 
-    def _record_stream_summary(self, state: _HumanizerStreamState, context: PolicyContext) -> None:
+    def _record_stream_summary(self, state: _DeAIStreamState, context: PolicyContext) -> None:
         if state.total_chunks > 0:
             context.record_event(
-                "policy.humanizer.rewritten",
+                "policy.deai.rewritten",
                 {
                     "summary": (
                         f"Humanized {state.total_chars_in} chars → {state.total_chars_out} chars "
@@ -324,7 +324,7 @@ class HumanizerPolicy(BasePolicy, AnthropicHookPolicy):
 
     async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
         """Safety net: flush if stream ended without stop/message_delta."""
-        state = context.pop_request_state(self, _HumanizerStreamState)
+        state = context.pop_request_state(self, _DeAIStreamState)
         if state is None or not state.buffer:
             return []
         chunk = state.buffer
@@ -333,4 +333,4 @@ class HumanizerPolicy(BasePolicy, AnthropicHookPolicy):
         return list(self._emit_text_delta(humanized, state.last_event_index))
 
 
-__all__ = ["HumanizerPolicy"]
+__all__ = ["DeAIPolicy"]

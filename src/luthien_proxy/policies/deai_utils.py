@@ -1,4 +1,4 @@
-"""Utilities for HumanizerPolicy LLM calls.
+"""Utilities for DeAIPolicy LLM calls.
 
 Handles prompt construction and LiteLLM calls for transforming AI-generated
 text into more natural, human-sounding writing. Based on the humanizer project
@@ -19,8 +19,8 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 
-class HumanizerConfig(BaseModel):
-    """Configuration for HumanizerPolicy."""
+class DeAIConfig(BaseModel):
+    """Configuration for DeAIPolicy."""
 
     model: str = Field(
         default="claude-haiku-4-5",
@@ -43,11 +43,11 @@ class HumanizerConfig(BaseModel):
     )
     max_tokens: int = Field(
         default=8192,
-        description="Maximum output tokens for the humanizer LLM call.",
+        description="Maximum output tokens for the DeAI LLM call.",
     )
     extra_instructions: str = Field(
         default="",
-        description="Additional instructions appended to the humanizer prompt.",
+        description="Additional instructions appended to the DeAI prompt.",
     )
     min_text_length: int = Field(
         default=40,
@@ -85,7 +85,7 @@ class HumanizerConfig(BaseModel):
     model_config = {"frozen": True}
 
 
-_HUMANIZER_SYSTEM_PROMPT = """\
+_DEAI_SYSTEM_PROMPT = """\
 You are a text rewriter. Your job is to take AI-generated text and rewrite it \
 to sound naturally human-written, while preserving meaning and technical accuracy.
 
@@ -154,12 +154,12 @@ in the original. Maintain consistent style with the preceding context if provide
 """
 
 
-def build_humanizer_prompt(
+def build_deai_prompt(
     text: str,
     extra_instructions: str = "",
 ) -> list[dict[str, str]]:
-    """Build the message list for a full-text humanizer LLM call."""
-    system = _HUMANIZER_SYSTEM_PROMPT
+    """Build the message list for a full-text DeAI LLM call."""
+    system = _DEAI_SYSTEM_PROMPT
     if extra_instructions:
         system += f"\n\n# Additional Instructions\n{extra_instructions}"
 
@@ -169,18 +169,18 @@ def build_humanizer_prompt(
     ]
 
 
-def build_humanizer_chunk_prompt(
+def build_deai_chunk_prompt(
     chunk: str,
     previous_context: str = "",
     extra_instructions: str = "",
     is_final: bool = False,
 ) -> list[dict[str, str]]:
-    """Build the message list for a chunk-mode humanizer call.
+    """Build the message list for a chunk-mode DeAI call.
 
     Includes the preceding humanized output as style context so the
     rewriter maintains consistency across chunks.
     """
-    system = _HUMANIZER_SYSTEM_PROMPT + _CHUNK_ADDENDUM
+    system = _DEAI_SYSTEM_PROMPT + _CHUNK_ADDENDUM
     if is_final:
         system += "\nThis is the final fragment of the text."
     if extra_instructions:
@@ -201,13 +201,13 @@ def build_humanizer_chunk_prompt(
     ]
 
 
-class HumanizerTruncatedError(Exception):
-    """Raised when the humanizer LLM output appears truncated."""
+class DeAITruncatedError(Exception):
+    """Raised when the DeAI LLM output appears truncated."""
 
 
 async def _call_litellm(
     messages: list[dict[str, str]],
-    config: HumanizerConfig,
+    config: DeAIConfig,
     api_key: str | None = None,
     extra_headers: dict[str, str] | None = None,
     raise_on_truncation: bool = True,
@@ -242,17 +242,17 @@ async def _call_litellm(
             first_choice: Choices = cast(Choices, response.choices[0])
             finish_reason = first_choice.finish_reason
             if finish_reason == "length" and raise_on_truncation:
-                raise HumanizerTruncatedError(
-                    f"Humanizer output truncated (hit max_tokens={config.max_tokens}). "
+                raise DeAITruncatedError(
+                    f"DeAI output truncated (hit max_tokens={config.max_tokens}). "
                     "The original text is too long for the configured max_tokens."
                 )
 
             message: Message = first_choice.message
             if message.content is None:
-                raise ValueError("Humanizer response content is None")
+                raise ValueError("DeAI response content is None")
 
             return message.content
-        except HumanizerTruncatedError:
+        except DeAITruncatedError:
             raise
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
@@ -260,7 +260,7 @@ async def _call_litellm(
             if is_last_attempt:
                 break
             logger.warning(
-                "Humanizer attempt %d/%d failed: %r — retrying in %.1fs",
+                "DeAI attempt %d/%d failed: %r — retrying in %.1fs",
                 attempt + 1,
                 max_attempts,
                 exc,
@@ -273,35 +273,35 @@ async def _call_litellm(
     raise last_exc
 
 
-async def call_humanizer(
+async def call_deai(
     text: str,
-    config: HumanizerConfig,
+    config: DeAIConfig,
     api_key: str | None = None,
     extra_headers: dict[str, str] | None = None,
 ) -> str:
-    """Call the humanizer LLM to rewrite a complete text.
+    """Call the DeAI LLM to rewrite a complete text.
 
-    Detects truncation via finish_reason and raises HumanizerTruncatedError.
+    Detects truncation via finish_reason and raises DeAITruncatedError.
     """
-    prompt = build_humanizer_prompt(text, config.extra_instructions)
+    prompt = build_deai_prompt(text, config.extra_instructions)
     return await _call_litellm(prompt, config, api_key, extra_headers, raise_on_truncation=True)
 
 
-async def call_humanizer_chunk(
+async def call_deai_chunk(
     chunk: str,
-    config: HumanizerConfig,
+    config: DeAIConfig,
     previous_context: str = "",
     is_final: bool = False,
     api_key: str | None = None,
     extra_headers: dict[str, str] | None = None,
 ) -> str:
-    """Call the humanizer LLM to rewrite a text chunk.
+    """Call the DeAI LLM to rewrite a text chunk.
 
-    Like call_humanizer but uses chunk-mode prompting with context overlap.
+    Like call_deai but uses chunk-mode prompting with context overlap.
     On truncation, returns partial output instead of raising (graceful
     degradation for streaming chunks).
     """
-    prompt = build_humanizer_chunk_prompt(
+    prompt = build_deai_chunk_prompt(
         chunk,
         previous_context=previous_context,
         extra_instructions=config.extra_instructions,
@@ -360,11 +360,11 @@ def split_into_chunks(
 
 
 __all__ = [
-    "HumanizerConfig",
-    "HumanizerTruncatedError",
-    "build_humanizer_chunk_prompt",
-    "build_humanizer_prompt",
-    "call_humanizer",
-    "call_humanizer_chunk",
+    "DeAIConfig",
+    "DeAITruncatedError",
+    "build_deai_chunk_prompt",
+    "build_deai_prompt",
+    "call_deai",
+    "call_deai_chunk",
     "split_into_chunks",
 ]
