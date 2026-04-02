@@ -9,11 +9,10 @@ Example config:
     policy:
       class: "luthien_proxy.policies.deai_policy:DeAIPolicy"
       config:
-        config:
-          model: "claude-haiku-4-5"
-          temperature: 0.7
-          chunk_size: 500
-          context_overlap: 200
+        model: "claude-haiku-4-5"
+        temperature: 0.7
+        chunk_size: 500
+        context_overlap: 200
 """
 
 from __future__ import annotations
