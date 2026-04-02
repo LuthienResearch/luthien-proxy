@@ -24,7 +24,7 @@ from luthien_proxy.utils.constants import (
 from luthien_proxy.utils.db import DatabasePool
 
 from .models import SessionDetail, SessionListResponse
-from .service import export_session_markdown, fetch_session_detail, fetch_session_list
+from .service import export_session_jsonl, export_session_markdown, fetch_session_detail, fetch_session_list
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +151,33 @@ async def export_session(
         content=markdown,
         media_type="text/markdown",
         headers={"Content-Disposition": f'attachment; filename="conversation_{safe_id}.md"'},
+    )
+
+
+@api_router.get("/sessions/{session_id}/export/jsonl")
+async def export_session_jsonl_endpoint(
+    session_id: str,
+    _: str = Depends(verify_admin_token),
+    db_pool: DatabasePool = Depends(get_db_pool),
+) -> PlainTextResponse:
+    """Export session as JSONL (one JSON line per turn).
+
+    Returns the conversation history as JSONL, suitable for
+    programmatic analysis and log ingestion.
+    """
+    try:
+        session = await fetch_session_detail(session_id, db_pool)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+
+    jsonl = export_session_jsonl(session)
+
+    safe_id = "".join(c if c.isalnum() or c in "-_" else "_" for c in session_id)
+
+    return PlainTextResponse(
+        content=jsonl,
+        media_type="application/x-ndjson",
+        headers={"Content-Disposition": f'attachment; filename="conversation_{safe_id}.jsonl"'},
     )
 
 
