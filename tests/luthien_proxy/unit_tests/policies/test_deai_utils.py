@@ -110,6 +110,23 @@ class TestSplitIntoChunks:
         chunks = split_into_chunks(text, chunk_size=50, force_chunk_size=150)
         assert len(chunks) == 3
 
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "short",
+            "a" * 60 + "\n\n" + "b" * 30,
+            "x" * 200,
+            ("para " * 12 + "\n\n") * 5,
+            "word " * 80,
+            "x" * 60 + ". " + "y" * 100,
+        ],
+        ids=["short", "two-paragraphs", "no-breaks", "five-paragraphs", "long-words", "sentence-boundary"],
+    )
+    def test_roundtrip_preserves_all_text(self, text: str):
+        """Joining chunks must reproduce the original text exactly."""
+        chunks = split_into_chunks(text, chunk_size=50, force_chunk_size=100)
+        assert "".join(chunks) == text
+
 
 class TestCallDeAI:
     @pytest.mark.asyncio()

@@ -219,6 +219,9 @@ class DeAIPolicy(BasePolicy, AnthropicHookPolicy):
         events = await self._flush_buffer(state, context, is_final=True)
         events.append(cast(MessageStreamEvent, event))
         self._record_stream_summary(state, context)
+        # Reset for potential subsequent text blocks in the same response
+        state.buffer = ""
+        state.previous_humanized_tail = ""
         return events
 
     async def _flush_buffer(
