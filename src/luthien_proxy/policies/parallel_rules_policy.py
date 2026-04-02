@@ -38,11 +38,11 @@ from pydantic import BaseModel, Field
 
 from luthien_proxy.policies.rules_llm_utils import call_llm
 from luthien_proxy.policies.simple_policy import SimplePolicy
-from luthien_proxy.policy_core.anthropic_hook_policy import AnthropicHookPolicy
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicPolicyEmission,
     AnthropicPolicyIOProtocol,
 )
+from luthien_proxy.policy_core.anthropic_hook_policy import AnthropicHookPolicy
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
