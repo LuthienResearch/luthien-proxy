@@ -9,7 +9,6 @@ import pytest
 from luthien_proxy.policies.deai_utils import (
     DeAIConfig,
     build_deai_chunk_prompt,
-    build_deai_prompt,
     call_deai_chunk,
     split_into_chunks,
 )
@@ -25,33 +24,6 @@ def _mock_response(content: str, finish_reason: str = "stop") -> MagicMock:
     mock_resp = MagicMock()
     mock_resp.choices = [mock_choice]
     return mock_resp
-
-
-class TestBuildDeAIPrompt:
-    def test_basic_prompt_structure(self):
-        prompt = build_deai_prompt("Some AI text here.")
-        assert len(prompt) == 2
-        assert prompt[0]["role"] == "system"
-        assert prompt[1]["role"] == "user"
-        assert prompt[1]["content"] == "Some AI text here."
-
-    def test_system_prompt_contains_patterns(self):
-        prompt = build_deai_prompt("text")
-        system = prompt[0]["content"]
-        assert "testament" in system
-        assert "vibrant" in system
-        assert "delve" in system
-        assert "Chatbot artifacts" in system
-
-    def test_extra_instructions_appended(self):
-        prompt = build_deai_prompt("text", extra_instructions="Write in British English.")
-        system = prompt[0]["content"]
-        assert "Write in British English." in system
-
-    def test_no_extra_instructions(self):
-        prompt = build_deai_prompt("text", extra_instructions="")
-        system = prompt[0]["content"]
-        assert "Additional Instructions" not in system
 
 
 class TestBuildDeAIChunkPrompt:

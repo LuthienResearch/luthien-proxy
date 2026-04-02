@@ -162,21 +162,6 @@ in the original. Maintain consistent style with the preceding context if provide
 """
 
 
-def build_deai_prompt(
-    text: str,
-    extra_instructions: str = "",
-) -> list[dict[str, str]]:
-    """Build the message list for a full-text DeAI LLM call."""
-    system = _DEAI_SYSTEM_PROMPT
-    if extra_instructions:
-        system += f"\n\n# Additional Instructions\n{extra_instructions}"
-
-    return [
-        {"role": "system", "content": system},
-        {"role": "user", "content": text},
-    ]
-
-
 def build_deai_chunk_prompt(
     chunk: str,
     previous_context: str = "",
@@ -291,9 +276,8 @@ async def call_deai_chunk(
 ) -> str:
     """Call the DeAI LLM to rewrite a text chunk.
 
-    Like call_deai but uses chunk-mode prompting with context overlap.
-    On truncation, returns partial output instead of raising (graceful
-    degradation for streaming chunks).
+    Uses chunk-mode prompting with context overlap. On truncation, returns
+    partial output instead of raising (graceful degradation for streaming).
     """
     prompt = build_deai_chunk_prompt(
         chunk,
@@ -373,7 +357,6 @@ __all__ = [
     "DeAIConfig",
     "DeAITruncatedError",
     "build_deai_chunk_prompt",
-    "build_deai_prompt",
     "call_deai_chunk",
     "find_chunk_boundary",
     "split_into_chunks",
