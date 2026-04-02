@@ -58,6 +58,7 @@ from luthien_proxy.utils.credential_cache import (
     RedisCredentialCache,
 )
 from luthien_proxy.utils.migration_check import check_migrations
+from luthien_proxy.utils.url import sanitize_url_for_logging
 
 # Configure OpenTelemetry tracing and logging EARLY (before app creation)
 # This ensures the tracer provider is set up before any spans are created
@@ -428,7 +429,7 @@ async def connect_redis(redis_url: str) -> Redis:
     try:
         client: Redis = Redis.from_url(redis_url, decode_responses=False)
         await client.ping()
-        logger.info(f"Connected to Redis at {redis_url}")
+        logger.info(f"Connected to Redis at {sanitize_url_for_logging(redis_url)}")
         return client
     except Exception as exc:
         raise RuntimeError(f"Failed to connect to Redis: {exc}") from exc
