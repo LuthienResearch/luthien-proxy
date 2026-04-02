@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from anthropic.types import (
+    InputJSONDelta,
     MessageDeltaUsage,
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
@@ -13,6 +14,7 @@ from anthropic.types import (
     RawMessageDeltaEvent,
     TextBlock,
     TextDelta,
+    ToolUseBlock,
 )
 from tests.constants import DEFAULT_TEST_MODEL
 
@@ -72,6 +74,14 @@ def _text_start(index: int = 0) -> RawContentBlockStartEvent:
     )
 
 
+def _tool_start(index: int = 1) -> RawContentBlockStartEvent:
+    return RawContentBlockStartEvent(
+        type="content_block_start",
+        index=index,
+        content_block=ToolUseBlock(type="tool_use", id="toolu_123", name="bash", input={}),
+    )
+
+
 def _text_delta(text: str, index: int = 0) -> RawContentBlockDeltaEvent:
     return RawContentBlockDeltaEvent.model_construct(
         type="content_block_delta",
@@ -80,7 +90,15 @@ def _text_delta(text: str, index: int = 0) -> RawContentBlockDeltaEvent:
     )
 
 
-def _text_stop(index: int = 0) -> RawContentBlockStopEvent:
+def _tool_delta(json: str, index: int = 1) -> RawContentBlockDeltaEvent:
+    return RawContentBlockDeltaEvent.model_construct(
+        type="content_block_delta",
+        index=index,
+        delta=InputJSONDelta.model_construct(type="input_json_delta", partial_json=json),
+    )
+
+
+def _block_stop(index: int = 0) -> RawContentBlockStopEvent:
     return RawContentBlockStopEvent(type="content_block_stop", index=index)
 
 
@@ -92,8 +110,6 @@ class TestHumanizerPolicyBasic:
 class TestHumanizerNonStreaming:
     @pytest.mark.asyncio()
     async def test_humanizes_text_in_chunks(self, policy: HumanizerPolicy, context: PolicyContext):
-        """Non-streaming text is split into chunks and humanized."""
-        # Two paragraphs separated by \n\n, each > chunk_size (50)
         para1 = "This is a vibrant testament to the crucial landscape of innovation and progress. " * 2
         para2 = "Additionally, this comprehensive tapestry showcases the holistic paradigm of synergy. " * 2
         text = f"{para1}\n\n{para2}"
@@ -104,8 +120,7 @@ class TestHumanizerNonStreaming:
         async def fake_chunk(*args, **kwargs):
             nonlocal call_count
             call_count += 1
-            chunk_text = args[0]
-            return chunk_text.replace("vibrant", "lively").replace("Additionally", "Also")
+            return args[0].replace("vibrant", "lively").replace("Additionally", "Also")
 
         with patch("luthien_proxy.policies.humanizer_policy.call_humanizer_chunk", side_effect=fake_chunk):
             result = await policy.on_anthropic_response(response, context)
@@ -145,7 +160,7 @@ class TestHumanizerNonStreaming:
 
     @pytest.mark.asyncio()
     async def test_chunk_error_falls_back(self, policy: HumanizerPolicy, context: PolicyContext):
-        text = "A " * 100  # Long enough to trigger humanization
+        text = "A " * 100
         response = _make_response(text)
 
         with patch(
@@ -155,34 +170,28 @@ class TestHumanizerNonStreaming:
         ):
             result = await policy.on_anthropic_response(response, context)
 
-        # Should fall back to original text
         assert result["content"][0]["text"] == text
 
 
 class TestHumanizerStreaming:
     @pytest.mark.asyncio()
     async def test_short_text_emitted_on_stop(self, policy: HumanizerPolicy, context: PolicyContext):
-        """Short text (< chunk_size) is buffered and emitted on block stop."""
         await policy.on_anthropic_stream_event(_text_start(), context)
         result = await policy.on_anthropic_stream_event(_text_delta("Hello world."), context)
-        assert result == []  # buffered
+        assert result == []
 
         with patch("luthien_proxy.policies.humanizer_policy.call_humanizer_chunk", new_callable=AsyncMock) as mock:
             mock.return_value = "Hello world."
-            result = await policy.on_anthropic_stream_event(_text_stop(), context)
+            result = await policy.on_anthropic_stream_event(_block_stop(), context)
 
-        # Should get the text delta + stop
         assert len(result) >= 2
-        delta_evt = result[0]
-        assert isinstance(delta_evt, RawContentBlockDeltaEvent)
-        assert isinstance(delta_evt.delta, TextDelta)
+        assert isinstance(result[0], RawContentBlockDeltaEvent)
+        assert isinstance(result[0].delta, TextDelta)
 
     @pytest.mark.asyncio()
     async def test_paragraph_boundary_triggers_chunk(self, policy: HumanizerPolicy, context: PolicyContext):
-        """Text emitted when paragraph boundary found after chunk_size."""
         await policy.on_anthropic_stream_event(_text_start(), context)
 
-        # Feed text longer than chunk_size (50) with a paragraph boundary
         long_para = "x" * 60 + "\n\n"
         remainder = "more text after break"
 
@@ -195,7 +204,6 @@ class TestHumanizerStreaming:
         with patch("luthien_proxy.policies.humanizer_policy.call_humanizer_chunk", side_effect=capture_chunk):
             result = await policy.on_anthropic_stream_event(_text_delta(long_para + remainder), context)
 
-        # The first paragraph should have been extracted and humanized
         assert len(chunk_calls) == 1
         assert chunk_calls[0] == long_para
         assert len(result) == 1
@@ -203,10 +211,8 @@ class TestHumanizerStreaming:
 
     @pytest.mark.asyncio()
     async def test_force_split_without_paragraph(self, policy: HumanizerPolicy, context: PolicyContext):
-        """Very long text without \\n\\n is force-split at force_chunk_size."""
         await policy.on_anthropic_stream_event(_text_start(), context)
 
-        # Feed text longer than force_chunk_size (150) with no \n\n
         long_text = "word " * 40  # 200 chars, no \n\n
 
         chunk_calls: list[str] = []
@@ -222,23 +228,7 @@ class TestHumanizerStreaming:
         assert len(result) >= 1
 
     @pytest.mark.asyncio()
-    async def test_code_fence_prevents_split(self, policy: HumanizerPolicy, context: PolicyContext):
-        """Text inside a code fence is not split even at paragraph boundaries."""
-        await policy.on_anthropic_stream_event(_text_start(), context)
-
-        # Open a code fence, then add text > chunk_size with \n\n
-        fenced = "```python\n" + "x" * 60 + "\n\n" + "y" * 30
-
-        with patch("luthien_proxy.policies.humanizer_policy.call_humanizer_chunk", new_callable=AsyncMock) as mock:
-            result = await policy.on_anthropic_stream_event(_text_delta(fenced), context)
-
-        # Should NOT have split — fence is still open
-        mock.assert_not_called()
-        assert result == []
-
-    @pytest.mark.asyncio()
     async def test_context_overlap_passed(self, policy: HumanizerPolicy, context: PolicyContext):
-        """Second chunk receives tail of first chunk's humanized output as context."""
         await policy.on_anthropic_stream_event(_text_start(), context)
 
         para1 = "x" * 60 + "\n\n"
@@ -254,14 +244,11 @@ class TestHumanizerStreaming:
             await policy.on_anthropic_stream_event(_text_delta(para1 + para2), context)
 
         assert len(call_args_list) == 2
-        # First chunk has no previous context
         assert call_args_list[0]["previous_context"] == ""
-        # Second chunk has tail of first humanized output
         assert call_args_list[1]["previous_context"] != ""
 
     @pytest.mark.asyncio()
     async def test_flush_on_message_delta(self, policy: HumanizerPolicy, context: PolicyContext):
-        """Buffer is flushed before message_delta event."""
         await policy.on_anthropic_stream_event(_text_start(), context)
         await policy.on_anthropic_stream_event(_text_delta("buffered text here"), context)
 
@@ -278,14 +265,12 @@ class TestHumanizerStreaming:
         ):
             result = await policy.on_anthropic_stream_event(msg_delta, context)
 
-        # Should have flush delta + message_delta
         assert len(result) == 2
         assert isinstance(result[0], RawContentBlockDeltaEvent)
         assert isinstance(result[1], RawMessageDeltaEvent)
 
     @pytest.mark.asyncio()
     async def test_error_falls_back_to_original(self, policy: HumanizerPolicy, context: PolicyContext):
-        """If humanizer fails for a chunk, original text is emitted."""
         await policy.on_anthropic_stream_event(_text_start(), context)
 
         long_para = "x" * 60 + "\n\n"
@@ -298,10 +283,41 @@ class TestHumanizerStreaming:
             result = await policy.on_anthropic_stream_event(_text_delta(long_para), context)
 
         assert len(result) == 1
-        delta_evt = result[0]
-        assert isinstance(delta_evt, RawContentBlockDeltaEvent)
-        assert isinstance(delta_evt.delta, TextDelta)
-        assert delta_evt.delta.text == long_para
+        assert isinstance(result[0].delta, TextDelta)
+        assert result[0].delta.text == long_para
+
+    @pytest.mark.asyncio()
+    async def test_tool_use_stop_does_not_flush_text(self, policy: HumanizerPolicy, context: PolicyContext):
+        """Tool-use block stop should not flush text buffer or pop state."""
+        # Start text block, buffer some text
+        await policy.on_anthropic_stream_event(_text_start(index=0), context)
+        await policy.on_anthropic_stream_event(_text_delta("buffered prose ", index=0), context)
+
+        # Start and stop a tool_use block (index=1)
+        await policy.on_anthropic_stream_event(_tool_start(index=1), context)
+        await policy.on_anthropic_stream_event(_tool_delta('{"cmd":"ls"}', index=1), context)
+
+        with patch("luthien_proxy.policies.humanizer_policy.call_humanizer_chunk", new_callable=AsyncMock) as mock:
+            result = await policy.on_anthropic_stream_event(_block_stop(index=1), context)
+
+        # Tool stop should pass through without calling humanizer
+        mock.assert_not_called()
+        assert len(result) == 1
+        assert isinstance(result[0], RawContentBlockStopEvent)
+
+        # Text buffer should still be intact — verify by stopping text block
+        with patch(
+            "luthien_proxy.policies.humanizer_policy.call_humanizer_chunk",
+            new_callable=AsyncMock,
+            return_value="humanized prose",
+        ) as mock:
+            result = await policy.on_anthropic_stream_event(_block_stop(index=0), context)
+
+        mock.assert_called_once()
+        assert len(result) == 2  # delta + stop
+        assert isinstance(result[0], RawContentBlockDeltaEvent)
+        assert isinstance(result[0].delta, TextDelta)
+        assert result[0].delta.text == "humanized prose"
 
 
 class TestHumanizerConfigDefaults:

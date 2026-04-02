@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from typing import Any, cast
 
 from litellm import acompletion
@@ -86,34 +85,6 @@ class HumanizerConfig(BaseModel):
     model_config = {"frozen": True}
 
 
-_CODE_BLOCK_PATTERN = re.compile(r"(```[\s\S]*?```|`[^`\n]+`)")
-
-_PLACEHOLDER_PREFIX = "\u200b\u200bCODE_BLOCK_"
-
-
-def extract_code_blocks(text: str) -> tuple[str, dict[str, str]]:
-    """Replace code blocks with placeholders to protect them from rewriting."""
-    blocks: dict[str, str] = {}
-    counter = 0
-
-    def _replace(match: re.Match[str]) -> str:
-        nonlocal counter
-        placeholder = f"{_PLACEHOLDER_PREFIX}{counter}\u200b\u200b"
-        blocks[placeholder] = match.group(0)
-        counter += 1
-        return placeholder
-
-    masked = _CODE_BLOCK_PATTERN.sub(_replace, text)
-    return masked, blocks
-
-
-def restore_code_blocks(text: str, blocks: dict[str, str]) -> str:
-    """Restore code block placeholders with original content."""
-    for placeholder, original in blocks.items():
-        text = text.replace(placeholder, original)
-    return text
-
-
 _HUMANIZER_SYSTEM_PROMPT = """\
 You are a text rewriter. Your job is to take AI-generated text and rewrite it \
 to sound naturally human-written, while preserving meaning and technical accuracy.
@@ -161,9 +132,7 @@ cutting-edge, paradigm, holistic, synergy
 
 # How to Rewrite
 
-- Code blocks have been replaced with placeholders (CODE_BLOCK_0, etc.) — reproduce \
-these placeholders exactly as they appear, do not modify or remove them
-- Preserve ALL technical content, data, and factual claims exactly
+- Preserve ALL technical content, code blocks, data, and factual claims exactly
 - Replace AI-isms with plain, direct language
 - Vary sentence rhythm — mix short and long
 - Use "is/are" instead of "serves as/stands as/features"
@@ -312,15 +281,10 @@ async def call_humanizer(
 ) -> str:
     """Call the humanizer LLM to rewrite a complete text.
 
-    Extracts code blocks before sending to the LLM and restores them after.
     Detects truncation via finish_reason and raises HumanizerTruncatedError.
     """
-    masked_text, code_blocks = extract_code_blocks(text)
-    prompt = build_humanizer_prompt(masked_text, config.extra_instructions)
-    result = await _call_litellm(prompt, config, api_key, extra_headers, raise_on_truncation=True)
-    if code_blocks:
-        result = restore_code_blocks(result, code_blocks)
-    return result
+    prompt = build_humanizer_prompt(text, config.extra_instructions)
+    return await _call_litellm(prompt, config, api_key, extra_headers, raise_on_truncation=True)
 
 
 async def call_humanizer_chunk(
@@ -337,17 +301,13 @@ async def call_humanizer_chunk(
     On truncation, returns partial output instead of raising (graceful
     degradation for streaming chunks).
     """
-    masked_chunk, code_blocks = extract_code_blocks(chunk)
     prompt = build_humanizer_chunk_prompt(
-        masked_chunk,
+        chunk,
         previous_context=previous_context,
         extra_instructions=config.extra_instructions,
         is_final=is_final,
     )
-    result = await _call_litellm(prompt, config, api_key, extra_headers, raise_on_truncation=False)
-    if code_blocks:
-        result = restore_code_blocks(result, code_blocks)
-    return result
+    return await _call_litellm(prompt, config, api_key, extra_headers, raise_on_truncation=False)
 
 
 def split_into_chunks(
@@ -406,7 +366,5 @@ __all__ = [
     "build_humanizer_prompt",
     "call_humanizer",
     "call_humanizer_chunk",
-    "extract_code_blocks",
-    "restore_code_blocks",
     "split_into_chunks",
 ]

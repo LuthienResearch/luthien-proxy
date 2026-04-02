@@ -19,7 +19,7 @@ Example config:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
 from anthropic.lib.streaming import MessageStreamEvent
@@ -58,9 +58,7 @@ class _HumanizerStreamState:
     buffer: str = ""
     previous_humanized_tail: str = ""
     last_event_index: int = 0
-    fence_count: int = 0
-    # 2-char lookback to detect ``` split across deltas
-    lookback: str = ""
+    text_block_indices: set[int] = field(default_factory=set)
     total_chunks: int = 0
     total_chars_in: int = 0
     total_chars_out: int = 0
@@ -169,8 +167,8 @@ class HumanizerPolicy(BasePolicy, AnthropicHookPolicy):
         if isinstance(event, RawContentBlockStartEvent):
             cb = event.content_block
             if hasattr(cb, "type") and cb.type == "text":
-                # Initialize fresh state for this text block
-                self._state(context)
+                state = self._state(context)
+                state.text_block_indices.add(event.index)
             return [event]
 
         if isinstance(event, RawContentBlockDeltaEvent) and isinstance(event.delta, TextDelta):
@@ -196,11 +194,6 @@ class HumanizerPolicy(BasePolicy, AnthropicHookPolicy):
         state.buffer += new_text
         state.last_event_index = event.index
 
-        # Track code fences (``` could span delta boundaries)
-        scan_text = state.lookback + new_text
-        state.fence_count += scan_text.count("```")
-        state.lookback = new_text[-2:] if len(new_text) >= 2 else (state.lookback + new_text)[-2:]
-
         # Try to extract and humanize a chunk
         events: list[MessageStreamEvent] = []
         while True:
@@ -218,10 +211,14 @@ class HumanizerPolicy(BasePolicy, AnthropicHookPolicy):
         self, event: RawContentBlockStopEvent, context: PolicyContext
     ) -> list[MessageStreamEvent]:
         state = self._state(context)
+
+        # Only flush buffer for text blocks
+        if event.index not in state.text_block_indices:
+            return [cast(MessageStreamEvent, event)]
+
         events = await self._flush_buffer(state, context, is_final=True)
         events.append(cast(MessageStreamEvent, event))
         self._record_stream_summary(state, context)
-        context.pop_request_state(self, _HumanizerStreamState)
         return events
 
     async def _flush_buffer(
@@ -244,11 +241,6 @@ class HumanizerPolicy(BasePolicy, AnthropicHookPolicy):
         Returns (chunk, remaining) or None if not enough text yet.
         """
         buf = state.buffer
-        inside_fence = state.fence_count % 2 == 1
-
-        # Don't split inside a code fence unless forced
-        if inside_fence and len(buf) < self._config.force_chunk_size:
-            return None
 
         # Look for paragraph boundary after chunk_size
         if len(buf) >= self._config.chunk_size:

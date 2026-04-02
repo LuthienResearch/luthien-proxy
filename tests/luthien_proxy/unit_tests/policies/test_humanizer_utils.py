@@ -13,8 +13,6 @@ from luthien_proxy.policies.humanizer_utils import (
     build_humanizer_prompt,
     call_humanizer,
     call_humanizer_chunk,
-    extract_code_blocks,
-    restore_code_blocks,
     split_into_chunks,
 )
 
@@ -46,11 +44,6 @@ class TestBuildHumanizerPrompt:
         assert "vibrant" in system
         assert "delve" in system
         assert "Chatbot artifacts" in system
-
-    def test_system_prompt_mentions_code_placeholders(self):
-        prompt = build_humanizer_prompt("text")
-        system = prompt[0]["content"]
-        assert "CODE_BLOCK_" in system
 
     def test_extra_instructions_appended(self):
         prompt = build_humanizer_prompt("text", extra_instructions="Write in British English.")
@@ -89,38 +82,6 @@ class TestBuildHumanizerChunkPrompt:
         assert "Be concise." in prompt[0]["content"]
 
 
-class TestCodeBlockExtraction:
-    def test_fenced_code_block(self):
-        text = "Before\n```python\ndef foo():\n    pass\n```\nAfter"
-        masked, blocks = extract_code_blocks(text)
-        assert "```python" not in masked
-        assert "def foo" not in masked
-        assert len(blocks) == 1
-        restored = restore_code_blocks(masked, blocks)
-        assert restored == text
-
-    def test_inline_code(self):
-        text = "Use `foo()` to call it."
-        masked, blocks = extract_code_blocks(text)
-        assert "`foo()`" not in masked
-        assert len(blocks) == 1
-        restored = restore_code_blocks(masked, blocks)
-        assert restored == text
-
-    def test_multiple_code_blocks(self):
-        text = "First `a`, then ```\nb\n```, then `c`."
-        masked, blocks = extract_code_blocks(text)
-        assert len(blocks) == 3
-        restored = restore_code_blocks(masked, blocks)
-        assert restored == text
-
-    def test_no_code_blocks(self):
-        text = "Just plain text with no code."
-        masked, blocks = extract_code_blocks(text)
-        assert masked == text
-        assert blocks == {}
-
-
 class TestSplitIntoChunks:
     def test_short_text_single_chunk(self):
         assert split_into_chunks("Hello world.", chunk_size=50) == ["Hello world."]
@@ -142,7 +103,6 @@ class TestSplitIntoChunks:
         text = "x" * 60 + ". " + "y" * 100
         chunks = split_into_chunks(text, chunk_size=50, force_chunk_size=100)
         assert len(chunks) >= 2
-        # First chunk should end at the sentence boundary
         assert chunks[0].endswith(". ")
 
     def test_multiple_paragraphs(self):
@@ -186,27 +146,6 @@ class TestCallHumanizer:
         assert result == "success"
         assert mock_llm.call_count == 3
 
-    @pytest.mark.asyncio()
-    async def test_code_blocks_protected(self):
-        config = HumanizerConfig(model="test-model", api_key="key", max_retries=0)
-        text = "This is vibrant. ```python\ndef foo(): pass\n``` End."
-
-        with patch("luthien_proxy.policies.humanizer_utils.acompletion", new_callable=AsyncMock) as mock_llm:
-
-            def capture_and_respond(**kwargs: object) -> MagicMock:
-                messages = kwargs["messages"]
-                user_content = messages[1]["content"]  # type: ignore[index]
-                assert "def foo" not in user_content
-                assert "CODE_BLOCK_" in user_content
-                rewritten = user_content.replace("This is vibrant.", "This works well.")
-                return _mock_response(rewritten)
-
-            mock_llm.side_effect = capture_and_respond
-            result = await call_humanizer(text, config)
-
-        assert "```python\ndef foo(): pass\n```" in result
-        assert "This works well." in result
-
 
 class TestCallHumanizerChunk:
     @pytest.mark.asyncio()
@@ -218,7 +157,6 @@ class TestCallHumanizerChunk:
             result = await call_humanizer_chunk("original chunk", config, previous_context="prev tail")
 
         assert result == "humanized chunk"
-        # Verify chunk prompt was used (has PRECEDING CONTEXT)
         call_messages = mock_llm.call_args[1]["messages"]
         assert "Fragment Mode" in call_messages[0]["content"]
         assert "prev tail" in call_messages[1]["content"]
@@ -233,26 +171,3 @@ class TestCallHumanizerChunk:
             result = await call_humanizer_chunk("long chunk", config)
 
         assert result == "partial output"
-
-    @pytest.mark.asyncio()
-    async def test_chunk_code_blocks_protected(self):
-        config = HumanizerConfig(model="test-model", api_key="key", max_retries=0)
-
-        with patch("luthien_proxy.policies.humanizer_utils.acompletion", new_callable=AsyncMock) as mock_llm:
-
-            def capture(**kwargs: object) -> MagicMock:
-                messages = kwargs["messages"]
-                user = messages[1]["content"]  # type: ignore[index]
-                # Extract just the TEXT TO REWRITE part if present
-                if "[TEXT TO REWRITE]" in user:
-                    text_part = user.split("[TEXT TO REWRITE]\n")[1]
-                else:
-                    text_part = user
-                assert "`code`" not in text_part
-                assert "CODE_BLOCK_" in text_part
-                return _mock_response(text_part)
-
-            mock_llm.side_effect = capture
-            result = await call_humanizer_chunk("Use `code` here.", config)
-
-        assert "`code`" in result
