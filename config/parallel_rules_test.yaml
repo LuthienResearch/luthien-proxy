@@ -1,0 +1,10 @@
+policy:
+  class: "luthien_proxy.policies.parallel_rules_policy:ParallelRulesPolicy"
+  config:
+    model: "claude-haiku-4-5"
+    max_rules: 10
+    rules:
+      - name: "no-emojis"
+        instruction: "Remove all emojis from the text. Replace them with equivalent words if needed for meaning."
+      - name: "concise"
+        instruction: "Make the text more concise. Remove filler words, unnecessary qualifiers, and redundant phrases. Keep the core meaning intact."
