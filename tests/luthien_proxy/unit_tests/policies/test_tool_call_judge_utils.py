@@ -67,6 +67,19 @@ class TestParseJudgeResponse:
         assert result["probability"] == 0.8
         assert result["explanation"] == "test"
 
+    def test_parse_judge_response_fenced_json_multiline_body(self):
+        """Fenced ```json block with multi-line JSON body parses correctly.
+
+        Regression: the match set previously included "```json" as a dead entry
+        (lstrip("`") already strips all backticks). This test confirms the
+        remaining {"json", ""} entries handle the fenced-json case.
+        """
+        content = '```json\n{\n  "probability": 0.9,\n  "explanation": "multi-line"\n}\n```'
+        result = parse_judge_response(content)
+
+        assert result["probability"] == 0.9
+        assert result["explanation"] == "multi-line"
+
     def test_parse_judge_response_invalid_json(self):
         """Test that invalid JSON raises ValueError."""
         with pytest.raises(ValueError, match="JSON parsing failed"):
