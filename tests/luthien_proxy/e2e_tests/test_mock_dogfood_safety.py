@@ -43,7 +43,6 @@ async def test_dangerous_bash_command_is_blocked(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
     gateway_url,
-    api_key,
     auth_headers,
     admin_api_key,
 ):
@@ -79,7 +78,6 @@ async def test_streaming_dangerous_command_is_blocked(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
     gateway_url,
-    api_key,
     auth_headers,
     admin_api_key,
 ):
@@ -126,7 +124,6 @@ async def test_safe_bash_command_passes_through(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
     gateway_url,
-    api_key,
     auth_headers,
     admin_api_key,
 ):
@@ -163,7 +160,6 @@ async def test_non_bash_tool_passes_through(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
     gateway_url,
-    api_key,
     auth_headers,
     admin_api_key,
 ):
@@ -206,7 +202,6 @@ async def test_custom_blocked_pattern(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
     gateway_url,
-    api_key,
     auth_headers,
     admin_api_key,
 ):

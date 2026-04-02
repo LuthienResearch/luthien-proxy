@@ -51,9 +51,11 @@ POLICY_CONFIGS = [
 @pytest.mark.e2e
 @pytest.mark.asyncio
 @pytest.mark.parametrize("policy_class_ref,config", POLICY_CONFIGS)
-async def test_policy_anthropic_non_streaming(policy_class_ref: str, config: dict, http_client, gateway_url, api_key):
+async def test_policy_anthropic_non_streaming(
+    policy_class_ref: str, config: dict, http_client, gateway_url, admin_api_key, api_key
+):
     """Test each policy works with Anthropic client, non-streaming."""
-    async with policy_context(policy_class_ref, config):
+    async with policy_context(policy_class_ref, config, gateway_url=gateway_url, admin_api_key=admin_api_key):
         response = await http_client.post(
             f"{gateway_url}/v1/messages",
             json={
@@ -78,9 +80,11 @@ async def test_policy_anthropic_non_streaming(policy_class_ref: str, config: dic
 @pytest.mark.e2e
 @pytest.mark.asyncio
 @pytest.mark.parametrize("policy_class_ref,config", POLICY_CONFIGS)
-async def test_policy_anthropic_streaming(policy_class_ref: str, config: dict, http_client, gateway_url, api_key):
+async def test_policy_anthropic_streaming(
+    policy_class_ref: str, config: dict, http_client, gateway_url, admin_api_key, api_key
+):
     """Test each policy works with Anthropic client, streaming."""
-    async with policy_context(policy_class_ref, config):
+    async with policy_context(policy_class_ref, config, gateway_url=gateway_url, admin_api_key=admin_api_key):
         async with http_client.stream(
             "POST",
             f"{gateway_url}/v1/messages",

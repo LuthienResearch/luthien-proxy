@@ -147,11 +147,11 @@ def parse_stream_json(output: str) -> list[ClaudeCodeEvent]:
 
 async def run_claude_code(
     prompt: str,
+    gateway_url: str,
+    api_key: str,
     tools: list[str] | None = None,
     max_turns: int = 5,
     timeout_seconds: int = 120,
-    gateway_url: str = "",
-    api_key: str = "",
     system_prompt: str | None = None,
     working_dir: str | None = None,
     resume_session_id: str | None = None,
