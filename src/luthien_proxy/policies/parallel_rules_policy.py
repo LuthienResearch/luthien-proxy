@@ -38,6 +38,7 @@ from pydantic import BaseModel, Field
 
 from luthien_proxy.policies.rules_llm_utils import call_llm
 from luthien_proxy.policies.simple_policy import SimplePolicy
+from luthien_proxy.policy_core.anthropic_hook_policy import AnthropicHookPolicy
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicPolicyEmission,
     AnthropicPolicyIOProtocol,
@@ -155,7 +156,7 @@ class ParallelRulesPolicy(SimplePolicy):
         MRO issue where the Protocol's abstract stub can shadow the concrete
         implementation from AnthropicHookPolicy in some environments.
         """
-        return super().run_anthropic(io, context)
+        return AnthropicHookPolicy.run_anthropic(self, io, context)
 
     def __init__(self, config: ParallelRulesConfig | dict[str, Any] | None = None) -> None:
         """Initialize with config and convert static rules to immutable tuple."""
