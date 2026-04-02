@@ -35,6 +35,7 @@ from luthien_proxy.llm.types.anthropic import AnthropicTextBlock
 from luthien_proxy.policies.deai_utils import (
     DeAIConfig,
     call_deai_chunk,
+    find_chunk_boundary,
     split_into_chunks,
 )
 from luthien_proxy.policy_core import (
@@ -177,7 +178,8 @@ class DeAIPolicy(BasePolicy, AnthropicHookPolicy):
         if isinstance(event, RawContentBlockStopEvent):
             return await self._handle_block_stop(event, context)
 
-        # Flush before message_delta (protocol requirement)
+        # Flush before message_delta (protocol requirement).
+        # Safe: buffer is only written by _handle_text_delta (TextDelta events).
         if isinstance(event, RawMessageDeltaEvent):
             state = self._state(context)
             flush = await self._flush_buffer(state, context, is_final=True)
@@ -243,27 +245,10 @@ class DeAIPolicy(BasePolicy, AnthropicHookPolicy):
 
         Returns (chunk, remaining) or None if not enough text yet.
         """
-        buf = state.buffer
-
-        # Look for paragraph boundary after chunk_size
-        if len(buf) >= self._config.chunk_size:
-            split_pos = buf.find("\n\n", self._config.chunk_size)
-            if split_pos != -1 and split_pos < self._config.force_chunk_size:
-                return (buf[: split_pos + 2], buf[split_pos + 2 :])
-
-        # Force split at threshold
-        if len(buf) >= self._config.force_chunk_size:
-            force_region = buf[: self._config.force_chunk_size]
-            sentence_end = max(
-                force_region.rfind(". "),
-                force_region.rfind("! "),
-                force_region.rfind("? "),
-            )
-            if sentence_end > self._config.chunk_size:
-                return (buf[: sentence_end + 2], buf[sentence_end + 2 :])
-            return (buf[: self._config.force_chunk_size], buf[self._config.force_chunk_size :])
-
-        return None
+        boundary = find_chunk_boundary(state.buffer, self._config.chunk_size, self._config.force_chunk_size)
+        if boundary is None:
+            return None
+        return (state.buffer[:boundary], state.buffer[boundary:])
 
     async def _humanize_stream_chunk(
         self,

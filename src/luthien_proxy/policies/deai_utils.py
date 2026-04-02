@@ -304,6 +304,39 @@ async def call_deai_chunk(
     return await _call_litellm(prompt, config, api_key, extra_headers, raise_on_truncation=False)
 
 
+def find_chunk_boundary(
+    buf: str,
+    chunk_size: int,
+    force_chunk_size: int,
+) -> int | None:
+    """Find the split position in buf, or None if not enough text yet.
+
+    Shared by both the streaming and non-streaming paths.
+    Returns the index at which to split (the chunk is buf[:index]).
+    """
+    if len(buf) < chunk_size:
+        return None
+
+    # Prefer paragraph boundary (\n\n) after chunk_size
+    split_pos = buf.find("\n\n", chunk_size)
+    if split_pos != -1 and split_pos < force_chunk_size:
+        return split_pos + 2
+
+    if len(buf) < force_chunk_size:
+        return None
+
+    # Force split — prefer sentence boundary
+    force_region = buf[:force_chunk_size]
+    sentence_end = max(
+        force_region.rfind(". "),
+        force_region.rfind("! "),
+        force_region.rfind("? "),
+    )
+    if sentence_end > chunk_size:
+        return sentence_end + 2
+    return force_chunk_size
+
+
 def split_into_chunks(
     text: str,
     chunk_size: int = 500,
@@ -325,30 +358,13 @@ def split_into_chunks(
             chunks.append(remaining)
             break
 
-        # Look for \n\n after chunk_size
-        split_pos = remaining.find("\n\n", chunk_size)
-        if split_pos != -1 and split_pos < force_chunk_size:
-            chunk = remaining[: split_pos + 2]
-            remaining = remaining[split_pos + 2 :]
-        elif len(remaining) > force_chunk_size:
-            # Force split — try sentence boundary first
-            force_region = remaining[:force_chunk_size]
-            sentence_end = max(
-                force_region.rfind(". "),
-                force_region.rfind("! "),
-                force_region.rfind("? "),
-            )
-            if sentence_end > chunk_size:
-                chunk = remaining[: sentence_end + 2]
-                remaining = remaining[sentence_end + 2 :]
-            else:
-                chunk = remaining[:force_chunk_size]
-                remaining = remaining[force_chunk_size:]
-        else:
+        boundary = find_chunk_boundary(remaining, chunk_size, force_chunk_size)
+        if boundary is None:
             chunks.append(remaining)
             break
 
-        chunks.append(chunk)
+        chunks.append(remaining[:boundary])
+        remaining = remaining[boundary:]
 
     return chunks
 
@@ -359,5 +375,6 @@ __all__ = [
     "build_deai_chunk_prompt",
     "build_deai_prompt",
     "call_deai_chunk",
+    "find_chunk_boundary",
     "split_into_chunks",
 ]
