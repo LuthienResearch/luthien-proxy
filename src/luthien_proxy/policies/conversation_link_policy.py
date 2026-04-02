@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 # Bounded tracker for sessions that have already received a link.
 # Uses OrderedDict as a bounded set: values are ignored, oldest evicted at cap.
 # If a session is evicted and returns, worst case is the link appears twice.
+# NOTE: Process-local — assumes single-worker deployment. Multi-worker setups
+# will inject the link once per worker that first sees the session.
 _MAX_TRACKED_SESSIONS = 10_000
 _injected_sessions: OrderedDict[str, None] = OrderedDict()
 
