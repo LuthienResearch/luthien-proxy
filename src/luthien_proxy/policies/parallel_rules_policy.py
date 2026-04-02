@@ -32,7 +32,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
@@ -172,9 +172,7 @@ class ParallelRulesPolicy(SimplePolicy):
             max_rules=parsed.max_rules,
             rules=parsed.rules,
         )
-        self._fallback_api_key: str | None = (
-            settings.llm_judge_api_key or settings.litellm_master_key or None
-        )
+        self._fallback_api_key: str | None = settings.llm_judge_api_key or settings.litellm_master_key or None
         self._static_rules: tuple[Rule, ...] = tuple(
             Rule(name=r["name"], instruction=r["instruction"]) for r in self.config.rules
         )
