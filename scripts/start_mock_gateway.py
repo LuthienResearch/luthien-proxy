@@ -15,11 +15,15 @@ import tempfile
 import threading
 import time
 
-import uvicorn
+# Set env vars BEFORE importing luthien_proxy — init_sentry() runs at import
+# time and caches get_settings() via lru_cache, so env must be set first.
+os.environ.setdefault("ENABLE_REQUEST_LOGGING", "true")
 
-from luthien_proxy.main import create_app
-from luthien_proxy.utils.db import DatabasePool
-from luthien_proxy.utils.migration_check import check_migrations
+import uvicorn  # noqa: E402
+
+from luthien_proxy.main import create_app  # noqa: E402
+from luthien_proxy.utils.db import DatabasePool  # noqa: E402
+from luthien_proxy.utils.migration_check import check_migrations  # noqa: E402
 
 
 def _free_port() -> int:

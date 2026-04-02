@@ -151,8 +151,16 @@ docker_down() {
     fi
 }
 
+# Track background PIDs for cleanup
+MOCK_GATEWAY_PID=""
+
 # Cleanup on exit
 cleanup() {
+    if [[ -n "$MOCK_GATEWAY_PID" ]]; then
+        kill "$MOCK_GATEWAY_PID" 2>/dev/null
+        wait "$MOCK_GATEWAY_PID" 2>/dev/null
+        MOCK_GATEWAY_PID=""
+    fi
     docker_down
 }
 trap cleanup EXIT
@@ -218,6 +226,7 @@ run_mock() {
 
     uv run python scripts/start_mock_gateway.py > "$config_json" &
     gateway_pid=$!
+    MOCK_GATEWAY_PID=$gateway_pid
 
     # Wait for the helper to print its config (up to 15s)
     local attempts=0
@@ -251,6 +260,8 @@ run_mock() {
     export E2E_API_KEY="$gw_api_key"
     export E2E_ADMIN_API_KEY="$gw_admin_key"
     export MOCK_ANTHROPIC_PORT="$mock_port"
+    export MOCK_ANTHROPIC_HOST="localhost"
+    export ENABLE_REQUEST_LOGGING="true"
 
     info "Running tests..."
     local exit_code=0
@@ -261,9 +272,10 @@ run_mock() {
         "${PYTEST_EXTRA[@]}" \
     || exit_code=$?
 
-    # Shut down the in-process gateway
+    # Shut down the in-process gateway (also cleaned up by trap EXIT)
     kill "$gateway_pid" 2>/dev/null
     wait "$gateway_pid" 2>/dev/null
+    MOCK_GATEWAY_PID=""
     return "$exit_code"
 }
 

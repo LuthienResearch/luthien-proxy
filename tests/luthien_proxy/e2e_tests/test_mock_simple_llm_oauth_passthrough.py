@@ -24,7 +24,7 @@ from tests.luthien_proxy.e2e_tests.conftest import (
     policy_context,
 )
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response
-from tests.luthien_proxy.e2e_tests.mock_anthropic.server import DEFAULT_MOCK_PORT, MockAnthropicServer
+from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
 pytestmark = pytest.mark.mock_e2e
 
@@ -34,13 +34,6 @@ _SIMPLE_LLM_POLICY = SIMPLE_LLM_POLICY
 # so _judge_oauth_headers() treats it as OAuth and adds the beta header.
 _OAUTH_TOKEN = "claude-oauth-bearer-token-for-e2e-testing"
 
-_JUDGE_CONFIG = {
-    "instructions": "Pass all content through",
-    "model": "claude-haiku-4-5",
-    "api_base": f"http://{MOCK_HOST}:{DEFAULT_MOCK_PORT}",
-    "on_error": "pass",
-}
-
 _BASE_REQUEST = {
     "model": "claude-haiku-4-5",
     "messages": [{"role": "user", "content": "say hello"}],
@@ -49,12 +42,22 @@ _BASE_REQUEST = {
 }
 
 
+def _judge_config(mock_port: int) -> dict:
+    return {
+        "instructions": "Pass all content through",
+        "model": "claude-haiku-4-5",
+        "api_base": f"http://{MOCK_HOST}:{mock_port}",
+        "on_error": "pass",
+    }
+
+
 @pytest.mark.asyncio
 async def test_judge_forwards_bearer_token_passthrough(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
     gateway_url,
     admin_api_key,
+    mock_anthropic_port: int,
 ) -> None:
     """Judge call forwards bearer token from passthrough authentication.
 
@@ -69,7 +72,7 @@ async def test_judge_forwards_bearer_token_passthrough(
         "passthrough", validate_credentials=False, gateway_url=gateway_url, admin_api_key=admin_api_key
     ):
         async with policy_context(
-            _SIMPLE_LLM_POLICY, _JUDGE_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+            _SIMPLE_LLM_POLICY, _judge_config(mock_anthropic_port), gateway_url=gateway_url, admin_api_key=admin_api_key
         ):
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(
@@ -109,6 +112,7 @@ async def test_bearer_token_only_no_server_key(
     gateway_healthy,
     gateway_url,
     admin_api_key,
+    mock_anthropic_port: int,
 ) -> None:
     """Judge works using only the bearer token — no server api key, no policy api key.
 
@@ -124,7 +128,7 @@ async def test_bearer_token_only_no_server_key(
         "passthrough", validate_credentials=False, gateway_url=gateway_url, admin_api_key=admin_api_key
     ):
         async with policy_context(
-            _SIMPLE_LLM_POLICY, _JUDGE_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+            _SIMPLE_LLM_POLICY, _judge_config(mock_anthropic_port), gateway_url=gateway_url, admin_api_key=admin_api_key
         ):
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(
@@ -155,6 +159,7 @@ async def test_bearer_token_takes_precedence_over_server_env_key(
     gateway_healthy,
     gateway_url,
     admin_api_key,
+    mock_anthropic_port: int,
 ) -> None:
     """Bearer token passthrough takes precedence over the server's ANTHROPIC_API_KEY env fallback.
 
@@ -169,7 +174,7 @@ async def test_bearer_token_takes_precedence_over_server_env_key(
         "passthrough", validate_credentials=False, gateway_url=gateway_url, admin_api_key=admin_api_key
     ):
         async with policy_context(
-            _SIMPLE_LLM_POLICY, _JUDGE_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+            _SIMPLE_LLM_POLICY, _judge_config(mock_anthropic_port), gateway_url=gateway_url, admin_api_key=admin_api_key
         ):
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(
@@ -199,6 +204,7 @@ async def test_regular_api_key_does_not_get_oauth_header(
     gateway_healthy,
     gateway_url,
     admin_api_key,
+    mock_anthropic_port: int,
 ) -> None:
     """A regular Anthropic API key (sk-ant-api*) does NOT get the OAuth beta header."""
     api_key_token = "sk-ant-api03-regular-api-key-not-oauth"
@@ -210,7 +216,7 @@ async def test_regular_api_key_does_not_get_oauth_header(
         "passthrough", validate_credentials=False, gateway_url=gateway_url, admin_api_key=admin_api_key
     ):
         async with policy_context(
-            _SIMPLE_LLM_POLICY, _JUDGE_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+            _SIMPLE_LLM_POLICY, _judge_config(mock_anthropic_port), gateway_url=gateway_url, admin_api_key=admin_api_key
         ):
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(

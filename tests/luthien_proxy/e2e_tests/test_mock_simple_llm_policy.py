@@ -66,7 +66,8 @@ async def test_judge_failure_blocks_text_streaming(
         session = ClaudeCodeSimulator(gateway_url, api_key)
         turn = await session.send("Say hello")
 
-    assert turn.text == "", f"Expected empty text when judge fails with on_error='block', got: {turn.text!r}"
+    assert "blocked" in turn.text.lower(), f"Expected blocking message, got: {turn.text!r}"
+    assert "This should be blocked" not in turn.text, "Original content should not appear when blocked"
 
 
 @pytest.mark.asyncio
@@ -174,8 +175,9 @@ async def test_judge_failure_blocks_text_non_streaming(
     assert response.status_code == 200
     body = response.json()
     content = body.get("content", [])
-    text_blocks = [b for b in content if b.get("type") == "text" and b.get("text", "").strip()]
-    assert len(text_blocks) == 0, f"Expected no text content when blocked, got: {content}"
+    all_text = " ".join(b.get("text", "") for b in content if b.get("type") == "text")
+    assert "blocked" in all_text.lower(), f"Expected blocking message, got: {all_text!r}"
+    assert "This should be blocked" not in all_text, "Original content should not appear when blocked"
 
 
 @pytest.mark.asyncio

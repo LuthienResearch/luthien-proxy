@@ -23,14 +23,10 @@ Run:
 
 import asyncio
 import os
-import subprocess
-import tempfile
 import time
-from pathlib import Path
 
 import httpx
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import find_repo_roots
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
@@ -45,100 +41,15 @@ _BASE_REQUEST = {
 }
 
 
-def _find_roots() -> tuple[Path, Path]:
-    """Return (main_repo_root, worktree_root) via shared worktree resolver.
-
-    main_repo_root is where .env and the primary docker-compose.yaml live.
-    worktree_root is the current checkout (may be the same as main_repo_root).
-    Docker compose must run from main_repo_root so it can find .env.
-    """
-    checkout = Path(__file__).resolve().parents[2]  # tests/luthien_proxy/e2e_tests/ → repo root
-    return find_repo_roots(checkout)
-
-
-def _wait_for_gateway(gateway_url: str, timeout: float = 30.0) -> None:
-    """Poll the health endpoint until the gateway is ready."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            resp = httpx.get(f"{gateway_url}/health", timeout=3.0)
-            if resp.status_code == 200:
-                return
-        except (httpx.ConnectError, httpx.RemoteProtocolError):
-            pass
-        time.sleep(1.0)
-    raise TimeoutError(f"Gateway not healthy after {timeout}s")
-
-
-def _compose_up_gateway(gateway_url: str, extra_env: dict[str, str] | None = None) -> None:
-    """Recreate the gateway container via docker compose with optional env overrides.
-
-    Uses a temporary docker-compose override file to inject extra environment
-    variables, then removes it after the container starts.
-    """
-    main_root, worktree_root = _find_roots()
-    mock_yaml = worktree_root / "docker-compose.mock-bridge.yaml"
-    if not mock_yaml.exists():
-        mock_yaml = main_root / "docker-compose.mock-bridge.yaml"
-
-    compose_cmd = ["docker", "compose", "-f", str(main_root / "docker-compose.yaml")]
-    if mock_yaml.exists():
-        compose_cmd += ["-f", str(mock_yaml)]
-
-    override_path = None
-    if extra_env:
-        # Write a temporary compose override with the extra env vars
-        env_lines = "\n".join(f"      - {k}={v}" for k, v in extra_env.items())
-        override_content = f"""services:
-  gateway:
-    environment:
-{env_lines}
-"""
-        fd, override_path = tempfile.mkstemp(suffix=".yaml", prefix="compose-override-")
-        os.write(fd, override_content.encode())
-        os.close(fd)
-        compose_cmd += ["-f", override_path]
-
-    env = os.environ.copy()
-    env_file = main_root / ".env"
-    if env_file.exists():
-        for line in env_file.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, _, val = line.partition("=")
-                env.setdefault(key.strip(), val.strip().strip('"'))
-
-    try:
-        subprocess.run(
-            [*compose_cmd, "up", "-d", "gateway"],
-            cwd=str(main_root),
-            env=env,
-            check=True,
-            timeout=60,
-            capture_output=True,
-        )
-    finally:
-        if override_path:
-            os.unlink(override_path)
-
-    _wait_for_gateway(gateway_url)
-
-
 @pytest.fixture(scope="module")
-def _enable_request_logging(gateway_url):
-    """Ensure the gateway runs with ENABLE_REQUEST_LOGGING=true for this module.
+def _enable_request_logging():
+    """Verify ENABLE_REQUEST_LOGGING=true is set.
 
-    When the env var is already set (CI / dockerless mode), the gateway was
-    started with logging enabled — no restart needed.  Otherwise, restart the
-    gateway container via docker compose.
+    The in-process mock gateway (start_mock_gateway.py) and run_e2e.sh both
+    set this env var. If it's missing, skip rather than trying Docker compose.
     """
-    already_enabled = os.getenv("ENABLE_REQUEST_LOGGING", "").lower() == "true"
-    if already_enabled:
-        yield
-        return
-    _compose_up_gateway(gateway_url, extra_env={"ENABLE_REQUEST_LOGGING": "true"})
-    yield
-    _compose_up_gateway(gateway_url, extra_env={"ENABLE_REQUEST_LOGGING": "false"})
+    if os.getenv("ENABLE_REQUEST_LOGGING", "").lower() != "true":
+        pytest.skip("ENABLE_REQUEST_LOGGING not set — run via scripts/run_e2e.sh mock")
 
 
 async def _make_gateway_request(client: httpx.AsyncClient, gateway_url: str, auth_headers: dict) -> None:

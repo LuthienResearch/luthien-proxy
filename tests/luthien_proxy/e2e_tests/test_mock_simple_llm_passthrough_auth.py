@@ -19,20 +19,22 @@ import httpx
 import pytest
 from tests.luthien_proxy.e2e_tests.conftest import MOCK_HOST, SIMPLE_LLM_POLICY, policy_context
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response
-from tests.luthien_proxy.e2e_tests.mock_anthropic.server import DEFAULT_MOCK_PORT, MockAnthropicServer
+from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
 pytestmark = pytest.mark.mock_e2e
 
 _SIMPLE_LLM_POLICY = SIMPLE_LLM_POLICY
 
-# Judge pointed at the mock server, no explicit api_key → passthrough is used.
-_PASSTHROUGH_JUDGE_CONFIG = {
-    "instructions": "Pass all content through",
-    "model": "claude-haiku-4-5",
-    "api_base": f"http://{MOCK_HOST}:{DEFAULT_MOCK_PORT}",
-    # Deliberately no api_key — should use client's passthrough key
-    "on_error": "pass",
-}
+
+def _passthrough_judge_config(mock_port: int) -> dict:
+    """Judge pointed at the mock server, no explicit api_key → passthrough is used."""
+    return {
+        "instructions": "Pass all content through",
+        "model": "claude-haiku-4-5",
+        "api_base": f"http://{MOCK_HOST}:{mock_port}",
+        "on_error": "pass",
+    }
+
 
 _BASE_REQUEST = {
     "model": "claude-haiku-4-5",
@@ -50,6 +52,7 @@ async def test_judge_uses_passthrough_key_non_streaming(
     api_key,
     auth_headers,
     admin_api_key,
+    mock_anthropic_port: int,
 ) -> None:
     """Judge call uses client's passthrough API key when no policy key is set.
 
@@ -63,7 +66,10 @@ async def test_judge_uses_passthrough_key_non_streaming(
     mock_anthropic.enqueue(text_response('{"action": "pass", "blocks": []}'))
 
     async with policy_context(
-        _SIMPLE_LLM_POLICY, _PASSTHROUGH_JUDGE_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+        _SIMPLE_LLM_POLICY,
+        _passthrough_judge_config(mock_anthropic_port),
+        gateway_url=gateway_url,
+        admin_api_key=admin_api_key,
     ):
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
@@ -100,13 +106,17 @@ async def test_judge_uses_passthrough_key_streaming(
     api_key,
     auth_headers,
     admin_api_key,
+    mock_anthropic_port: int,
 ) -> None:
     """Same passthrough key behavior in streaming mode."""
     mock_anthropic.enqueue(text_response("Hello there"))
     mock_anthropic.enqueue(text_response('{"action": "pass", "blocks": []}'))
 
     async with policy_context(
-        _SIMPLE_LLM_POLICY, _PASSTHROUGH_JUDGE_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+        _SIMPLE_LLM_POLICY,
+        _passthrough_judge_config(mock_anthropic_port),
+        gateway_url=gateway_url,
+        admin_api_key=admin_api_key,
     ):
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
@@ -134,11 +144,12 @@ async def test_explicit_policy_key_overrides_passthrough(
     api_key,
     auth_headers,
     admin_api_key,
+    mock_anthropic_port: int,
 ) -> None:
     """When an explicit api_key is set on the policy, it takes priority over passthrough."""
     explicit_key = "explicit-policy-api-key-overrides-passthrough"
     config_with_explicit_key = {
-        **_PASSTHROUGH_JUDGE_CONFIG,
+        **_passthrough_judge_config(mock_anthropic_port),
         "api_key": explicit_key,
     }
 

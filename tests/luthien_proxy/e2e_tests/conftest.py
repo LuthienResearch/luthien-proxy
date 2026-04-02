@@ -114,6 +114,12 @@ def mock_anthropic():
     server.stop()
 
 
+@pytest.fixture(scope="session")
+def mock_anthropic_port(mock_anthropic: MockAnthropicServer) -> int:
+    """The port the mock Anthropic server is listening on."""
+    return mock_anthropic._port
+
+
 @pytest.fixture(autouse=True)
 def _reset_mock_server(request):
     """Drain the mock queue and clear request history before each mock_e2e test.
