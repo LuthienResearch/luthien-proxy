@@ -208,7 +208,7 @@ run_sqlite() {
         -m sqlite_e2e \
         tests/luthien_proxy/e2e_tests/sqlite/ \
         -v --timeout=60 --no-cov \
-        "${PYTEST_EXTRA[@]}" \
+        ${PYTEST_EXTRA[@]+"${PYTEST_EXTRA[@]}"} \
     || exit_code=$?
 
     return "$exit_code"
@@ -269,7 +269,7 @@ run_mock() {
         -m mock_e2e \
         tests/luthien_proxy/e2e_tests/ \
         -v --timeout=30 --no-cov \
-        "${PYTEST_EXTRA[@]}" \
+        ${PYTEST_EXTRA[@]+"${PYTEST_EXTRA[@]}"} \
     || exit_code=$?
 
     # Shut down the in-process gateway (also cleaned up by trap EXIT)
@@ -304,7 +304,7 @@ run_real() {
         -m "e2e and not mock_e2e and not sqlite_e2e" \
         tests/luthien_proxy/e2e_tests/ \
         -v --timeout=120 --no-cov \
-        "${PYTEST_EXTRA[@]}" \
+        ${PYTEST_EXTRA[@]+"${PYTEST_EXTRA[@]}"} \
     || exit_code=$?
 
     docker_down

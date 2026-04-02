@@ -117,7 +117,7 @@ def mock_anthropic():
 @pytest.fixture(scope="session")
 def mock_anthropic_port(mock_anthropic: MockAnthropicServer) -> int:
     """The port the mock Anthropic server is listening on."""
-    return mock_anthropic._port
+    return mock_anthropic.port
 
 
 @pytest.fixture(autouse=True)

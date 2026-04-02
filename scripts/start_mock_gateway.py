@@ -8,6 +8,7 @@ then blocks until SIGTERM/SIGINT. Used by run_e2e.sh for the mock tier.
 import asyncio
 import json
 import os
+import shutil
 import signal
 import socket
 import sys
@@ -100,6 +101,7 @@ def main():
     thread.join(timeout=5)
     loop.run_until_complete(db_pool.close())
     loop.close()
+    shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
