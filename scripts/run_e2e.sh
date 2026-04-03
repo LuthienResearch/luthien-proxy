@@ -331,6 +331,7 @@ run_real() {
         fail "║  Set it in .env or export it to run real API tests.         ║"
         fail "╚══════════════════════════════════════════════════════════════╝"
         echo ""
+        TIER_RESULTS[real]="skipped"
         return 2
     fi
 
@@ -340,6 +341,7 @@ run_real() {
         fail "║  SKIPPING REAL E2E TIER: Docker not available               ║"
         fail "╚══════════════════════════════════════════════════════════════╝"
         echo ""
+        TIER_RESULTS[real]="skipped"
         return 2
     fi
 
@@ -379,7 +381,21 @@ for tier in "${TIERS[@]}"; do
 
     case $exit_code in
         0) TIER_RESULTS[$tier]="passed"; ok "$tier: all tests passed" ;;
-        2) TIER_RESULTS[$tier]="skipped"; warn "$tier: skipped" ;;
+        2)
+            # exit code 2 = tier self-skipped (no API key, no Docker)
+            # BUT run_real returns 2 for skip; pytest --stepwise also returns 2.
+            # Distinguish: if run_$tier set TIER_RESULTS already, it was a skip.
+            if [[ "${TIER_RESULTS[$tier]:-}" == "skipped" ]]; then
+                warn "$tier: skipped"
+            else
+                TIER_RESULTS[$tier]="failed"
+                fail "$tier: tests failed (stepwise stopped, exit $exit_code)"
+                overall_exit=1
+                any_failed=true
+                warn "Stopping — fix the failure and re-run to resume"
+                break
+            fi
+            ;;
         *)
             TIER_RESULTS[$tier]="failed"
             fail "$tier: tests failed (exit $exit_code)"
