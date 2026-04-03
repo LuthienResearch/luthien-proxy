@@ -33,6 +33,14 @@ class Credential:
     platform_url: str | None = None
     expiry: datetime | None = None
 
+    def __repr__(self) -> str:
+        """Mask the credential value to prevent accidental secret leakage in logs/tracebacks."""
+        masked = self.value[:8] + "..." if len(self.value) > 8 else "***"
+        return (
+            f"Credential(value='{masked}', credential_type={self.credential_type!r}, "
+            f"platform={self.platform!r})"
+        )
+
 
 class CredentialError(Exception):
     """Raised when credential resolution fails."""

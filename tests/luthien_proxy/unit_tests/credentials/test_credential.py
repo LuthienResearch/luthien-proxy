@@ -80,6 +80,18 @@ class TestCredential:
         s = {cred}
         assert cred in s
 
+    def test_repr_masks_long_value(self):
+        cred = Credential(value="sk-ant-api-secret-key-here", credential_type=CredentialType.API_KEY)
+        r = repr(cred)
+        assert "sk-ant-a..." in r
+        assert "secret-key-here" not in r
+
+    def test_repr_masks_short_value(self):
+        cred = Credential(value="short", credential_type=CredentialType.API_KEY)
+        r = repr(cred)
+        assert "***" in r
+        assert "short" not in r
+
 
 class TestCredentialError:
     def test_is_exception(self):
