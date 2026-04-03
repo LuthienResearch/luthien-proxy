@@ -120,6 +120,7 @@ dev = [
     "asgi-lifespan>=2.1.0",
     "luthien-cli",
     "pytest-httpx>=0.35.0",
+    "pytest-xdist>=3.5.0",
 ]
 
 [tool.uv.sources]

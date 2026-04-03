@@ -26,7 +26,13 @@ uv run pytest -m e2e
 # Format and lint
 ./scripts/format_all.sh
 
-# Full dev checks (format + lint + tests + type check)
+# Fast dev checks (parallel, no coverage, changed-file tests)
+./scripts/fast_checks.sh
+
+# Fast checks with all unit tests
+./scripts/fast_checks.sh --all
+
+# Full dev checks — PR gate (format + lint + tests + type check + coverage)
 ./scripts/dev_checks.sh
 
 # Type check only
