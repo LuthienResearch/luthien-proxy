@@ -427,7 +427,7 @@ if ! $any_failed && ! $FRESH; then
         overall_exit=0
 
         for tier in "${TIERS[@]}"; do
-            result="${TIER_RESULTS[$tier]:-unknown}"
+            result="$(_get_tier_result "$tier")"
             [[ "$result" == "skipped" ]] && continue
 
             exit_code=0
