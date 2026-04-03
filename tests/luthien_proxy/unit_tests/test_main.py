@@ -140,6 +140,7 @@ class TestAutoProvisionDefaults:
 
     def test_provisions_policy_config_when_missing(self, monkeypatch):
         monkeypatch.delenv("POLICY_CONFIG", raising=False)
+        monkeypatch.delenv("RAILWAY_SERVICE_NAME", raising=False)
 
         result = auto_provision_defaults()
 
@@ -184,6 +185,7 @@ class TestAutoProvisionDefaults:
         monkeypatch.delenv("ADMIN_API_KEY", raising=False)
         monkeypatch.delenv("POLICY_CONFIG", raising=False)
         monkeypatch.delenv("POLICY_SOURCE", raising=False)
+        monkeypatch.delenv("RAILWAY_SERVICE_NAME", raising=False)
         monkeypatch.setenv("HOME", str(tmp_path))
 
         result = auto_provision_defaults()
@@ -191,6 +193,92 @@ class TestAutoProvisionDefaults:
         assert len(result) == 4
         assert all(k in result for k in ("DATABASE_URL", "ADMIN_API_KEY", "POLICY_CONFIG", "POLICY_SOURCE"))
         assert "PROXY_API_KEY" not in result
+
+
+class TestAutoProvisionDefaultsRailway:
+    """Test Railway-specific auto-provisioning behavior."""
+
+    def _clear_env(self, monkeypatch):
+        """Remove all vars that auto_provision_defaults might read."""
+        for var in (
+            "DATABASE_URL",
+            "PROXY_API_KEY",
+            "ADMIN_API_KEY",
+            "POLICY_CONFIG",
+            "POLICY_SOURCE",
+            "AUTH_MODE",
+            "LOCALHOST_AUTH_BYPASS",
+            "RAILWAY_SERVICE_NAME",
+        ):
+            monkeypatch.delenv(var, raising=False)
+
+    def test_railway_sets_passthrough_auth(self, monkeypatch, tmp_path):
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("RAILWAY_SERVICE_NAME", "gateway")
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        result = auto_provision_defaults()
+
+        assert result["AUTH_MODE"] == "passthrough"
+        assert os.environ["AUTH_MODE"] == "passthrough"
+
+    def test_railway_sets_railway_policy_config(self, monkeypatch, tmp_path):
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("RAILWAY_SERVICE_NAME", "gateway")
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        result = auto_provision_defaults()
+
+        assert result["POLICY_CONFIG"] == "config/railway_policy_config.yaml"
+
+    def test_railway_disables_localhost_auth_bypass(self, monkeypatch, tmp_path):
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("RAILWAY_SERVICE_NAME", "gateway")
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        result = auto_provision_defaults()
+
+        assert result["LOCALHOST_AUTH_BYPASS"] == "false"
+        assert os.environ["LOCALHOST_AUTH_BYPASS"] == "false"
+
+    def test_railway_does_not_override_explicit_auth_mode(self, monkeypatch, tmp_path):
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("RAILWAY_SERVICE_NAME", "gateway")
+        monkeypatch.setenv("AUTH_MODE", "both")
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        result = auto_provision_defaults()
+
+        assert "AUTH_MODE" not in result
+        assert os.environ["AUTH_MODE"] == "both"
+
+    def test_railway_does_not_override_explicit_policy_config(self, monkeypatch, tmp_path):
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("RAILWAY_SERVICE_NAME", "gateway")
+        monkeypatch.setenv("POLICY_CONFIG", "config/custom.yaml")
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        result = auto_provision_defaults()
+
+        assert "POLICY_CONFIG" not in result
+        assert os.environ["POLICY_CONFIG"] == "config/custom.yaml"
+
+    def test_non_railway_does_not_set_auth_mode(self, monkeypatch, tmp_path):
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        result = auto_provision_defaults()
+
+        assert "AUTH_MODE" not in result
+        assert "LOCALHOST_AUTH_BYPASS" not in result
+
+    def test_non_railway_uses_default_policy_config(self, monkeypatch, tmp_path):
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        result = auto_provision_defaults()
+
+        assert result["POLICY_CONFIG"] == "config/policy_config.yaml"
 
 
 @pytest.fixture
