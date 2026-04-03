@@ -3,26 +3,21 @@
 Checks that fields like temperature, top_p, stop_sequences, system, max_tokens,
 model, messages, and metadata reach the mock Anthropic server unchanged.
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_request_forwarding.py -v
 """
 
 import httpx
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
 pytestmark = pytest.mark.mock_e2e
 
-_HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
-
-async def _post(client: httpx.AsyncClient, extra_fields: dict) -> httpx.Response:
+async def _post(client: httpx.AsyncClient, gateway_url: str, auth_headers: dict, extra_fields: dict) -> httpx.Response:
     body = {
         "model": "claude-haiku-4-5",
         "messages": [{"role": "user", "content": "hello"}],
@@ -30,17 +25,19 @@ async def _post(client: httpx.AsyncClient, extra_fields: dict) -> httpx.Response
         "stream": False,
         **extra_fields,
     }
-    return await client.post(f"{GATEWAY_URL}/v1/messages", json=body, headers=_HEADERS)
+    return await client.post(f"{gateway_url}/v1/messages", json=body, headers=auth_headers)
 
 
 @pytest.mark.asyncio
-async def test_temperature_forwarded(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_temperature_forwarded(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url: str, auth_headers: dict
+):
     """Gateway forwards the temperature parameter to the backend unchanged."""
     mock_anthropic.clear_requests()
     mock_anthropic.enqueue(text_response("ok"))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await _post(client, {"temperature": 0.7})
+        response = await _post(client, gateway_url, auth_headers, {"temperature": 0.7})
 
     assert response.status_code == 200
     last = mock_anthropic.last_request()
@@ -49,13 +46,15 @@ async def test_temperature_forwarded(mock_anthropic: MockAnthropicServer, gatewa
 
 
 @pytest.mark.asyncio
-async def test_top_p_forwarded(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_top_p_forwarded(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url: str, auth_headers: dict
+):
     """Gateway forwards the top_p parameter to the backend unchanged."""
     mock_anthropic.clear_requests()
     mock_anthropic.enqueue(text_response("ok"))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await _post(client, {"top_p": 0.9})
+        response = await _post(client, gateway_url, auth_headers, {"top_p": 0.9})
 
     assert response.status_code == 200
     last = mock_anthropic.last_request()
@@ -64,13 +63,15 @@ async def test_top_p_forwarded(mock_anthropic: MockAnthropicServer, gateway_heal
 
 
 @pytest.mark.asyncio
-async def test_max_tokens_forwarded(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_max_tokens_forwarded(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url: str, auth_headers: dict
+):
     """Gateway forwards the max_tokens parameter to the backend unchanged."""
     mock_anthropic.clear_requests()
     mock_anthropic.enqueue(text_response("ok"))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await _post(client, {"max_tokens": 42})
+        response = await _post(client, gateway_url, auth_headers, {"max_tokens": 42})
 
     assert response.status_code == 200
     last = mock_anthropic.last_request()
@@ -79,13 +80,15 @@ async def test_max_tokens_forwarded(mock_anthropic: MockAnthropicServer, gateway
 
 
 @pytest.mark.asyncio
-async def test_stop_sequences_forwarded(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_stop_sequences_forwarded(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url: str, auth_headers: dict
+):
     """Gateway forwards stop_sequences to the backend unchanged."""
     mock_anthropic.clear_requests()
     mock_anthropic.enqueue(text_response("ok"))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await _post(client, {"stop_sequences": ["STOP", "END"]})
+        response = await _post(client, gateway_url, auth_headers, {"stop_sequences": ["STOP", "END"]})
 
     assert response.status_code == 200
     last = mock_anthropic.last_request()
@@ -94,13 +97,15 @@ async def test_stop_sequences_forwarded(mock_anthropic: MockAnthropicServer, gat
 
 
 @pytest.mark.asyncio
-async def test_system_prompt_forwarded(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_system_prompt_forwarded(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url: str, auth_headers: dict
+):
     """Gateway forwards the system prompt to the backend unchanged."""
     mock_anthropic.clear_requests()
     mock_anthropic.enqueue(text_response("ok"))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await _post(client, {"system": "You are a helpful assistant"})
+        response = await _post(client, gateway_url, auth_headers, {"system": "You are a helpful assistant"})
 
     assert response.status_code == 200
     last = mock_anthropic.last_request()
@@ -109,13 +114,15 @@ async def test_system_prompt_forwarded(mock_anthropic: MockAnthropicServer, gate
 
 
 @pytest.mark.asyncio
-async def test_model_forwarded(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_model_forwarded(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url: str, auth_headers: dict
+):
     """Gateway forwards the model field to the backend unchanged."""
     mock_anthropic.clear_requests()
     mock_anthropic.enqueue(text_response("ok"))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await _post(client, {"model": "claude-haiku-4-5"})
+        response = await _post(client, gateway_url, auth_headers, {"model": "claude-haiku-4-5"})
 
     assert response.status_code == 200
     last = mock_anthropic.last_request()
@@ -124,7 +131,9 @@ async def test_model_forwarded(mock_anthropic: MockAnthropicServer, gateway_heal
 
 
 @pytest.mark.asyncio
-async def test_multiple_messages_forwarded(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_multiple_messages_forwarded(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url: str, auth_headers: dict
+):
     """Gateway forwards all messages in a multi-turn conversation unchanged."""
     mock_anthropic.clear_requests()
     mock_anthropic.enqueue(text_response("ok"))
@@ -142,7 +151,7 @@ async def test_multiple_messages_forwarded(mock_anthropic: MockAnthropicServer, 
             "max_tokens": 100,
             "stream": False,
         }
-        response = await client.post(f"{GATEWAY_URL}/v1/messages", json=body, headers=_HEADERS)
+        response = await client.post(f"{gateway_url}/v1/messages", json=body, headers=auth_headers)
 
     assert response.status_code == 200
     last = mock_anthropic.last_request()
@@ -152,13 +161,15 @@ async def test_multiple_messages_forwarded(mock_anthropic: MockAnthropicServer, 
 
 
 @pytest.mark.asyncio
-async def test_metadata_forwarded(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_metadata_forwarded(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url: str, auth_headers: dict
+):
     """Gateway forwards the metadata field to the backend unchanged."""
     mock_anthropic.clear_requests()
     mock_anthropic.enqueue(text_response("ok"))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await _post(client, {"metadata": {"user_id": "test_user_123"}})
+        response = await _post(client, gateway_url, auth_headers, {"metadata": {"user_id": "test_user_123"}})
 
     assert response.status_code == 200
     last = mock_anthropic.last_request()
@@ -167,7 +178,9 @@ async def test_metadata_forwarded(mock_anthropic: MockAnthropicServer, gateway_h
 
 
 @pytest.mark.asyncio
-async def test_request_capture_accumulates_across_requests(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_request_capture_accumulates_across_requests(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url: str, auth_headers: dict
+):
     """Mock server accumulates all request bodies across multiple requests."""
     mock_anthropic.clear_requests()
     mock_anthropic.enqueue(text_response("ok"))
@@ -176,18 +189,20 @@ async def test_request_capture_accumulates_across_requests(mock_anthropic: MockA
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         for _ in range(3):
-            await _post(client, {})
+            await _post(client, gateway_url, auth_headers, {})
 
     assert len(mock_anthropic.received_requests()) == 3
 
 
 @pytest.mark.asyncio
-async def test_unknown_extra_field_not_forwarded_or_ignored(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_unknown_extra_field_not_forwarded_or_ignored(
+    mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url: str, auth_headers: dict
+):
     """Gateway does not crash when the client sends an unrecognised field."""
     mock_anthropic.clear_requests()
     mock_anthropic.enqueue(text_response("ok"))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await _post(client, {"x_custom_field": "custom_value"})
+        response = await _post(client, gateway_url, auth_headers, {"x_custom_field": "custom_value"})
 
     assert response.status_code == 200

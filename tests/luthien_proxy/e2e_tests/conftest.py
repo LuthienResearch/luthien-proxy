@@ -20,7 +20,7 @@ import httpx
 import pytest
 from dotenv import load_dotenv
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response as _text_response
-from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer  # type: ignore[import]
+from tests.luthien_proxy.e2e_tests.mock_anthropic.server import DEFAULT_MOCK_PORT, MockAnthropicServer
 
 # === Repository Root Finding ===
 
@@ -56,12 +56,44 @@ _main_root, _ = find_repo_roots(_checkout_root)
 _env_path = _main_root / ".env"
 load_dotenv(_env_path, override=False)
 
-GATEWAY_URL = os.getenv("E2E_GATEWAY_URL", "http://localhost:8000")
-API_KEY = os.getenv("E2E_API_KEY", os.getenv("PROXY_API_KEY", "sk-luthien-dev-key"))
-ADMIN_API_KEY = os.getenv("E2E_ADMIN_API_KEY", os.getenv("ADMIN_API_KEY", "admin-dev-key"))
+# Module-level defaults — used by the session-scoped fixtures below.
+# Test files should NOT import these directly; use the fixtures instead.
+_DEFAULT_GATEWAY_URL = os.getenv("E2E_GATEWAY_URL", "http://localhost:8000")
+_DEFAULT_API_KEY = os.getenv("E2E_API_KEY", os.getenv("PROXY_API_KEY", "sk-luthien-dev-key"))
+_DEFAULT_ADMIN_API_KEY = os.getenv("E2E_ADMIN_API_KEY", os.getenv("ADMIN_API_KEY", "admin-dev-key"))
 
 
 # === Shared Fixtures ===
+
+
+@pytest.fixture(scope="session")
+def gateway_url():
+    """Base URL of the gateway under test. Override in sub-conftest for different backends."""
+    return _DEFAULT_GATEWAY_URL
+
+
+@pytest.fixture(scope="session")
+def api_key():
+    """API key for authenticating to the gateway. Override in sub-conftest."""
+    return _DEFAULT_API_KEY
+
+
+@pytest.fixture(scope="session")
+def admin_api_key():
+    """Admin API key. Override in sub-conftest."""
+    return _DEFAULT_ADMIN_API_KEY
+
+
+@pytest.fixture
+def auth_headers(api_key):
+    """Authorization headers using the test API key."""
+    return {"Authorization": f"Bearer {api_key}"}
+
+
+@pytest.fixture
+def admin_headers(admin_api_key):
+    """Authorization headers using the admin API key."""
+    return {"Authorization": f"Bearer {admin_api_key}"}
 
 
 @pytest.fixture(scope="session")
@@ -71,13 +103,21 @@ def mock_anthropic():
     Shared across all e2e test files. Use ``mock_anthropic.enqueue(response)``
     before each test to control what the mock returns.
 
-    Requires gateway started with ANTHROPIC_BASE_URL=http://host.docker.internal:18888.
-    See docker-compose.mock-bridge.yaml.
+    Port is configurable via MOCK_ANTHROPIC_PORT env var (default: 18888).
+    For Docker-based tests, the gateway must be configured with
+    ANTHROPIC_BASE_URL pointing at this port.
     """
-    server = MockAnthropicServer()
+    port = int(os.getenv("MOCK_ANTHROPIC_PORT", str(DEFAULT_MOCK_PORT)))
+    server = MockAnthropicServer(port=port)
     server.start()
     yield server
     server.stop()
+
+
+@pytest.fixture(scope="session")
+def mock_anthropic_port(mock_anthropic: MockAnthropicServer) -> int:
+    """The port the mock Anthropic server is listening on."""
+    return mock_anthropic.port
 
 
 @pytest.fixture(autouse=True)
@@ -114,9 +154,9 @@ def codex_available():
 
 
 @pytest.fixture
-async def gateway_healthy():
+async def gateway_healthy(gateway_url):
     """Check if gateway is running and healthy."""
-    gateway_base = GATEWAY_URL.rstrip("/")
+    gateway_base = gateway_url.rstrip("/")
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
             response = await client.get(f"{gateway_base}/health")
@@ -141,6 +181,9 @@ async def set_policy(
     policy_class_ref: str,
     config: dict,
     enabled_by: str = "e2e-test",
+    *,
+    gateway_url: str,
+    admin_api_key: str,
 ) -> None:
     """Set the active policy via admin API.
 
@@ -149,13 +192,16 @@ async def set_policy(
         policy_class_ref: Fully qualified policy class reference (e.g., "module:ClassName")
         config: Policy configuration dict
         enabled_by: Identifier for who/what enabled the policy
+        gateway_url: Gateway base URL (required)
+        admin_api_key: Admin API key for authorization (required)
     """
-    gateway_base = GATEWAY_URL.rstrip("/")
-    admin_headers = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
+    gw = gateway_url.rstrip("/")
+    ak = admin_api_key
+    headers = {"Authorization": f"Bearer {ak}"}
 
     response = await client.post(
-        f"{gateway_base}/api/admin/policy/set",
-        headers=admin_headers,
+        f"{gw}/api/admin/policy/set",
+        headers=headers,
         json={
             "policy_class_ref": policy_class_ref,
             "config": config,
@@ -169,7 +215,7 @@ async def set_policy(
     # Poll until the policy is actually active (avoids fixed sleep fragility).
     deadline = time.monotonic() + 5.0
     while True:
-        current = await get_current_policy(client)
+        current = await get_current_policy(client, gateway_url=gw, admin_api_key=ak)
         if policy_class_ref in (current.get("class_ref") or ""):
             break
         if time.monotonic() > deadline:
@@ -177,82 +223,113 @@ async def set_policy(
         await asyncio.sleep(0.05)
 
 
-async def get_current_policy(client: httpx.AsyncClient) -> dict:
+async def get_current_policy(
+    client: httpx.AsyncClient,
+    *,
+    gateway_url: str,
+    admin_api_key: str,
+) -> dict:
     """Get current policy information from admin API."""
-    gateway_base = GATEWAY_URL.rstrip("/")
-    admin_headers = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
-    response = await client.get(f"{gateway_base}/api/admin/policy/current", headers=admin_headers)
+    gw = gateway_url.rstrip("/")
+    ak = admin_api_key
+    headers = {"Authorization": f"Bearer {ak}"}
+    response = await client.get(f"{gw}/api/admin/policy/current", headers=headers)
     assert response.status_code == 200
     return response.json()
 
 
 @asynccontextmanager
-async def policy_context(policy_class_ref: str, config: dict):
+async def policy_context(
+    policy_class_ref: str,
+    config: dict,
+    *,
+    gateway_url: str,
+    admin_api_key: str,
+):
     """Context manager that sets up a policy and restores NoOp after test.
 
     Use this to temporarily activate a policy for a test, ensuring cleanup:
 
-        async with policy_context("luthien_proxy.policies.debug_logging_policy:DebugLoggingPolicy", {}):
+        async with policy_context(
+            "luthien_proxy.policies.debug_logging_policy:DebugLoggingPolicy",
+            {},
+            gateway_url=gateway_url,
+            admin_api_key=admin_api_key,
+        ):
             # Run test with DebugLoggingPolicy active
             result = await run_claude_code(prompt="...")
 
     Args:
         policy_class_ref: Fully qualified policy class reference
         config: Policy configuration dict
+        gateway_url: Gateway base URL (required)
+        admin_api_key: Admin API key (required)
 
     Yields:
         None - the policy is active within the context
     """
     async with httpx.AsyncClient(timeout=30.0) as client:
-        # Activate the test policy
-        await set_policy(client, policy_class_ref, config)
+        await set_policy(client, policy_class_ref, config, gateway_url=gateway_url, admin_api_key=admin_api_key)
         try:
             yield
         finally:
-            # Restore NoOp policy after test
-            await set_policy(
-                client,
-                "luthien_proxy.policies.noop_policy:NoOpPolicy",
-                {},
-            )
+            try:
+                await set_policy(
+                    client,
+                    "luthien_proxy.policies.noop_policy:NoOpPolicy",
+                    {},
+                    gateway_url=gateway_url,
+                    admin_api_key=admin_api_key,
+                )
+            except Exception:
+                logging.exception("policy_context: failed to restore NoOpPolicy")
 
 
 @asynccontextmanager
-async def auth_config_context(auth_mode: str, validate_credentials: bool = False):
+async def auth_config_context(
+    auth_mode: str,
+    validate_credentials: bool = False,
+    *,
+    gateway_url: str,
+    admin_api_key: str,
+):
     """Context manager that temporarily changes auth config and restores it after the test.
 
     Args:
         auth_mode: Auth mode to set ("proxy_key", "passthrough", "both")
         validate_credentials: Whether to validate passthrough credentials against Anthropic
+        gateway_url: Gateway base URL (required)
+        admin_api_key: Admin API key (required)
     """
-    gateway_base = GATEWAY_URL.rstrip("/")
-    admin_headers = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
+    gw = gateway_url.rstrip("/")
+    ak = admin_api_key
+    headers = {"Authorization": f"Bearer {ak}"}
 
     async with httpx.AsyncClient(timeout=10.0) as client:
-        # Save current config
-        resp = await client.get(f"{gateway_base}/api/admin/auth/config", headers=admin_headers)
+        resp = await client.get(f"{gw}/api/admin/auth/config", headers=headers)
         assert resp.status_code == 200, f"Failed to get auth config: {resp.text}"
         original = resp.json()
 
-        # Apply test config
         resp = await client.post(
-            f"{gateway_base}/api/admin/auth/config",
-            headers=admin_headers,
+            f"{gw}/api/admin/auth/config",
+            headers=headers,
             json={"auth_mode": auth_mode, "validate_credentials": validate_credentials},
         )
         assert resp.status_code == 200, f"Failed to set auth config: {resp.text}"
         try:
             yield
         finally:
-            # Restore original config
-            await client.post(
-                f"{gateway_base}/api/admin/auth/config",
-                headers=admin_headers,
-                json={
-                    "auth_mode": original["auth_mode"],
-                    "validate_credentials": original["validate_credentials"],
-                },
-            )
+            try:
+                await client.post(
+                    f"{gw}/api/admin/auth/config",
+                    headers=headers,
+                    json={
+                        "auth_mode": original["auth_mode"],
+                        "validate_credentials": original["validate_credentials"],
+                    },
+                )
+            except Exception:
+                logging.exception("auth_config_context: failed to restore original auth config")
 
 
 # =============================================================================
@@ -372,7 +449,6 @@ def judge_replace_text(replacement: str):
     return _text_response(json.dumps(payload))
 
 
-MOCK_HEADERS: dict[str, str] = {"Authorization": f"Bearer {API_KEY}"}
 BASE_REQUEST: dict = {
     "model": "claude-haiku-4-5",
     "messages": [{"role": "user", "content": "hello"}],

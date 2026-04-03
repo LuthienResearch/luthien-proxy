@@ -15,11 +15,6 @@ import asyncio
 
 import httpx
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import (
-    ADMIN_API_KEY,
-    API_KEY,
-    GATEWAY_URL,
-)
 
 # === Helper Functions ===
 
@@ -28,6 +23,8 @@ async def make_chat_request(
     client: httpx.AsyncClient,
     messages: list[dict],
     session_id: str,
+    gateway_url: str,
+    api_key: str,
     model: str = "claude-haiku-4-5",
     tools: list[dict] | None = None,
 ) -> dict:
@@ -37,6 +34,8 @@ async def make_chat_request(
         client: HTTP client
         messages: List of message dicts
         session_id: Session identifier for grouping
+        gateway_url: Base URL of the gateway
+        api_key: API key for authentication
         model: Model to use
         tools: Optional tools to include
 
@@ -52,10 +51,10 @@ async def make_chat_request(
         payload["tools"] = tools
 
     response = await client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json=payload,
         headers={
-            "Authorization": f"Bearer {API_KEY}",
+            "Authorization": f"Bearer {api_key}",
             "x-session-id": session_id,
         },
     )
@@ -63,37 +62,51 @@ async def make_chat_request(
     return response.json()
 
 
-async def get_session_detail(client: httpx.AsyncClient, session_id: str) -> dict:
+async def get_session_detail(
+    client: httpx.AsyncClient,
+    session_id: str,
+    gateway_url: str,
+    admin_api_key: str,
+) -> dict:
     """Fetch session detail from history API.
 
     Args:
         client: HTTP client
         session_id: Session to fetch
+        gateway_url: Base URL of the gateway
+        admin_api_key: Admin API key for authentication
 
     Returns:
         Session detail dict
     """
     response = await client.get(
-        f"{GATEWAY_URL}/api/history/sessions/{session_id}",
-        headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
+        f"{gateway_url}/api/history/sessions/{session_id}",
+        headers={"Authorization": f"Bearer {admin_api_key}"},
     )
     assert response.status_code == 200, f"History API failed: {response.text}"
     return response.json()
 
 
-async def export_session_markdown(client: httpx.AsyncClient, session_id: str) -> str:
+async def export_session_markdown(
+    client: httpx.AsyncClient,
+    session_id: str,
+    gateway_url: str,
+    admin_api_key: str,
+) -> str:
     """Export session as markdown.
 
     Args:
         client: HTTP client
         session_id: Session to export
+        gateway_url: Base URL of the gateway
+        admin_api_key: Admin API key for authentication
 
     Returns:
         Markdown string
     """
     response = await client.get(
-        f"{GATEWAY_URL}/api/history/sessions/{session_id}/export",
-        headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
+        f"{gateway_url}/api/history/sessions/{session_id}/export",
+        headers={"Authorization": f"Bearer {admin_api_key}"},
     )
     assert response.status_code == 200, f"Export failed: {response.text}"
     return response.text
@@ -104,7 +117,7 @@ async def export_session_markdown(client: httpx.AsyncClient, session_id: str) ->
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_simple_conversation_stored(http_client, gateway_healthy):
+async def test_simple_conversation_stored(http_client, gateway_healthy, gateway_url, api_key, admin_api_key):
     """Verify a simple user/assistant exchange is stored correctly.
 
     This test:
@@ -122,6 +135,8 @@ async def test_simple_conversation_stored(http_client, gateway_healthy):
         http_client,
         messages=[{"role": "user", "content": "Say hello in exactly 3 words."}],
         session_id=session_id,
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     # Verify we got a response
@@ -134,7 +149,7 @@ async def test_simple_conversation_stored(http_client, gateway_healthy):
     await asyncio.sleep(1.0)
 
     # Fetch from history API
-    session_detail = await get_session_detail(http_client, session_id)
+    session_detail = await get_session_detail(http_client, session_id, gateway_url, admin_api_key)
 
     # Verify session structure
     assert session_detail["session_id"] == session_id
@@ -158,7 +173,7 @@ async def test_simple_conversation_stored(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_multi_turn_conversation_stored(http_client, gateway_healthy):
+async def test_multi_turn_conversation_stored(http_client, gateway_healthy, gateway_url, api_key, admin_api_key):
     """Verify multi-turn conversations are stored with all turns.
 
     This test:
@@ -174,6 +189,8 @@ async def test_multi_turn_conversation_stored(http_client, gateway_healthy):
         http_client,
         messages=[{"role": "user", "content": "What is 2+2? Just the number."}],
         session_id=session_id,
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     # Second turn (with conversation history)
@@ -185,13 +202,15 @@ async def test_multi_turn_conversation_stored(http_client, gateway_healthy):
             {"role": "user", "content": "Now multiply by 3. Just the number."},
         ],
         session_id=session_id,
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     # Wait for persistence
     await asyncio.sleep(1.0)
 
     # Fetch session
-    session_detail = await get_session_detail(http_client, session_id)
+    session_detail = await get_session_detail(http_client, session_id, gateway_url, admin_api_key)
 
     # Should have 2 turns
     assert len(session_detail["turns"]) == 2, f"Expected 2 turns, got {len(session_detail['turns'])}"
@@ -207,7 +226,7 @@ async def test_multi_turn_conversation_stored(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_tool_call_response_stored(http_client, gateway_healthy):
+async def test_tool_call_response_stored(http_client, gateway_healthy, gateway_url, api_key, admin_api_key):
     """Verify tool call responses are correctly stored.
 
     This test:
@@ -244,6 +263,8 @@ async def test_tool_call_response_stored(http_client, gateway_healthy):
         http_client,
         messages=[{"role": "user", "content": "What's the weather like in Tokyo?"}],
         session_id=session_id,
+        gateway_url=gateway_url,
+        api_key=api_key,
         tools=tools,
     )
 
@@ -255,7 +276,7 @@ async def test_tool_call_response_stored(http_client, gateway_healthy):
     await asyncio.sleep(1.0)
 
     # Fetch from history
-    session_detail = await get_session_detail(http_client, session_id)
+    session_detail = await get_session_detail(http_client, session_id, gateway_url, admin_api_key)
 
     assert len(session_detail["turns"]) == 1
     turn = session_detail["turns"][0]
@@ -280,7 +301,7 @@ async def test_tool_call_response_stored(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_tool_result_in_request_stored(http_client, gateway_healthy):
+async def test_tool_result_in_request_stored(http_client, gateway_healthy, gateway_url, api_key, admin_api_key):
     """Verify tool results in requests are correctly stored.
 
     This test simulates a conversation with tool result messages.
@@ -314,13 +335,15 @@ async def test_tool_result_in_request_stored(http_client, gateway_healthy):
         http_client,
         messages=messages,
         session_id=session_id,
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     # Wait for persistence
     await asyncio.sleep(1.0)
 
     # Fetch from history
-    session_detail = await get_session_detail(http_client, session_id)
+    session_detail = await get_session_detail(http_client, session_id, gateway_url, admin_api_key)
 
     assert len(session_detail["turns"]) == 1
     turn = session_detail["turns"][0]
@@ -344,7 +367,7 @@ async def test_tool_result_in_request_stored(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_markdown_export_basic(http_client, gateway_healthy):
+async def test_markdown_export_basic(http_client, gateway_healthy, gateway_url, api_key, admin_api_key):
     """Verify basic markdown export contains expected content.
 
     This test:
@@ -361,13 +384,15 @@ async def test_markdown_export_basic(http_client, gateway_healthy):
         http_client,
         messages=[{"role": "user", "content": "What is the capital of France?"}],
         session_id=session_id,
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     # Wait for persistence
     await asyncio.sleep(1.0)
 
     # Export as markdown
-    markdown = await export_session_markdown(http_client, session_id)
+    markdown = await export_session_markdown(http_client, session_id, gateway_url, admin_api_key)
 
     # Verify markdown structure
     assert f"# Conversation History: {session_id}" in markdown
@@ -379,7 +404,7 @@ async def test_markdown_export_basic(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_markdown_export_multi_turn(http_client, gateway_healthy):
+async def test_markdown_export_multi_turn(http_client, gateway_healthy, gateway_url, api_key, admin_api_key):
     """Verify markdown export handles multi-turn conversations."""
     import uuid
 
@@ -390,6 +415,8 @@ async def test_markdown_export_multi_turn(http_client, gateway_healthy):
         http_client,
         messages=[{"role": "user", "content": "What is 5+5?"}],
         session_id=session_id,
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     # Second turn
@@ -401,13 +428,15 @@ async def test_markdown_export_multi_turn(http_client, gateway_healthy):
             {"role": "user", "content": "What is that times 2?"},
         ],
         session_id=session_id,
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     # Wait for persistence
     await asyncio.sleep(1.0)
 
     # Export
-    markdown = await export_session_markdown(http_client, session_id)
+    markdown = await export_session_markdown(http_client, session_id, gateway_url, admin_api_key)
 
     # Should have both turns
     assert "## Turn 1" in markdown
@@ -418,7 +447,7 @@ async def test_markdown_export_multi_turn(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_markdown_export_with_tool_calls(http_client, gateway_healthy):
+async def test_markdown_export_with_tool_calls(http_client, gateway_healthy, gateway_url, api_key, admin_api_key):
     """Verify markdown export includes tool call information."""
     import uuid
 
@@ -444,6 +473,8 @@ async def test_markdown_export_with_tool_calls(http_client, gateway_healthy):
         http_client,
         messages=[{"role": "user", "content": "Calculate 123 * 456 using the calculate tool"}],
         session_id=session_id,
+        gateway_url=gateway_url,
+        api_key=api_key,
         tools=tools,
     )
 
@@ -455,7 +486,7 @@ async def test_markdown_export_with_tool_calls(http_client, gateway_healthy):
     await asyncio.sleep(1.0)
 
     # Export
-    markdown = await export_session_markdown(http_client, session_id)
+    markdown = await export_session_markdown(http_client, session_id, gateway_url, admin_api_key)
 
     # Basic structure should be present
     assert f"# Conversation History: {session_id}" in markdown
@@ -472,7 +503,7 @@ async def test_markdown_export_with_tool_calls(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_session_appears_in_list(http_client, gateway_healthy):
+async def test_session_appears_in_list(http_client, gateway_healthy, gateway_url, api_key, admin_api_key):
     """Verify new sessions appear in the session list."""
     import uuid
 
@@ -483,6 +514,8 @@ async def test_session_appears_in_list(http_client, gateway_healthy):
         http_client,
         messages=[{"role": "user", "content": "Hello"}],
         session_id=session_id,
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     # Wait for persistence
@@ -490,8 +523,8 @@ async def test_session_appears_in_list(http_client, gateway_healthy):
 
     # Get session list
     response = await http_client.get(
-        f"{GATEWAY_URL}/api/history/sessions",
-        headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
+        f"{gateway_url}/api/history/sessions",
+        headers={"Authorization": f"Bearer {admin_api_key}"},
     )
     assert response.status_code == 200
 
@@ -503,7 +536,7 @@ async def test_session_appears_in_list(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_session_list_ordered_by_recency(http_client, gateway_healthy):
+async def test_session_list_ordered_by_recency(http_client, gateway_healthy, gateway_url, api_key, admin_api_key):
     """Verify session list is ordered by most recent activity."""
     import uuid
 
@@ -515,6 +548,8 @@ async def test_session_list_ordered_by_recency(http_client, gateway_healthy):
         http_client,
         messages=[{"role": "user", "content": "First session"}],
         session_id=session_id_1,
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     await asyncio.sleep(0.5)
@@ -523,6 +558,8 @@ async def test_session_list_ordered_by_recency(http_client, gateway_healthy):
         http_client,
         messages=[{"role": "user", "content": "Second session"}],
         session_id=session_id_2,
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     # Wait for persistence
@@ -530,8 +567,8 @@ async def test_session_list_ordered_by_recency(http_client, gateway_healthy):
 
     # Get session list
     response = await http_client.get(
-        f"{GATEWAY_URL}/api/history/sessions",
-        headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
+        f"{gateway_url}/api/history/sessions",
+        headers={"Authorization": f"Bearer {admin_api_key}"},
     )
     assert response.status_code == 200
 

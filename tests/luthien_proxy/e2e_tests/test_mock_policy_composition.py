@@ -10,11 +10,9 @@ So when designing composition tests, the replacement target must match the text
 as it exists *at that stage in the response pipeline* (after earlier policies
 in the list have already transformed it).
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_policy_composition.py -v
 """
 
@@ -22,7 +20,7 @@ import json
 
 import httpx
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
+from tests.luthien_proxy.e2e_tests.conftest import policy_context
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import stream_response, text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
@@ -33,7 +31,6 @@ _BASE_REQUEST = {
     "messages": [{"role": "user", "content": "hello"}],
     "max_tokens": 100,
 }
-_HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
 _ALL_CAPS = "luthien_proxy.policies.all_caps_policy:AllCapsPolicy"
 _STRING_REPLACE = "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy"
@@ -54,6 +51,9 @@ def _multi_config(*policies: tuple[str, dict]) -> dict:
 async def test_composition_allcaps_then_replace_non_streaming(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_api_key,
 ):
     """Config [AllCaps, Replace] — both run in list order on response.
 
@@ -67,12 +67,12 @@ async def test_composition_allcaps_then_replace_non_streaming(
         (_ALL_CAPS, {}),
         (_STRING_REPLACE, {"replacements": [["HELLO", "HI"]], "match_capitalization": False}),
     )
-    async with policy_context(_MULTI_SERIAL, config):
+    async with policy_context(_MULTI_SERIAL, config, gateway_url=gateway_url, admin_api_key=admin_api_key):
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": False},
-                headers=_HEADERS,
+                headers=auth_headers,
             )
 
     assert response.status_code == 200
@@ -91,6 +91,9 @@ async def test_composition_allcaps_then_replace_non_streaming(
 async def test_composition_replace_then_allcaps_non_streaming(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_api_key,
 ):
     """Config [Replace, AllCaps] — both run in list order on response.
 
@@ -104,12 +107,12 @@ async def test_composition_replace_then_allcaps_non_streaming(
         (_STRING_REPLACE, {"replacements": [["hello", "goodbye"]], "match_capitalization": False}),
         (_ALL_CAPS, {}),
     )
-    async with policy_context(_MULTI_SERIAL, config):
+    async with policy_context(_MULTI_SERIAL, config, gateway_url=gateway_url, admin_api_key=admin_api_key):
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": False},
-                headers=_HEADERS,
+                headers=auth_headers,
             )
 
     assert response.status_code == 200
@@ -128,6 +131,9 @@ async def test_composition_replace_then_allcaps_non_streaming(
 async def test_composition_three_policy_chain_non_streaming(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_api_key,
 ):
     """Three-policy chain verifies all three stages apply in list order.
 
@@ -145,12 +151,12 @@ async def test_composition_three_policy_chain_non_streaming(
         (_ALL_CAPS, {}),
         (_STRING_REPLACE, {"replacements": [["WORLD", "UNIVERSE"]], "match_capitalization": False}),
     )
-    async with policy_context(_MULTI_SERIAL, config):
+    async with policy_context(_MULTI_SERIAL, config, gateway_url=gateway_url, admin_api_key=admin_api_key):
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": False},
-                headers=_HEADERS,
+                headers=auth_headers,
             )
 
     assert response.status_code == 200
@@ -167,6 +173,9 @@ async def test_composition_three_policy_chain_non_streaming(
 async def test_composition_allcaps_then_replace_streaming(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_api_key,
 ):
     """Config [AllCaps, Replace] streaming: AllCaps processes each chunk first, Replace second.
 
@@ -181,14 +190,14 @@ async def test_composition_allcaps_then_replace_streaming(
         (_ALL_CAPS, {}),
         (_STRING_REPLACE, {"replacements": [["HELLO", "HI"]], "match_capitalization": False}),
     )
-    async with policy_context(_MULTI_SERIAL, config):
+    async with policy_context(_MULTI_SERIAL, config, gateway_url=gateway_url, admin_api_key=admin_api_key):
         collected = []
         async with httpx.AsyncClient(timeout=15.0) as client:
             async with client.stream(
                 "POST",
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": True},
-                headers=_HEADERS,
+                headers=auth_headers,
             ) as response:
                 assert response.status_code == 200
                 async for line in response.aiter_lines():

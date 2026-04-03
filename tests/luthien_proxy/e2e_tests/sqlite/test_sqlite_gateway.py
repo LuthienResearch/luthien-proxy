@@ -1,10 +1,10 @@
 """Re-run mock e2e tests against a SQLite-backed gateway.
 
 Each test function is imported from the original mock e2e test modules.
-The conftest in this directory starts an in-process SQLite gateway and
-patches GATEWAY_URL/API_KEY so the imported tests hit it transparently.
+The conftest in this directory overrides gateway_url/api_key/admin_api_key
+fixtures so the imported tests hit the in-process SQLite gateway.
 
-Run:  uv run pytest tests/luthien_proxy/e2e_tests/sqlite/ -v --timeout=30
+Run:  uv run pytest -m sqlite_e2e tests/luthien_proxy/e2e_tests/sqlite/ -v --timeout=30
 """
 
 import pytest
@@ -14,9 +14,6 @@ from tests.luthien_proxy.e2e_tests.test_mock_admin_api import (
     test_policy_list_includes_known_policies,
 )
 
-# The conftest patches GATEWAY_URL/API_KEY at the module level in
-# tests.luthien_proxy.e2e_tests.conftest AND in each test module, so these imported
-# tests use the SQLite gateway.
 # --- Basic passthrough ---
 from tests.luthien_proxy.e2e_tests.test_mock_basic import (
     test_default_response_when_queue_empty,

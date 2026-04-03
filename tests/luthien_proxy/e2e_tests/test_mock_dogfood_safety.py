@@ -6,11 +6,9 @@ agent running through the proxy.  The policy works by intercepting tool_use
 blocks in the Anthropic response and replacing any that match a dangerous
 pattern with a text block containing a "BLOCKED" message.
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_dogfood_safety.py -v
 """
 
@@ -18,7 +16,7 @@ import json
 
 import httpx
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
+from tests.luthien_proxy.e2e_tests.conftest import policy_context
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import tool_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
@@ -29,7 +27,6 @@ _BASE_REQUEST = {
     "messages": [{"role": "user", "content": "hello"}],
     "max_tokens": 100,
 }
-_HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
 _DOGFOOD_SAFETY = "luthien_proxy.policies.dogfood_safety_policy:DogfoodSafetyPolicy"
 
@@ -43,6 +40,9 @@ _DOGFOOD_SAFETY = "luthien_proxy.policies.dogfood_safety_policy:DogfoodSafetyPol
 async def test_dangerous_bash_command_is_blocked(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_api_key,
 ):
     """A tool_use block with a dangerous docker command is replaced with a BLOCKED text block.
 
@@ -52,12 +52,12 @@ async def test_dangerous_bash_command_is_blocked(
     """
     mock_anthropic.enqueue(tool_response("Bash", {"command": "docker compose down"}))
 
-    async with policy_context(_DOGFOOD_SAFETY, {}):
+    async with policy_context(_DOGFOOD_SAFETY, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": False},
-                headers=_HEADERS,
+                headers=auth_headers,
             )
 
     assert response.status_code == 200
@@ -75,6 +75,9 @@ async def test_dangerous_bash_command_is_blocked(
 async def test_streaming_dangerous_command_is_blocked(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_api_key,
 ):
     """Streaming variant: dangerous Bash command blocked via the streaming code path.
 
@@ -85,13 +88,13 @@ async def test_streaming_dangerous_command_is_blocked(
     mock_anthropic.enqueue(tool_response("Bash", {"command": "docker compose down"}))
 
     blocked_text = []
-    async with policy_context(_DOGFOOD_SAFETY, {}):
+    async with policy_context(_DOGFOOD_SAFETY, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
         async with httpx.AsyncClient(timeout=15.0) as client:
             async with client.stream(
                 "POST",
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": True},
-                headers=_HEADERS,
+                headers=auth_headers,
             ) as response:
                 assert response.status_code == 200
                 async for line in response.aiter_lines():
@@ -118,6 +121,9 @@ async def test_streaming_dangerous_command_is_blocked(
 async def test_safe_bash_command_passes_through(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_api_key,
 ):
     """A tool_use block with a harmless bash command passes through unchanged.
 
@@ -126,12 +132,12 @@ async def test_safe_bash_command_passes_through(
     """
     mock_anthropic.enqueue(tool_response("Bash", {"command": "ls -la"}))
 
-    async with policy_context(_DOGFOOD_SAFETY, {}):
+    async with policy_context(_DOGFOOD_SAFETY, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": False},
-                headers=_HEADERS,
+                headers=auth_headers,
             )
 
     assert response.status_code == 200
@@ -151,6 +157,9 @@ async def test_safe_bash_command_passes_through(
 async def test_non_bash_tool_passes_through(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_api_key,
 ):
     """A tool_use block for a non-bash tool passes through unchanged.
 
@@ -159,12 +168,12 @@ async def test_non_bash_tool_passes_through(
     """
     mock_anthropic.enqueue(tool_response("read_file", {"path": "/tmp/test"}))
 
-    async with policy_context(_DOGFOOD_SAFETY, {}):
+    async with policy_context(_DOGFOOD_SAFETY, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": False},
-                headers=_HEADERS,
+                headers=auth_headers,
             )
 
     assert response.status_code == 200
@@ -190,6 +199,9 @@ async def test_non_bash_tool_passes_through(
 async def test_custom_blocked_pattern(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_api_key,
 ):
     """A custom blocked pattern is respected by the policy.
 
@@ -203,12 +215,12 @@ async def test_custom_blocked_pattern(
         "blocked_patterns": ["rm.*important"],
         "tool_names": ["Bash"],
     }
-    async with policy_context(_DOGFOOD_SAFETY, custom_config):
+    async with policy_context(_DOGFOOD_SAFETY, custom_config, gateway_url=gateway_url, admin_api_key=admin_api_key):
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": False},
-                headers=_HEADERS,
+                headers=auth_headers,
             )
 
     assert response.status_code == 200
