@@ -623,6 +623,8 @@ async def test_claude_code_multiturn_with_compact(claude_available, gateway_heal
 
     step2 = await run_claude_code(
         prompt="/compact",
+        gateway_url=gateway_url,
+        api_key=api_key,
         max_turns=1,
         timeout_seconds=120,
         resume_session_id=session_id,
@@ -639,6 +641,8 @@ async def test_claude_code_multiturn_with_compact(claude_available, gateway_heal
 
     step3 = await run_claude_code(
         prompt="What files did you create earlier? List their names briefly.",
+        gateway_url=gateway_url,
+        api_key=api_key,
         max_turns=3,
         timeout_seconds=120,
         resume_session_id=session_id,
