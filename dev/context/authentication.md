@@ -74,8 +74,6 @@ Claude Code authenticates via OAuth (Claude Pro/Max accounts). The transport hea
 
 **Important**: The transport header (Bearer vs x-api-key) is the correct way to distinguish credential types. Do NOT use prefix-based detection (`sk-ant-*` inspection). This was verified empirically — Claude Code always uses the correct transport for each credential type (PR #347).
 
-`is_anthropic_api_key(token)` still exists in `credential_manager.py` as tech debt. It should not be used for new code — use the transport header instead.
-
 ---
 
 ## Relevant Files
