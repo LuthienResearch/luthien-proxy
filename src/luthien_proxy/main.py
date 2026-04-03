@@ -213,8 +213,15 @@ def create_app(
             _credential_cache = InProcessCredentialCache()
             logger.info("Using in-process credential cache (no Redis)")
 
-        # Initialize CredentialManager for passthrough auth
-        _credential_manager = CredentialManager(db_pool=db_pool, cache=_credential_cache)
+        # Initialize CredentialManager for passthrough auth + server credentials
+        _enc_key_str = get_settings().credential_encryption_key
+        encryption_key = _enc_key_str.encode() if _enc_key_str else None
+        if encryption_key is None and db_pool is not None:
+            logger.warning(
+                "CREDENTIAL_ENCRYPTION_KEY not set — server credentials will be stored as plaintext. "
+                "Set this for multi-user Postgres deployments."
+            )
+        _credential_manager = CredentialManager(db_pool=db_pool, cache=_credential_cache, encryption_key=encryption_key)
         await _credential_manager.initialize(default_auth_mode=auth_mode)
 
         _resolved_mode = _credential_manager.config.auth_mode.value

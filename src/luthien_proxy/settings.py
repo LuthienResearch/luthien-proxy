@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     llm_judge_api_key: str | None = None
     litellm_master_key: str | None = None
 
+    # Fernet encryption key for server credentials at rest.
+    # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # Optional for single-user SQLite; recommended for multi-user Postgres.
+    credential_encryption_key: str | None = None
+
     # Skip auth for all routes when accessed from localhost (127.0.0.1, ::1)
     localhost_auth_bypass: bool = True
 

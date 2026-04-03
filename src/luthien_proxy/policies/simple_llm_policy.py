@@ -37,6 +37,7 @@ from anthropic.types import (
     ToolUseBlock,
 )
 
+from luthien_proxy.credentials import AuthProvider, parse_auth_provider
 from luthien_proxy.policies.simple_llm_utils import (
     BlockDescriptor,
     JudgeAction,
@@ -130,7 +131,13 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             max_tokens=parsed.max_tokens,
             on_error=parsed.on_error,
         )
-        # Server-level key fallback, used when no per-policy key and no passthrough key.
+
+        # Auth provider (new path) — when set, replaces the legacy key resolution
+        self._auth_provider: AuthProvider | None = None
+        if parsed.auth_provider is not None:
+            self._auth_provider = parse_auth_provider(parsed.auth_provider)
+
+        # Legacy key fallback (used when auth_provider is not set)
         self._fallback_api_key = settings.llm_judge_api_key or settings.litellm_master_key or None
 
         if self._config.on_error == "pass":
@@ -186,12 +193,21 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         (returning "pass" or "block") so callers never handle None.
         """
         try:
-            result = await call_simple_llm_judge(
-                self._config,
-                descriptor,
-                tuple(emitted_blocks),
-                api_key=self._resolve_judge_api_key(context, self._config.api_key, self._fallback_api_key),
-            )
+            if self._auth_provider is not None:
+                credential = await context.credential_manager.resolve(self._auth_provider, context)
+                result = await call_simple_llm_judge(
+                    self._config,
+                    descriptor,
+                    tuple(emitted_blocks),
+                    credential=credential,
+                )
+            else:
+                result = await call_simple_llm_judge(
+                    self._config,
+                    descriptor,
+                    tuple(emitted_blocks),
+                    api_key=self._resolve_judge_api_key(context, self._config.api_key, self._fallback_api_key),
+                )
             context.record_event(
                 "policy.simple_llm.judge_result",
                 {

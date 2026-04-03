@@ -12,12 +12,23 @@ import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from luthien_proxy.credentials.auth_provider import (
+    AuthProvider,
+    ServerKey,
+    UserCredentials,
+    UserThenServer,
+)
+from luthien_proxy.credentials.credential import Credential, CredentialError
+from luthien_proxy.credentials.store import CredentialStore
 from luthien_proxy.utils.credential_cache import CredentialCacheProtocol
 from luthien_proxy.utils.db import DatabasePool
+
+if TYPE_CHECKING:
+    from luthien_proxy.policy_core.policy_context import PolicyContext
 
 logger = logging.getLogger(__name__)
 
@@ -87,8 +98,19 @@ class CredentialManager:
     Credential validation results are cached with configurable TTLs.
     """
 
-    def __init__(self, db_pool: DatabasePool | None, cache: CredentialCacheProtocol | None):
-        """Initialize with DB pool for config and credential cache."""
+    def __init__(
+        self,
+        db_pool: DatabasePool | None,
+        cache: CredentialCacheProtocol | None,
+        encryption_key: bytes | None = None,
+    ):
+        """Initialize with DB pool for config and credential cache.
+
+        Args:
+            db_pool: Database pool for auth config and server credentials.
+            cache: Credential validation cache (Redis or in-process).
+            encryption_key: Optional Fernet key for encrypting stored credentials.
+        """
         self._db_pool = db_pool
         self._cache = cache
         self._config = AuthConfig(
@@ -98,6 +120,7 @@ class CredentialManager:
             invalid_cache_ttl_seconds=300,
         )
         self._http_client: httpx.AsyncClient | None = None
+        self._store = CredentialStore(db_pool, encryption_key) if db_pool else None
 
     async def initialize(self, default_auth_mode: AuthMode = AuthMode.BOTH) -> None:
         """Load auth config from DB. Falls back to default on first boot."""
@@ -362,6 +385,76 @@ class CredentialManager:
             logger.warning(f"Credential validation network error: {repr(e)}")
             return None
 
+    # ---- Auth Provider Resolution ----
+
+    async def resolve(
+        self,
+        provider: AuthProvider,
+        context: "PolicyContext",
+    ) -> Credential:
+        """Resolve an auth provider to a credential for this request.
+
+        Raises CredentialError if resolution fails.
+        """
+        if isinstance(provider, UserCredentials):
+            return self._get_user_credential(context)
+
+        if isinstance(provider, ServerKey):
+            return await self._get_server_key(provider.name)
+
+        if isinstance(provider, UserThenServer):
+            try:
+                return self._get_user_credential(context)
+            except CredentialError:
+                if provider.on_fallback == "fail":
+                    raise
+                if provider.on_fallback == "warn":
+                    logger.warning(
+                        "No user credential on request, falling back to server key %r",
+                        provider.name,
+                    )
+                return await self._get_server_key(provider.name)
+
+        raise CredentialError(f"Unknown auth provider type: {type(provider)}")
+
+    def _get_user_credential(self, context: "PolicyContext") -> Credential:
+        """Read user credential from PolicyContext (set by gateway)."""
+        if context.user_credential is None:
+            raise CredentialError("No user credential on request context")
+        return context.user_credential
+
+    async def _get_server_key(self, name: str) -> Credential:
+        if self._store is None:
+            raise CredentialError("No credential store configured (no database)")
+        cred = await self._store.get(name)
+        if cred is None:
+            raise CredentialError(f"Server key '{name}' not found")
+        return cred
+
+    # ---- Server Credential CRUD ----
+
+    async def put_server_credential(self, name: str, credential: Credential) -> None:
+        """Store or update a server credential."""
+        if self._store is None:
+            raise CredentialError("No credential store configured")
+        await self._store.put(name, credential)
+        logger.info("Server credential '%s' stored (platform=%s)", name, credential.platform)
+
+    async def delete_server_credential(self, name: str) -> bool:
+        """Delete a server credential. Returns True if it existed."""
+        if self._store is None:
+            raise CredentialError("No credential store configured")
+        deleted = await self._store.delete(name)
+        if deleted:
+            logger.info("Server credential '%s' deleted", name)
+        return deleted
+
+    async def list_server_credentials(self) -> list[str]:
+        """List stored server credential names (no values)."""
+        if self._store is None:
+            return []
+        return await self._store.list_names()
+
     async def close(self) -> None:
         """Clean up HTTP client."""
         if self._http_client:
@@ -373,6 +466,7 @@ __all__ = [
     "AuthConfig",
     "AuthMode",
     "CachedCredential",
+    "CredentialError",
     "CredentialManager",
     "hash_credential",
 ]
