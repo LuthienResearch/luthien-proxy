@@ -35,7 +35,7 @@ class Credential:
 
     def __repr__(self) -> str:
         """Mask the credential value to prevent accidental secret leakage in logs/tracebacks."""
-        masked = self.value[:8] + "..." if len(self.value) > 8 else "***"
+        masked = self.value[:4] + "..." if len(self.value) > 4 else "***"
         return (
             f"Credential(value='{masked}', credential_type={self.credential_type!r}, "
             f"platform={self.platform!r})"

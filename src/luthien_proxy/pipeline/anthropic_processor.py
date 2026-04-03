@@ -917,7 +917,10 @@ def _handle_anthropic_error(e: Exception, call_id: str) -> None:
         logger.warning(f"[{call_id}] Credential error during policy execution: {repr(e)}")
         raise BackendAPIError(
             status_code=502,
-            message=client_error_detail(str(e), "The proxy could not authenticate to the backend service."),
+            message=client_error_detail(
+                f"Credential resolution failed: {e}",
+                "The proxy could not authenticate to the backend service.",
+            ),
             error_type="credential_error",
             client_format=ClientFormat.ANTHROPIC,
             provider="anthropic",

@@ -83,14 +83,22 @@ class TestCredential:
     def test_repr_masks_long_value(self):
         cred = Credential(value="sk-ant-api-secret-key-here", credential_type=CredentialType.API_KEY)
         r = repr(cred)
-        assert "sk-ant-a..." in r
+        assert "sk-a..." in r
         assert "secret-key-here" not in r
+        assert "sk-ant-api" not in r
 
     def test_repr_masks_short_value(self):
-        cred = Credential(value="short", credential_type=CredentialType.API_KEY)
+        cred = Credential(value="abcd", credential_type=CredentialType.API_KEY)
         r = repr(cred)
         assert "***" in r
-        assert "short" not in r
+        assert "abcd" not in r
+
+    def test_repr_masks_boundary_value(self):
+        """Exactly 5 chars shows first 4 + '...'."""
+        cred = Credential(value="abcde", credential_type=CredentialType.API_KEY)
+        r = repr(cred)
+        assert "abcd..." in r
+        assert "abcde" not in r
 
 
 class TestCredentialError:
