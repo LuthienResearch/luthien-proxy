@@ -223,6 +223,9 @@ async def call_simple_llm_judge(
     max_attempts = 1 + config.max_retries
     last_exc: Exception | None = None
 
+    # Both credential and legacy paths are inside the retry loop so
+    # transient failures (network, LLM errors) are retried regardless
+    # of which auth mechanism is used.
     for attempt in range(max_attempts):
         try:
             if credential is not None:
