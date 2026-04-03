@@ -38,8 +38,13 @@ BLUE='\033[0;34m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-# Collect results
-declare -A TIER_RESULTS
+# Tier result tracking (bash 3.x compatible — no associative arrays)
+TIER_RESULT_sqlite=""
+TIER_RESULT_mock=""
+TIER_RESULT_real=""
+
+_set_tier_result() { eval "TIER_RESULT_$1=\"$2\""; }
+_get_tier_result() { eval "echo \"\${TIER_RESULT_$1:-unknown}\""; }
 
 info()  { echo -e "${BLUE}▸${NC} $*"; }
 ok()    { echo -e "${GREEN}✓${NC} $*"; }
@@ -91,10 +96,6 @@ if ! $NO_LOG; then
     LOG_FILE="$LOG_DIR/$(date +%Y%m%d-%H%M%S).log"
     # Tee all output to both terminal and log file
     exec > >(tee -a "$LOG_FILE") 2>&1
-    # Add .e2e-logs to .gitignore if not already there
-    if ! grep -qx '.e2e-logs/' "$REPO_ROOT/.gitignore" 2>/dev/null; then
-        echo '.e2e-logs/' >> "$REPO_ROOT/.gitignore"
-    fi
 fi
 
 # --- Stepwise (resume from last failure) ---
@@ -284,12 +285,18 @@ run_mock() {
         sleep 1
     done
 
-    # Read config from the helper
-    local gw_url mock_port gw_api_key gw_admin_key
-    gw_url="$(uv run python -c "import json; print(json.load(open('$config_json'))['gateway_url'])")"
-    mock_port="$(uv run python -c "import json; print(json.load(open('$config_json'))['mock_port'])")"
-    gw_api_key="$(uv run python -c "import json; print(json.load(open('$config_json'))['api_key'])")"
-    gw_admin_key="$(uv run python -c "import json; print(json.load(open('$config_json'))['admin_api_key'])")"
+    # Read and validate config from the helper (single process, validates JSON)
+    local config_vals
+    config_vals="$(uv run python -c "
+import json, sys
+try:
+    d = json.load(open('$config_json'))
+    print(d['gateway_url'], d['mock_port'], d['api_key'], d['admin_api_key'])
+except (json.JSONDecodeError, KeyError) as e:
+    print(f'Invalid config JSON: {e}', file=sys.stderr)
+    sys.exit(1)
+")" || { fail "Failed to parse gateway config"; rm -f "$config_json"; return 1; }
+    read -r gw_url mock_port gw_api_key gw_admin_key <<< "$config_vals"
     rm -f "$config_json"
 
     ok "Gateway ready at $gw_url (mock on port $mock_port)"
@@ -331,7 +338,7 @@ run_real() {
         fail "║  Set it in .env or export it to run real API tests.         ║"
         fail "╚══════════════════════════════════════════════════════════════╝"
         echo ""
-        TIER_RESULTS[real]="skipped"
+        _set_tier_result "real" "skipped"
         return 2
     fi
 
@@ -341,7 +348,7 @@ run_real() {
         fail "║  SKIPPING REAL E2E TIER: Docker not available               ║"
         fail "╚══════════════════════════════════════════════════════════════╝"
         echo ""
-        TIER_RESULTS[real]="skipped"
+        _set_tier_result "real" "skipped"
         return 2
     fi
 
@@ -380,15 +387,15 @@ for tier in "${TIERS[@]}"; do
     "run_$tier" || exit_code=$?
 
     case $exit_code in
-        0) TIER_RESULTS[$tier]="passed"; ok "$tier: all tests passed" ;;
+        0) _set_tier_result "$tier" "passed"; ok "$tier: all tests passed" ;;
         2)
             # exit code 2 = tier self-skipped (no API key, no Docker)
             # BUT run_real returns 2 for skip; pytest --stepwise also returns 2.
             # Distinguish: if run_$tier set TIER_RESULTS already, it was a skip.
-            if [[ "${TIER_RESULTS[$tier]:-}" == "skipped" ]]; then
+            if [[ "$(_get_tier_result "$tier")" == "skipped" ]]; then
                 warn "$tier: skipped"
             else
-                TIER_RESULTS[$tier]="failed"
+                _set_tier_result "$tier" "failed"
                 fail "$tier: tests failed (stepwise stopped, exit $exit_code)"
                 overall_exit=1
                 any_failed=true
@@ -397,7 +404,7 @@ for tier in "${TIERS[@]}"; do
             fi
             ;;
         *)
-            TIER_RESULTS[$tier]="failed"
+            _set_tier_result "$tier" "failed"
             fail "$tier: tests failed (exit $exit_code)"
             overall_exit=1
             any_failed=true
@@ -429,7 +436,7 @@ if ! $any_failed && ! $FRESH; then
             case $exit_code in
                 0) ok "$tier: verification passed" ;;
                 *)
-                    TIER_RESULTS[$tier]="failed"
+                    _set_tier_result "$tier" "failed"
                     fail "$tier: regression detected in verification pass (exit $exit_code)"
                     overall_exit=1
                     break
@@ -444,7 +451,7 @@ fi
 header "Results"
 skipped_count=0
 for tier in "${TIERS[@]}"; do
-    result="${TIER_RESULTS[$tier]:-unknown}"
+    result="$(_get_tier_result "$tier")"
     case $result in
         passed)  ok   "$tier" ;;
         skipped) warn "$tier (SKIPPED)"; skipped_count=$((skipped_count + 1)) ;;

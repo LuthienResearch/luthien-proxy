@@ -182,8 +182,8 @@ async def set_policy(
     config: dict,
     enabled_by: str = "e2e-test",
     *,
-    gateway_url: str = "",
-    admin_api_key: str = "",
+    gateway_url: str,
+    admin_api_key: str,
 ) -> None:
     """Set the active policy via admin API.
 
@@ -192,11 +192,11 @@ async def set_policy(
         policy_class_ref: Fully qualified policy class reference (e.g., "module:ClassName")
         config: Policy configuration dict
         enabled_by: Identifier for who/what enabled the policy
-        gateway_url: Gateway base URL
-        admin_api_key: Admin API key for authorization
+        gateway_url: Gateway base URL (required)
+        admin_api_key: Admin API key for authorization (required)
     """
-    gw = (gateway_url or _DEFAULT_GATEWAY_URL).rstrip("/")
-    ak = admin_api_key or _DEFAULT_ADMIN_API_KEY
+    gw = gateway_url.rstrip("/")
+    ak = admin_api_key
     headers = {"Authorization": f"Bearer {ak}"}
 
     response = await client.post(
@@ -226,12 +226,12 @@ async def set_policy(
 async def get_current_policy(
     client: httpx.AsyncClient,
     *,
-    gateway_url: str = "",
-    admin_api_key: str = "",
+    gateway_url: str,
+    admin_api_key: str,
 ) -> dict:
     """Get current policy information from admin API."""
-    gw = (gateway_url or _DEFAULT_GATEWAY_URL).rstrip("/")
-    ak = admin_api_key or _DEFAULT_ADMIN_API_KEY
+    gw = gateway_url.rstrip("/")
+    ak = admin_api_key
     headers = {"Authorization": f"Bearer {ak}"}
     response = await client.get(f"{gw}/api/admin/policy/current", headers=headers)
     assert response.status_code == 200
@@ -243,22 +243,27 @@ async def policy_context(
     policy_class_ref: str,
     config: dict,
     *,
-    gateway_url: str = "",
-    admin_api_key: str = "",
+    gateway_url: str,
+    admin_api_key: str,
 ):
     """Context manager that sets up a policy and restores NoOp after test.
 
     Use this to temporarily activate a policy for a test, ensuring cleanup:
 
-        async with policy_context("luthien_proxy.policies.debug_logging_policy:DebugLoggingPolicy", {}):
+        async with policy_context(
+            "luthien_proxy.policies.debug_logging_policy:DebugLoggingPolicy",
+            {},
+            gateway_url=gateway_url,
+            admin_api_key=admin_api_key,
+        ):
             # Run test with DebugLoggingPolicy active
             result = await run_claude_code(prompt="...")
 
     Args:
         policy_class_ref: Fully qualified policy class reference
         config: Policy configuration dict
-        gateway_url: Gateway base URL (uses default if empty)
-        admin_api_key: Admin API key (uses default if empty)
+        gateway_url: Gateway base URL (required)
+        admin_api_key: Admin API key (required)
 
     Yields:
         None - the policy is active within the context
@@ -268,13 +273,16 @@ async def policy_context(
         try:
             yield
         finally:
-            await set_policy(
-                client,
-                "luthien_proxy.policies.noop_policy:NoOpPolicy",
-                {},
-                gateway_url=gateway_url,
-                admin_api_key=admin_api_key,
-            )
+            try:
+                await set_policy(
+                    client,
+                    "luthien_proxy.policies.noop_policy:NoOpPolicy",
+                    {},
+                    gateway_url=gateway_url,
+                    admin_api_key=admin_api_key,
+                )
+            except Exception:
+                logging.exception("policy_context: failed to restore NoOpPolicy")
 
 
 @asynccontextmanager
@@ -282,19 +290,19 @@ async def auth_config_context(
     auth_mode: str,
     validate_credentials: bool = False,
     *,
-    gateway_url: str = "",
-    admin_api_key: str = "",
+    gateway_url: str,
+    admin_api_key: str,
 ):
     """Context manager that temporarily changes auth config and restores it after the test.
 
     Args:
         auth_mode: Auth mode to set ("proxy_key", "passthrough", "both")
         validate_credentials: Whether to validate passthrough credentials against Anthropic
-        gateway_url: Gateway base URL (uses default if empty)
-        admin_api_key: Admin API key (uses default if empty)
+        gateway_url: Gateway base URL (required)
+        admin_api_key: Admin API key (required)
     """
-    gw = (gateway_url or _DEFAULT_GATEWAY_URL).rstrip("/")
-    ak = admin_api_key or _DEFAULT_ADMIN_API_KEY
+    gw = gateway_url.rstrip("/")
+    ak = admin_api_key
     headers = {"Authorization": f"Bearer {ak}"}
 
     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -311,14 +319,17 @@ async def auth_config_context(
         try:
             yield
         finally:
-            await client.post(
-                f"{gw}/api/admin/auth/config",
-                headers=headers,
-                json={
-                    "auth_mode": original["auth_mode"],
-                    "validate_credentials": original["validate_credentials"],
-                },
-            )
+            try:
+                await client.post(
+                    f"{gw}/api/admin/auth/config",
+                    headers=headers,
+                    json={
+                        "auth_mode": original["auth_mode"],
+                        "validate_credentials": original["validate_credentials"],
+                    },
+                )
+            except Exception:
+                logging.exception("auth_config_context: failed to restore original auth config")
 
 
 # =============================================================================

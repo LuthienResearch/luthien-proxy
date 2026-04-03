@@ -8,6 +8,7 @@ Run:  uv run pytest -m sqlite_e2e tests/luthien_proxy/e2e_tests/sqlite/ -v --tim
 
 import asyncio
 import os
+import shutil
 import socket
 import tempfile
 import threading
@@ -82,6 +83,7 @@ def sqlite_gateway_url(mock_anthropic):
     thread.join(timeout=5)
     loop.run_until_complete(db_pool.close())
     loop.close()
+    shutil.rmtree(tmp_dir, ignore_errors=True)
     for k, v in old_env.items():
         if v is None:
             os.environ.pop(k, None)
@@ -107,13 +109,3 @@ def api_key():
 @pytest.fixture(scope="session")
 def admin_api_key():
     return _ADMIN_API_KEY
-
-
-@pytest.fixture
-def auth_headers(api_key):
-    return {"Authorization": f"Bearer {api_key}"}
-
-
-@pytest.fixture
-def admin_headers(admin_api_key):
-    return {"Authorization": f"Bearer {admin_api_key}"}
