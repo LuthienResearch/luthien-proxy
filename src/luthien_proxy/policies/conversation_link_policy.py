@@ -1,8 +1,9 @@
-"""Policy that injects a conversation viewer link into the first text content of each session.
+"""Policy that injects a conversation viewer link into the first response of each conversation.
 
-On the first text content block for a given session_id, prepends a line containing
-the URL to the live conversation viewer. Subsequent text blocks in the same
-session pass through unchanged.
+Prepends a conversation viewer URL to the first text content block on the
+first turn of a conversation. Detects "first turn" by checking if the request
+contains only a single user message (no prior assistant/user exchanges) —
+the same approach used by OnboardingPolicy.
 
 Configuration:
     base_url: The proxy's base URL (e.g., "http://localhost:8000").
@@ -17,33 +18,20 @@ Example YAML:
 from __future__ import annotations
 
 import logging
-from collections import OrderedDict
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from pydantic import BaseModel, Field
 
+from luthien_proxy.policies.onboarding_policy import is_first_turn
 from luthien_proxy.policies.simple_policy import SimplePolicy
 
 if TYPE_CHECKING:
+    from luthien_proxy.llm.types.anthropic import AnthropicRequest
     from luthien_proxy.policy_core.policy_context import PolicyContext
 
 logger = logging.getLogger(__name__)
-
-# Bounded tracker for sessions that have already received a link.
-# Uses OrderedDict as a bounded set: values are ignored, oldest evicted at cap.
-# If a session is evicted and returns, worst case is the link appears twice.
-# NOTE: Process-local — assumes single-worker deployment. Multi-worker setups
-# will inject the link once per worker that first sees the session.
-_MAX_TRACKED_SESSIONS = 10_000
-_injected_sessions: OrderedDict[str, None] = OrderedDict()
-
-
-def _mark_session_injected(session_id: str) -> None:
-    """Record that a session has received its link, evicting oldest if at capacity."""
-    _injected_sessions[session_id] = None
-    if len(_injected_sessions) > _MAX_TRACKED_SESSIONS:
-        _injected_sessions.popitem(last=False)
 
 
 class ConversationLinkPolicyConfig(BaseModel):
@@ -53,8 +41,16 @@ class ConversationLinkPolicyConfig(BaseModel):
     )
 
 
+@dataclass
+class _ConversationLinkState:
+    """Request-scoped state: caches whether this is the first conversation turn."""
+
+    first_turn: bool = field(default=False)
+    injected: bool = field(default=False)
+
+
 class ConversationLinkPolicy(SimplePolicy):
-    """Injects a conversation viewer link into the first text content of each session."""
+    """Injects a conversation viewer link into the first response of each conversation."""
 
     def __init__(self, base_url: str = "http://localhost:8000", **kwargs: object) -> None:
         """Initialize with base URL for building viewer links."""
@@ -65,17 +61,25 @@ class ConversationLinkPolicy(SimplePolicy):
         """Return short name for logging and UI display."""
         return "ConversationLink"
 
+    def _state(self, context: PolicyContext) -> _ConversationLinkState:
+        return context.get_request_state(self, _ConversationLinkState, _ConversationLinkState)
+
+    async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
+        """Cache first-turn check so simple_on_response_content doesn't recompute."""
+        self._state(context).first_turn = is_first_turn(request)
+        return await super().on_anthropic_request(request, context)
+
     async def simple_on_response_content(self, content: str, context: PolicyContext) -> str:
-        """Prepend conversation viewer link to first text content of each session."""
+        """Prepend conversation viewer link on the first turn of a conversation."""
+        state = self._state(context)
+        if not state.first_turn or state.injected:
+            return content
+
         session_id = context.session_id
         if not session_id:
             return content
 
-        # Safe in async single-threaded context: no await between check and mark.
-        if session_id in _injected_sessions:
-            return content
-
-        _mark_session_injected(session_id)
+        state.injected = True
         base = self.config.base_url.rstrip("/")
         link = f"{base}/conversation/live/{quote(session_id, safe='')}"
 
