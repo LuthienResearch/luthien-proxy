@@ -64,6 +64,8 @@ def parse_auth_provider(raw: str | dict | None) -> AuthProvider:
             if isinstance(val, str):
                 return UserThenServer(name=val)
             if isinstance(val, dict):
+                if "name" not in val:
+                    raise ValueError("user_then_server dict config must include 'name'")
                 name = val["name"]
                 if not isinstance(name, str):
                     raise ValueError(f"user_then_server name must be a string, got {type(name).__name__}")

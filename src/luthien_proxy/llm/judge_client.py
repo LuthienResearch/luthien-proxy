@@ -50,6 +50,8 @@ async def judge_completion(
 
     response = await acompletion(**kwargs)
     response = cast(ModelResponse, response)
+    if not response.choices:
+        raise ValueError("LLM returned no choices")
     content = cast(Choices, response.choices[0]).message.content
     if content is None:
         raise ValueError("LLM response content is None")

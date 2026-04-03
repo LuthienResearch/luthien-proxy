@@ -403,6 +403,11 @@ class CredentialManager:
                         "No user credential on request, falling back to server key %r",
                         provider.name,
                     )
+                else:
+                    logger.debug(
+                        "No user credential on request, silently falling back to server key %r",
+                        provider.name,
+                    )
                 return await self._get_server_key(provider.name)
 
         raise CredentialError(f"Unknown auth provider type: {type(provider)}")

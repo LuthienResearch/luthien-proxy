@@ -490,7 +490,7 @@ class ServerCredentialRequest(BaseModel):
         description="Unique name for the credential (e.g. 'judge-api-key')",
         pattern=r"^[a-zA-Z0-9_-]{1,128}$",
     )
-    value: str = Field(..., description="The credential value (API key or OAuth token)")
+    value: str = Field(..., min_length=1, description="The credential value (API key or OAuth token)")
     credential_type: str = Field(default="api_key", description="'api_key' or 'auth_token'")
     platform: str = Field(default="anthropic", description="Provider platform")
     platform_url: str | None = Field(default=None, description="Custom base URL")
@@ -520,7 +520,8 @@ async def put_server_credential(
     try:
         await credential_manager.put_server_credential(body.name, credential)
     except CredentialError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        logger.error("Server credential put failed: %r", e)
+        raise HTTPException(status_code=503, detail="Server credential operation failed")
     return {"success": True, "name": body.name}
 
 
@@ -544,7 +545,8 @@ async def delete_server_credential(
     try:
         deleted = await credential_manager.delete_server_credential(name)
     except CredentialError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        logger.error("Server credential delete failed: %r", e)
+        raise HTTPException(status_code=503, detail="Server credential operation failed")
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Server credential '{name}' not found")
     return {"success": True, "name": name}

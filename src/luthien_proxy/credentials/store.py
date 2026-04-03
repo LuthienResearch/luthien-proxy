@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 
 from luthien_proxy.credentials.credential import Credential, CredentialError, CredentialType
 from luthien_proxy.utils.db import DatabasePool
@@ -28,7 +28,16 @@ class CredentialStore:
             encryption_key: Optional Fernet key for encrypting credential values at rest.
         """
         self._db = db_pool
-        self._fernet = Fernet(encryption_key) if encryption_key else None
+        if encryption_key:
+            try:
+                self._fernet = Fernet(encryption_key)
+            except (ValueError, Exception) as exc:
+                raise CredentialError(
+                    f"Invalid CREDENTIAL_ENCRYPTION_KEY: {exc}. "
+                    "Generate a valid key with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+                ) from exc
+        else:
+            self._fernet = None
 
     async def get(self, name: str) -> Credential | None:
         """Retrieve a stored credential by name. Returns None if not found."""
@@ -49,7 +58,7 @@ class CredentialStore:
                 raise CredentialError(f"Server key '{name}' is encrypted but no CREDENTIAL_ENCRYPTION_KEY is set")
             try:
                 raw_value = self._fernet.decrypt(raw_value.encode()).decode()
-            except Exception as exc:
+            except InvalidToken as exc:
                 raise CredentialError(f"Failed to decrypt server key '{name}': wrong encryption key?") from exc
 
         expiry_raw = row["expiry"]
