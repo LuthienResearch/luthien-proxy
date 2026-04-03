@@ -198,6 +198,8 @@ Key helpers in `tests/luthien_proxy/e2e_tests/`:
 - `mock_anthropic/simulator.py`: `ClaudeCodeSimulator` — simulate Claude Code client sessions
 - `mock_anthropic/server.py`: `MockAnthropicServer` — enqueue deterministic responses
 
+Quick smoke test against a running gateway: `scripts/test_gateway.sh`
+
 Note: `sqlite_e2e` and `mock_e2e` must run in **separate pytest sessions** — `run_e2e.sh` handles this automatically.
 
 ### Test Requirements
