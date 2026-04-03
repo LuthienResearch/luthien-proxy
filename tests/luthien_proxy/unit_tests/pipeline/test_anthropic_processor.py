@@ -285,12 +285,12 @@ class TestProcessRequest:
 
     @pytest.mark.asyncio
     async def test_missing_max_tokens_returns_400(self, mock_request, mock_emitter, mock_span):
-        """Test that missing max_tokens field returns 400 error."""
-        invalid_body = {
+        """Test that missing max_tokens raises a 400 error."""
+        body = {
             "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello"}],
         }
-        mock_request.json = AsyncMock(return_value=invalid_body)
+        mock_request.json = AsyncMock(return_value=body)
 
         with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
@@ -304,7 +304,7 @@ class TestProcessRequest:
                 )
 
         assert exc_info.value.status_code == 400
-        assert "max_tokens" in exc_info.value.detail.lower()
+        assert "max_tokens" in exc_info.value.detail
 
 
 class TestAnthropicRequestFlow:

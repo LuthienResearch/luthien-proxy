@@ -18,7 +18,7 @@ from rich.panel import Panel
 from luthien_cli.commands.up import wait_for_healthy
 from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config, save_config
 from luthien_cli.local_process import find_docker_ports, find_free_port, start_gateway, stop_gateway
-from luthien_cli.repo import ensure_gateway_venv, ensure_repo, resolve_proxy_ref
+from luthien_cli.repo import ensure_gateway_venv, ensure_repo, ensure_repo_clone, resolve_proxy_ref
 
 # Substrings in Docker-pull stderr that indicate an authentication/authorization failure.
 _GHCR_AUTH_HINTS = ("401", "403", "forbidden", "unauthorized", "access to the resource is denied")
@@ -36,10 +36,24 @@ def _read_single_key() -> str:
     old_settings = termios.tcgetattr(fd)
     try:
         tty.setraw(fd)
-        ch = sys.stdin.read(1)
+        # Use os.read() — NOT sys.stdin.read().  sys.stdin is a
+        # buffered TextIOWrapper whose underlying BufferedReader calls
+        # os.read(fd, 8192), consuming ALL available bytes from the
+        # kernel input buffer into Python's userspace buffer.  Only the
+        # one requested character is returned; the rest are trapped.
+        # After os.execvpe replaces this process, that buffer is
+        # destroyed — the bytes are gone.  If they included terminal
+        # escape-sequence responses, Claude Code's Ink TUI will never
+        # see them, hang waiting for answers the terminal already sent,
+        # and freeze the terminal in raw mode.
+        #
+        # os.read(fd, 1) is a raw syscall: exactly one byte is removed
+        # from the kernel buffer.  Everything else stays for tcflush or
+        # the next process to consume.
+        ch = os.read(fd, 1)
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-    return ch
+    return ch.decode("ascii", errors="replace")
 
 
 ONBOARDING_PROMPT = (
@@ -52,6 +66,8 @@ ONBOARDING_PROMPT = (
 )
 
 ONBOARDING_POLICY_CLASS = "luthien_proxy.policies.onboarding_policy:OnboardingPolicy"
+
+_LOCAL_MODE_HINT = "\n[bold]Alternative:[/bold] Try local mode instead (no Docker required):\n  [green]luthien onboard[/green] (without [cyan]--docker[/cyan])"
 
 
 def _generate_key(prefix: str) -> str:
@@ -230,10 +246,10 @@ def _show_results(
     except (KeyboardInterrupt, EOFError):
         return
 
-    # Launch Claude Code through the proxy with the onboarding prompt
-    from luthien_cli.commands.claude import _launch_claude
+    # Launch Claude Code through the proxy with the onboarding prompt.
+    from luthien_cli.commands.claude import _exec_claude
 
-    _launch_claude(console, [ONBOARDING_PROMPT])
+    _exec_claude(gateway_url, [ONBOARDING_PROMPT])
 
 
 def _onboard_local(
@@ -250,17 +266,18 @@ def _onboard_local(
     config.repo_path = ensure_gateway_venv(proxy_ref=proxy_ref, force_reinstall=True)
     console.print("[green]luthien CLI and proxy installed.[/green]")
 
-    # 2. Find a free port (needed before writing policy config)
+    # 2. Stop any existing gateway BEFORE selecting a port, so the old
+    #    gateway's port is freed and find_free_port can reclaim it.
+    stop_gateway(config.repo_path)
+
+    # 3. Find a free port (needed before writing policy config)
     gateway_port = find_free_port(8000)
     actual_gateway_url = f"http://localhost:{gateway_port}"
 
-    # 3. Write config files
+    # 4. Write config files
     console.print("\n[blue]Configuring gateway...[/blue]")
     _write_policy(config.repo_path, actual_gateway_url)
     _write_local_env(config.repo_path, admin_key, sentry_enabled, sentry_dsn)
-
-    # 4. Stop any existing gateway
-    stop_gateway(config.repo_path)
 
     # 5. Start the gateway
     console.print(f"\n[blue]Starting gateway on port {gateway_port}...[/blue]")
@@ -285,7 +302,13 @@ def _onboard_local(
 
 
 def _onboard_docker(
-    console: Console, config, admin_key: str, sentry_enabled: bool = False, sentry_dsn: str = ""
+    console: Console,
+    config,
+    admin_key: str,
+    sentry_enabled: bool = False,
+    sentry_dsn: str = "",
+    *,
+    yes: bool = False,
 ) -> None:
     """Onboard in Docker mode: PostgreSQL + Redis via docker compose."""
     # 1. Ensure proxy files
@@ -298,6 +321,7 @@ def _onboard_docker(
 
     # 3. Start Docker stack
     console.print("\n[blue]Starting gateway...[/blue]")
+    use_local_build = False
     with console.status("Pulling latest images..."):
         pull_result = subprocess.run(
             ["docker", "compose", "pull"],
@@ -308,21 +332,41 @@ def _onboard_docker(
     if pull_result.returncode != 0:
         stderr_lower = (pull_result.stderr or "").lower()
         if any(hint in stderr_lower for hint in _GHCR_AUTH_HINTS):
-            console.print(
-                "[red]Docker image pull failed: access denied.[/red]\n\n"
-                "The container images on GitHub Container Registry (GHCR) may not be\n"
-                "publicly accessible, or your Docker credentials may have expired.\n\n"
-                "[bold]Suggestions:[/bold]\n"
-                "  1. Try local mode instead (no Docker required):\n"
-                "     [green]luthien onboard[/green]\n"
-                "  2. If you need Docker mode, contact the project maintainers\n"
-                "     to request access to the GHCR images.\n"
-                "  3. If you have access, try logging in:\n"
-                "     [dim]docker login ghcr.io[/dim]"
-            )
+            console.print("[yellow]Docker image pull failed: access denied.[/yellow]")
         else:
-            console.print(f"[red]docker compose pull failed:[/red]\n{pull_result.stderr}")
-        raise SystemExit(1)
+            console.print("[yellow]Could not pull pre-built images from GHCR.[/yellow]")
+        console.print(f"[dim]{(pull_result.stderr or '').strip()}[/dim]")
+        console.print()
+
+        if yes or click.confirm(
+            "Would you like to build the Docker images locally instead? (requires git and takes a few minutes)",
+            default=True,
+        ):
+            clone_path = ensure_repo_clone()
+            # Build images from the clone, but keep config.repo_path on the
+            # managed artifact directory.  The clone has the full source tree
+            # needed for `docker compose build`, but the managed dir has the
+            # stripped docker-compose.yaml (no bind mounts / build: blocks)
+            # that subsequent `luthien up/down` should use.
+            _ensure_docker_env(clone_path, admin_key, sentry_enabled, sentry_dsn)
+            use_local_build = True
+
+            with console.status("Building Docker images locally (this may take a few minutes)..."):
+                build_result = subprocess.run(
+                    ["docker", "compose", "build"],
+                    cwd=clone_path,
+                    capture_output=True,
+                    text=True,
+                )
+            if build_result.returncode != 0:
+                output = (build_result.stdout or "") + (build_result.stderr or "")
+                console.print(f"[red]docker compose build failed:[/red]\n{output.strip()}")
+                console.print(_LOCAL_MODE_HINT)
+                raise SystemExit(1)
+            console.print("[green]Docker images built successfully.[/green]")
+        else:
+            console.print(_LOCAL_MODE_HINT)
+            raise SystemExit(1)
 
     with console.status("Stopping existing containers..."):
         down_result = subprocess.run(
@@ -370,7 +414,8 @@ def _onboard_docker(
         console.print(f"[dim]Check logs: docker compose -f {config.repo_path}/docker-compose.yaml logs gateway[/dim]")
         raise SystemExit(1)
 
-    _show_results(console, actual_gateway_url.rstrip("/"), "docker")
+    mode_label = "docker (local build)" if use_local_build else "docker"
+    _show_results(console, actual_gateway_url.rstrip("/"), mode_label)
 
 
 @click.command()
@@ -415,19 +460,13 @@ def onboard(use_docker: bool, proxy_ref: str | None, yes: bool):
 
     admin_key = _generate_key("admin")
 
+    # Sentry is off by default.  Users can enable it post-install by setting
+    # SENTRY_ENABLED=true and SENTRY_DSN=<dsn> in ~/.luthien/luthien-proxy/.env.
     sentry_enabled = False
     sentry_dsn = ""
-    if not yes:
-        console.print(
-            "\n[bold]Enable Sentry error tracking?[/bold]\n"
-            "[dim]Sends error reports (with sensitive data scrubbed) to help debug gateway issues.[/dim]"
-        )
-        sentry_enabled = click.confirm("Enable Sentry", default=False)
-        if sentry_enabled:
-            sentry_dsn = click.prompt("Sentry DSN", default="")
 
     if use_docker:
-        _onboard_docker(console, config, admin_key, sentry_enabled, sentry_dsn)
+        _onboard_docker(console, config, admin_key, sentry_enabled, sentry_dsn, yes=yes)
     else:
         _onboard_local(
             console,

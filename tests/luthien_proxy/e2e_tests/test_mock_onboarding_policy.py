@@ -1,11 +1,10 @@
 """Mock e2e tests for OnboardingPolicy — first turn gets welcome, subsequent turns pass through.
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-  - Mock server auto-started by the mock_anthropic fixture (port 18888).
+Mock server auto-started by the mock_anthropic fixture (port 18888).
 
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_onboarding_policy.py -v
 """
 
@@ -13,7 +12,7 @@ import json
 
 import httpx
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
+from tests.luthien_proxy.e2e_tests.conftest import policy_context
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response, tool_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
@@ -21,7 +20,6 @@ pytestmark = pytest.mark.mock_e2e
 
 _ONBOARDING_POLICY = "luthien_proxy.policies.onboarding_policy:OnboardingPolicy"
 _ONBOARDING_CONFIG = {"gateway_url": "http://localhost:8000"}
-_HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
 _FIRST_TURN_REQUEST = {
     "model": "claude-haiku-4-5",
@@ -44,15 +42,20 @@ _SECOND_TURN_REQUEST = {
 async def test_first_turn_appends_welcome(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_api_key,
 ):
     """First turn response includes the onboarding welcome message."""
     mock_anthropic.enqueue(text_response("Hi there! How can I help?"))
 
-    async with policy_context(_ONBOARDING_POLICY, _ONBOARDING_CONFIG):
+    async with policy_context(
+        _ONBOARDING_POLICY, _ONBOARDING_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+    ):
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
-                headers=_HEADERS,
+                f"{gateway_url}/v1/messages",
+                headers=auth_headers,
                 json=_FIRST_TURN_REQUEST,
             )
 
@@ -70,15 +73,20 @@ async def test_first_turn_appends_welcome(
 async def test_second_turn_passthrough(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_api_key,
 ):
     """Second turn response passes through without the welcome message."""
     mock_anthropic.enqueue(text_response("I'm doing great, thanks!"))
 
-    async with policy_context(_ONBOARDING_POLICY, _ONBOARDING_CONFIG):
+    async with policy_context(
+        _ONBOARDING_POLICY, _ONBOARDING_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+    ):
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
-                headers=_HEADERS,
+                f"{gateway_url}/v1/messages",
+                headers=auth_headers,
                 json=_SECOND_TURN_REQUEST,
             )
 
@@ -95,15 +103,20 @@ async def test_second_turn_passthrough(
 async def test_first_turn_streaming_appends_welcome(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_api_key,
 ):
     """First turn streaming response includes welcome message events."""
     mock_anthropic.enqueue(text_response("Hello from streaming!"))
 
-    async with policy_context(_ONBOARDING_POLICY, _ONBOARDING_CONFIG):
+    async with policy_context(
+        _ONBOARDING_POLICY, _ONBOARDING_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+    ):
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
-                headers=_HEADERS,
+                f"{gateway_url}/v1/messages",
+                headers=auth_headers,
                 json={**_FIRST_TURN_REQUEST, "stream": True},
             )
 
@@ -132,6 +145,9 @@ async def test_first_turn_streaming_appends_welcome(
 async def test_first_turn_tool_use_no_crash(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_api_key,
 ):
     """First turn with tool_use response does not crash (non-streaming).
 
@@ -140,11 +156,13 @@ async def test_first_turn_tool_use_no_crash(
     """
     mock_anthropic.enqueue(tool_response("calculator", {"expression": "2+2"}))
 
-    async with policy_context(_ONBOARDING_POLICY, _ONBOARDING_CONFIG):
+    async with policy_context(
+        _ONBOARDING_POLICY, _ONBOARDING_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+    ):
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
-                headers=_HEADERS,
+                f"{gateway_url}/v1/messages",
+                headers=auth_headers,
                 json=_FIRST_TURN_REQUEST,
             )
 
@@ -167,6 +185,9 @@ async def test_first_turn_tool_use_no_crash(
 async def test_first_turn_streaming_tool_use_no_crash(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_api_key,
 ):
     """First turn streaming with tool_use does not crash.
 
@@ -175,11 +196,13 @@ async def test_first_turn_streaming_tool_use_no_crash(
     """
     mock_anthropic.enqueue(tool_response("calculator", {"expression": "2+2"}))
 
-    async with policy_context(_ONBOARDING_POLICY, _ONBOARDING_CONFIG):
+    async with policy_context(
+        _ONBOARDING_POLICY, _ONBOARDING_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+    ):
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
-                headers=_HEADERS,
+                f"{gateway_url}/v1/messages",
+                headers=auth_headers,
                 json={**_FIRST_TURN_REQUEST, "stream": True},
             )
 

@@ -24,7 +24,7 @@ import pytest
 from tests.constants import DEFAULT_TEST_MODEL
 
 # Import shared fixtures and helpers from conftest
-from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context  # noqa: F401
+from tests.luthien_proxy.e2e_tests.conftest import policy_context  # noqa: F401
 
 
 @dataclass
@@ -147,11 +147,11 @@ def parse_stream_json(output: str) -> list[ClaudeCodeEvent]:
 
 async def run_claude_code(
     prompt: str,
+    gateway_url: str,
+    api_key: str,
     tools: list[str] | None = None,
     max_turns: int = 5,
     timeout_seconds: int = 120,
-    gateway_url: str = GATEWAY_URL,
-    api_key: str = API_KEY,
     system_prompt: str | None = None,
     working_dir: str | None = None,
     resume_session_id: str | None = None,
@@ -247,12 +247,14 @@ async def run_claude_code(
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_basic_request(claude_available, gateway_healthy):
+async def test_claude_code_basic_request(claude_available, gateway_healthy, gateway_url, api_key):
     """Test basic Claude Code request flows through gateway."""
     result = await run_claude_code(
         prompt="What is 2 + 2? Reply with just the number.",
         tools=[],
         max_turns=1,
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     assert result.is_success, f"Request failed: {result.stderr}"
@@ -263,7 +265,7 @@ async def test_claude_code_basic_request(claude_available, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_tool_use_read(claude_available, gateway_healthy, tmp_path):
+async def test_claude_code_tool_use_read(claude_available, gateway_healthy, tmp_path, gateway_url, api_key):
     """Test Claude Code can use Read tool through gateway."""
     test_file = tmp_path / "test_file.txt"
     test_file.write_text("Hello from test file!")
@@ -274,6 +276,8 @@ async def test_claude_code_tool_use_read(claude_available, gateway_healthy, tmp_
         tools=None,  # Use default tools
         max_turns=3,
         working_dir=str(tmp_path),
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     assert result.is_success, f"Request failed: {result.stderr}"
@@ -284,7 +288,7 @@ async def test_claude_code_tool_use_read(claude_available, gateway_healthy, tmp_
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_tool_use_bash(claude_available, gateway_healthy, tmp_path):
+async def test_claude_code_tool_use_bash(claude_available, gateway_healthy, tmp_path, gateway_url, api_key):
     """Test Claude Code can use Bash tool through gateway."""
     secret = f"bash_secret_{uuid.uuid4().hex[:10]}"
     secret_file = tmp_path / "bash_secret.txt"
@@ -296,6 +300,8 @@ async def test_claude_code_tool_use_bash(claude_available, gateway_healthy, tmp_
         max_turns=3,
         working_dir=str(tmp_path),
         allowed_tools=["Bash"],
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     assert result.is_success, f"Request failed: {result.stderr}"
@@ -307,7 +313,7 @@ async def test_claude_code_tool_use_bash(claude_available, gateway_healthy, tmp_
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_multi_turn_tool_use(claude_available, gateway_healthy, tmp_path):
+async def test_claude_code_multi_turn_tool_use(claude_available, gateway_healthy, tmp_path, gateway_url, api_key):
     """Test Claude Code multi-turn tool interactions through gateway."""
     file1 = tmp_path / "file1.txt"
     file2 = tmp_path / "file2.txt"
@@ -319,6 +325,8 @@ async def test_claude_code_multi_turn_tool_use(claude_available, gateway_healthy
         tools=None,  # Use default tools
         max_turns=5,
         working_dir=str(tmp_path),
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     assert result.is_success, f"Request failed: {result.stderr}"
@@ -328,12 +336,14 @@ async def test_claude_code_multi_turn_tool_use(claude_available, gateway_healthy
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_events_structure(claude_available, gateway_healthy):
+async def test_claude_code_events_structure(claude_available, gateway_healthy, gateway_url, api_key):
     """Test that stream-json events have expected structure."""
     result = await run_claude_code(
         prompt="Say hello briefly.",
         tools=[],
         max_turns=1,
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     assert result.is_success
@@ -353,12 +363,14 @@ async def test_claude_code_events_structure(claude_available, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_session_tracking(claude_available, gateway_healthy):
+async def test_claude_code_session_tracking(claude_available, gateway_healthy, gateway_url, api_key):
     """Test that session IDs are consistent across events."""
     result = await run_claude_code(
         prompt="What is the capital of France? Brief answer.",
         tools=[],
         max_turns=1,
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     assert result.is_success
@@ -375,12 +387,14 @@ async def test_claude_code_session_tracking(claude_available, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_cost_tracking(claude_available, gateway_healthy):
+async def test_claude_code_cost_tracking(claude_available, gateway_healthy, gateway_url, api_key):
     """Test that cost information is captured."""
     result = await run_claude_code(
         prompt="Say one word.",
         tools=[],
         max_turns=1,
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     assert result.is_success
@@ -400,9 +414,13 @@ async def test_claude_code_cost_tracking(claude_available, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_with_noop_policy(claude_available, gateway_healthy, tmp_path):
+async def test_claude_code_with_noop_policy(
+    claude_available, gateway_healthy, tmp_path, gateway_url, api_key, admin_api_key
+):
     """Test Claude Code tool use works under NoOpPolicy."""
-    async with policy_context("luthien_proxy.policies.noop_policy:NoOpPolicy", {}):
+    async with policy_context(
+        "luthien_proxy.policies.noop_policy:NoOpPolicy", {}, gateway_url=gateway_url, admin_api_key=admin_api_key
+    ):
         test_file = tmp_path / "noop_test.txt"
         test_file.write_text("NoOp policy test content")
 
@@ -411,6 +429,8 @@ async def test_claude_code_with_noop_policy(claude_available, gateway_healthy, t
             tools=None,
             max_turns=3,
             working_dir=str(tmp_path),
+            gateway_url=gateway_url,
+            api_key=api_key,
         )
 
         assert result.is_success, f"Request failed under NoOpPolicy: {result.stderr}"
@@ -420,9 +440,16 @@ async def test_claude_code_with_noop_policy(claude_available, gateway_healthy, t
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_with_simple_noop_policy(claude_available, gateway_healthy, tmp_path):
+async def test_claude_code_with_simple_noop_policy(
+    claude_available, gateway_healthy, tmp_path, gateway_url, api_key, admin_api_key
+):
     """Test Claude Code tool use works under SimpleNoOpPolicy."""
-    async with policy_context("luthien_proxy.policies.simple_noop_policy:SimpleNoOpPolicy", {}):
+    async with policy_context(
+        "luthien_proxy.policies.simple_noop_policy:SimpleNoOpPolicy",
+        {},
+        gateway_url=gateway_url,
+        admin_api_key=admin_api_key,
+    ):
         test_file = tmp_path / "simple_noop_test.txt"
         test_file.write_text("SimpleNoOp policy test content")
 
@@ -431,6 +458,8 @@ async def test_claude_code_with_simple_noop_policy(claude_available, gateway_hea
             tools=None,
             max_turns=3,
             working_dir=str(tmp_path),
+            gateway_url=gateway_url,
+            api_key=api_key,
         )
 
         assert result.is_success, f"Request failed under SimpleNoOpPolicy: {result.stderr}"
@@ -440,7 +469,9 @@ async def test_claude_code_with_simple_noop_policy(claude_available, gateway_hea
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_with_tool_judge_high_threshold(claude_available, gateway_healthy, tmp_path):
+async def test_claude_code_with_tool_judge_high_threshold(
+    claude_available, gateway_healthy, tmp_path, gateway_url, admin_api_key
+):
     """Test Claude Code tool use allowed under ToolCallJudgePolicy with high threshold (0.99).
 
     With threshold=0.99, almost all tool calls should be allowed since the judge
@@ -459,6 +490,8 @@ async def test_claude_code_with_tool_judge_high_threshold(claude_available, gate
             "temperature": 0.0,
             "max_tokens": 256,
         },
+        gateway_url=gateway_url,
+        admin_api_key=admin_api_key,
     ):
         test_file = tmp_path / "judge_allow_test.txt"
         test_file.write_text("Content that should be readable")
@@ -469,6 +502,7 @@ async def test_claude_code_with_tool_judge_high_threshold(claude_available, gate
             allowed_tools=["Read"],
             max_turns=5,
             working_dir=str(tmp_path),
+            gateway_url=gateway_url,
         )
 
         assert result.is_success, f"Request failed under ToolCallJudgePolicy (high threshold): {result.stderr}"
@@ -479,7 +513,9 @@ async def test_claude_code_with_tool_judge_high_threshold(claude_available, gate
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_with_tool_judge_low_threshold(claude_available, gateway_healthy, tmp_path):
+async def test_claude_code_with_tool_judge_low_threshold(
+    claude_available, gateway_healthy, tmp_path, gateway_url, admin_api_key
+):
     """Test Claude Code tool use blocked under ToolCallJudgePolicy with low threshold (0.01).
 
     With threshold=0.01, most tool calls should be blocked since even 1% confidence
@@ -500,6 +536,8 @@ async def test_claude_code_with_tool_judge_low_threshold(claude_available, gatew
             "max_tokens": 256,
             "blocked_message_template": "⛔ TEST_BLOCK: Tool '{tool_name}' rejected by judge",
         },
+        gateway_url=gateway_url,
+        admin_api_key=admin_api_key,
     ):
         test_file = tmp_path / "judge_block_test.txt"
         test_file.write_text("Content that should be blocked from reading")
@@ -509,6 +547,7 @@ async def test_claude_code_with_tool_judge_low_threshold(claude_available, gatew
             api_key=anthropic_key,
             max_turns=5,
             working_dir=str(tmp_path),
+            gateway_url=gateway_url,
         )
 
         # The request should still "succeed" from Claude Code's perspective,
@@ -527,7 +566,7 @@ async def test_claude_code_with_tool_judge_low_threshold(claude_available, gatew
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_multiturn_with_compact(claude_available, gateway_healthy, tmp_path):
+async def test_claude_code_multiturn_with_compact(claude_available, gateway_healthy, tmp_path, gateway_url, api_key):
     """Test a multi-turn Claude Code session with tool calls, /compact, and post-compact interaction.
 
     This exercises the full session lifecycle through the proxy:
@@ -556,6 +595,8 @@ async def test_claude_code_multiturn_with_compact(claude_available, gateway_heal
         timeout_seconds=120,
         working_dir=str(tmp_path),
         allowed_tools=["Write", "Read", "Bash"],
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     assert step1.is_success, f"Step 1 failed: {step1.stderr}\nOutput: {step1.raw_output[:500]}"
@@ -582,6 +623,8 @@ async def test_claude_code_multiturn_with_compact(claude_available, gateway_heal
 
     step2 = await run_claude_code(
         prompt="/compact",
+        gateway_url=gateway_url,
+        api_key=api_key,
         max_turns=1,
         timeout_seconds=120,
         resume_session_id=session_id,
@@ -598,6 +641,8 @@ async def test_claude_code_multiturn_with_compact(claude_available, gateway_heal
 
     step3 = await run_claude_code(
         prompt="What files did you create earlier? List their names briefly.",
+        gateway_url=gateway_url,
+        api_key=api_key,
         max_turns=3,
         timeout_seconds=120,
         resume_session_id=session_id,

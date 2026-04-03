@@ -4,6 +4,7 @@ Tests the pure business logic functions for fetching sessions,
 parsing conversation turns, and exporting to markdown.
 """
 
+import json
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
@@ -24,6 +25,7 @@ from luthien_proxy.history.service import (
     _parse_request_messages,
     _parse_response_messages,
     _safe_parse_json,
+    export_session_jsonl,
     export_session_markdown,
     extract_text_content,
     fetch_session_detail,
@@ -880,3 +882,109 @@ class TestExportSessionMarkdown:
         assert "**judge**" in markdown
         assert "Dangerous operation blocked" in markdown
         assert "**Policy Interventions:** 1" in markdown
+
+
+class TestExportSessionJsonl:
+    def test_exports_turns_as_jsonl(self):
+        session = SessionDetail(
+            session_id="sess-1",
+            first_timestamp="2026-03-31T10:00:00",
+            last_timestamp="2026-03-31T10:01:00",
+            turns=[
+                ConversationTurn(
+                    call_id="call-1",
+                    timestamp="2026-03-31T10:00:00",
+                    model="claude-3-opus",
+                    request_messages=[
+                        ConversationMessage(message_type=MessageType.USER, content="Hello"),
+                    ],
+                    response_messages=[
+                        ConversationMessage(message_type=MessageType.ASSISTANT, content="Hi"),
+                    ],
+                    annotations=[],
+                ),
+                ConversationTurn(
+                    call_id="call-2",
+                    timestamp="2026-03-31T10:00:30",
+                    model="claude-3-opus",
+                    request_messages=[
+                        ConversationMessage(message_type=MessageType.USER, content="Help"),
+                    ],
+                    response_messages=[
+                        ConversationMessage(
+                            message_type=MessageType.TOOL_CALL,
+                            content="{}",
+                            tool_name="read_file",
+                            tool_call_id="tc-1",
+                            tool_input={"path": "/tmp/x"},
+                        ),
+                    ],
+                    annotations=[],
+                ),
+            ],
+            total_policy_interventions=0,
+            models_used=["claude-3-opus"],
+        )
+
+        result = export_session_jsonl(session)
+        lines = result.strip().split("\n")
+        assert len(lines) == 2
+
+        line1 = json.loads(lines[0])
+        assert line1["call_id"] == "call-1"
+        assert line1["session_id"] == "sess-1"
+        assert line1["model"] == "claude-3-opus"
+        assert len(line1["request_messages"]) == 1
+        assert len(line1["response_messages"]) == 1
+
+        line2 = json.loads(lines[1])
+        assert line2["call_id"] == "call-2"
+        assert line2["response_messages"][0]["tool_name"] == "read_file"
+
+    def test_empty_session_returns_empty_string(self):
+        session = SessionDetail(
+            session_id="sess-empty",
+            first_timestamp="2026-03-31T10:00:00",
+            last_timestamp="2026-03-31T10:00:00",
+            turns=[],
+            total_policy_interventions=0,
+            models_used=[],
+        )
+        result = export_session_jsonl(session)
+        assert result == ""
+
+    def test_includes_original_messages_when_modified(self):
+        session = SessionDetail(
+            session_id="sess-mod",
+            first_timestamp="2026-03-31T10:00:00",
+            last_timestamp="2026-03-31T10:01:00",
+            turns=[
+                ConversationTurn(
+                    call_id="call-mod",
+                    timestamp="2026-03-31T10:00:00",
+                    model="claude-3-opus",
+                    request_messages=[
+                        ConversationMessage(message_type=MessageType.USER, content="Hello"),
+                    ],
+                    response_messages=[
+                        ConversationMessage(message_type=MessageType.ASSISTANT, content="[Link]\n\nHi"),
+                    ],
+                    original_response_messages=[
+                        ConversationMessage(message_type=MessageType.ASSISTANT, content="Hi"),
+                    ],
+                    annotations=[],
+                    had_policy_intervention=True,
+                    response_was_modified=True,
+                ),
+            ],
+            total_policy_interventions=1,
+            models_used=["claude-3-opus"],
+        )
+
+        result = export_session_jsonl(session)
+        record = json.loads(result)
+
+        assert record["response_was_modified"] is True
+        assert record["request_was_modified"] is False
+        assert record["original_response_messages"][0]["content"] == "Hi"
+        assert "original_request_messages" not in record

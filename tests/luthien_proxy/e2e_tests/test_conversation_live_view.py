@@ -17,9 +17,6 @@ import uuid
 import httpx
 import pytest
 from tests.luthien_proxy.e2e_tests.conftest import (
-    ADMIN_API_KEY,
-    API_KEY,
-    GATEWAY_URL,
     policy_context,
 )
 
@@ -28,6 +25,8 @@ async def make_chat_request(
     client: httpx.AsyncClient,
     messages: list[dict],
     session_id: str,
+    gateway_url: str,
+    api_key: str,
     model: str = "claude-haiku-4-5",
     tools: list[dict] | None = None,
 ) -> dict:
@@ -41,10 +40,10 @@ async def make_chat_request(
         payload["tools"] = tools
 
     response = await client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json=payload,
         headers={
-            "Authorization": f"Bearer {API_KEY}",
+            "Authorization": f"Bearer {api_key}",
             "x-session-id": session_id,
         },
     )
@@ -52,19 +51,29 @@ async def make_chat_request(
     return response.json()
 
 
-async def get_live_view_page(client: httpx.AsyncClient, session_id: str) -> httpx.Response:
+async def get_live_view_page(
+    client: httpx.AsyncClient,
+    session_id: str,
+    gateway_url: str,
+    admin_api_key: str,
+) -> httpx.Response:
     """Fetch the live view HTML page."""
     return await client.get(
-        f"{GATEWAY_URL}/conversation/live/{session_id}",
-        headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
+        f"{gateway_url}/conversation/live/{session_id}",
+        headers={"Authorization": f"Bearer {admin_api_key}"},
     )
 
 
-async def get_session_detail(client: httpx.AsyncClient, session_id: str) -> dict:
+async def get_session_detail(
+    client: httpx.AsyncClient,
+    session_id: str,
+    gateway_url: str,
+    admin_api_key: str,
+) -> dict:
     """Fetch session detail from history API (same data the live view uses)."""
     response = await client.get(
-        f"{GATEWAY_URL}/api/history/sessions/{session_id}",
-        headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
+        f"{gateway_url}/api/history/sessions/{session_id}",
+        headers={"Authorization": f"Bearer {admin_api_key}"},
     )
     assert response.status_code == 200, f"History API failed: {response.text}"
     return response.json()
@@ -72,9 +81,9 @@ async def get_session_detail(client: httpx.AsyncClient, session_id: str) -> dict
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_live_view_page_accessible(http_client, gateway_healthy):
+async def test_live_view_page_accessible(http_client, gateway_healthy, gateway_url, admin_api_key):
     """Verify the live view page returns HTML for any session ID."""
-    response = await get_live_view_page(http_client, "test-session-123")
+    response = await get_live_view_page(http_client, "test-session-123", gateway_url, admin_api_key)
 
     assert response.status_code == 200
     assert "text/html" in response.headers.get("content-type", "")
@@ -84,7 +93,7 @@ async def test_live_view_page_accessible(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_live_view_shows_messages(http_client, gateway_healthy):
+async def test_live_view_shows_messages(http_client, gateway_healthy, gateway_url, api_key, admin_api_key):
     """Verify the live view displays messages from a conversation.
 
     This test:
@@ -99,6 +108,8 @@ async def test_live_view_shows_messages(http_client, gateway_healthy):
         http_client,
         messages=[{"role": "user", "content": "Say the word 'pineapple' and nothing else."}],
         session_id=session_id,
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     assert "choices" in response_data
@@ -108,7 +119,7 @@ async def test_live_view_shows_messages(http_client, gateway_healthy):
     await asyncio.sleep(1.5)
 
     # Verify session data is available (the API the live view polls)
-    session_detail = await get_session_detail(http_client, session_id)
+    session_detail = await get_session_detail(http_client, session_id, gateway_url, admin_api_key)
     assert session_detail["session_id"] == session_id
     assert len(session_detail["turns"]) == 1
 
@@ -127,13 +138,13 @@ async def test_live_view_shows_messages(http_client, gateway_healthy):
     assert assistant_msgs[0]["content"], "Expected non-empty assistant response"
 
     # Verify the live view page loads for this session
-    page_response = await get_live_view_page(http_client, session_id)
+    page_response = await get_live_view_page(http_client, session_id, gateway_url, admin_api_key)
     assert page_response.status_code == 200
 
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_live_view_shows_tool_calls(http_client, gateway_healthy):
+async def test_live_view_shows_tool_calls(http_client, gateway_healthy, gateway_url, api_key, admin_api_key):
     """Verify the live view data includes tool call information."""
     session_id = f"e2e-live-tools-{uuid.uuid4().hex[:8]}"
 
@@ -158,6 +169,8 @@ async def test_live_view_shows_tool_calls(http_client, gateway_healthy):
         http_client,
         messages=[{"role": "user", "content": "What's the temperature in Paris?"}],
         session_id=session_id,
+        gateway_url=gateway_url,
+        api_key=api_key,
         tools=tools,
     )
 
@@ -166,7 +179,7 @@ async def test_live_view_shows_tool_calls(http_client, gateway_healthy):
 
     await asyncio.sleep(1.5)
 
-    session_detail = await get_session_detail(http_client, session_id)
+    session_detail = await get_session_detail(http_client, session_id, gateway_url, admin_api_key)
     assert len(session_detail["turns"]) == 1
 
     turn = session_detail["turns"][0]
@@ -179,7 +192,13 @@ async def test_live_view_shows_tool_calls(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_live_view_shows_policy_divergence(http_client, gateway_healthy):
+async def test_live_view_shows_policy_divergence(
+    http_client,
+    gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
+):
     """Verify the live view data shows divergences when a policy modifies content.
 
     Uses the AllCapsPolicy to force a visible modification, then checks
@@ -190,16 +209,20 @@ async def test_live_view_shows_policy_divergence(http_client, gateway_healthy):
     async with policy_context(
         "luthien_proxy.policies.all_caps_policy:AllCapsPolicy",
         {},
+        gateway_url=gateway_url,
+        admin_api_key=admin_api_key,
     ):
         await make_chat_request(
             http_client,
             messages=[{"role": "user", "content": "reply with the exact lowercase text: hello world"}],
             session_id=session_id,
+            gateway_url=gateway_url,
+            api_key=api_key,
         )
 
     await asyncio.sleep(1.5)
 
-    session_detail = await get_session_detail(http_client, session_id)
+    session_detail = await get_session_detail(http_client, session_id, gateway_url, admin_api_key)
     assert len(session_detail["turns"]) == 1
 
     turn = session_detail["turns"][0]
@@ -225,7 +248,7 @@ async def test_live_view_shows_policy_divergence(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_live_view_updates_with_new_turns(http_client, gateway_healthy):
+async def test_live_view_updates_with_new_turns(http_client, gateway_healthy, gateway_url, api_key, admin_api_key):
     """Verify the live view data updates when new turns arrive.
 
     Simulates the polling behavior by making two requests and checking
@@ -238,12 +261,14 @@ async def test_live_view_updates_with_new_turns(http_client, gateway_healthy):
         http_client,
         messages=[{"role": "user", "content": "What is 2+2?"}],
         session_id=session_id,
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     await asyncio.sleep(1.0)
 
     # First poll - should see 1 turn
-    detail_1 = await get_session_detail(http_client, session_id)
+    detail_1 = await get_session_detail(http_client, session_id, gateway_url, admin_api_key)
     assert len(detail_1["turns"]) == 1
 
     # Second turn
@@ -255,12 +280,14 @@ async def test_live_view_updates_with_new_turns(http_client, gateway_healthy):
             {"role": "user", "content": "Now multiply by 3."},
         ],
         session_id=session_id,
+        gateway_url=gateway_url,
+        api_key=api_key,
     )
 
     await asyncio.sleep(1.0)
 
     # Second poll - should see 2 turns
-    detail_2 = await get_session_detail(http_client, session_id)
+    detail_2 = await get_session_detail(http_client, session_id, gateway_url, admin_api_key)
     assert len(detail_2["turns"]) == 2, f"Expected 2 turns, got {len(detail_2['turns'])}"
 
     # Both turns should have messages

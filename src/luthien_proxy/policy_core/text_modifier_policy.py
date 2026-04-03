@@ -130,7 +130,9 @@ class TextModifierPolicy(BasePolicy):
                         index=state.last_text_index,
                         delta=TextDelta(type="text_delta", text=suffix),
                     )
-                    return [suffix_delta, state.held_stop, event]
+                    held = state.held_stop
+                    state.held_stop = None
+                    return [suffix_delta, held, event]
 
             if isinstance(event.content_block, TextBlock):
                 state.last_text_index = event.index

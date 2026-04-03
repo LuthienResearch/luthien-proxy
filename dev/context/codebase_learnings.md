@@ -64,11 +64,11 @@ Three test tiers with increasing infrastructure requirements:
 - Run: `uv run pytest -m sqlite_e2e tests/luthien_proxy/e2e_tests/sqlite/ --no-cov -v`
 - Must run in **separate pytest session** from mock_e2e (module-level patching)
 
-**mock_e2e** (Docker, deterministic): Gateway + mock Anthropic server on port 18888.
+**mock_e2e** (in-process, deterministic): In-process gateway + mock Anthropic server on dynamic port.
 - Mock server at `tests/luthien_proxy/e2e_tests/mock_anthropic/`
 - `MockAnthropicServer` enqueues canned responses, `ClaudeCodeSimulator` sends requests
 - `policy_context()` fixture hot-swaps policies via admin API
-- Run: `uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/ --no-cov -v`
+- No Docker needed — `scripts/start_mock_gateway.py` launches everything in-process
 
 **e2e** (Docker + real API): Real Anthropic API calls through Docker Compose gateway.
 - Slow, costs money, non-deterministic. Use sparingly.

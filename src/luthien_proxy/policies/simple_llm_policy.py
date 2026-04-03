@@ -91,6 +91,7 @@ def _blocked_tool_judge_failed_message(name: str) -> str:
 class _SimpleLLMAnthropicState:
     text_buffer: dict[int, str] = field(default_factory=dict)
     tool_buffer: dict[int, _BufferedToolUse] = field(default_factory=dict)
+    pending_text_start: dict[int, MessageStreamEvent] = field(default_factory=dict)
     emitted_blocks: list[BlockDescriptor] = field(default_factory=list)
     original_had_tool_use: bool = False
     judge_error_occurred: bool = False
@@ -341,7 +342,15 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
 
         if hasattr(cb, "type") and cb.type == "text":
             state.text_buffer[index] = ""
-            return [event]  # pass through text start
+            # Buffer the start — don't emit yet. Claude sometimes sends a text
+            # block start immediately followed by a stop with no deltas (empty
+            # text block before tool_use). Emitting the start now then closing
+            # it with no delta produces an empty text block in the client's
+            # conversation history, which the Anthropic API rejects with 400
+            # ("text content blocks must be non-empty"). We emit start+delta+stop
+            # together in _handle_block_stop once we know the text is non-empty.
+            state.pending_text_start[index] = cast(MessageStreamEvent, event)
+            return []
 
         return [event]
 
@@ -371,6 +380,15 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         # Text block stop
         if index in state.text_buffer:
             text = state.text_buffer.pop(index)
+            pending_start = state.pending_text_start.pop(index, None)
+
+            # Suppress entirely if the text is empty — emitting an empty text
+            # block (start + stop with no content) produces {"type":"text","text":""}
+            # in the client's conversation history, which Anthropic rejects with
+            # 400 "text content blocks must be non-empty" on the next turn.
+            if not text:
+                return []
+
             descriptor = self._block_descriptor_from_text(text)
             action = await self._judge_block(descriptor, state.emitted_blocks, context)
             if action.judge_failed:
@@ -378,13 +396,16 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
 
             if action.action == "pass":
                 state.emitted_blocks.append(descriptor)
-                return self._emit_anthropic_text_events(index, text, event)
+                events: list[MessageStreamEvent] = []
+                if pending_start is not None:
+                    events.append(pending_start)
+                events.extend(self._emit_anthropic_text_events(index, text, event))
+                return events
             elif action.action == "replace":
                 return self._emit_anthropic_replacement_events(index, action, state, event)
-            # Text start was already emitted — must close with stop (produces
-            # empty text block). Unlike tool_use, clients don't wait for a
-            # follow-up action on text blocks, so silent suppression is fine.
-            return [cast(MessageStreamEvent, event)]
+            # Judge blocked the text block — suppress entirely (pending_start was
+            # never emitted, so there's nothing to close).
+            return []
 
         # Tool block stop
         if index in state.tool_buffer:

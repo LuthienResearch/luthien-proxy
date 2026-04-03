@@ -3,12 +3,9 @@
 Unlike the real e2e policy tests which can only check "did it crash?", these tests
 control the mock response exactly, enabling precise assertions on transformed output.
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-  - Mock server auto-started by the mock_anthropic fixture (port 18888).
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_policies.py -v
 """
 
@@ -16,7 +13,7 @@ import json
 
 import httpx
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
+from tests.luthien_proxy.e2e_tests.conftest import policy_context
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import stream_response, text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
@@ -27,7 +24,6 @@ _BASE_REQUEST = {
     "messages": [{"role": "user", "content": "hello"}],
     "max_tokens": 100,
 }
-_HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
 # All policies with minimal configs — used for smoke tests
 _ALL_POLICIES = [
@@ -54,16 +50,19 @@ async def test_policy_non_streaming_smoke(
     config: dict,
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url: str,
+    auth_headers: dict,
+    admin_api_key: str,
 ):
     """Every policy returns 200 for a non-streaming Anthropic request."""
     mock_anthropic.enqueue(text_response("hello world"))
 
-    async with policy_context(policy_class_ref, config):
+    async with policy_context(policy_class_ref, config, gateway_url=gateway_url, admin_api_key=admin_api_key):
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": False},
-                headers=_HEADERS,
+                headers=auth_headers,
             )
 
     assert response.status_code == 200, f"{policy_class_ref} failed: {response.text}"
@@ -79,18 +78,21 @@ async def test_policy_streaming_smoke(
     config: dict,
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url: str,
+    auth_headers: dict,
+    admin_api_key: str,
 ):
     """Every policy returns a valid SSE stream for a streaming Anthropic request."""
     mock_anthropic.enqueue(stream_response("hello world"))
 
-    async with policy_context(policy_class_ref, config):
+    async with policy_context(policy_class_ref, config, gateway_url=gateway_url, admin_api_key=admin_api_key):
         events_seen = set()
         async with httpx.AsyncClient(timeout=15.0) as client:
             async with client.stream(
                 "POST",
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": True},
-                headers=_HEADERS,
+                headers=auth_headers,
             ) as response:
                 assert response.status_code == 200, f"{policy_class_ref} failed: {response.status_code}"
                 assert "text/event-stream" in response.headers.get("content-type", "")
@@ -119,16 +121,24 @@ async def test_policy_streaming_smoke(
 
 
 @pytest.mark.asyncio
-async def test_all_caps_non_streaming(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_all_caps_non_streaming(
+    mock_anthropic: MockAnthropicServer,
+    gateway_healthy,
+    gateway_url: str,
+    auth_headers: dict,
+    admin_api_key: str,
+):
     """AllCapsPolicy uppercases response text in non-streaming mode."""
     mock_anthropic.enqueue(text_response("hello from the assistant"))
 
-    async with policy_context("luthien_proxy.policies.all_caps_policy:AllCapsPolicy", {}):
+    async with policy_context(
+        "luthien_proxy.policies.all_caps_policy:AllCapsPolicy", {}, gateway_url=gateway_url, admin_api_key=admin_api_key
+    ):
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": False},
-                headers=_HEADERS,
+                headers=auth_headers,
             )
 
     assert response.status_code == 200
@@ -137,18 +147,26 @@ async def test_all_caps_non_streaming(mock_anthropic: MockAnthropicServer, gatew
 
 
 @pytest.mark.asyncio
-async def test_all_caps_streaming(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_all_caps_streaming(
+    mock_anthropic: MockAnthropicServer,
+    gateway_healthy,
+    gateway_url: str,
+    auth_headers: dict,
+    admin_api_key: str,
+):
     """AllCapsPolicy uppercases each streaming text chunk."""
     mock_anthropic.enqueue(stream_response("hello world", chunks=["hello ", "world"]))
 
-    async with policy_context("luthien_proxy.policies.all_caps_policy:AllCapsPolicy", {}):
+    async with policy_context(
+        "luthien_proxy.policies.all_caps_policy:AllCapsPolicy", {}, gateway_url=gateway_url, admin_api_key=admin_api_key
+    ):
         collected = []
         async with httpx.AsyncClient(timeout=15.0) as client:
             async with client.stream(
                 "POST",
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": True},
-                headers=_HEADERS,
+                headers=auth_headers,
             ) as response:
                 assert response.status_code == 200
                 async for line in response.aiter_lines():
@@ -171,19 +189,27 @@ async def test_all_caps_streaming(mock_anthropic: MockAnthropicServer, gateway_h
 
 
 @pytest.mark.asyncio
-async def test_string_replacement_non_streaming(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_string_replacement_non_streaming(
+    mock_anthropic: MockAnthropicServer,
+    gateway_healthy,
+    gateway_url: str,
+    auth_headers: dict,
+    admin_api_key: str,
+):
     """StringReplacementPolicy substitutes the target word in a non-streaming response."""
     mock_anthropic.enqueue(text_response("Anthropic makes great models"))
 
     async with policy_context(
         "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy",
         {"replacements": [["Anthropic", "ACME Corp"]], "match_capitalization": False},
+        gateway_url=gateway_url,
+        admin_api_key=admin_api_key,
     ):
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": False},
-                headers=_HEADERS,
+                headers=auth_headers,
             )
 
     assert response.status_code == 200
@@ -194,7 +220,13 @@ async def test_string_replacement_non_streaming(mock_anthropic: MockAnthropicSer
 
 
 @pytest.mark.asyncio
-async def test_string_replacement_capitalization_preserved(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_string_replacement_capitalization_preserved(
+    mock_anthropic: MockAnthropicServer,
+    gateway_healthy,
+    gateway_url: str,
+    auth_headers: dict,
+    admin_api_key: str,
+):
     """StringReplacementPolicy preserves source capitalization in the replacement."""
     # "anthropic" (lower) -> "acme corp", "ANTHROPIC" (upper) -> "ACME CORP", "Anthropic" (title) -> "Acme corp"
     mock_anthropic.enqueue(text_response("Anthropic and ANTHROPIC and anthropic"))
@@ -202,12 +234,14 @@ async def test_string_replacement_capitalization_preserved(mock_anthropic: MockA
     async with policy_context(
         "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy",
         {"replacements": [["anthropic", "acme corp"]], "match_capitalization": True},
+        gateway_url=gateway_url,
+        admin_api_key=admin_api_key,
     ):
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": False},
-                headers=_HEADERS,
+                headers=auth_headers,
             )
 
     assert response.status_code == 200
@@ -222,7 +256,13 @@ async def test_string_replacement_capitalization_preserved(mock_anthropic: MockA
 
 
 @pytest.mark.asyncio
-async def test_string_replacement_streaming(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_string_replacement_streaming(
+    mock_anthropic: MockAnthropicServer,
+    gateway_healthy,
+    gateway_url: str,
+    auth_headers: dict,
+    admin_api_key: str,
+):
     """StringReplacementPolicy substitutes target word across streaming chunks."""
     # Put the replacement target in a single chunk so it's not split across boundaries
     mock_anthropic.enqueue(stream_response("hello world", chunks=["Anthropic ", "makes ", "models"]))
@@ -230,14 +270,16 @@ async def test_string_replacement_streaming(mock_anthropic: MockAnthropicServer,
     async with policy_context(
         "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy",
         {"replacements": [["Anthropic", "ACME Corp"]], "match_capitalization": False},
+        gateway_url=gateway_url,
+        admin_api_key=admin_api_key,
     ):
         collected = []
         async with httpx.AsyncClient(timeout=15.0) as client:
             async with client.stream(
                 "POST",
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": True},
-                headers=_HEADERS,
+                headers=auth_headers,
             ) as response:
                 assert response.status_code == 200
                 async for line in response.aiter_lines():
@@ -257,7 +299,13 @@ async def test_string_replacement_streaming(mock_anthropic: MockAnthropicServer,
 
 
 @pytest.mark.asyncio
-async def test_string_replacement_streaming_complete_sse_events(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_string_replacement_streaming_complete_sse_events(
+    mock_anthropic: MockAnthropicServer,
+    gateway_healthy,
+    gateway_url: str,
+    auth_headers: dict,
+    admin_api_key: str,
+):
     """StringReplacementPolicy preserves all required SSE event types including message_delta.
 
     Regression test for a bug where StringReplacementPolicy dropped the finish_reason,
@@ -268,6 +316,8 @@ async def test_string_replacement_streaming_complete_sse_events(mock_anthropic: 
     async with policy_context(
         "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy",
         {"replacements": [["some", "any"]], "match_capitalization": False},
+        gateway_url=gateway_url,
+        admin_api_key=admin_api_key,
     ):
         events_seen = set()
         stop_reason = None
@@ -275,9 +325,9 @@ async def test_string_replacement_streaming_complete_sse_events(mock_anthropic: 
         async with httpx.AsyncClient(timeout=15.0) as client:
             async with client.stream(
                 "POST",
-                f"{GATEWAY_URL}/v1/messages",
+                f"{gateway_url}/v1/messages",
                 json={**_BASE_REQUEST, "stream": True},
-                headers=_HEADERS,
+                headers=auth_headers,
             ) as response:
                 assert response.status_code == 200
 

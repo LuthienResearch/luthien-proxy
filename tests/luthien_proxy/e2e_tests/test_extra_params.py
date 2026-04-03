@@ -4,34 +4,22 @@ These tests verify that extra model parameters (like `thinking`, `metadata`,
 `stop_sequences`, etc.) are correctly passed through the gateway to the backend LLM.
 """
 
-import httpx
 import pytest
 from tests.constants import DEFAULT_TEST_MODEL
-from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL
-
-# === Test Configuration ===
-
-
-@pytest.fixture
-async def http_client():
-    """Provide async HTTP client for e2e tests."""
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        yield client
-
 
 # === Anthropic Client Extra Parameters ===
 
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_anthropic_extended_thinking_sonnet(http_client, gateway_healthy):
+async def test_anthropic_extended_thinking_sonnet(http_client, gateway_healthy, gateway_url, api_key):
     """Verify extended thinking works with Claude Sonnet 4.5.
 
     Extended thinking enables the model to show its reasoning process via
     thinking blocks in the response content.
     """
     response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json={
             "model": "claude-sonnet-4-5",
             "messages": [{"role": "user", "content": "What is 2 + 2? Think step by step."}],
@@ -39,7 +27,7 @@ async def test_anthropic_extended_thinking_sonnet(http_client, gateway_healthy):
             "stream": False,
             "thinking": {"type": "enabled", "budget_tokens": 5000},
         },
-        headers={"Authorization": f"Bearer {API_KEY}"},
+        headers={"Authorization": f"Bearer {api_key}"},
         timeout=120.0,  # Extended thinking can take longer
     )
 
@@ -61,7 +49,7 @@ async def test_anthropic_extended_thinking_sonnet(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_anthropic_extended_thinking_streaming(http_client, gateway_healthy):
+async def test_anthropic_extended_thinking_streaming(http_client, gateway_healthy, gateway_url, api_key):
     """Verify extended thinking works with streaming responses.
 
     This test validates that thinking blocks are properly streamed, including:
@@ -73,7 +61,7 @@ async def test_anthropic_extended_thinking_streaming(http_client, gateway_health
 
     async with http_client.stream(
         "POST",
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json={
             "model": "claude-sonnet-4-5",
             "messages": [{"role": "user", "content": "What is 3 + 3?"}],
@@ -81,7 +69,7 @@ async def test_anthropic_extended_thinking_streaming(http_client, gateway_health
             "stream": True,
             "thinking": {"type": "enabled", "budget_tokens": 5000},
         },
-        headers={"Authorization": f"Bearer {API_KEY}"},
+        headers={"Authorization": f"Bearer {api_key}"},
         timeout=120.0,
     ) as response:
         assert response.status_code == 200
@@ -134,10 +122,10 @@ async def test_anthropic_extended_thinking_streaming(http_client, gateway_health
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_anthropic_metadata_parameter_accepted(http_client, gateway_healthy):
+async def test_anthropic_metadata_parameter_accepted(http_client, gateway_healthy, gateway_url, api_key):
     """Verify Anthropic endpoint accepts and passes through metadata parameter."""
     response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json={
             "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say hello"}],
@@ -145,7 +133,7 @@ async def test_anthropic_metadata_parameter_accepted(http_client, gateway_health
             "stream": False,
             "metadata": {"user_id": "test-user-123"},
         },
-        headers={"Authorization": f"Bearer {API_KEY}"},
+        headers={"Authorization": f"Bearer {api_key}"},
     )
 
     assert response.status_code == 200, f"Request failed: {response.text}"
@@ -159,11 +147,11 @@ async def test_anthropic_metadata_parameter_accepted(http_client, gateway_health
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_anthropic_stop_sequences_parameter(http_client, gateway_healthy):
+async def test_anthropic_stop_sequences_parameter(http_client, gateway_healthy, gateway_url, api_key):
     """Verify stop_sequences parameter is passed through and affects response."""
     # Request model to count, but stop at "3"
     response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json={
             "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Count from 1 to 10, one number per line."}],
@@ -171,7 +159,7 @@ async def test_anthropic_stop_sequences_parameter(http_client, gateway_healthy):
             "stream": False,
             "stop_sequences": ["5"],
         },
-        headers={"Authorization": f"Bearer {API_KEY}"},
+        headers={"Authorization": f"Bearer {api_key}"},
     )
 
     assert response.status_code == 200, f"Request failed: {response.text}"
@@ -190,10 +178,10 @@ async def test_anthropic_stop_sequences_parameter(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_anthropic_tool_choice_parameter(http_client, gateway_healthy):
+async def test_anthropic_tool_choice_parameter(http_client, gateway_healthy, gateway_url, api_key):
     """Verify tool_choice parameter is accepted with tools."""
     response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json={
             "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "What's the weather in Paris?"}],
@@ -214,7 +202,7 @@ async def test_anthropic_tool_choice_parameter(http_client, gateway_healthy):
             ],
             "tool_choice": {"type": "auto"},
         },
-        headers={"Authorization": f"Bearer {API_KEY}"},
+        headers={"Authorization": f"Bearer {api_key}"},
     )
 
     assert response.status_code == 200, f"Request failed: {response.text}"
@@ -227,11 +215,11 @@ async def test_anthropic_tool_choice_parameter(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_anthropic_multiple_extra_params(http_client, gateway_healthy):
+async def test_anthropic_multiple_extra_params(http_client, gateway_healthy, gateway_url, api_key):
     """Verify multiple extra parameters can be passed together."""
     # Note: Anthropic doesn't allow temperature + top_p together, so only use temperature
     response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json={
             "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say 'hello world'"}],
@@ -241,7 +229,7 @@ async def test_anthropic_multiple_extra_params(http_client, gateway_healthy):
             "stop_sequences": ["goodbye"],
             "temperature": 0.5,
         },
-        headers={"Authorization": f"Bearer {API_KEY}"},
+        headers={"Authorization": f"Bearer {api_key}"},
     )
 
     assert response.status_code == 200, f"Request failed: {response.text}"
@@ -261,11 +249,11 @@ async def test_anthropic_multiple_extra_params(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_anthropic_streaming_with_extra_params(http_client, gateway_healthy):
+async def test_anthropic_streaming_with_extra_params(http_client, gateway_healthy, gateway_url, api_key):
     """Verify extra parameters work with streaming Anthropic requests."""
     async with http_client.stream(
         "POST",
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json={
             "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say hello"}],
@@ -274,7 +262,7 @@ async def test_anthropic_streaming_with_extra_params(http_client, gateway_health
             "metadata": {"user_id": "streaming-test"},
             "stop_sequences": ["goodbye"],
         },
-        headers={"Authorization": f"Bearer {API_KEY}"},
+        headers={"Authorization": f"Bearer {api_key}"},
     ) as response:
         assert response.status_code == 200
         assert "text/event-stream" in response.headers["content-type"]

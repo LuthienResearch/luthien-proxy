@@ -70,16 +70,16 @@ class TestTextBlockStreaming:
 
     @pytest.mark.asyncio
     async def test_text_pass_through(self):
-        """Text block judged 'pass' emits: delta + stop."""
+        """Text block judged 'pass' emits: start + delta + stop together."""
         policy = _make_policy()
         ctx = _make_context()
 
         with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
             mock_judge.return_value = JudgeAction(action="pass")
 
-            # Start is passed through immediately
+            # Start is buffered (not emitted immediately)
             start_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(0)), ctx)
-            assert event_types(start_events) == ["content_block_start"]
+            assert start_events == []
 
             # Delta is buffered
             delta_events = await policy.on_anthropic_stream_event(
@@ -87,18 +87,18 @@ class TestTextBlockStreaming:
             )
             assert delta_events == []
 
-            # Stop triggers judge, emits buffered delta + stop
+            # Stop triggers judge, emits buffered start + delta + stop
             stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-            assert event_types(stop_events) == ["content_block_delta", "content_block_stop"]
+            assert event_types(stop_events) == ["content_block_start", "content_block_delta", "content_block_stop"]
             # Verify the buffered text is in the delta
-            delta = stop_events[0]
+            delta = stop_events[1]
             assert isinstance(delta, RawContentBlockDeltaEvent)
             assert isinstance(delta.delta, TextDelta)
             assert delta.delta.text == "hello world"
 
     @pytest.mark.asyncio
     async def test_text_blocked(self):
-        """Text block judged 'block' emits just the stop (start was already emitted)."""
+        """Text block judged 'block' suppresses entirely (no start, no stop)."""
         policy = _make_policy()
         ctx = _make_context()
 
@@ -109,8 +109,8 @@ class TestTextBlockStreaming:
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("secret", 0)), ctx)
 
             stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-            # Text start was already emitted, so stop must be emitted to close the block
-            assert event_types(stop_events) == ["content_block_stop"]
+            # Text start was buffered — judge blocked, so entire block is suppressed
+            assert stop_events == []
 
     @pytest.mark.asyncio
     async def test_text_replaced_with_text(self):
@@ -255,11 +255,11 @@ class TestMultiBlockStreaming:
         with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
             mock_judge.side_effect = [pass_action, block_action]
 
-            # Text block at index 0 — passes through
+            # Text block at index 0 — passes through (start is buffered until stop)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(0)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("hello", 0)), ctx)
             text_stop = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-            assert event_types(text_stop) == ["content_block_delta", "content_block_stop"]
+            assert event_types(text_stop) == ["content_block_start", "content_block_delta", "content_block_stop"]
 
             # Tool block at index 1 — blocked, emits explanatory text
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(1)), ctx)

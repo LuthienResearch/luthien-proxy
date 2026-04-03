@@ -132,6 +132,13 @@ def init_sentry(settings: Settings | None = None) -> None:
         logger.warning("SENTRY_ENABLED=true but SENTRY_DSN is empty — Sentry is NOT active")
         return
 
+    if not settings.sentry_dsn.startswith(("https://", "http://")):
+        logger.warning(
+            "SENTRY_ENABLED=true but SENTRY_DSN=%r is not a valid URL — Sentry is NOT active",
+            settings.sentry_dsn,
+        )
+        return
+
     # OTel exporter logs at ERROR when Tempo is unreachable — expected in
     # local dev without Docker. Don't let these burn Sentry quota.
     ignore_logger("opentelemetry.sdk.trace.export")

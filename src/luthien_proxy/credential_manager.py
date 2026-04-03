@@ -81,16 +81,6 @@ def hash_credential(api_key: str) -> str:
     return hashlib.sha256(api_key.encode()).hexdigest()
 
 
-def is_anthropic_api_key(credential: str) -> bool:
-    """Check if a credential looks like an Anthropic API key (not an OAuth token).
-
-    Anthropic API keys use the ``sk-ant-api`` prefix, while OAuth access tokens
-    use ``sk-ant-oat``.  Both start with ``sk-ant-`` but only API keys should
-    be forwarded via the ``x-api-key`` header; OAuth tokens must use Bearer auth.
-    """
-    return credential.startswith("sk-ant-") and not credential.startswith("sk-ant-oat")
-
-
 class CredentialManager:
     """Manages auth configuration and credential validation caching.
 

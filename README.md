@@ -48,27 +48,29 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 
 ## What can it do?
 
-### Enforce arbitrary rules/policies
+### Enforce arbitrary policies
 
-- **Block dangerous operations** - `rm -rf`, `git push --force`, dropping database tables
-- **Enforce package standards** - block `pip install`, suggest `uv add` instead
-- **Clean up AI writing tics** - remove em dashes, curly quotes, over-bulleting
-- **Enforce scope boundaries** - only allow changes to files mentioned in the request
+- **Block dangerous operations** — `rm -rf`, `git push --force`, dropping database tables
+- **Enforce package standards** — block `pip install`, suggest `uv add` instead
+- **Clean up AI writing tics** — remove em dashes, curly quotes, over-bulleting
+- **Enforce scope boundaries** — only allow changes to files mentioned in the request
 
-**Example: ToolCallJudgePolicy** - an LLM judge that evaluates every tool call:
+**Example: ToolCallJudgePolicy** — an LLM judge that evaluates every tool call:
 
 ```yaml
 # config/policy_config.yaml
 policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
-    model: "openai/gpt-4o-mini"
-    probability_threshold: 0.6  # block if judge confidence >= 60%
+    model: "anthropic/claude-haiku-4-5-20251001"  # swap for a larger model if needed
+    probability_threshold: 0.6  # block when judge LLM's subjective risk score >= 0.6 (higher = more permissive)
     judge_instructions: >
       Block any 'pip install' commands. Suggest 'uv add' instead.
       Block 'rm -rf' or any recursive delete on project directories.
       Block 'git push --force' to main or master.
 ```
+
+> The `class:` field is a Python import path (`module:ClassName`). You can use any of the [built-in policies](#core-policies) or write your own.
 
 ### Log everything passing through the proxy
 
@@ -166,7 +168,6 @@ ADMIN_API_KEY=admin-dev-key          # API key for admin/policy management UI (H
 ```bash
 # Only needed if NOT using Claude Pro/Max OAuth passthrough
 ANTHROPIC_API_KEY=your_anthropic_api_key_here  # optional — per-token billing, see warning above
-OPENAI_API_KEY=your_openai_api_key_here        # optional — needed for OpenAI-format judge policies
 ```
 
 ### Core Infrastructure
@@ -197,9 +198,8 @@ POLICY_CONFIG=./config/policy_config.yaml
 
 ```bash
 # Configuration for judge-based policies (ToolCallJudgePolicy)
-LLM_JUDGE_MODEL=openai/gpt-4                         # Model for judge
-LLM_JUDGE_API_BASE=http://localhost:11434/v1         # API base URL
-LLM_JUDGE_API_KEY=your_judge_api_key                 # API key for judge
+LLM_JUDGE_MODEL=anthropic/claude-haiku-4-5-20251001   # Model for judge
+LLM_JUDGE_API_KEY=your_judge_api_key                 # optional — only if judge needs a different key than the client's
 ```
 
 See `.env.example` for all available options and defaults.
@@ -214,8 +214,8 @@ Example policy configuration:
 policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
-    model: "openai/gpt-4o-mini"
-    probability_threshold: 0.6  # block if judge confidence >= 60% (higher = more permissive)
+    model: "anthropic/claude-haiku-4-5-20251001"  # swap for a larger model if needed
+    probability_threshold: 0.6  # block when judge LLM's subjective risk score >= 0.6 (higher = more permissive)
     temperature: 0.0
     max_tokens: 256
 ```
