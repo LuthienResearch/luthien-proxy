@@ -366,6 +366,22 @@ class TestSentryDisabledInTests:
         assert not sentry_sdk.is_initialized()
         assert "SENTRY_ENABLED=true but SENTRY_DSN is empty" in caplog.text
 
+    def test_init_sentry_warns_when_dsn_is_non_url_string(self, monkeypatch, caplog):
+        monkeypatch.setenv("SENTRY_ENABLED", "true")
+        monkeypatch.setenv("SENTRY_DSN", "n")
+        import sentry_sdk
+
+        from luthien_proxy.observability.sentry import init_sentry
+        from luthien_proxy.settings import Settings, clear_settings_cache
+
+        clear_settings_cache()
+        settings = Settings(_env_file=None)
+        with caplog.at_level(logging.WARNING):
+            init_sentry(settings)
+        assert not sentry_sdk.is_initialized()
+        assert "SENTRY_ENABLED=true but SENTRY_DSN=" in caplog.text
+        assert "is not a valid URL" in caplog.text
+
 
 class TestInitSentryHappyPath:
     def test_init_sentry_calls_sdk_init_with_expected_kwargs(self, monkeypatch):

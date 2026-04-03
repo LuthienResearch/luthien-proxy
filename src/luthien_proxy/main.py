@@ -58,6 +58,7 @@ from luthien_proxy.utils.credential_cache import (
     RedisCredentialCache,
 )
 from luthien_proxy.utils.migration_check import check_migrations
+from luthien_proxy.utils.url import sanitize_url_for_logging
 
 # Configure OpenTelemetry tracing and logging EARLY (before app creation)
 # This ensures the tracer provider is set up before any spans are created
@@ -213,8 +214,10 @@ def create_app(
             _credential_cache = InProcessCredentialCache()
             logger.info("Using in-process credential cache (no Redis)")
 
-        # Initialize CredentialManager for passthrough auth
-        _credential_manager = CredentialManager(db_pool=db_pool, cache=_credential_cache)
+        # Initialize CredentialManager for passthrough auth + server credentials
+        _enc_key_str = get_settings().credential_encryption_key
+        encryption_key = _enc_key_str.encode() if _enc_key_str else None
+        _credential_manager = CredentialManager(db_pool=db_pool, cache=_credential_cache, encryption_key=encryption_key)
         await _credential_manager.initialize(default_auth_mode=auth_mode)
 
         _resolved_mode = _credential_manager.config.auth_mode.value
@@ -428,7 +431,7 @@ async def connect_redis(redis_url: str) -> Redis:
     try:
         client: Redis = Redis.from_url(redis_url, decode_responses=False)
         await client.ping()
-        logger.info(f"Connected to Redis at {redis_url}")
+        logger.info(f"Connected to Redis at {sanitize_url_for_logging(redis_url)}")
         return client
     except Exception as exc:
         raise RuntimeError(f"Failed to connect to Redis: {exc}") from exc

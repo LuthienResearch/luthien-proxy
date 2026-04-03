@@ -316,4 +316,20 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 ---
 
+## Credential Type as Frozen Value Object (2026-04-02)
+
+**Decision**: Introduce `Credential` (frozen dataclass) as the single type for credentials flowing through the system. `CredentialType` enum replaces ad-hoc `auth_type: Literal["api_key", "auth_token"]` strings and `is_bearer: bool` flags. Auth provider resolution is a tagged union (`UserCredentials | ServerKey | UserThenServer`) parsed from policy YAML config.
+
+**Rationale**:
+- Previous system had 5+ independent extraction/detection points using different heuristics (header parsing, string prefix checks, boolean flags)
+- `Credential` carries type metadata alongside the value, so downstream code doesn't re-derive it
+- Frozen dataclass enforces immutability — credential can't be accidentally mutated after extraction
+- Auth providers decouple "where does the credential come from" (config concern) from "what is the credential" (runtime concern)
+
+**Alternatives rejected**:
+- Keeping raw strings + `is_bearer` flags: type information lost between layers, each consumer re-derives it
+- Single `resolve()` method with string-based dispatch: loses type safety of the tagged union
+
+---
+
 (Add new decisions as they're made with timestamps: YYYY-MM-DD)

@@ -1,5 +1,6 @@
 """Unit tests for gateway routes - auth modes and client resolution."""
 
+from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -95,7 +96,7 @@ class TestGatewayAuthAndClientResolution:
 
     def test_proxy_key_mode_accepts_correct_key(self, mock_app):
         app, _, credential_manager, _ = mock_app
-        credential_manager.config.auth_mode = AuthMode.PROXY_KEY
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PROXY_KEY)
 
         with patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process:
             mock_process.return_value = MagicMock()
@@ -113,7 +114,7 @@ class TestGatewayAuthAndClientResolution:
 
     def test_proxy_key_mode_rejects_wrong_key(self, mock_app):
         app, _, credential_manager, _ = mock_app
-        credential_manager.config.auth_mode = AuthMode.PROXY_KEY
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PROXY_KEY)
 
         client = TestClient(app, raise_server_exceptions=False)
         response = client.post(
@@ -129,7 +130,7 @@ class TestGatewayAuthAndClientResolution:
 
     def test_passthrough_mode_validates_credential(self, mock_app):
         app, _, credential_manager, _ = mock_app
-        credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PASSTHROUGH)
 
         with patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process:
             mock_process.return_value = MagicMock()
@@ -148,7 +149,7 @@ class TestGatewayAuthAndClientResolution:
 
     def test_passthrough_mode_rejects_invalid(self, mock_app):
         app, _, credential_manager, _ = mock_app
-        credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PASSTHROUGH)
         credential_manager.validate_credential = AsyncMock(return_value=False)
 
         client = TestClient(app, raise_server_exceptions=False)
@@ -165,7 +166,7 @@ class TestGatewayAuthAndClientResolution:
 
     def test_both_mode_accepts_proxy_key(self, mock_app):
         app, _, credential_manager, _ = mock_app
-        credential_manager.config.auth_mode = AuthMode.BOTH
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.BOTH)
 
         with patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process:
             mock_process.return_value = MagicMock()
@@ -184,7 +185,7 @@ class TestGatewayAuthAndClientResolution:
 
     def test_both_mode_falls_through_to_passthrough(self, mock_app):
         app, _, credential_manager, _ = mock_app
-        credential_manager.config.auth_mode = AuthMode.BOTH
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.BOTH)
 
         with patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process:
             mock_process.return_value = MagicMock()
@@ -217,7 +218,7 @@ class TestGatewayAuthAndClientResolution:
 
     def test_x_anthropic_api_key_header_takes_precedence(self, mock_app):
         app, mock_anthropic_client, credential_manager, _ = mock_app
-        credential_manager.config.auth_mode = AuthMode.PROXY_KEY
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PROXY_KEY)
 
         with (
             patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
@@ -242,7 +243,7 @@ class TestGatewayAuthAndClientResolution:
 
     def test_empty_x_anthropic_api_key_returns_401(self, mock_app):
         app, _, credential_manager, _ = mock_app
-        credential_manager.config.auth_mode = AuthMode.PROXY_KEY
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PROXY_KEY)
 
         client = TestClient(app, raise_server_exceptions=False)
         response = client.post(
@@ -262,8 +263,8 @@ class TestGatewayAuthAndClientResolution:
     def test_both_mode_no_validation_forwards_passthrough(self, mock_app):
         """In BOTH mode with validate_credentials=False, non-proxy tokens pass through."""
         app, _, credential_manager, _ = mock_app
-        credential_manager.config.auth_mode = AuthMode.BOTH
-        credential_manager.config.validate_credentials = False
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.BOTH)
+        credential_manager.config = replace(credential_manager.config, validate_credentials=False)
 
         with (
             patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
@@ -288,7 +289,7 @@ class TestGatewayAuthAndClientResolution:
     def test_passthrough_bearer_creates_auth_token_client(self, mock_app):
         """In passthrough mode, a Bearer credential creates an auth_token client."""
         app, _, credential_manager, _ = mock_app
-        credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PASSTHROUGH)
 
         with (
             patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
@@ -308,11 +309,11 @@ class TestGatewayAuthAndClientResolution:
             )
             mock_cache.get_client.assert_called_once_with("my-anthropic-token", auth_type="auth_token", base_url=None)
 
-    def test_passthrough_bearer_with_api_key_prefix_creates_api_key_client(self, mock_app):
-        """In passthrough mode, API keys via Bearer header create api_key client.
-        API keys are always sent via api_key regardless of transport header."""
+    def test_passthrough_bearer_with_api_key_prefix_creates_auth_token_client(self, mock_app):
+        """In passthrough mode, Bearer transport is authoritative — even if the token
+        looks like an API key, it's treated as auth_token because Bearer said so."""
         app, _, credential_manager, _ = mock_app
-        credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PASSTHROUGH)
 
         with (
             patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
@@ -330,12 +331,14 @@ class TestGatewayAuthAndClientResolution:
                 },
                 headers={"Authorization": "Bearer sk-ant-api03-test-key"},
             )
-            mock_cache.get_client.assert_called_once_with("sk-ant-api03-test-key", auth_type="api_key", base_url=None)
+            mock_cache.get_client.assert_called_once_with(
+                "sk-ant-api03-test-key", auth_type="auth_token", base_url=None
+            )
 
     def test_passthrough_api_key_creates_api_key_client(self, mock_app):
         """In passthrough mode, an x-api-key credential creates an api_key client."""
         app, _, credential_manager, _ = mock_app
-        credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PASSTHROUGH)
 
         with (
             patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
@@ -358,7 +361,7 @@ class TestGatewayAuthAndClientResolution:
     def test_no_anthropic_client_returns_500_for_proxy_key(self, mock_app):
         """Proxy key auth with no ANTHROPIC_API_KEY configured returns 500."""
         app, _, credential_manager, deps = mock_app
-        credential_manager.config.auth_mode = AuthMode.PROXY_KEY
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PROXY_KEY)
         deps.anthropic_client = None
 
         client = TestClient(app, raise_server_exceptions=False)
@@ -376,7 +379,7 @@ class TestGatewayAuthAndClientResolution:
     def test_passthrough_bearer_records_oauth_credential_type(self, mock_app):
         """In passthrough mode with bearer token, deps.last_credential_info updated with oauth type."""
         app, _, credential_manager, deps = mock_app
-        credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PASSTHROUGH)
         deps.last_credential_info = {}
 
         with (
@@ -401,7 +404,7 @@ class TestGatewayAuthAndClientResolution:
     def test_proxy_key_mode_does_not_record_credential_type(self, mock_app):
         """In proxy_key mode, last_credential_info is NOT updated (recording skipped)."""
         app, _, credential_manager, deps = mock_app
-        credential_manager.config.auth_mode = AuthMode.PROXY_KEY
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PROXY_KEY)
         deps.last_credential_info = {}
 
         with (
@@ -425,7 +428,7 @@ class TestGatewayAuthAndClientResolution:
     def test_x_anthropic_api_key_records_client_api_key_type(self, mock_app):
         """When x-anthropic-api-key header provided, deps.last_credential_info updated with client_api_key type."""
         app, _, credential_manager, deps = mock_app
-        credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PASSTHROUGH)
         deps.last_credential_info = {}
 
         with (
@@ -451,10 +454,10 @@ class TestGatewayAuthAndClientResolution:
             assert deps.last_credential_info["type"] == "client_api_key"
             assert "timestamp" in deps.last_credential_info
 
-    def test_passthrough_x_api_key_non_anthropic_records_oauth(self, mock_app):
-        """In passthrough mode, x-api-key with non-Anthropic token records oauth_via_api_key."""
+    def test_passthrough_x_api_key_non_anthropic_records_client_api_key(self, mock_app):
+        """In passthrough mode, any x-api-key token records client_api_key (transport header is authoritative)."""
         app, _, credential_manager, deps = mock_app
-        credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PASSTHROUGH)
         deps.last_credential_info = {}
 
         with (
@@ -473,13 +476,13 @@ class TestGatewayAuthAndClientResolution:
                 },
                 headers={"x-api-key": "oauth-token-not-sk-ant"},
             )
-            assert deps.last_credential_info["type"] == "oauth_via_api_key"
+            assert deps.last_credential_info["type"] == "client_api_key"
             assert "timestamp" in deps.last_credential_info
 
     def test_passthrough_x_api_key_anthropic_records_client_api_key(self, mock_app):
         """In passthrough mode, x-api-key with sk-ant-* token records client_api_key."""
         app, _, credential_manager, deps = mock_app
-        credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PASSTHROUGH)
         deps.last_credential_info = {}
 
         with (
@@ -504,7 +507,7 @@ class TestGatewayAuthAndClientResolution:
     def test_passthrough_bearer_sk_ant_oat_records_oauth(self, mock_app):
         """Bearer token with sk-ant-oat prefix (Anthropic OAuth) records oauth, not client_api_key."""
         app, _, credential_manager, deps = mock_app
-        credential_manager.config.auth_mode = AuthMode.PASSTHROUGH
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PASSTHROUGH)
         deps.last_credential_info = {}
 
         with (
@@ -525,3 +528,52 @@ class TestGatewayAuthAndClientResolution:
             )
             assert deps.last_credential_info["type"] == "oauth"
             assert "timestamp" in deps.last_credential_info
+
+
+class TestProxyPassthrough:
+    """Test catch-all /v1/* proxy passthrough route."""
+
+    @pytest.fixture
+    def mock_app(self):
+        """Create a minimal FastAPI app with gateway routes."""
+        from luthien_proxy.dependencies import Dependencies
+        from luthien_proxy.gateway_routes import router
+
+        app = FastAPI()
+        app.include_router(router)
+
+        deps = MagicMock(spec=Dependencies)
+        deps.api_key = "test-proxy-key"
+        deps.credential_manager = None
+        deps.anthropic_client = None
+        deps.db_pool = None
+        deps.enable_request_logging = False
+        app.state.dependencies = deps
+        return app
+
+    def test_passthrough_forwards_to_anthropic(self, mock_app):
+        """Test that /v1/models is forwarded to Anthropic API."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b'{"data": []}'
+        mock_response.headers = {"content-type": "application/json"}
+
+        with patch("luthien_proxy.gateway_routes._passthrough_client") as mock_client:
+            mock_client.request = AsyncMock(return_value=mock_response)
+
+            client = TestClient(mock_app, raise_server_exceptions=False)
+            response = client.get(
+                "/v1/models",
+                headers={"Authorization": "Bearer test-proxy-key"},
+            )
+
+            assert response.status_code == 200
+            mock_client.request.assert_called_once()
+            call_kwargs = mock_client.request.call_args.kwargs
+            assert call_kwargs["url"] == "https://api.anthropic.com/v1/models"
+
+    def test_passthrough_requires_auth(self, mock_app):
+        """Test that passthrough route requires authentication."""
+        client = TestClient(mock_app, raise_server_exceptions=False)
+        response = client.get("/v1/models")
+        assert response.status_code == 401

@@ -8,8 +8,12 @@ Session ID sources:
 
 Prerequisites:
 - `claude` CLI must be installed (npm install -g @anthropic-ai/claude-cli)
-- Gateway must be running (docker compose up gateway)
 - Valid API credentials in env or .env
+
+Run:
+    ./scripts/run_e2e.sh sqlite
+    # or directly:
+    uv run pytest -m sqlite_e2e tests/luthien_proxy/e2e_tests/test_session_tracking.py -v
 """
 
 import asyncio
@@ -23,9 +27,6 @@ from tests.constants import DEFAULT_TEST_MODEL
 
 # Import shared config and helpers from conftest
 from tests.luthien_proxy.e2e_tests.conftest import (  # noqa: F401
-    ADMIN_API_KEY,
-    API_KEY,
-    GATEWAY_URL,
     policy_context,
 )
 
@@ -55,12 +56,16 @@ def parse_claude_stream_json(output: str) -> list[dict]:
 
 async def run_claude_code(
     prompt: str,
+    gateway_url: str,
+    api_key: str,
     timeout_seconds: int = 60,
 ) -> tuple[list[dict], str, str]:
     """Run Claude Code CLI in headless mode.
 
     Args:
         prompt: The prompt to send
+        gateway_url: Base URL of the gateway
+        api_key: API key for authentication
         timeout_seconds: Command timeout
 
     Returns:
@@ -69,8 +74,8 @@ async def run_claude_code(
     cmd = ["claude", "-p", "--output-format", "stream-json", "--verbose", "--max-turns", "1"]
 
     env = os.environ.copy()
-    env["ANTHROPIC_BASE_URL"] = GATEWAY_URL
-    env["ANTHROPIC_AUTH_TOKEN"] = API_KEY
+    env["ANTHROPIC_BASE_URL"] = gateway_url
+    env["ANTHROPIC_AUTH_TOKEN"] = api_key
     env.pop("CLAUDECODE", None)
     env.pop("CLAUDE_CODE_ENTRYPOINT", None)
 
@@ -109,13 +114,17 @@ def extract_claude_session_id(events: list[dict]) -> str | None:
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_session_id_format(claude_available, gateway_healthy):
+async def test_claude_code_session_id_format(claude_available, gateway_healthy, gateway_url, api_key):
     """Verify Claude Code provides session ID in the expected format.
 
     Claude Code's session ID should be a UUID that can be extracted from
     the metadata.user_id field (format: user_<hash>_account__session_<uuid>).
     """
-    events, stdout, stderr = await run_claude_code(prompt="What is 2+2? Reply with just the number.")
+    events, stdout, stderr = await run_claude_code(
+        prompt="What is 2+2? Reply with just the number.",
+        gateway_url=gateway_url,
+        api_key=api_key,
+    )
 
     # Should have events
     assert len(events) > 0, f"Expected events, got none. stderr: {stderr}"
@@ -130,9 +139,13 @@ async def test_claude_code_session_id_format(claude_available, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_session_consistency(claude_available, gateway_healthy):
+async def test_claude_code_session_consistency(claude_available, gateway_healthy, gateway_url, api_key):
     """Verify Claude Code session ID is consistent across all events in a request."""
-    events, stdout, stderr = await run_claude_code(prompt="Say hello briefly.")
+    events, stdout, stderr = await run_claude_code(
+        prompt="Say hello briefly.",
+        gateway_url=gateway_url,
+        api_key=api_key,
+    )
 
     assert len(events) > 0, f"Expected events. stderr: {stderr}"
 
@@ -148,13 +161,17 @@ async def test_claude_code_session_consistency(claude_available, gateway_healthy
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_request_flows_through_gateway(claude_available, gateway_healthy):
+async def test_claude_code_request_flows_through_gateway(claude_available, gateway_healthy, gateway_url, api_key):
     """Verify Claude Code request successfully flows through the gateway.
 
     This confirms the gateway correctly handles Claude Code's metadata.user_id
     field containing the session information.
     """
-    events, stdout, stderr = await run_claude_code(prompt="What is the capital of France? One word answer.")
+    events, stdout, stderr = await run_claude_code(
+        prompt="What is the capital of France? One word answer.",
+        gateway_url=gateway_url,
+        api_key=api_key,
+    )
 
     # Find result event
     result_event = None
@@ -172,14 +189,24 @@ async def test_claude_code_request_flows_through_gateway(claude_available, gatew
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_multiple_requests_different_sessions(claude_available, gateway_healthy):
+async def test_claude_code_multiple_requests_different_sessions(
+    claude_available, gateway_healthy, gateway_url, api_key
+):
     """Verify different Claude Code invocations get different session IDs.
 
     Each `claude -p` invocation should create a new session with unique ID.
     """
     # Make two separate requests
-    events1, _, stderr1 = await run_claude_code(prompt="Say 'one'")
-    events2, _, stderr2 = await run_claude_code(prompt="Say 'two'")
+    events1, _, stderr1 = await run_claude_code(
+        prompt="Say 'one'",
+        gateway_url=gateway_url,
+        api_key=api_key,
+    )
+    events2, _, stderr2 = await run_claude_code(
+        prompt="Say 'two'",
+        gateway_url=gateway_url,
+        api_key=api_key,
+    )
 
     session_id_1 = extract_claude_session_id(events1)
     session_id_2 = extract_claude_session_id(events2)
@@ -202,14 +229,14 @@ async def test_claude_code_multiple_requests_different_sessions(claude_available
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_anthropic_endpoint_accepts_claude_code_metadata(http_client, gateway_healthy):
+async def test_anthropic_endpoint_accepts_claude_code_metadata(http_client, gateway_healthy, gateway_url, api_key):
     """Verify Anthropic endpoint correctly handles Claude Code's metadata format.
 
     This simulates the request format Claude Code sends, with session info
     embedded in metadata.user_id.
     """
     response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json={
             "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say hello"}],
@@ -217,7 +244,7 @@ async def test_anthropic_endpoint_accepts_claude_code_metadata(http_client, gate
             "stream": False,
             "metadata": {"user_id": "user_abc123hash_account__session_12345678-1234-1234-1234-123456789abc"},
         },
-        headers={"Authorization": f"Bearer {API_KEY}"},
+        headers={"Authorization": f"Bearer {api_key}"},
     )
 
     assert response.status_code == 200, f"Request failed: {response.text}"
@@ -234,7 +261,13 @@ async def test_anthropic_endpoint_accepts_claude_code_metadata(http_client, gate
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_session_captured_by_debug_policy(claude_available, gateway_healthy):
+async def test_claude_code_session_captured_by_debug_policy(
+    claude_available,
+    gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
+):
     """Verify DebugLoggingPolicy captures session info from Claude Code requests.
 
     This test activates DebugLoggingPolicy, runs Claude Code through the gateway,
@@ -244,8 +277,14 @@ async def test_claude_code_session_captured_by_debug_policy(claude_available, ga
     async with policy_context(
         "luthien_proxy.policies.debug_logging_policy:DebugLoggingPolicy",
         {},
+        gateway_url=gateway_url,
+        admin_api_key=admin_api_key,
     ):
-        events, stdout, stderr = await run_claude_code(prompt="Say 'test' and nothing else.")
+        events, stdout, stderr = await run_claude_code(
+            prompt="Say 'test' and nothing else.",
+            gateway_url=gateway_url,
+            api_key=api_key,
+        )
 
         # Request should succeed
         assert len(events) > 0, f"Expected events. stderr: {stderr}"
@@ -270,7 +309,7 @@ async def test_claude_code_session_captured_by_debug_policy(claude_available, ga
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_session_id_persisted_to_database(http_client, gateway_healthy):
+async def test_session_id_persisted_to_database(http_client, gateway_healthy, gateway_url, api_key, admin_api_key):
     """Verify session_id is correctly persisted to database and returned via debug API.
 
     This test:
@@ -283,7 +322,7 @@ async def test_session_id_persisted_to_database(http_client, gateway_healthy):
 
     # Make request with session metadata
     response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json={
             "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say 'verified'"}],
@@ -291,7 +330,7 @@ async def test_session_id_persisted_to_database(http_client, gateway_healthy):
             "stream": False,
             "metadata": {"user_id": test_user_id},
         },
-        headers={"Authorization": f"Bearer {API_KEY}"},
+        headers={"Authorization": f"Bearer {api_key}"},
     )
 
     assert response.status_code == 200, f"Request failed: {response.text}"
@@ -305,8 +344,8 @@ async def test_session_id_persisted_to_database(http_client, gateway_healthy):
     await asyncio.sleep(0.5)
 
     debug_response = await http_client.get(
-        f"{GATEWAY_URL}/api/debug/calls/{call_id}",
-        headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
+        f"{gateway_url}/api/debug/calls/{call_id}",
+        headers={"Authorization": f"Bearer {admin_api_key}"},
     )
 
     assert debug_response.status_code == 200, f"Debug API failed: {debug_response.text}"
@@ -324,12 +363,12 @@ async def test_session_id_persisted_to_database(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_anthropic_session_header_persisted(http_client, gateway_healthy):
+async def test_anthropic_session_header_persisted(http_client, gateway_healthy, gateway_url, api_key, admin_api_key):
     """Verify x-session-id header is correctly persisted for Anthropic format requests."""
     test_session_id = "anthropic-test-session-xyz789"
 
     response = await http_client.post(
-        f"{GATEWAY_URL}/v1/messages",
+        f"{gateway_url}/v1/messages",
         json={
             "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Say 'verified'"}],
@@ -337,7 +376,7 @@ async def test_anthropic_session_header_persisted(http_client, gateway_healthy):
             "stream": False,
         },
         headers={
-            "Authorization": f"Bearer {API_KEY}",
+            "Authorization": f"Bearer {api_key}",
             "x-session-id": test_session_id,
         },
     )
@@ -352,8 +391,8 @@ async def test_anthropic_session_header_persisted(http_client, gateway_healthy):
     await asyncio.sleep(0.5)
 
     debug_response = await http_client.get(
-        f"{GATEWAY_URL}/api/debug/calls/{call_id}",
-        headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
+        f"{gateway_url}/api/debug/calls/{call_id}",
+        headers={"Authorization": f"Bearer {admin_api_key}"},
     )
 
     assert debug_response.status_code == 200, f"Debug API failed: {debug_response.text}"
@@ -367,13 +406,23 @@ async def test_anthropic_session_header_persisted(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_session_matches_server(claude_available, gateway_healthy):
+async def test_claude_code_session_matches_server(
+    claude_available,
+    gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
+):
     """Verify Claude Code's session ID matches what the server extracted and stored.
 
     This is the key end-to-end verification: the session ID reported by Claude Code
     must match the session ID extracted and persisted by the gateway.
     """
-    events, stdout, stderr = await run_claude_code(prompt="Say 'match test'")
+    events, stdout, stderr = await run_claude_code(
+        prompt="Say 'match test'",
+        gateway_url=gateway_url,
+        api_key=api_key,
+    )
 
     assert len(events) > 0, f"Expected events. stderr: {stderr}"
 
@@ -399,8 +448,8 @@ async def test_claude_code_session_matches_server(claude_available, gateway_heal
         await asyncio.sleep(0.5)  # Wait for async persistence
 
         debug_response = await client.get(
-            f"{GATEWAY_URL}/api/debug/calls/{call_id}/events",
-            headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
+            f"{gateway_url}/api/debug/calls/{call_id}/events",
+            headers={"Authorization": f"Bearer {admin_api_key}"},
         )
 
         if debug_response.status_code == 200:

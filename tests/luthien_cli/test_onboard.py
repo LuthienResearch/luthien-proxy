@@ -118,6 +118,7 @@ def test_onboard_local_full_flow(tmp_path):
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open"),
+        patch("luthien_cli.commands.claude._exec_claude"),
     ):
         result = runner.invoke(cli, ["onboard"], input="y\nn\nq\n")
 
@@ -156,6 +157,7 @@ def test_onboard_docker_full_flow(tmp_path):
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_docker_ports", return_value={"GATEWAY_PORT": "9123"}),
         patch("luthien_cli.commands.onboard.webbrowser.open"),
+        patch("luthien_cli.commands.claude._exec_claude"),
     ):
         mock_run.return_value = MagicMock(returncode=0)
         result = runner.invoke(cli, ["onboard", "--docker"], input="y\nn\nq\n")
@@ -192,17 +194,28 @@ def test_onboard_docker_failure(tmp_path):
     repo_path = tmp_path / "managed-repo"
     repo_path.mkdir()
     (repo_path / "docker-compose.yaml").touch()
+    (repo_path / ".env.example").write_text("PROXY_API_KEY=placeholder\n")
+
+    clone_dir = tmp_path / "clone"
+    clone_dir.mkdir()
+    (clone_dir / ".env.example").write_text("")
 
     with (
         patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path),
         patch("luthien_cli.commands.onboard.ensure_repo", return_value=str(repo_path)),
+        patch("luthien_cli.commands.onboard.ensure_repo_clone", return_value=str(clone_dir)),
         patch("luthien_cli.commands.onboard.subprocess.run") as mock_run,
     ):
-        mock_run.return_value = MagicMock(returncode=1, stderr="compose error")
+        # pull fails, then build also fails (--yes auto-accepts the fallback)
+        mock_run.side_effect = [
+            MagicMock(returncode=1, stderr="compose error"),  # pull
+            MagicMock(returncode=1, stdout="", stderr="build error"),  # build
+        ]
         result = runner.invoke(cli, ["onboard", "--docker", "-y"])
 
     assert result.exit_code != 0
-    assert "failed" in result.output.lower()
+    assert "could not pull" in result.output.lower()
+    assert "luthien onboard" in result.output
 
 
 def test_onboard_local_gateway_unhealthy(tmp_path):
@@ -300,6 +313,7 @@ def test_onboard_shows_config_locations(tmp_path):
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open"),
+        patch("luthien_cli.commands.claude._exec_claude"),
     ):
         result = runner.invoke(cli, ["onboard"], input="y\nn\nq\n")
 
@@ -324,6 +338,7 @@ def test_onboard_shows_uninstall_instructions(tmp_path):
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open"),
+        patch("luthien_cli.commands.claude._exec_claude"),
     ):
         result = runner.invoke(cli, ["onboard"], input="y\nn\nq\n")
 
@@ -346,6 +361,7 @@ def test_onboard_opens_browser(tmp_path):
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open") as mock_browser,
+        patch("luthien_cli.commands.claude._exec_claude"),
     ):
         result = runner.invoke(cli, ["onboard"], input="y\nn\nq\n")
 
@@ -369,6 +385,7 @@ def test_onboard_local_with_proxy_ref(tmp_path):
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open"),
+        patch("luthien_cli.commands.claude._exec_claude"),
     ):
         result = runner.invoke(cli, ["onboard", "--proxy-ref", "abc123"], input="y\nn\nq\n")
 
@@ -405,9 +422,49 @@ def test_onboard_local_with_pr_ref(tmp_path):
         patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
         patch("luthien_cli.commands.onboard.find_free_port", return_value=8000),
         patch("luthien_cli.commands.onboard.webbrowser.open"),
+        patch("luthien_cli.commands.claude._exec_claude"),
     ):
         result = runner.invoke(cli, ["onboard", "--proxy-ref", "#123"], input="y\nn\nq\n")
 
     assert result.exit_code == 0, result.output
     mock_resolve.assert_called_once_with("#123")
     mock_venv.assert_called_once_with(proxy_ref="feature/cool", force_reinstall=True)
+
+
+def test_onboard_local_stops_gateway_before_finding_port(tmp_path):
+    """Regression: stop_gateway must be called before find_free_port in _onboard_local.
+
+    Bug 5: If stop_gateway is called after find_free_port, the old gateway's port
+    won't be freed in time for the port selection to reclaim it, causing port conflicts.
+    """
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    repo_path = tmp_path / "managed-repo"
+    repo_path.mkdir()
+    (repo_path / "config").mkdir()
+
+    call_order = []
+
+    def track_stop_gateway(*args, **kwargs):
+        call_order.append("stop_gateway")
+
+    def track_find_free_port(*args, **kwargs):
+        call_order.append("find_free_port")
+        return 8000
+
+    with (
+        patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.onboard.ensure_gateway_venv", return_value=str(repo_path)),
+        patch("luthien_cli.commands.onboard.stop_gateway", side_effect=track_stop_gateway),
+        patch("luthien_cli.commands.onboard.start_gateway", return_value=12345),
+        patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
+        patch("luthien_cli.commands.onboard.find_free_port", side_effect=track_find_free_port),
+        patch("luthien_cli.commands.onboard.webbrowser.open"),
+        patch("luthien_cli.commands.claude._exec_claude"),
+    ):
+        result = runner.invoke(cli, ["onboard"], input="y\nn\nq\n")
+
+    assert result.exit_code == 0, result.output
+    assert call_order == ["stop_gateway", "find_free_port"], (
+        f"stop_gateway must be called before find_free_port, got order: {call_order}"
+    )

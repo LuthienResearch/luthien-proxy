@@ -10,16 +10,15 @@ Prerequisites:
 """
 
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import ADMIN_API_KEY, GATEWAY_URL
 
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_diffs_page_accessible(http_client, gateway_healthy):
+async def test_diffs_page_accessible(http_client, gateway_healthy, gateway_url, admin_api_key):
     """Verify the diff viewer page is accessible at /diffs and returns HTML."""
     response = await http_client.get(
-        f"{GATEWAY_URL}/diffs",
-        headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
+        f"{gateway_url}/diffs",
+        headers={"Authorization": f"Bearer {admin_api_key}"},
     )
 
     assert response.status_code == 200
@@ -29,10 +28,10 @@ async def test_diffs_page_accessible(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_diffs_page_requires_auth(http_client, gateway_healthy):
+async def test_diffs_page_requires_auth(http_client, gateway_healthy, gateway_url):
     """Verify the diff viewer page requires authentication."""
     # Request without auth should redirect to login
-    response = await http_client.get(f"{GATEWAY_URL}/diffs", follow_redirects=False)
+    response = await http_client.get(f"{gateway_url}/diffs", follow_redirects=False)
 
     # Should either redirect (302/303) or return unauthorized (401)
     assert response.status_code in [302, 303, 401], f"Expected redirect or unauthorized, got {response.status_code}"
@@ -44,11 +43,11 @@ async def test_diffs_page_requires_auth(http_client, gateway_healthy):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_diffs_page_has_navigation(http_client, gateway_healthy):
+async def test_diffs_page_has_navigation(http_client, gateway_healthy, gateway_url, admin_api_key):
     """Verify the diff viewer page includes the shared navigation component."""
     response = await http_client.get(
-        f"{GATEWAY_URL}/diffs",
-        headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
+        f"{gateway_url}/diffs",
+        headers={"Authorization": f"Bearer {admin_api_key}"},
     )
 
     assert response.status_code == 200

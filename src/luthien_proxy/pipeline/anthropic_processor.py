@@ -36,6 +36,8 @@ from opentelemetry import trace
 from opentelemetry.context import get_current
 from opentelemetry.trace import Span
 
+from luthien_proxy.credential_manager import CredentialManager
+from luthien_proxy.credentials import Credential, CredentialError
 from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.types.anthropic import (
@@ -322,6 +324,8 @@ async def process_anthropic_request(
     db_pool: db.DatabasePool | None = None,
     enable_request_logging: bool = False,
     usage_collector: UsageCollector | None = None,
+    user_credential: Credential | None = None,
+    credential_manager: CredentialManager | None = None,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Process an Anthropic API request through the native pipeline.
 
@@ -335,6 +339,8 @@ async def process_anthropic_request(
         db_pool: Database connection pool for request logging
         enable_request_logging: Whether to record HTTP-level request/response logs
         usage_collector: Optional usage telemetry collector for counting requests
+        user_credential: The credential extracted from the incoming request
+        credential_manager: Shared credential manager for auth provider resolution
 
     Returns:
         StreamingResponse or JSONResponse depending on stream parameter
@@ -400,6 +406,8 @@ async def process_anthropic_request(
             emitter=emitter,
             raw_http_request=raw_http_request,
             session_id=session_id,
+            user_credential=user_credential,
+            credential_manager=credential_manager,
         )
 
         # Set policy name on root span for easy identification
@@ -905,7 +913,19 @@ def _handle_anthropic_error(e: Exception, call_id: str) -> None:
     Raises:
         BackendAPIError: If the exception is a known Anthropic API error
     """
-    if isinstance(e, AnthropicStatusError):
+    if isinstance(e, CredentialError):
+        logger.warning(f"[{call_id}] Credential error during policy execution: {repr(e)}")
+        raise BackendAPIError(
+            status_code=502,
+            message=client_error_detail(
+                f"Credential resolution failed: {e}",
+                "The proxy could not authenticate to the backend service.",
+            ),
+            error_type="credential_error",
+            client_format=ClientFormat.ANTHROPIC,
+            provider="anthropic",
+        ) from e
+    elif isinstance(e, AnthropicStatusError):
         status_code = e.status_code or 500
         error_type = _ANTHROPIC_STATUS_ERROR_TYPE_MAP.get(status_code, "api_error")
         logger.warning(f"[{call_id}] Anthropic API error: {status_code} {e.message}")

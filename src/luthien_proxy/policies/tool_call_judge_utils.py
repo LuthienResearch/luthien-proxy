@@ -134,25 +134,7 @@ async def call_judge(
     if not isinstance(content, str):
         raise ValueError("Judge response content must be a string")
 
-    # Parse JSON response
-    data = parse_judge_response(content)
-
-    # Fail-secure: missing probability field is a malformed response
-    if "probability" not in data:
-        raise ValueError("Judge response missing required 'probability' field")
-
-    probability = float(data["probability"])
-    explanation = str(data.get("explanation", ""))
-
-    # Clamp probability to [0, 1]
-    probability = max(0.0, min(1.0, probability))
-
-    return JudgeResult(
-        probability=probability,
-        explanation=explanation,
-        prompt=prompt,
-        response_text=content,
-    )
+    return parse_to_judge_result(content, prompt)
 
 
 def parse_judge_response(content: str) -> dict[str, Any]:
@@ -175,7 +157,7 @@ def parse_judge_response(content: str) -> dict[str, Any]:
         newline_index = text.find("\n")
         if newline_index != -1:
             prefix = text[:newline_index].strip().lower()
-            if prefix in {"json", "```json", ""}:
+            if prefix in {"json", ""}:
                 text = text[newline_index + 1 :]
         text = text.rstrip("`").strip()
 
@@ -188,6 +170,33 @@ def parse_judge_response(content: str) -> dict[str, Any]:
         raise ValueError("Judge response must be a JSON object")
 
     return data
+
+
+def parse_to_judge_result(
+    response_text: str,
+    prompt: list[dict[str, str]],
+) -> JudgeResult:
+    """Parse raw judge response text into a validated JudgeResult.
+
+    Shared between call_judge (legacy) and credential-based judge paths
+    to ensure consistent parsing, validation, and probability clamping.
+    """
+    data = parse_judge_response(response_text)
+
+    if "probability" not in data:
+        raise ValueError("Judge response missing required 'probability' field")
+
+    probability = float(data["probability"])
+    explanation = str(data.get("explanation", ""))
+
+    probability = max(0.0, min(1.0, probability))
+
+    return JudgeResult(
+        probability=probability,
+        explanation=explanation,
+        prompt=prompt,
+        response_text=response_text,
+    )
 
 
 def build_judge_prompt(name: str, arguments: str, judge_instructions: str) -> list[dict[str, str]]:

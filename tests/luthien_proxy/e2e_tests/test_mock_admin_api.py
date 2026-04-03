@@ -4,25 +4,20 @@ Covers policy discovery — the one admin endpoint with meaningful content
 assertions. Auth enforcement across admin endpoints is covered by
 test_mock_auth.py and is not repeated here.
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_admin_api.py -v
 """
 
 import httpx
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import ADMIN_API_KEY, GATEWAY_URL
 
 pytestmark = pytest.mark.mock_e2e
 
-_ADMIN_HEADERS = {"Authorization": f"Bearer {ADMIN_API_KEY}"}
-
 
 @pytest.mark.asyncio
-async def test_policy_list_includes_known_policies(gateway_healthy):
+async def test_policy_list_includes_known_policies(gateway_healthy, gateway_url: str, admin_headers: dict):
     """GET /api/admin/policy/list returns discoverable policies including built-ins.
 
     This validates the policy discovery mechanism, not just the HTTP shape.
@@ -31,8 +26,8 @@ async def test_policy_list_includes_known_policies(gateway_healthy):
     """
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.get(
-            f"{GATEWAY_URL}/api/admin/policy/list",
-            headers=_ADMIN_HEADERS,
+            f"{gateway_url}/api/admin/policy/list",
+            headers=admin_headers,
         )
 
     assert response.status_code == 200, f"Unexpected status: {response.status_code}: {response.text}"

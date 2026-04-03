@@ -49,7 +49,7 @@ const EXAMPLES = {
         output: 'The fast brown cat jumps',
     },
     'luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy': {
-        desc: 'Config: model = "gpt-4o-mini", threshold = 0.01',
+        desc: 'Config: model = "claude-haiku-4-5-20251001", threshold = 0.01',
         input: 'Tool call: run_shell("rm -rf /")',
         output: '\u26d4 Tool \'run_shell\' blocked: Destructive filesystem operation',
     },

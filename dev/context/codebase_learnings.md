@@ -64,11 +64,11 @@ Three test tiers with increasing infrastructure requirements:
 - Run: `uv run pytest -m sqlite_e2e tests/luthien_proxy/e2e_tests/sqlite/ --no-cov -v`
 - Must run in **separate pytest session** from mock_e2e (module-level patching)
 
-**mock_e2e** (Docker, deterministic): Gateway + mock Anthropic server on port 18888.
+**mock_e2e** (in-process, deterministic): In-process gateway + mock Anthropic server on dynamic port.
 - Mock server at `tests/luthien_proxy/e2e_tests/mock_anthropic/`
 - `MockAnthropicServer` enqueues canned responses, `ClaudeCodeSimulator` sends requests
 - `policy_context()` fixture hot-swaps policies via admin API
-- Run: `uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/ --no-cov -v`
+- No Docker needed — `scripts/start_mock_gateway.py` launches everything in-process
 
 **e2e** (Docker + real API): Real Anthropic API calls through Docker Compose gateway.
 - Slow, costs money, non-deterministic. Use sparingly.
@@ -239,6 +239,34 @@ curl -X POST http://localhost:8000/api/admin/policy/set \
 - On startup, the gateway calls `check_migrations(db_pool)` to validate all migrations have been applied. If any are pending, startup fails with a clear error.
 - New tables/columns added by migrations (e.g. `telemetry_config`) are guaranteed to exist by the time application code runs. This means config resolution code can assume tables exist and treat DB errors as transient failures, not missing-schema issues.
 - Migration files live in `migrations/` and are auto-discovered by filename sort order (e.g. `009_add_telemetry_config.sql`).
+
+---
+
+## Credential Management Architecture (2026-04-02)
+
+Credentials flow through the system as `Credential` value objects (frozen dataclass in `credentials/credential.py`) carrying a value, `CredentialType` (api_key or auth_token), platform, and optional expiry.
+
+**Request flow**:
+```
+Request → get_request_credential() → Credential (from headers)
+  → verify_token() → validates against proxy key / CredentialManager
+  → resolve_anthropic_client() → builds AnthropicClient
+  → PolicyContext.user_credential → available to policies
+```
+
+- `CredentialType` is determined by transport header: `Authorization: Bearer` → AUTH_TOKEN, `x-api-key` → API_KEY. No prefix heuristics.
+- `x-anthropic-api-key` header overrides the forwarding credential (what the backend sees) without affecting auth validation.
+
+**Auth providers** (policy config): Policies declare how to obtain credentials via `auth_provider` in YAML config:
+- `user_credentials` (default) — use the request's credential
+- `server_key: <name>` — look up operator-provisioned key from `CredentialStore`
+- `user_then_server: <name>` — try user creds, fall back to server key (with `on_fallback: fallback|warn|fail`)
+
+**Resolution**: `CredentialManager.resolve(auth_provider, context)` is the single entry point. It dispatches on auth provider type and returns a `Credential`. Server credentials are encrypted at rest (Fernet) and cached in memory with a 60s TTL.
+
+**Admin CRUD**: `POST/GET/DELETE /api/admin/credentials` for server credential management. Names validated against `^[a-zA-Z0-9_-]{1,128}$`.
+
+**Key files**: `credentials/credential.py`, `credentials/auth_provider.py`, `credentials/store.py`, `credential_manager.py`
 
 ---
 

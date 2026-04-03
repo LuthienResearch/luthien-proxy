@@ -21,8 +21,9 @@ class TestDockerPullErrorHandling:
         (tmp_path / ".env.example").write_text("PROXY_API_KEY=placeholder\n")
         return config
 
+    @patch("luthien_cli.commands.onboard.click.confirm", return_value=False)
     @patch("luthien_cli.commands.onboard.subprocess.run")
-    def test_pull_403_shows_access_denied_message(self, mock_run, tmp_path, capsys):
+    def test_pull_403_shows_access_denied_message(self, mock_run, mock_confirm, tmp_path):
         """When docker compose pull returns 403, show a clear access denied message."""
         config = self._make_config(tmp_path)
         console = MagicMock()
@@ -41,10 +42,10 @@ class TestDockerPullErrorHandling:
         # Check that console.print was called with access denied messaging
         printed = " ".join(str(call) for call in console.print.call_args_list)
         assert "access denied" in printed.lower()
-        assert "luthien onboard" in printed
 
+    @patch("luthien_cli.commands.onboard.click.confirm", return_value=False)
     @patch("luthien_cli.commands.onboard.subprocess.run")
-    def test_pull_unauthorized_shows_access_denied_message(self, mock_run, tmp_path):
+    def test_pull_unauthorized_shows_access_denied_message(self, mock_run, mock_confirm, tmp_path):
         """When docker compose pull returns unauthorized, show access denied message."""
         config = self._make_config(tmp_path)
         console = MagicMock()
@@ -62,8 +63,9 @@ class TestDockerPullErrorHandling:
         printed = " ".join(str(call) for call in console.print.call_args_list)
         assert "access denied" in printed.lower()
 
+    @patch("luthien_cli.commands.onboard.click.confirm", return_value=False)
     @patch("luthien_cli.commands.onboard.subprocess.run")
-    def test_pull_forbidden_shows_access_denied_message(self, mock_run, tmp_path):
+    def test_pull_forbidden_shows_access_denied_message(self, mock_run, mock_confirm, tmp_path):
         """When docker compose pull returns 'forbidden', show access denied message."""
         config = self._make_config(tmp_path)
         console = MagicMock()
@@ -81,8 +83,9 @@ class TestDockerPullErrorHandling:
         printed = " ".join(str(call) for call in console.print.call_args_list)
         assert "access denied" in printed.lower()
 
+    @patch("luthien_cli.commands.onboard.click.confirm", return_value=False)
     @patch("luthien_cli.commands.onboard.subprocess.run")
-    def test_pull_access_denied_shows_access_denied_message(self, mock_run, tmp_path):
+    def test_pull_access_denied_shows_access_denied_message(self, mock_run, mock_confirm, tmp_path):
         """When docker compose pull returns 'access denied', show access denied message."""
         config = self._make_config(tmp_path)
         console = MagicMock()
@@ -100,8 +103,9 @@ class TestDockerPullErrorHandling:
         printed = " ".join(str(call) for call in console.print.call_args_list)
         assert "access denied" in printed.lower()
 
+    @patch("luthien_cli.commands.onboard.click.confirm", return_value=False)
     @patch("luthien_cli.commands.onboard.subprocess.run")
-    def test_pull_bare_denied_does_not_match(self, mock_run, tmp_path):
+    def test_pull_bare_denied_does_not_match(self, mock_run, mock_confirm, tmp_path):
         """Bare 'denied' without 'access' should NOT trigger GHCR auth messaging.
 
         This avoids false positives for Docker socket 'permission denied' errors.
@@ -122,10 +126,11 @@ class TestDockerPullErrorHandling:
         printed = " ".join(str(call) for call in console.print.call_args_list)
         # Should show raw stderr, not the GHCR access denied guidance
         assert "permission denied while trying to connect" in printed
-        assert "luthien onboard" not in printed
+        assert "access denied" not in printed.lower()
 
+    @patch("luthien_cli.commands.onboard.click.confirm", return_value=False)
     @patch("luthien_cli.commands.onboard.subprocess.run")
-    def test_pull_none_stderr_handled_gracefully(self, mock_run, tmp_path):
+    def test_pull_none_stderr_handled_gracefully(self, mock_run, mock_confirm, tmp_path):
         """When stderr is None (not empty string), handle gracefully."""
         config = self._make_config(tmp_path)
         console = MagicMock()
@@ -142,10 +147,11 @@ class TestDockerPullErrorHandling:
 
         # Should not crash
         printed = " ".join(str(call) for call in console.print.call_args_list)
-        assert "docker compose pull failed" in printed
+        assert "Could not pull" in printed
 
+    @patch("luthien_cli.commands.onboard.click.confirm", return_value=False)
     @patch("luthien_cli.commands.onboard.subprocess.run")
-    def test_pull_generic_failure_shows_raw_stderr(self, mock_run, tmp_path):
+    def test_pull_generic_failure_shows_raw_stderr(self, mock_run, mock_confirm, tmp_path):
         """Non-auth failures should still show the raw stderr."""
         config = self._make_config(tmp_path)
         console = MagicMock()
@@ -165,8 +171,9 @@ class TestDockerPullErrorHandling:
         # Should NOT show the access denied guidance
         assert "access denied" not in printed.lower()
 
+    @patch("luthien_cli.commands.onboard.click.confirm", return_value=False)
     @patch("luthien_cli.commands.onboard.subprocess.run")
-    def test_pull_empty_stderr_shows_generic_message(self, mock_run, tmp_path):
+    def test_pull_empty_stderr_shows_generic_message(self, mock_run, mock_confirm, tmp_path):
         """When stderr is empty, still handle gracefully."""
         config = self._make_config(tmp_path)
         console = MagicMock()
@@ -183,7 +190,7 @@ class TestDockerPullErrorHandling:
 
         # Should not crash, should show generic failure message
         printed = " ".join(str(call) for call in console.print.call_args_list)
-        assert "docker compose pull failed" in printed
+        assert "Could not pull" in printed
 
 
 class TestDownloadFiles403:

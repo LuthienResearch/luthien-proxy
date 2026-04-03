@@ -14,14 +14,13 @@ violating Anthropic's event ordering. This corrupted the client's
 conversation history, causing all subsequent requests to fail with 400.
 
 Run:
-    E2E_GATEWAY_URL=http://localhost:8001 \
-    E2E_API_KEY=sk-luthien-dev-key \
-    E2E_ADMIN_API_KEY=admin-dev-key \
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_simple_llm_parallel_tools.py -v
 """
 
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import API_KEY, GATEWAY_URL, policy_context
+from tests.luthien_proxy.e2e_tests.conftest import policy_context
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import parallel_tool_response, text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 from tests.luthien_proxy.e2e_tests.mock_anthropic.simulator import ClaudeCodeSimulator
@@ -44,6 +43,9 @@ _UNREACHABLE_JUDGE = {
 async def test_parallel_tool_use_with_judge_failure_session_survives(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
 ):
     """When the judge fails during a response with parallel tool_use blocks,
     the session must remain functional for subsequent turns.
@@ -64,8 +66,8 @@ async def test_parallel_tool_use_with_judge_failure_session_survives(
 
     config = {**_UNREACHABLE_JUDGE, "on_error": "pass"}
 
-    async with policy_context(_SIMPLE_LLM_POLICY, config):
-        session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
+    async with policy_context(_SIMPLE_LLM_POLICY, config, gateway_url=gateway_url, admin_api_key=admin_api_key):
+        session = ClaudeCodeSimulator(gateway_url, api_key)
 
         # Turn 1: send message, get parallel tool_use response
         turn1 = await session.send("List files and read test.txt")
@@ -99,6 +101,9 @@ async def test_parallel_tool_use_with_judge_failure_session_survives(
 async def test_parallel_tool_use_with_judge_failure_event_ordering(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
 ):
     """Verify the streaming event ordering is valid when the judge fails
     during parallel tool_use blocks."""
@@ -114,8 +119,8 @@ async def test_parallel_tool_use_with_judge_failure_event_ordering(
 
     config = {**_UNREACHABLE_JUDGE, "on_error": "pass"}
 
-    async with policy_context(_SIMPLE_LLM_POLICY, config):
-        session = ClaudeCodeSimulator(GATEWAY_URL, API_KEY)
+    async with policy_context(_SIMPLE_LLM_POLICY, config, gateway_url=gateway_url, admin_api_key=admin_api_key):
+        session = ClaudeCodeSimulator(gateway_url, api_key)
         turn = await session.send("Do three things")
 
     # All 3 tool calls should pass through

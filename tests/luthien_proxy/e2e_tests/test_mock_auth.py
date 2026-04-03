@@ -4,12 +4,9 @@ Verifies that the gateway enforces authentication before proxying requests to
 the backend. The mock Anthropic server ignores auth headers — all assertions
 here target the gateway's own auth layer.
 
-Requires:
-  - Gateway running with mock backend:
-      docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
-  - Mock server auto-started by the mock_anthropic fixture (port 18888).
-
 Run:
+    ./scripts/run_e2e.sh mock
+    # or directly:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_auth.py -v
 """
 
@@ -17,7 +14,6 @@ import os
 
 import httpx
 import pytest
-from tests.luthien_proxy.e2e_tests.conftest import ADMIN_API_KEY, API_KEY, GATEWAY_URL
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
@@ -34,11 +30,11 @@ _BASE_REQUEST = {
 
 
 @pytest.mark.asyncio
-async def test_missing_auth_header_returns_401(gateway_healthy):
+async def test_missing_auth_header_returns_401(gateway_healthy, gateway_url):
     """A request with no Authorization header is rejected by the gateway."""
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json=_BASE_REQUEST,
             # No Authorization header
         )
@@ -49,7 +45,7 @@ async def test_missing_auth_header_returns_401(gateway_healthy):
 
 
 @pytest.mark.asyncio
-async def test_wrong_api_key_returns_401(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_wrong_api_key_returns_401(mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url):
     """A request with an incorrect API key is rejected (proxy_key) or treated as passthrough (both)."""
     # AUTH_MODE=both treats unrecognised keys as passthrough API keys forwarded to the backend
     if AUTH_MODE == "both":
@@ -57,7 +53,7 @@ async def test_wrong_api_key_returns_401(mock_anthropic: MockAnthropicServer, ga
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json=_BASE_REQUEST,
             headers={"Authorization": "Bearer wrong-key"},
         )
@@ -74,22 +70,22 @@ async def test_wrong_api_key_returns_401(mock_anthropic: MockAnthropicServer, ga
 
 
 @pytest.mark.asyncio
-async def test_valid_api_key_succeeds(mock_anthropic: MockAnthropicServer, gateway_healthy):
+async def test_valid_api_key_succeeds(mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url, api_key):
     """A request with the correct API key is proxied and returns 200."""
     mock_anthropic.enqueue(text_response("authenticated response"))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(
-            f"{GATEWAY_URL}/v1/messages",
+            f"{gateway_url}/v1/messages",
             json=_BASE_REQUEST,
-            headers={"Authorization": f"Bearer {API_KEY}"},
+            headers={"Authorization": f"Bearer {api_key}"},
         )
 
     assert response.status_code == 200, f"Expected 200 for valid key, got {response.status_code}: {response.text}"
 
 
 @pytest.mark.asyncio
-async def test_admin_endpoint_accessible_on_localhost(gateway_healthy):
+async def test_admin_endpoint_accessible_on_localhost(gateway_healthy, gateway_url, api_key):
     """Admin endpoints are accessible without admin key on localhost (LOCALHOST_AUTH_BYPASS by design).
 
     PR #405 intentionally extended LOCALHOST_AUTH_BYPASS to cover /api/admin/* routes.
@@ -98,8 +94,8 @@ async def test_admin_endpoint_accessible_on_localhost(gateway_healthy):
     """
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.get(
-            f"{GATEWAY_URL}/api/admin/policy/current",
-            headers={"Authorization": f"Bearer {API_KEY}"},
+            f"{gateway_url}/api/admin/policy/current",
+            headers={"Authorization": f"Bearer {api_key}"},
         )
 
     assert response.status_code == 200, (
@@ -108,12 +104,12 @@ async def test_admin_endpoint_accessible_on_localhost(gateway_healthy):
 
 
 @pytest.mark.asyncio
-async def test_admin_endpoint_accepts_admin_key(gateway_healthy):
+async def test_admin_endpoint_accepts_admin_key(gateway_healthy, gateway_url, admin_api_key):
     """The admin policy endpoint accepts requests authenticated with the admin API key."""
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.get(
-            f"{GATEWAY_URL}/api/admin/policy/current",
-            headers={"Authorization": f"Bearer {ADMIN_API_KEY}"},
+            f"{gateway_url}/api/admin/policy/current",
+            headers={"Authorization": f"Bearer {admin_api_key}"},
         )
 
     assert response.status_code == 200, f"Expected 200 for admin key, got {response.status_code}: {response.text}"
