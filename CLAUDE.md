@@ -75,8 +75,9 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
    - Format everything with `"$(git rev-parse --show-toplevel)/scripts/format_all.sh"`.
    - Full lint + tests + type check: `"$(git rev-parse --show-toplevel)/scripts/dev_checks.sh"`.
    - Quick unit pass: `uv run pytest tests/luthien_proxy/unit_tests`.
-   - *infrequently* run full e2e tests using `uv run pytest -m e2e`. This is SLOW and should be used sparingly to validate that core functionality remains intact.
-   - **Prefer targeted e2e tests**: Run specific test files first to identify issues before running the full suite: `uv run pytest tests/luthien_proxy/e2e_tests/test_specific_file.py -v`
+   - E2E tests: `./scripts/run_e2e.sh` — runs all tiers, stops on first failure, resumes on re-run.
+   - E2E specific tier: `./scripts/run_e2e.sh sqlite` or `./scripts/run_e2e.sh mock`
+   - E2E fresh start: `./scripts/run_e2e.sh --fresh`
    - Commit in small chunks with clear messages.
 
 3. **Wrap up the objective**
@@ -183,11 +184,13 @@ Most near-term development work is dockerless. Prefer `start_gateway.sh` for day
 
 This repo has extensive test infrastructure — **use it before building manual test setups**. Read the CLAUDE.md in the relevant test directory for full details and examples.
 
+**Run all e2e tests:** `./scripts/run_e2e.sh` (stops on first failure, resumes on re-run, logs to `.e2e-logs/`)
+
 | Tier | Marker | Infra needed | Speed | When to use |
 |------|--------|-------------|-------|-------------|
 | Unit | *(default)* | None | Fast | Logic, edge cases, mock external calls |
 | sqlite_e2e | `sqlite_e2e` | None (in-process) | Medium | Full gateway behavior, no Docker |
-| mock_e2e | `mock_e2e` | Docker + mock server | Medium | Deterministic streaming, policy behavior |
+| mock_e2e | `mock_e2e` | None (in-process) | Medium | Deterministic streaming, policy behavior |
 | e2e | `e2e` | Docker + real API | Slow | Final validation, real-world behavior |
 
 Key helpers in `tests/luthien_proxy/e2e_tests/`:
@@ -195,9 +198,9 @@ Key helpers in `tests/luthien_proxy/e2e_tests/`:
 - `mock_anthropic/simulator.py`: `ClaudeCodeSimulator` — simulate Claude Code client sessions
 - `mock_anthropic/server.py`: `MockAnthropicServer` — enqueue deterministic responses
 
-Note: `sqlite_e2e` and `mock_e2e` must run in **separate pytest sessions** (module-level patching conflicts).
+Quick smoke test against a running gateway: `scripts/test_gateway.sh`
 
-Smoke test script: `scripts/test_gateway.sh`
+Note: `sqlite_e2e` and `mock_e2e` must run in **separate pytest sessions** — `run_e2e.sh` handles this automatically.
 
 ### Test Requirements
 

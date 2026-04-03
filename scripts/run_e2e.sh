@@ -38,9 +38,13 @@ BLUE='\033[0;34m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-# Tier result tracking (bash 3.x compatible — no associative arrays)
+# Tier result tracking (bash 3.x compatible — no associative arrays).
+# Accessed indirectly via eval in _set/_get_tier_result.
+# shellcheck disable=SC2034
 TIER_RESULT_sqlite=""
+# shellcheck disable=SC2034
 TIER_RESULT_mock=""
+# shellcheck disable=SC2034
 TIER_RESULT_real=""
 
 _set_tier_result() { eval "TIER_RESULT_$1=\"$2\""; }
