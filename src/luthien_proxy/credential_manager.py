@@ -111,6 +111,9 @@ class CredentialManager:
         )
         self._http_client: httpx.AsyncClient | None = None
         self._store = CredentialStore(db_pool, encryption_key) if db_pool else None
+        # In-memory TTL cache for server credentials (avoids DB hit per resolve)
+        self._server_key_cache: dict[str, tuple[float, Credential]] = {}
+        self._server_key_ttl = 60.0  # seconds
 
     async def initialize(self, default_auth_mode: AuthMode = AuthMode.BOTH) -> None:
         """Load auth config from DB. Falls back to default on first boot."""
@@ -151,16 +154,24 @@ class CredentialManager:
         invalid_cache_ttl_seconds: int | None = None,
         updated_by: str = "api",
     ) -> AuthConfig:
-        """Update auth config in DB and refresh in-memory copy."""
-        if auth_mode is not None:
-            self._config.auth_mode = AuthMode(auth_mode)
-        if validate_credentials is not None:
-            self._config.validate_credentials = validate_credentials
-        if valid_cache_ttl_seconds is not None:
-            self._config.valid_cache_ttl_seconds = valid_cache_ttl_seconds
-        if invalid_cache_ttl_seconds is not None:
-            self._config.invalid_cache_ttl_seconds = invalid_cache_ttl_seconds
-        self._config.updated_by = updated_by
+        """Update auth config in DB and swap in-memory copy atomically.
+
+        Builds a new AuthConfig and replaces the reference in one assignment,
+        so concurrent readers always see a consistent snapshot (no torn reads).
+        """
+        new_config = AuthConfig(
+            auth_mode=AuthMode(auth_mode) if auth_mode is not None else self._config.auth_mode,
+            validate_credentials=validate_credentials
+            if validate_credentials is not None
+            else self._config.validate_credentials,
+            valid_cache_ttl_seconds=valid_cache_ttl_seconds
+            if valid_cache_ttl_seconds is not None
+            else self._config.valid_cache_ttl_seconds,
+            invalid_cache_ttl_seconds=invalid_cache_ttl_seconds
+            if invalid_cache_ttl_seconds is not None
+            else self._config.invalid_cache_ttl_seconds,
+            updated_by=updated_by,
+        )
 
         if self._db_pool:
             pool = await self._db_pool.get_pool()
@@ -178,18 +189,20 @@ class CredentialManager:
                     updated_at = EXCLUDED.updated_at,
                     updated_by = EXCLUDED.updated_by
                 """,
-                self._config.auth_mode.value,
-                self._config.validate_credentials,
-                self._config.valid_cache_ttl_seconds,
-                self._config.invalid_cache_ttl_seconds,
+                new_config.auth_mode.value,
+                new_config.validate_credentials,
+                new_config.valid_cache_ttl_seconds,
+                new_config.invalid_cache_ttl_seconds,
                 updated_by,
             )
 
             ts_row = await pool.fetchrow("SELECT updated_at FROM auth_config WHERE id = 1")
             if ts_row:
-                self._config.updated_at = str(ts_row["updated_at"])
+                new_config.updated_at = str(ts_row["updated_at"])
 
-        logger.info(f"Auth config updated: mode={self._config.auth_mode.value} by {updated_by}")
+        # Atomic swap — readers see old or new, never a mix
+        self._config = new_config
+        logger.info(f"Auth config updated: mode={new_config.auth_mode.value} by {updated_by}")
         return self._config
 
     async def validate_credential(self, credential: str, *, is_bearer: bool) -> bool:
@@ -421,9 +434,19 @@ class CredentialManager:
     async def _get_server_key(self, name: str) -> Credential:
         if self._store is None:
             raise CredentialError("No credential store configured (no database)")
+
+        # Check in-memory cache first
+        cached = self._server_key_cache.get(name)
+        if cached is not None:
+            cached_at, cred = cached
+            if time.time() - cached_at < self._server_key_ttl:
+                return cred
+            del self._server_key_cache[name]
+
         cred = await self._store.get(name)
         if cred is None:
             raise CredentialError(f"Server key '{name}' not found")
+        self._server_key_cache[name] = (time.time(), cred)
         return cred
 
     # ---- Server Credential CRUD ----
@@ -433,6 +456,7 @@ class CredentialManager:
         if self._store is None:
             raise CredentialError("No credential store configured")
         await self._store.put(name, credential)
+        self._server_key_cache.pop(name, None)
         logger.info("Server credential '%s' stored (platform=%s)", name, credential.platform)
 
     async def delete_server_credential(self, name: str) -> bool:
@@ -440,6 +464,7 @@ class CredentialManager:
         if self._store is None:
             raise CredentialError("No credential store configured")
         deleted = await self._store.delete(name)
+        self._server_key_cache.pop(name, None)
         if deleted:
             logger.info("Server credential '%s' deleted", name)
         return deleted
