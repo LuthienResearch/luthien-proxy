@@ -1,20 +1,28 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2317 # Functions called indirectly via "run_$tier" and trap
 # ABOUTME: Orchestrates e2e test tiers with automatic setup and teardown.
-# ABOUTME: Handles sqlite_e2e (no infra), mock_e2e (Docker), and real e2e (Docker + API key).
+# ABOUTME: Handles sqlite_e2e (no infra), mock_e2e (in-process), and real e2e (Docker + API key).
 #
 # Usage:
 #   ./scripts/run_e2e.sh              # Run all available tiers
 #   ./scripts/run_e2e.sh sqlite       # SQLite only (no Docker needed)
-#   ./scripts/run_e2e.sh mock         # Mock e2e only (starts Docker)
+#   ./scripts/run_e2e.sh mock         # Mock e2e only (in-process gateway)
 #   ./scripts/run_e2e.sh real         # Real API only (starts Docker, needs ANTHROPIC_API_KEY)
 #   ./scripts/run_e2e.sh sqlite mock  # Multiple tiers
+#
+# Flags:
+#   --fresh               Reset stepwise state, start from the beginning
+#   --no-log              Don't write to log file (stdout only)
 #
 # Extra pytest args after --:
 #   ./scripts/run_e2e.sh sqlite -- -k "test_streaming" -vv
 #
-# Per-test timeouts: sqlite=60s, mock=120s, real=120s (pytest --timeout)
-# Docker startup timeout: 60s
+# Behavior:
+#   - Stops on first failure (pytest --stepwise)
+#   - Resumes from last failure on re-run (pytest --stepwise)
+#   - Logs to .e2e-logs/<timestamp>.log (use --no-log to disable)
+#   - Per-test timeouts: sqlite=60s, mock=30s, real=120s
+#   - Use --fresh to reset and start from scratch
 
 set -euo pipefail
 
@@ -39,9 +47,11 @@ warn()  { echo -e "${YELLOW}⚠${NC} $*"; }
 fail()  { echo -e "${RED}✗${NC} $*"; }
 header() { echo -e "\n${BOLD}═══ $* ═══${NC}"; }
 
-# Parse arguments: tier names before --, pytest args after --
+# Parse arguments: flags and tier names before --, pytest args after --
 TIERS=()
 PYTEST_EXTRA=()
+FRESH=false
+NO_LOG=false
 saw_separator=false
 for arg in "$@"; do
     if [[ "$arg" == "--" ]]; then
@@ -50,6 +60,10 @@ for arg in "$@"; do
     fi
     if $saw_separator; then
         PYTEST_EXTRA+=("$arg")
+    elif [[ "$arg" == "--fresh" ]]; then
+        FRESH=true
+    elif [[ "$arg" == "--no-log" ]]; then
+        NO_LOG=true
     else
         TIERS+=("$arg")
     fi
@@ -67,6 +81,29 @@ for tier in "${TIERS[@]}"; do
         *) fail "Unknown tier: $tier (expected: sqlite, mock, real)"; exit 1 ;;
     esac
 done
+
+# --- Logging ---
+
+LOG_DIR="$REPO_ROOT/.e2e-logs"
+LOG_FILE=""
+if ! $NO_LOG; then
+    mkdir -p "$LOG_DIR"
+    LOG_FILE="$LOG_DIR/$(date +%Y%m%d-%H%M%S).log"
+    # Tee all output to both terminal and log file
+    exec > >(tee -a "$LOG_FILE") 2>&1
+    # Add .e2e-logs to .gitignore if not already there
+    if ! grep -qx '.e2e-logs/' "$REPO_ROOT/.gitignore" 2>/dev/null; then
+        echo '.e2e-logs/' >> "$REPO_ROOT/.gitignore"
+    fi
+fi
+
+# --- Stepwise (resume from last failure) ---
+
+STEPWISE_ARGS=(--stepwise)
+if $FRESH; then
+    STEPWISE_ARGS=(--stepwise --sw-reset)
+    info "Fresh run: stepwise state reset"
+fi
 
 # --- Port helpers ---
 
@@ -208,6 +245,7 @@ run_sqlite() {
         -m sqlite_e2e \
         tests/luthien_proxy/e2e_tests/sqlite/ \
         -v --timeout=60 --no-cov \
+        "${STEPWISE_ARGS[@]}" \
         ${PYTEST_EXTRA[@]+"${PYTEST_EXTRA[@]}"} \
     || exit_code=$?
 
@@ -269,6 +307,7 @@ run_mock() {
         -m mock_e2e \
         tests/luthien_proxy/e2e_tests/ \
         -v --timeout=30 --no-cov \
+        "${STEPWISE_ARGS[@]}" \
         ${PYTEST_EXTRA[@]+"${PYTEST_EXTRA[@]}"} \
     || exit_code=$?
 
@@ -314,6 +353,7 @@ run_real() {
         -m "e2e and not mock_e2e and not sqlite_e2e" \
         tests/luthien_proxy/e2e_tests/ \
         -v --timeout=120 --no-cov \
+        "${STEPWISE_ARGS[@]}" \
         ${PYTEST_EXTRA[@]+"${PYTEST_EXTRA[@]}"} \
     || exit_code=$?
 
@@ -325,10 +365,13 @@ run_real() {
 
 echo -e "${BOLD}Luthien E2E Test Runner${NC}"
 echo "Tiers: ${TIERS[*]}"
+$FRESH && echo "Mode: fresh (stepwise state reset)"
+[[ -n "$LOG_FILE" ]] && echo "Log: $LOG_FILE"
 [[ ${#PYTEST_EXTRA[@]} -gt 0 ]] && echo "Extra pytest args: ${PYTEST_EXTRA[*]}"
 echo ""
 
 overall_exit=0
+any_failed=false
 
 for tier in "${TIERS[@]}"; do
     exit_code=0
@@ -337,9 +380,48 @@ for tier in "${TIERS[@]}"; do
     case $exit_code in
         0) TIER_RESULTS[$tier]="passed"; ok "$tier: all tests passed" ;;
         2) TIER_RESULTS[$tier]="skipped"; warn "$tier: skipped" ;;
-        *) TIER_RESULTS[$tier]="failed"; fail "$tier: tests failed (exit $exit_code)"; overall_exit=1 ;;
+        *)
+            TIER_RESULTS[$tier]="failed"
+            fail "$tier: tests failed (exit $exit_code)"
+            overall_exit=1
+            any_failed=true
+            # Stepwise: stop running further tiers on failure
+            warn "Stopping — fix the failure and re-run to resume"
+            break
+            ;;
     esac
 done
+
+# If stepwise resumed and all remaining tests passed, do a full verification
+# pass to catch regressions in tests before the resume point.
+if ! $any_failed && ! $FRESH; then
+    # Check if any tier's .pytest_cache has stepwise state, meaning we resumed
+    stepwise_file="$REPO_ROOT/.pytest_cache/v/cache/stepwise"
+    if [[ -f "$stepwise_file" ]]; then
+        header "Verification Pass (checking for regressions)"
+        info "Stepwise tests passed — re-running all tests to verify no regressions"
+        STEPWISE_ARGS=(--stepwise --sw-reset)
+        overall_exit=0
+
+        for tier in "${TIERS[@]}"; do
+            result="${TIER_RESULTS[$tier]:-unknown}"
+            [[ "$result" == "skipped" ]] && continue
+
+            exit_code=0
+            "run_$tier" || exit_code=$?
+
+            case $exit_code in
+                0) ok "$tier: verification passed" ;;
+                *)
+                    TIER_RESULTS[$tier]="failed"
+                    fail "$tier: regression detected in verification pass (exit $exit_code)"
+                    overall_exit=1
+                    break
+                    ;;
+            esac
+        done
+    fi
+fi
 
 # --- Summary ---
 
@@ -357,6 +439,19 @@ done
 if [[ $skipped_count -gt 0 ]]; then
     echo ""
     warn "⚠️  $skipped_count tier(s) were SKIPPED — see messages above for details"
+fi
+
+if [[ $overall_exit -ne 0 ]]; then
+    echo ""
+    fail "To resume from the last failure:"
+    fail "  ./scripts/run_e2e.sh ${TIERS[*]}"
+    fail "To start fresh:"
+    fail "  ./scripts/run_e2e.sh --fresh ${TIERS[*]}"
+fi
+
+if [[ -n "$LOG_FILE" ]]; then
+    echo ""
+    info "Full log: $LOG_FILE"
 fi
 
 exit $overall_exit
