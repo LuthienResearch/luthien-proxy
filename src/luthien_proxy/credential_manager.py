@@ -10,7 +10,7 @@ import hashlib
 import json
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -54,7 +54,7 @@ class AuthMode(str, Enum):
     BOTH = "both"
 
 
-@dataclass
+@dataclass(frozen=True)
 class AuthConfig:
     """Current auth configuration (loaded from DB)."""
 
@@ -66,7 +66,7 @@ class AuthConfig:
     updated_by: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class CachedCredential:
     """A cached credential validation result."""
 
@@ -119,7 +119,7 @@ class CredentialManager:
         """Load auth config from DB. Falls back to default on first boot."""
         if self._db_pool is None:
             logger.info("No DB pool - using default auth config")
-            self._config.auth_mode = default_auth_mode
+            self._config = replace(self._config, auth_mode=default_auth_mode)
             return
 
         pool = await self._db_pool.get_pool()
@@ -135,7 +135,7 @@ class CredentialManager:
                 updated_by=row["updated_by"],
             )
         else:
-            self._config.auth_mode = default_auth_mode
+            self._config = replace(self._config, auth_mode=default_auth_mode)
 
         logger.info(
             f"Auth config loaded: mode={self._config.auth_mode.value}, validate={self._config.validate_credentials}"
@@ -198,7 +198,7 @@ class CredentialManager:
 
             ts_row = await pool.fetchrow("SELECT updated_at FROM auth_config WHERE id = 1")
             if ts_row:
-                new_config.updated_at = str(ts_row["updated_at"])
+                new_config = replace(new_config, updated_at=str(ts_row["updated_at"]))
 
         # Atomic swap — readers see old or new, never a mix
         self._config = new_config
