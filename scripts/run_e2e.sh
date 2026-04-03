@@ -248,10 +248,10 @@ run_mock() {
 
     # Read config from the helper
     local gw_url mock_port gw_api_key gw_admin_key
-    gw_url="$(python3 -c "import json; print(json.load(open('$config_json'))['gateway_url'])")"
-    mock_port="$(python3 -c "import json; print(json.load(open('$config_json'))['mock_port'])")"
-    gw_api_key="$(python3 -c "import json; print(json.load(open('$config_json'))['api_key'])")"
-    gw_admin_key="$(python3 -c "import json; print(json.load(open('$config_json'))['admin_api_key'])")"
+    gw_url="$(uv run python -c "import json; print(json.load(open('$config_json'))['gateway_url'])")"
+    mock_port="$(uv run python -c "import json; print(json.load(open('$config_json'))['mock_port'])")"
+    gw_api_key="$(uv run python -c "import json; print(json.load(open('$config_json'))['api_key'])")"
+    gw_admin_key="$(uv run python -c "import json; print(json.load(open('$config_json'))['admin_api_key'])")"
     rm -f "$config_json"
 
     ok "Gateway ready at $gw_url (mock on port $mock_port)"
