@@ -285,12 +285,22 @@ run_real() {
     header "Real E2E Tests (Docker + Anthropic API)"
 
     if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-        warn "Skipping real tier: ANTHROPIC_API_KEY not set"
+        echo ""
+        fail "╔══════════════════════════════════════════════════════════════╗"
+        fail "║  SKIPPING REAL E2E TIER: ANTHROPIC_API_KEY not set          ║"
+        fail "║                                                             ║"
+        fail "║  Set it in .env or export it to run real API tests.         ║"
+        fail "╚══════════════════════════════════════════════════════════════╝"
+        echo ""
         return 2
     fi
 
     if ! check_docker; then
-        warn "Skipping real tier: Docker not available"
+        echo ""
+        fail "╔══════════════════════════════════════════════════════════════╗"
+        fail "║  SKIPPING REAL E2E TIER: Docker not available               ║"
+        fail "╚══════════════════════════════════════════════════════════════╝"
+        echo ""
         return 2
     fi
 
@@ -334,13 +344,19 @@ done
 # --- Summary ---
 
 header "Results"
+skipped_count=0
 for tier in "${TIERS[@]}"; do
     result="${TIER_RESULTS[$tier]:-unknown}"
     case $result in
         passed)  ok   "$tier" ;;
-        skipped) warn "$tier (skipped)" ;;
+        skipped) warn "$tier (SKIPPED)"; skipped_count=$((skipped_count + 1)) ;;
         failed)  fail "$tier" ;;
     esac
 done
+
+if [[ $skipped_count -gt 0 ]]; then
+    echo ""
+    warn "⚠️  $skipped_count tier(s) were SKIPPED — see messages above for details"
+fi
 
 exit $overall_exit
