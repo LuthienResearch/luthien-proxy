@@ -61,6 +61,25 @@ class TestConversationLinkPolicy:
         assert "Hello world" in result
 
     @pytest.mark.asyncio
+    async def test_preflight_does_not_consume_injection(self):
+        """Regression: preflight call (max_tokens=1) shouldn't prevent real turn from getting link."""
+        policy = ConversationLinkPolicy(base_url="http://localhost:8000")
+        preflight_ctx = self._make_context(session_id="sess-pre")
+        real_ctx = self._make_context(session_id="sess-pre")
+
+        preflight_req = {
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 1,
+            "messages": [{"role": "user", "content": "quota"}],
+        }
+        await policy.on_anthropic_request(preflight_req, preflight_ctx)
+        await policy.simple_on_response_content("I", preflight_ctx)
+
+        # Real turn with same session_id should still get the link
+        result = await self._run_first_turn(policy, real_ctx)
+        assert "conversation/live/sess-pre" in result
+
+    @pytest.mark.asyncio
     async def test_no_injection_on_subsequent_turn(self):
         policy = ConversationLinkPolicy(base_url="http://localhost:8000")
         ctx = self._make_context(session_id="sess-abc")

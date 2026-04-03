@@ -65,7 +65,12 @@ class ConversationLinkPolicy(SimplePolicy):
         return context.get_request_state(self, _ConversationLinkState, _ConversationLinkState)
 
     async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
-        """Cache first-turn check so simple_on_response_content doesn't recompute."""
+        """Cache first-turn check so simple_on_response_content doesn't recompute.
+
+        Preflight calls (max_tokens=1) also match is_first_turn(), but each
+        request gets its own PolicyContext so the injection is harmlessly
+        scoped to the preflight response the user never sees.
+        """
         self._state(context).first_turn = is_first_turn(request)
         return await super().on_anthropic_request(request, context)
 
