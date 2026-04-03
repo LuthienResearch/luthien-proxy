@@ -66,6 +66,11 @@ class CredentialStore:
         expiry: datetime | None = None
         if expiry_raw is not None:
             expiry = expiry_raw if isinstance(expiry_raw, datetime) else datetime.fromisoformat(str(expiry_raw))
+            # Normalize naive datetimes to UTC
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=timezone.utc)
+            if expiry <= datetime.now(timezone.utc):
+                raise CredentialError(f"Server key '{name}' has expired (expiry: {expiry.isoformat()})")
 
         platform_url = row["platform_url"]
         return Credential(

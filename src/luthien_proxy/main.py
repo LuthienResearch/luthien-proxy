@@ -217,11 +217,6 @@ def create_app(
         # Initialize CredentialManager for passthrough auth + server credentials
         _enc_key_str = get_settings().credential_encryption_key
         encryption_key = _enc_key_str.encode() if _enc_key_str else None
-        if encryption_key is None and db_pool is not None:
-            logger.info(
-                "CREDENTIAL_ENCRYPTION_KEY not set — server credentials will be stored as plaintext. "
-                "Set this for multi-user Postgres deployments."
-            )
         _credential_manager = CredentialManager(db_pool=db_pool, cache=_credential_cache, encryption_key=encryption_key)
         await _credential_manager.initialize(default_auth_mode=auth_mode)
 

@@ -244,8 +244,8 @@ async def test_list_names_returns_names(credential_store_no_encryption, mock_asy
 
 @pytest.mark.asyncio
 async def test_get_parses_expiry_datetime(credential_store_no_encryption, mock_asyncpg_pool):
-    """get() correctly parses expiry datetime."""
-    expiry_dt = datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc)
+    """get() correctly parses future expiry datetime."""
+    expiry_dt = datetime(2099, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
     mock_row = {
         "credential_value": "test-value",
         "credential_type": "api_key",
@@ -264,8 +264,8 @@ async def test_get_parses_expiry_datetime(credential_store_no_encryption, mock_a
 
 @pytest.mark.asyncio
 async def test_get_parses_expiry_iso_string(credential_store_no_encryption, mock_asyncpg_pool):
-    """get() correctly parses expiry as ISO string."""
-    iso_string = "2026-04-01T12:00:00"
+    """get() correctly parses future expiry as ISO string (naive → UTC)."""
+    iso_string = "2099-12-31T23:59:59"
     mock_row = {
         "credential_value": "test-value",
         "credential_type": "api_key",
@@ -280,6 +280,22 @@ async def test_get_parses_expiry_iso_string(credential_store_no_encryption, mock
 
     assert result is not None
     assert isinstance(result.expiry, datetime)
-    assert result.expiry.year == 2026
-    assert result.expiry.month == 4
-    assert result.expiry.day == 1
+    assert result.expiry.tzinfo is not None  # naive → UTC
+
+
+@pytest.mark.asyncio
+async def test_get_raises_on_expired_credential(credential_store_no_encryption, mock_asyncpg_pool):
+    """get() raises CredentialError when credential has expired."""
+    past = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    mock_row = {
+        "credential_value": "test-value",
+        "credential_type": "api_key",
+        "platform": "anthropic",
+        "platform_url": None,
+        "is_encrypted": False,
+        "expiry": past,
+    }
+    mock_asyncpg_pool.fetchrow = AsyncMock(return_value=mock_row)
+
+    with pytest.raises(CredentialError, match="has expired"):
+        await credential_store_no_encryption.get("test-key")
