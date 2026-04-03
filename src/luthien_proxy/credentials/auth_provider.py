@@ -75,4 +75,5 @@ def parse_auth_provider(raw: str | dict | None) -> AuthProvider:
                         f"Invalid on_fallback: {on_fallback!r}. Must be one of: {', '.join(sorted(_VALID_FALLBACK_MODES))}"
                     )
                 return UserThenServer(name=name, on_fallback=on_fallback)
+            raise ValueError(f"user_then_server value must be a string or dict, got {type(val).__name__}")
     raise ValueError(f"Unknown auth_provider: {raw}")

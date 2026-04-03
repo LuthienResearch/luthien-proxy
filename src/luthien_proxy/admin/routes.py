@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 import litellm
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, Field, ValidationError
 
 from luthien_proxy.admin.policy_discovery import discover_policies, validate_policy_config
@@ -537,7 +537,7 @@ async def list_server_credentials(
 
 @router.delete("/credentials/{name}")
 async def delete_server_credential(
-    name: str,
+    name: str = Path(pattern=r"^[a-zA-Z0-9_-]{1,128}$"),
     _: str = Depends(verify_admin_token),
     credential_manager: CredentialManager = Depends(require_credential_manager),
 ):

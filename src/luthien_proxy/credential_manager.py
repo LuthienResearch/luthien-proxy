@@ -461,7 +461,6 @@ __all__ = [
     "AuthConfig",
     "AuthMode",
     "CachedCredential",
-    "CredentialError",
     "CredentialManager",
     "hash_credential",
 ]

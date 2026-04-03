@@ -6,6 +6,7 @@ code interact with CredentialManager, never with CredentialStore directly.
 
 from __future__ import annotations
 
+import binascii
 import logging
 from datetime import datetime, timezone
 
@@ -31,7 +32,7 @@ class CredentialStore:
         if encryption_key:
             try:
                 self._fernet = Fernet(encryption_key)
-            except (ValueError, Exception) as exc:
+            except (ValueError, binascii.Error) as exc:
                 raise CredentialError(
                     f"Invalid CREDENTIAL_ENCRYPTION_KEY: {exc}. "
                     "Generate a valid key with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"

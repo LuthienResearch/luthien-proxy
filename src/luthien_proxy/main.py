@@ -218,7 +218,7 @@ def create_app(
         _enc_key_str = get_settings().credential_encryption_key
         encryption_key = _enc_key_str.encode() if _enc_key_str else None
         if encryption_key is None and db_pool is not None:
-            logger.warning(
+            logger.info(
                 "CREDENTIAL_ENCRYPTION_KEY not set — server credentials will be stored as plaintext. "
                 "Set this for multi-user Postgres deployments."
             )
