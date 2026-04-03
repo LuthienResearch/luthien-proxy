@@ -10,14 +10,25 @@ import hashlib
 import json
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from luthien_proxy.credentials.auth_provider import (
+    AuthProvider,
+    ServerKey,
+    UserCredentials,
+    UserThenServer,
+)
+from luthien_proxy.credentials.credential import Credential, CredentialError
+from luthien_proxy.credentials.store import CredentialStore
 from luthien_proxy.utils.credential_cache import CredentialCacheProtocol
 from luthien_proxy.utils.db import DatabasePool
+
+if TYPE_CHECKING:
+    from luthien_proxy.policy_core.policy_context import PolicyContext
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +54,7 @@ class AuthMode(str, Enum):
     BOTH = "both"
 
 
-@dataclass
+@dataclass(frozen=True)
 class AuthConfig:
     """Current auth configuration (loaded from DB)."""
 
@@ -55,7 +66,7 @@ class AuthConfig:
     updated_by: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class CachedCredential:
     """A cached credential validation result."""
 
@@ -77,8 +88,19 @@ class CredentialManager:
     Credential validation results are cached with configurable TTLs.
     """
 
-    def __init__(self, db_pool: DatabasePool | None, cache: CredentialCacheProtocol | None):
-        """Initialize with DB pool for config and credential cache."""
+    def __init__(
+        self,
+        db_pool: DatabasePool | None,
+        cache: CredentialCacheProtocol | None,
+        encryption_key: bytes | None = None,
+    ):
+        """Initialize with DB pool for config and credential cache.
+
+        Args:
+            db_pool: Database pool for auth config and server credentials.
+            cache: Credential validation cache (Redis or in-process).
+            encryption_key: Optional Fernet key for encrypting stored credentials.
+        """
         self._db_pool = db_pool
         self._cache = cache
         self._config = AuthConfig(
@@ -88,12 +110,16 @@ class CredentialManager:
             invalid_cache_ttl_seconds=300,
         )
         self._http_client: httpx.AsyncClient | None = None
+        self._store = CredentialStore(db_pool, encryption_key) if db_pool else None
+        # In-memory TTL cache for server credentials (avoids DB hit per resolve)
+        self._server_key_cache: dict[str, tuple[float, Credential]] = {}
+        self._server_key_ttl = 60.0  # seconds
 
     async def initialize(self, default_auth_mode: AuthMode = AuthMode.BOTH) -> None:
         """Load auth config from DB. Falls back to default on first boot."""
         if self._db_pool is None:
             logger.info("No DB pool - using default auth config")
-            self._config.auth_mode = default_auth_mode
+            self._config = replace(self._config, auth_mode=default_auth_mode)
             return
 
         pool = await self._db_pool.get_pool()
@@ -109,7 +135,7 @@ class CredentialManager:
                 updated_by=row["updated_by"],
             )
         else:
-            self._config.auth_mode = default_auth_mode
+            self._config = replace(self._config, auth_mode=default_auth_mode)
 
         logger.info(
             f"Auth config loaded: mode={self._config.auth_mode.value}, validate={self._config.validate_credentials}"
@@ -128,16 +154,24 @@ class CredentialManager:
         invalid_cache_ttl_seconds: int | None = None,
         updated_by: str = "api",
     ) -> AuthConfig:
-        """Update auth config in DB and refresh in-memory copy."""
-        if auth_mode is not None:
-            self._config.auth_mode = AuthMode(auth_mode)
-        if validate_credentials is not None:
-            self._config.validate_credentials = validate_credentials
-        if valid_cache_ttl_seconds is not None:
-            self._config.valid_cache_ttl_seconds = valid_cache_ttl_seconds
-        if invalid_cache_ttl_seconds is not None:
-            self._config.invalid_cache_ttl_seconds = invalid_cache_ttl_seconds
-        self._config.updated_by = updated_by
+        """Update auth config in DB and swap in-memory copy atomically.
+
+        Builds a new AuthConfig and replaces the reference in one assignment,
+        so concurrent readers always see a consistent snapshot (no torn reads).
+        """
+        new_config = AuthConfig(
+            auth_mode=AuthMode(auth_mode) if auth_mode is not None else self._config.auth_mode,
+            validate_credentials=validate_credentials
+            if validate_credentials is not None
+            else self._config.validate_credentials,
+            valid_cache_ttl_seconds=valid_cache_ttl_seconds
+            if valid_cache_ttl_seconds is not None
+            else self._config.valid_cache_ttl_seconds,
+            invalid_cache_ttl_seconds=invalid_cache_ttl_seconds
+            if invalid_cache_ttl_seconds is not None
+            else self._config.invalid_cache_ttl_seconds,
+            updated_by=updated_by,
+        )
 
         if self._db_pool:
             pool = await self._db_pool.get_pool()
@@ -155,18 +189,20 @@ class CredentialManager:
                     updated_at = EXCLUDED.updated_at,
                     updated_by = EXCLUDED.updated_by
                 """,
-                self._config.auth_mode.value,
-                self._config.validate_credentials,
-                self._config.valid_cache_ttl_seconds,
-                self._config.invalid_cache_ttl_seconds,
+                new_config.auth_mode.value,
+                new_config.validate_credentials,
+                new_config.valid_cache_ttl_seconds,
+                new_config.invalid_cache_ttl_seconds,
                 updated_by,
             )
 
             ts_row = await pool.fetchrow("SELECT updated_at FROM auth_config WHERE id = 1")
             if ts_row:
-                self._config.updated_at = str(ts_row["updated_at"])
+                new_config = replace(new_config, updated_at=str(ts_row["updated_at"]))
 
-        logger.info(f"Auth config updated: mode={self._config.auth_mode.value} by {updated_by}")
+        # Atomic swap — readers see old or new, never a mix
+        self._config = new_config
+        logger.info(f"Auth config updated: mode={new_config.auth_mode.value} by {updated_by}")
         return self._config
 
     async def validate_credential(self, credential: str, *, is_bearer: bool) -> bool:
@@ -351,6 +387,93 @@ class CredentialManager:
         except httpx.RequestError as e:
             logger.warning(f"Credential validation network error: {repr(e)}")
             return None
+
+    # ---- Auth Provider Resolution ----
+
+    async def resolve(
+        self,
+        provider: AuthProvider,
+        context: "PolicyContext",
+    ) -> Credential:
+        """Resolve an auth provider to a credential for this request.
+
+        Raises CredentialError if resolution fails.
+        """
+        if isinstance(provider, UserCredentials):
+            return self._get_user_credential(context)
+
+        if isinstance(provider, ServerKey):
+            return await self._get_server_key(provider.name)
+
+        if isinstance(provider, UserThenServer):
+            try:
+                return self._get_user_credential(context)
+            except CredentialError:
+                if provider.on_fallback == "fail":
+                    raise
+                if provider.on_fallback == "warn":
+                    logger.warning(
+                        "No user credential on request, falling back to server key %r",
+                        provider.name,
+                    )
+                else:
+                    logger.debug(
+                        "No user credential on request, silently falling back to server key %r",
+                        provider.name,
+                    )
+                return await self._get_server_key(provider.name)
+
+        raise CredentialError(f"Unknown auth provider type: {type(provider)}")
+
+    def _get_user_credential(self, context: "PolicyContext") -> Credential:
+        """Read user credential from PolicyContext (set by gateway)."""
+        if context.user_credential is None:
+            raise CredentialError("No user credential on request context")
+        return context.user_credential
+
+    async def _get_server_key(self, name: str) -> Credential:
+        if self._store is None:
+            raise CredentialError("No credential store configured (no database)")
+
+        # Check in-memory cache first
+        cached = self._server_key_cache.get(name)
+        if cached is not None:
+            cached_at, cred = cached
+            if time.time() - cached_at < self._server_key_ttl:
+                return cred
+            del self._server_key_cache[name]
+
+        cred = await self._store.get(name)
+        if cred is None:
+            raise CredentialError(f"Server key '{name}' not found")
+        self._server_key_cache[name] = (time.time(), cred)
+        return cred
+
+    # ---- Server Credential CRUD ----
+
+    async def put_server_credential(self, name: str, credential: Credential) -> None:
+        """Store or update a server credential."""
+        if self._store is None:
+            raise CredentialError("No credential store configured")
+        await self._store.put(name, credential)
+        self._server_key_cache.pop(name, None)
+        logger.info("Server credential '%s' stored (platform=%s)", name, credential.platform)
+
+    async def delete_server_credential(self, name: str) -> bool:
+        """Delete a server credential. Returns True if it existed."""
+        if self._store is None:
+            raise CredentialError("No credential store configured")
+        deleted = await self._store.delete(name)
+        self._server_key_cache.pop(name, None)
+        if deleted:
+            logger.info("Server credential '%s' deleted", name)
+        return deleted
+
+    async def list_server_credentials(self) -> list[str]:
+        """List stored server credential names (no values)."""
+        if self._store is None:
+            return []
+        return await self._store.list_names()
 
     async def close(self) -> None:
         """Clean up HTTP client."""

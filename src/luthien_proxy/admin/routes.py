@@ -7,13 +7,14 @@ from typing import Any
 
 import httpx
 import litellm
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, Field, ValidationError
 
 from luthien_proxy.admin.policy_discovery import discover_policies, validate_policy_config
 from luthien_proxy.auth import verify_admin_token
 from luthien_proxy.config import _import_policy_class
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CredentialManager
+from luthien_proxy.credentials import Credential, CredentialError, CredentialType
 from luthien_proxy.dependencies import get_db_pool, get_policy_manager, require_credential_manager
 from luthien_proxy.policy_manager import (
     PolicyEnableResult,
@@ -476,6 +477,79 @@ async def invalidate_all_credentials(
     """Invalidate all cached credentials."""
     count = await credential_manager.invalidate_all()
     return {"success": True, "count": count, "message": f"Invalidated {count} cached credentials"}
+
+
+# === Server Credentials ===
+
+
+class ServerCredentialRequest(BaseModel):
+    """Request to create/update a server credential."""
+
+    name: str = Field(
+        ...,
+        description="Unique name for the credential (e.g. 'judge-api-key')",
+        pattern=r"^[a-zA-Z0-9_-]{1,128}$",
+    )
+    value: str = Field(..., min_length=1, description="The credential value (API key or OAuth token)")
+    credential_type: str = Field(default="api_key", description="'api_key' or 'auth_token'")
+    platform: str = Field(default="anthropic", description="Provider platform")
+    platform_url: str | None = Field(default=None, description="Custom base URL")
+
+
+@router.post("/credentials")
+async def put_server_credential(
+    body: ServerCredentialRequest,
+    _: str = Depends(verify_admin_token),
+    credential_manager: CredentialManager = Depends(require_credential_manager),
+):
+    """Create or update a server credential."""
+    try:
+        cred_type = CredentialType(body.credential_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid credential_type: {body.credential_type}. Must be 'api_key' or 'auth_token'",
+        )
+
+    credential = Credential(
+        value=body.value,
+        credential_type=cred_type,
+        platform=body.platform,
+        platform_url=body.platform_url,
+    )
+    try:
+        await credential_manager.put_server_credential(body.name, credential)
+    except CredentialError as e:
+        logger.error("Server credential put failed: %r", e)
+        raise HTTPException(status_code=503, detail="Server credential operation failed")
+    return {"success": True, "name": body.name}
+
+
+@router.get("/credentials")
+async def list_server_credentials(
+    _: str = Depends(verify_admin_token),
+    credential_manager: CredentialManager = Depends(require_credential_manager),
+):
+    """List server credential names (no values exposed)."""
+    names = await credential_manager.list_server_credentials()
+    return {"credentials": names, "count": len(names)}
+
+
+@router.delete("/credentials/{name}")
+async def delete_server_credential(
+    name: str = Path(pattern=r"^[a-zA-Z0-9_-]{1,128}$"),
+    _: str = Depends(verify_admin_token),
+    credential_manager: CredentialManager = Depends(require_credential_manager),
+):
+    """Delete a server credential."""
+    try:
+        deleted = await credential_manager.delete_server_credential(name)
+    except CredentialError as e:
+        logger.error("Server credential delete failed: %r", e)
+        raise HTTPException(status_code=503, detail="Server credential operation failed")
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Server credential '{name}' not found")
+    return {"success": True, "name": name}
 
 
 # === Telemetry ===

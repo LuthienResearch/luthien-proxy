@@ -242,4 +242,32 @@ curl -X POST http://localhost:8000/api/admin/policy/set \
 
 ---
 
+## Credential Management Architecture (2026-04-02)
+
+Credentials flow through the system as `Credential` value objects (frozen dataclass in `credentials/credential.py`) carrying a value, `CredentialType` (api_key or auth_token), platform, and optional expiry.
+
+**Request flow**:
+```
+Request → get_request_credential() → Credential (from headers)
+  → verify_token() → validates against proxy key / CredentialManager
+  → resolve_anthropic_client() → builds AnthropicClient
+  → PolicyContext.user_credential → available to policies
+```
+
+- `CredentialType` is determined by transport header: `Authorization: Bearer` → AUTH_TOKEN, `x-api-key` → API_KEY. No prefix heuristics.
+- `x-anthropic-api-key` header overrides the forwarding credential (what the backend sees) without affecting auth validation.
+
+**Auth providers** (policy config): Policies declare how to obtain credentials via `auth_provider` in YAML config:
+- `user_credentials` (default) — use the request's credential
+- `server_key: <name>` — look up operator-provisioned key from `CredentialStore`
+- `user_then_server: <name>` — try user creds, fall back to server key (with `on_fallback: fallback|warn|fail`)
+
+**Resolution**: `CredentialManager.resolve(auth_provider, context)` is the single entry point. It dispatches on auth provider type and returns a `Credential`. Server credentials are encrypted at rest (Fernet) and cached in memory with a 60s TTL.
+
+**Admin CRUD**: `POST/GET/DELETE /api/admin/credentials` for server credential management. Names validated against `^[a-zA-Z0-9_-]{1,128}$`.
+
+**Key files**: `credentials/credential.py`, `credentials/auth_provider.py`, `credentials/store.py`, `credential_manager.py`
+
+---
+
 (Add learnings as discovered during development with timestamps: YYYY-MM-DD)

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Iterator, TypeVar, cast
 
 from opentelemetry import trace
 
+from luthien_proxy.credentials.credential import Credential, CredentialError
 from luthien_proxy.observability.emitter import (
     EventEmitterProtocol,
     NullEventEmitter,
@@ -21,6 +22,8 @@ from luthien_proxy.types import RawHttpRequest
 
 if TYPE_CHECKING:
     from opentelemetry.trace import Span
+
+    from luthien_proxy.credential_manager import CredentialManager
 
 _tracer = trace.get_tracer(__name__)
 T = TypeVar("T")
@@ -51,6 +54,8 @@ class PolicyContext:
         emitter: EventEmitterProtocol | None = None,
         raw_http_request: RawHttpRequest | None = None,
         session_id: str | None = None,
+        user_credential: Credential | None = None,
+        credential_manager: "CredentialManager | None" = None,
     ) -> None:
         """Initialize policy context for a request.
 
@@ -62,11 +67,17 @@ class PolicyContext:
             raw_http_request: Optional raw HTTP request data before any processing.
                               Contains original headers, body, method, and path.
             session_id: Optional session identifier extracted from client request.
+            user_credential: The credential extracted from the incoming request
+                             (accounts for x-anthropic-api-key overrides).
+            credential_manager: Shared credential manager for auth provider
+                                resolution. Policies access via the property.
         """
         self.transaction_id: str = transaction_id
         self.request: Any | None = request
         self.raw_http_request: RawHttpRequest | None = raw_http_request
         self.session_id: str | None = session_id
+        self.user_credential: Credential | None = user_credential
+        self._credential_manager: "CredentialManager | None" = credential_manager
         self._emitter: EventEmitterProtocol = emitter or NullEventEmitter()
         self._scratchpad: dict[str, Any] = {}
         self._request_state: dict[tuple[int, type[Any]], Any] = {}
@@ -87,6 +98,21 @@ class PolicyContext:
             ctx.emitter.record(ctx.transaction_id, "policy.decision", {"action": "allow"})
         """
         return self._emitter
+
+    @property
+    def credential_manager(self) -> "CredentialManager":
+        """Access the credential manager for auth provider resolution.
+
+        Raises CredentialError if not configured — only policies that declare
+        an auth_provider access this, so a missing manager is a config mistake.
+        """
+        if self._credential_manager is None:
+            raise CredentialError(
+                "No credential manager configured. "
+                "Policies using auth_provider require a running gateway with "
+                "CredentialManager initialized."
+            )
+        return self._credential_manager
 
     @property
     def scratchpad(self) -> dict[str, Any]:
@@ -216,6 +242,8 @@ class PolicyContext:
         new_ctx.transaction_id = self.transaction_id
         new_ctx.session_id = self.session_id
         new_ctx.raw_http_request = self.raw_http_request  # read-only after creation
+        new_ctx.user_credential = self.user_credential  # frozen dataclass
+        new_ctx._credential_manager = self._credential_manager  # holds db/cache pools
         new_ctx._emitter = self._emitter  # holds db/redis pool — share, not copy
 
         # Independently mutable: each sub-policy gets its own copy
@@ -238,6 +266,8 @@ class PolicyContext:
         request: Any | None = None,
         raw_http_request: RawHttpRequest | None = None,
         session_id: str | None = None,
+        user_credential: Credential | None = None,
+        credential_manager: "CredentialManager | None" = None,
     ) -> "PolicyContext":
         """Create a PolicyContext suitable for unit tests.
 
@@ -248,6 +278,8 @@ class PolicyContext:
             request: Optional request object
             raw_http_request: Optional raw HTTP request data
             session_id: Optional session ID
+            user_credential: Optional credential for tests exercising auth
+            credential_manager: Optional manager for tests exercising auth providers
 
         Returns:
             PolicyContext with null implementations for external services
@@ -258,6 +290,8 @@ class PolicyContext:
             emitter=NullEventEmitter(),
             raw_http_request=raw_http_request,
             session_id=session_id,
+            user_credential=user_credential,
+            credential_manager=credential_manager,
         )
 
 

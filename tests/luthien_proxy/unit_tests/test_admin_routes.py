@@ -24,8 +24,10 @@ from luthien_proxy.admin.routes import (
     ChatResponse,
     PolicyEnableResponse,
     PolicySetRequest,
+    ServerCredentialRequest,
     TelemetryConfigUpdateRequest,
     _config_to_response,
+    delete_server_credential,
     get_auth_config,
     get_available_models,
     get_current_policy,
@@ -34,12 +36,15 @@ from luthien_proxy.admin.routes import (
     invalidate_credential,
     list_cached_credentials,
     list_models,
+    list_server_credentials,
+    put_server_credential,
     send_chat,
     set_policy,
     update_auth_config,
     update_telemetry_config,
 )
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CachedCredential, CredentialManager
+from luthien_proxy.credentials import CredentialError
 from luthien_proxy.dependencies import require_credential_manager
 from luthien_proxy.policy_manager import PolicyEnableResult
 
@@ -906,3 +911,138 @@ class TestUpdateTelemetryConfig:
             await update_telemetry_config(body=body, _=AUTH_TOKEN, db_pool=None)
 
         assert exc_info.value.status_code == 503
+
+
+class TestPutServerCredential:
+    """Test put_server_credential route handler."""
+
+    @pytest.mark.asyncio
+    async def test_successful_put(self):
+        """Test successful credential creation returns success response."""
+        mock_cm = MagicMock()
+        mock_cm.put_server_credential = AsyncMock()
+
+        request = ServerCredentialRequest(
+            name="judge-key",
+            value="sk-test123",
+            credential_type="api_key",
+            platform="anthropic",
+        )
+
+        result = await put_server_credential(body=request, _=AUTH_TOKEN, credential_manager=mock_cm)
+
+        assert result["success"] is True
+        assert result["name"] == "judge-key"
+        mock_cm.put_server_credential.assert_called_once()
+        call_args = mock_cm.put_server_credential.call_args
+        assert call_args[0][0] == "judge-key"
+
+    @pytest.mark.asyncio
+    async def test_invalid_credential_type(self):
+        """Test invalid credential_type raises HTTPException with 400."""
+        mock_cm = MagicMock()
+
+        request = ServerCredentialRequest(
+            name="test-key",
+            value="x",
+            credential_type="bad_type",
+            platform="anthropic",
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await put_server_credential(body=request, _=AUTH_TOKEN, credential_manager=mock_cm)
+
+        assert exc_info.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_credential_error_returns_503(self):
+        """Test CredentialError is converted to 503."""
+        mock_cm = MagicMock()
+        mock_cm.put_server_credential = AsyncMock(side_effect=CredentialError("No credential store configured"))
+
+        request = ServerCredentialRequest(
+            name="judge-key",
+            value="sk-test123",
+            credential_type="api_key",
+            platform="anthropic",
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await put_server_credential(body=request, _=AUTH_TOKEN, credential_manager=mock_cm)
+
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail == "Server credential operation failed"
+
+    @pytest.mark.asyncio
+    async def test_name_validation(self):
+        """Test name pattern validation rejects invalid names."""
+        with pytest.raises(ValidationError):
+            ServerCredentialRequest(
+                name="invalid name!!",
+                value="x",
+                credential_type="api_key",
+                platform="anthropic",
+            )
+
+
+class TestListServerCredentials:
+    """Test list_server_credentials route handler."""
+
+    @pytest.mark.asyncio
+    async def test_successful_list(self):
+        """Test listing credentials returns names and count."""
+        mock_cm = MagicMock()
+        mock_cm.list_server_credentials = AsyncMock(return_value=["key-a", "key-b"])
+
+        result = await list_server_credentials(_=AUTH_TOKEN, credential_manager=mock_cm)
+
+        assert result["credentials"] == ["key-a", "key-b"]
+        assert result["count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_empty_list(self):
+        """Test listing empty credentials."""
+        mock_cm = MagicMock()
+        mock_cm.list_server_credentials = AsyncMock(return_value=[])
+
+        result = await list_server_credentials(_=AUTH_TOKEN, credential_manager=mock_cm)
+
+        assert result["credentials"] == []
+        assert result["count"] == 0
+
+
+class TestDeleteServerCredential:
+    """Test delete_server_credential route handler."""
+
+    @pytest.mark.asyncio
+    async def test_successful_delete(self):
+        """Test successful deletion returns success response."""
+        mock_cm = MagicMock()
+        mock_cm.delete_server_credential = AsyncMock(return_value=True)
+
+        result = await delete_server_credential(name="judge-key", _=AUTH_TOKEN, credential_manager=mock_cm)
+
+        assert result["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_not_found(self):
+        """Test deleting non-existent credential raises 404."""
+        mock_cm = MagicMock()
+        mock_cm.delete_server_credential = AsyncMock(return_value=False)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await delete_server_credential(name="nonexistent", _=AUTH_TOKEN, credential_manager=mock_cm)
+
+        assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_credential_error_returns_503(self):
+        """Test CredentialError is converted to 503."""
+        mock_cm = MagicMock()
+        mock_cm.delete_server_credential = AsyncMock(side_effect=CredentialError("Store error"))
+
+        with pytest.raises(HTTPException) as exc_info:
+            await delete_server_credential(name="judge-key", _=AUTH_TOKEN, credential_manager=mock_cm)
+
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail == "Server credential operation failed"

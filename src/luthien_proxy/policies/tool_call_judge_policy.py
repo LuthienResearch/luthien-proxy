@@ -41,10 +41,14 @@ from anthropic.types import (
 )
 from pydantic import BaseModel, Field
 
+from luthien_proxy.credentials import AuthProvider, parse_auth_provider
+from luthien_proxy.llm.judge_client import judge_completion
 from luthien_proxy.policies.tool_call_judge_utils import (
     JudgeConfig,
     JudgeResult,
+    build_judge_prompt,
     call_judge,
+    parse_to_judge_result,
 )
 from luthien_proxy.policy_core import (
     AnthropicHookPolicy,
@@ -120,6 +124,12 @@ class ToolCallJudgeConfig(BaseModel):
         default=None,
         description="Template for blocked messages. Variables: {tool_name}, {tool_arguments}, {probability}, {explanation}",
     )
+    auth_provider: str | dict | None = Field(
+        default=None,
+        description="How to obtain credentials for judge calls. "
+        "Options: 'user_credentials' (default), {'server_key': 'name'}, "
+        "{'user_then_server': 'name'}. Replaces api_key when set.",
+    )
 
 
 class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
@@ -163,7 +173,13 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
             temperature=self.config.temperature,
             max_tokens=self.config.max_tokens,
         )
-        # Server-level key fallback, used when no per-policy key and no passthrough key.
+
+        # Auth provider (new path) — when set, replaces the legacy key resolution
+        self._auth_provider: AuthProvider | None = None
+        if self.config.auth_provider is not None:
+            self._auth_provider = parse_auth_provider(self.config.auth_provider)
+
+        # DEPRECATED(Step 5b): legacy key fallback — remove when auth_provider is mandatory
         self._fallback_api_key = settings.llm_judge_api_key or settings.litellm_master_key or None
 
         self._judge_instructions = self.config.judge_instructions or (
@@ -374,6 +390,36 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
             "arguments": buffered.input_json or "{}",
         }
 
+    async def _call_judge(
+        self,
+        name: str,
+        arguments: str,
+        context: "PolicyContext",
+    ) -> JudgeResult:
+        """Call the judge LLM, using auth_provider or legacy key resolution."""
+        prompt = build_judge_prompt(name, arguments, self._judge_instructions)
+
+        if self._auth_provider is not None:
+            credential = await context.credential_manager.resolve(self._auth_provider, context)
+            response_text = await judge_completion(
+                credential,
+                model=self._config.model,
+                messages=prompt,
+                temperature=self._config.temperature,
+                max_tokens=self._config.max_tokens,
+                api_base=self._config.api_base,
+            )
+            return parse_to_judge_result(response_text, prompt)
+
+        # DEPRECATED(Step 5b): legacy path — remove when auth_provider is mandatory
+        return await call_judge(
+            name,
+            arguments,
+            self._config,
+            self._judge_instructions,
+            api_key=self._resolve_judge_api_key(context, self._config.api_key, self._fallback_api_key),
+        )
+
     async def _evaluate_and_maybe_block_anthropic(
         self,
         tool_call: ToolCallDict,
@@ -390,13 +436,7 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
 
         # Call judge with fail-secure error handling
         try:
-            judge_result = await call_judge(
-                name,
-                arguments,
-                self._config,
-                self._judge_instructions,
-                api_key=self._resolve_judge_api_key(context, self._config.api_key, self._fallback_api_key),
-            )
+            judge_result = await self._call_judge(name, arguments, context)
         except Exception as exc:
             logger.error(
                 f"Judge evaluation FAILED for tool call '{name}' with arguments: "
