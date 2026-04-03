@@ -48,7 +48,7 @@ from luthien_proxy.policies.tool_call_judge_utils import (
     JudgeResult,
     build_judge_prompt,
     call_judge,
-    parse_judge_response,
+    parse_to_judge_result,
 )
 from luthien_proxy.policy_core import (
     AnthropicHookPolicy,
@@ -179,7 +179,7 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         if self.config.auth_provider is not None:
             self._auth_provider = parse_auth_provider(self.config.auth_provider)
 
-        # Legacy key fallback (used when auth_provider is not set)
+        # DEPRECATED(Step 5b): legacy key fallback — remove when auth_provider is mandatory
         self._fallback_api_key = settings.llm_judge_api_key or settings.litellm_master_key or None
 
         self._judge_instructions = self.config.judge_instructions or (
@@ -409,27 +409,9 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
                 max_tokens=self._config.max_tokens,
                 api_base=self._config.api_base,
             )
-            # Use the same parsing logic as call_judge for consistency
-            data = parse_judge_response(response_text)
+            return parse_to_judge_result(response_text, prompt)
 
-            # Fail-secure: missing probability field is a malformed response
-            if "probability" not in data:
-                raise ValueError("Judge response missing required 'probability' field")
-
-            probability = float(data["probability"])
-            explanation = str(data.get("explanation", ""))
-
-            # Clamp probability to [0, 1]
-            probability = max(0.0, min(1.0, probability))
-
-            return JudgeResult(
-                probability=probability,
-                explanation=explanation,
-                prompt=prompt,
-                response_text=response_text,
-            )
-
-        # Legacy path: use _resolve_judge_api_key
+        # DEPRECATED(Step 5b): legacy path — remove when auth_provider is mandatory
         return await call_judge(
             name,
             arguments,

@@ -137,7 +137,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         if parsed.auth_provider is not None:
             self._auth_provider = parse_auth_provider(parsed.auth_provider)
 
-        # Legacy key fallback (used when auth_provider is not set)
+        # DEPRECATED(Step 5b): legacy key fallback — remove when auth_provider is mandatory
         self._fallback_api_key = settings.llm_judge_api_key or settings.litellm_master_key or None
 
         if self._config.on_error == "pass":
@@ -202,6 +202,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                     credential=credential,
                 )
             else:
+                # DEPRECATED(Step 5b): legacy path — remove when auth_provider is mandatory
                 result = await call_simple_llm_judge(
                     self._config,
                     descriptor,

@@ -13,8 +13,8 @@ from pydantic import BaseModel, Field, ValidationError
 from luthien_proxy.admin.policy_discovery import discover_policies, validate_policy_config
 from luthien_proxy.auth import verify_admin_token
 from luthien_proxy.config import _import_policy_class
-from luthien_proxy.credential_manager import AuthConfig, AuthMode, CredentialError, CredentialManager
-from luthien_proxy.credentials import Credential, CredentialType
+from luthien_proxy.credential_manager import AuthConfig, AuthMode, CredentialManager
+from luthien_proxy.credentials import Credential, CredentialError, CredentialType
 from luthien_proxy.dependencies import get_db_pool, get_policy_manager, require_credential_manager
 from luthien_proxy.policy_manager import (
     PolicyEnableResult,
@@ -485,7 +485,11 @@ async def invalidate_all_credentials(
 class ServerCredentialRequest(BaseModel):
     """Request to create/update a server credential."""
 
-    name: str = Field(..., description="Unique name for the credential (e.g. 'judge-api-key')")
+    name: str = Field(
+        ...,
+        description="Unique name for the credential (e.g. 'judge-api-key')",
+        pattern=r"^[a-zA-Z0-9_-]{1,128}$",
+    )
     value: str = Field(..., description="The credential value (API key or OAuth token)")
     credential_type: str = Field(default="api_key", description="'api_key' or 'auth_token'")
     platform: str = Field(default="anthropic", description="Provider platform")

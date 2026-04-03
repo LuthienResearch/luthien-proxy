@@ -53,6 +53,18 @@ class TestParseAuthProvider:
         with pytest.raises(ValueError, match="Unknown auth_provider"):
             parse_auth_provider({})
 
+    def test_invalid_on_fallback_raises(self):
+        with pytest.raises(ValueError, match="Invalid on_fallback"):
+            parse_auth_provider({"user_then_server": {"name": "key", "on_fallback": "warning"}})
+
+    def test_server_key_non_string_name_raises(self):
+        with pytest.raises(ValueError, match="server_key name must be a string"):
+            parse_auth_provider({"server_key": 123})
+
+    def test_user_then_server_non_string_name_raises(self):
+        with pytest.raises(ValueError, match="user_then_server name must be a string"):
+            parse_auth_provider({"user_then_server": {"name": 123}})
+
 
 class TestAuthProviderFrozen:
     def test_user_credentials_frozen(self):

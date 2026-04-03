@@ -1,6 +1,6 @@
 # Credential Management Standardization
 
-**Status**: Design spec (not yet implemented)
+**Status**: Steps 3-5a implemented (PR #496)
 **Date**: 2026-03-31
 **Updated**: 2026-04-01 (consistency pass after 3 rounds of adversarial review)
 

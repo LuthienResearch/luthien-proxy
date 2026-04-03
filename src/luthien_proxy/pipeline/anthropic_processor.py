@@ -37,8 +37,7 @@ from opentelemetry.context import get_current
 from opentelemetry.trace import Span
 
 from luthien_proxy.credential_manager import CredentialManager
-from luthien_proxy.credentials import Credential
-from luthien_proxy.credentials.credential import CredentialError
+from luthien_proxy.credentials import Credential, CredentialError
 from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.types.anthropic import (

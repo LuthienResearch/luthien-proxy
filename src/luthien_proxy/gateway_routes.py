@@ -105,7 +105,7 @@ async def resolve_anthropic_client(
     api_key: str | None = Depends(get_api_key),
     credential_manager: CredentialManager | None = Depends(get_credential_manager),
     base_client: AnthropicClient | None = Depends(get_anthropic_client),
-) -> tuple[AnthropicClient, Credential]:
+) -> tuple[AnthropicClient, Credential | None]:
     """Build an AnthropicClient from the validated credential.
 
     Returns both the client and the forwarding credential. These may differ
@@ -159,14 +159,16 @@ async def resolve_anthropic_client(
         client = await anthropic_client_cache.get_client(token, auth_type="api_key", base_url=base_url)
         return client, credential
 
-    # Proxy key fallback: use the server's configured client
+    # Proxy key fallback: use the server's configured client.
+    # user_credential is None here — the proxy key authenticated the client
+    # but the backend uses the server's ANTHROPIC_API_KEY, not the user's key.
     if base_client is None:
         raise HTTPException(
             status_code=500,
             detail="No Anthropic credentials available (set ANTHROPIC_API_KEY or use passthrough auth)",
         )
     await _record_credential_type("proxy_key_fallback")
-    return base_client, credential
+    return base_client, None
 
 
 # === ROUTES ===
@@ -175,7 +177,7 @@ async def resolve_anthropic_client(
 @router.post("/v1/messages")
 async def anthropic_messages(
     request: Request,
-    client_and_credential: tuple[AnthropicClient, Credential] = Depends(resolve_anthropic_client),
+    client_and_credential: tuple[AnthropicClient, Credential | None] = Depends(resolve_anthropic_client),
     anthropic_policy: AnthropicExecutionInterface = Depends(get_anthropic_policy),
     emitter: EventEmitterProtocol = Depends(get_emitter),
     db_pool: db.DatabasePool | None = Depends(get_db_pool),

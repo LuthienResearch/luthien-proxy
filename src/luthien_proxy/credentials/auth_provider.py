@@ -39,6 +39,9 @@ class UserThenServer:
 AuthProvider = UserCredentials | ServerKey | UserThenServer
 
 
+_VALID_FALLBACK_MODES = frozenset({"fallback", "warn", "fail"})
+
+
 def parse_auth_provider(raw: str | dict | None) -> AuthProvider:
     """Parse an auth_provider value from YAML/dict config.
 
@@ -52,14 +55,22 @@ def parse_auth_provider(raw: str | dict | None) -> AuthProvider:
         return UserCredentials()
     if isinstance(raw, dict):
         if "server_key" in raw:
-            return ServerKey(name=raw["server_key"])
+            name = raw["server_key"]
+            if not isinstance(name, str):
+                raise ValueError(f"server_key name must be a string, got {type(name).__name__}")
+            return ServerKey(name=name)
         if "user_then_server" in raw:
             val = raw["user_then_server"]
             if isinstance(val, str):
                 return UserThenServer(name=val)
             if isinstance(val, dict):
-                return UserThenServer(
-                    name=val["name"],
-                    on_fallback=val.get("on_fallback", "warn"),
-                )
+                name = val["name"]
+                if not isinstance(name, str):
+                    raise ValueError(f"user_then_server name must be a string, got {type(name).__name__}")
+                on_fallback = val.get("on_fallback", "warn")
+                if on_fallback not in _VALID_FALLBACK_MODES:
+                    raise ValueError(
+                        f"Invalid on_fallback: {on_fallback!r}. Must be one of: {', '.join(sorted(_VALID_FALLBACK_MODES))}"
+                    )
+                return UserThenServer(name=name, on_fallback=on_fallback)
     raise ValueError(f"Unknown auth_provider: {raw}")
