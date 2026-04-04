@@ -19,7 +19,7 @@ from anthropic.types import (
 from anthropic.types.raw_message_delta_event import Delta
 from tests.constants import DEFAULT_TEST_MODEL
 
-from luthien_proxy.llm.anthropic_client import AnthropicClient
+from luthien_proxy.llm.anthropic_client import AnthropicClient, serialize_no_extras
 from luthien_proxy.llm.types.anthropic import AnthropicRequest
 
 
@@ -433,3 +433,39 @@ class TestAnthropicClientStream:
 
         call_kwargs = mock_async_client.messages.stream.call_args.kwargs
         assert "extra_body" not in call_kwargs
+
+
+class TestSerializeNoExtras:
+    def test_strips_pydantic_extra_fields(self):
+        block = TextBlock.model_validate({"type": "text", "text": "hello", "snapshot": "hello"})
+        result = serialize_no_extras(block)
+        assert "snapshot" not in result
+        assert result["type"] == "text"
+        assert result["text"] == "hello"
+
+    def test_preserves_known_fields(self):
+        block = TextBlock(type="text", text="hi")
+        result = serialize_no_extras(block)
+        assert result["type"] == "text"
+        assert result["text"] == "hi"
+
+    def test_strips_nested_extras(self):
+        block = TextBlock.model_validate({"type": "text", "text": "x", "snapshot": "x"})
+        event = RawContentBlockStartEvent(type="content_block_start", index=0, content_block=block)
+        result = serialize_no_extras(event)
+        assert "snapshot" not in result["content_block"]
+        assert result["content_block"]["type"] == "text"
+
+    def test_plain_values_pass_through(self):
+        assert serialize_no_extras("string") == "string"
+        assert serialize_no_extras(42) == 42
+        assert serialize_no_extras(None) is None
+
+    def test_list_of_models(self):
+        blocks = [
+            TextBlock.model_validate({"type": "text", "text": "a", "snapshot": "a"}),
+            TextBlock.model_validate({"type": "text", "text": "b", "snapshot": "b"}),
+        ]
+        results = serialize_no_extras(blocks)
+        assert all("snapshot" not in r for r in results)
+        assert [r["text"] for r in results] == ["a", "b"]
