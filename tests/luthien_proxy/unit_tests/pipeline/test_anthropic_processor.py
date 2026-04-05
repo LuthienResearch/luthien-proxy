@@ -95,6 +95,22 @@ class TestFormatSSEEvent:
 
         assert result.startswith("event: unknown\n")
 
+    @pytest.mark.parametrize("event_type", ["text", "thinking", "citation", "signature", "input_json"])
+    def test_returns_none_for_synthetic_event_types(self, event_type: str):
+        event = MagicMock()
+        event.type = event_type
+        assert _format_sse_event(event) is None
+
+    def test_content_block_stop_strips_to_wire_fields(self):
+        event = RawContentBlockStopEvent(type="content_block_stop", index=2)
+        result = _format_sse_event(event)
+
+        assert result is not None
+        data = json.loads(result.split("data: ", 1)[1].strip())
+        assert set(data.keys()) == {"type", "index"}
+        assert data["type"] == "content_block_stop"
+        assert data["index"] == 2
+
 
 class TestProcessRequest:
     """Tests for _process_request helper function."""

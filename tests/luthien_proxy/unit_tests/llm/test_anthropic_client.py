@@ -1,5 +1,6 @@
 """Unit tests for AnthropicClient."""
 
+from enum import Enum
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -469,3 +470,9 @@ class TestSerializeNoExtras:
         results = serialize_no_extras(blocks)
         assert all("snapshot" not in r for r in results)
         assert [r["text"] for r in results] == ["a", "b"]
+
+    def test_enum_values_are_unwrapped(self):
+        class Color(Enum):
+            RED = "red"
+
+        assert serialize_no_extras(Color.RED) == "red"

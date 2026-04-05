@@ -618,8 +618,10 @@ async def _handle_execution_streaming(
                             io.ensure_request_recorded()
                             emitted_any = True
                             chunk_count += 1
-                            accumulated_events.append(cast(MessageStreamEvent, emitted))
-                            sse = _format_sse_event(cast(MessageStreamEvent, emitted))
+                            cast_emitted = cast(MessageStreamEvent, emitted)
+                            if cast_emitted.type not in _SYNTHETIC_EVENT_TYPES:
+                                accumulated_events.append(cast_emitted)
+                            sse = _format_sse_event(cast_emitted)
                             if sse is not None:
                                 yield sse
                 except Exception as e:
@@ -636,7 +638,7 @@ async def _handle_execution_streaming(
                     else:
                         final_status = 500
                     error_event = _build_error_event(e, call_id)
-                    yield cast(str, _format_sse_event(error_event))
+                    yield cast(str, _format_sse_event(error_event))  # dict → never None
                 finally:
                     if not emitted_any and not caught_exception:
                         io.ensure_request_recorded()
@@ -658,7 +660,7 @@ async def _handle_execution_streaming(
                                 message="Request blocked: policy evaluation unavailable. Contact your administrator.",
                             ),
                         )
-                        yield cast(str, _format_sse_event(empty_stream_error))
+                        yield cast(str, _format_sse_event(empty_stream_error))  # dict → never None
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
 
                     # Validate streaming protocol compliance (log-and-warn).
@@ -839,6 +841,13 @@ _STOP_EVENT_WIRE_FIELDS: dict[str, frozenset[str]] = {
 
 
 def _format_sse_event(event: MessageStreamEvent | _StreamErrorEvent) -> str | None:
+    """Format a streaming event as an SSE string, or return None to skip it.
+
+    Returns None for synthetic SDK events (e.g. RawTextEvent) that exist only
+    for the Python client's convenience and have no wire-protocol counterpart.
+    Dict events (error/empty-stream paths) always produce output — the callers
+    that use cast(str, ...) rely on this invariant.
+    """
     if isinstance(event, dict):
         event_type = str(event.get("type", "unknown"))
         event_data: dict = dict(event)
