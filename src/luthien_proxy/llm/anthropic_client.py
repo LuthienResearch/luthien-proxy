@@ -16,17 +16,16 @@ if TYPE_CHECKING:
 
 
 def serialize_no_extras(obj: Any) -> Any:
+    """Recursively serialize a Pydantic model tree, emitting only declared model_fields (no __pydantic_extra__)."""
     # The Anthropic SDK uses extra='allow', so beta responses include undocumented
     # fields (e.g. 'snapshot' from interleaved-thinking) that break strict client
     # validators like @ai-sdk/anthropic. Only emit fields declared in model_fields.
     if isinstance(obj, BaseModel):
-        return {name: serialize_no_extras(getattr(obj, name)) for name in obj.model_fields}
+        return {name: serialize_no_extras(getattr(obj, name)) for name in type(obj).model_fields}
     if isinstance(obj, Enum):
         return obj.value
-    if isinstance(obj, (list, tuple)):
-        return [serialize_no_extras(item) for item in obj]  # tuples become lists (JSON has no tuple type)
-    if isinstance(obj, (set, frozenset)):
-        return [serialize_no_extras(item) for item in obj]
+    if isinstance(obj, (list, tuple, set, frozenset)):
+        return [serialize_no_extras(item) for item in obj]  # non-list iterables become lists (JSON has no tuple/set)
     if isinstance(obj, dict):
         return {k: serialize_no_extras(v) for k, v in obj.items()}
     return obj
