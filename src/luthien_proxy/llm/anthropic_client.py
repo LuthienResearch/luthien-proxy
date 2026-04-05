@@ -24,6 +24,8 @@ def serialize_no_extras(obj: Any) -> Any:
     if isinstance(obj, Enum):
         return obj.value
     if isinstance(obj, (list, tuple)):
+        return [serialize_no_extras(item) for item in obj]  # tuples become lists (JSON has no tuple type)
+    if isinstance(obj, (set, frozenset)):
         return [serialize_no_extras(item) for item in obj]
     if isinstance(obj, dict):
         return {k: serialize_no_extras(v) for k, v in obj.items()}

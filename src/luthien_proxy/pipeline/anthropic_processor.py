@@ -639,7 +639,8 @@ async def _handle_execution_streaming(
                         final_status = 500
                     error_event = _build_error_event(e, call_id)
                     sse_error = _format_sse_event(error_event)
-                    assert sse_error is not None  # dict events always produce output
+                    if sse_error is None:
+                        raise RuntimeError("_format_sse_event returned None for a dict event — invariant violated")
                     yield sse_error
                 finally:
                     if not emitted_any and not caught_exception:
@@ -663,7 +664,8 @@ async def _handle_execution_streaming(
                             ),
                         )
                         sse_empty = _format_sse_event(empty_stream_error)
-                        assert sse_empty is not None  # dict events always produce output
+                        if sse_empty is None:
+                            raise RuntimeError("_format_sse_event returned None for a dict event — invariant violated")
                         yield sse_empty
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
 

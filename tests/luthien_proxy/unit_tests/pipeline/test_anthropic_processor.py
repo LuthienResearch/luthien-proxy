@@ -120,6 +120,17 @@ class TestFormatSSEEvent:
         assert set(data.keys()) == {"type"}
         assert data["type"] == "message_stop"
 
+    def test_strips_pydantic_extras_from_raw_event(self):
+        event = RawContentBlockDeltaEvent.model_validate(
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "hi"}, "snapshot": "hi"}
+        )
+        result = _format_sse_event(event)
+
+        assert result is not None
+        data = json.loads(result.split("data: ", 1)[1].strip())
+        assert "snapshot" not in data
+        assert data["type"] == "content_block_delta"
+
 
 class TestProcessRequest:
     """Tests for _process_request helper function."""
