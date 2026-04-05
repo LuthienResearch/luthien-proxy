@@ -15,6 +15,7 @@ from anthropic.types import (
     RawMessageStopEvent,
     TextBlock,
     TextDelta,
+    ThinkingBlock,
     Usage,
 )
 from anthropic.types.raw_message_delta_event import Delta
@@ -486,3 +487,13 @@ class TestSerializeNoExtras:
         assert len(result) == 1
         assert result[0]["text"] == "hi"
         assert "snapshot" not in result[0]
+
+    def test_strips_extras_from_thinking_block(self):
+        block = ThinkingBlock.model_validate(
+            {"type": "thinking", "thinking": "some reasoning", "signature": "sig123", "snapshot": "snap"}
+        )
+        result = serialize_no_extras(block)
+        assert "snapshot" not in result
+        assert result["type"] == "thinking"
+        assert result["thinking"] == "some reasoning"
+        assert result["signature"] == "sig123"

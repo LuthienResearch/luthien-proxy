@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "mcp__serena__activate_project",
-      "mcp__serena__list_memories"
-    ]
-  }
-}
