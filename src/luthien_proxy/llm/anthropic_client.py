@@ -1,16 +1,35 @@
 """Anthropic SDK client wrapper for making API calls."""
 
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING
+from enum import Enum
+from typing import TYPE_CHECKING, Any
 
 import anthropic
 import anthropic.types
 from opentelemetry import trace
+from pydantic import BaseModel
 
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse, build_usage
 
 if TYPE_CHECKING:
     from anthropic.lib.streaming import MessageStreamEvent
+
+
+def serialize_no_extras(obj: Any) -> Any:
+    """Recursively serialize a Pydantic model tree, emitting only declared model_fields (no __pydantic_extra__)."""
+    # The Anthropic SDK uses extra='allow', so beta responses include undocumented
+    # fields (e.g. 'snapshot' from interleaved-thinking) that break strict client
+    # validators like @ai-sdk/anthropic. Only emit fields declared in model_fields.
+    if isinstance(obj, BaseModel):
+        return {name: serialize_no_extras(getattr(obj, name)) for name in type(obj).model_fields}
+    if isinstance(obj, Enum):
+        return obj.value
+    if isinstance(obj, (list, tuple, set, frozenset)):
+        return [serialize_no_extras(item) for item in obj]  # non-list iterables become lists (JSON has no tuple/set)
+    if isinstance(obj, dict):
+        return {k: serialize_no_extras(v) for k, v in obj.items()}
+    return obj
+
 
 tracer = trace.get_tracer(__name__)
 
@@ -136,8 +155,7 @@ class AnthropicClient:
         """Convert SDK Message to AnthropicResponse TypedDict."""
         content_blocks = []
         for block in message.content:
-            block_dict = block.model_dump()
-            content_blocks.append(block_dict)
+            content_blocks.append(serialize_no_extras(block))
 
         return AnthropicResponse(
             id=message.id,

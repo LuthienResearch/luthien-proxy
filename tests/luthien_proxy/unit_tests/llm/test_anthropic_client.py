@@ -1,5 +1,6 @@
 """Unit tests for AnthropicClient."""
 
+from enum import Enum
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,12 +15,13 @@ from anthropic.types import (
     RawMessageStopEvent,
     TextBlock,
     TextDelta,
+    ThinkingBlock,
     Usage,
 )
 from anthropic.types.raw_message_delta_event import Delta
 from tests.constants import DEFAULT_TEST_MODEL
 
-from luthien_proxy.llm.anthropic_client import AnthropicClient
+from luthien_proxy.llm.anthropic_client import AnthropicClient, serialize_no_extras
 from luthien_proxy.llm.types.anthropic import AnthropicRequest
 
 
@@ -433,3 +435,65 @@ class TestAnthropicClientStream:
 
         call_kwargs = mock_async_client.messages.stream.call_args.kwargs
         assert "extra_body" not in call_kwargs
+
+
+class TestSerializeNoExtras:
+    def test_strips_pydantic_extra_fields(self):
+        block = TextBlock.model_validate({"type": "text", "text": "hello", "snapshot": "hello"})
+        result = serialize_no_extras(block)
+        assert "snapshot" not in result
+        assert result["type"] == "text"
+        assert result["text"] == "hello"
+
+    def test_preserves_known_fields(self):
+        block = TextBlock(type="text", text="hi")
+        result = serialize_no_extras(block)
+        assert result["type"] == "text"
+        assert result["text"] == "hi"
+
+    def test_strips_nested_extras(self):
+        block = TextBlock.model_validate({"type": "text", "text": "x", "snapshot": "x"})
+        event = RawContentBlockStartEvent(type="content_block_start", index=0, content_block=block)
+        result = serialize_no_extras(event)
+        assert "snapshot" not in result["content_block"]
+        assert result["content_block"]["type"] == "text"
+
+    def test_plain_values_pass_through(self):
+        assert serialize_no_extras("string") == "string"
+        assert serialize_no_extras(42) == 42
+        assert serialize_no_extras(None) is None
+
+    def test_list_of_models(self):
+        blocks = [
+            TextBlock.model_validate({"type": "text", "text": "a", "snapshot": "a"}),
+            TextBlock.model_validate({"type": "text", "text": "b", "snapshot": "b"}),
+        ]
+        results = serialize_no_extras(blocks)
+        assert all("snapshot" not in r for r in results)
+        assert [r["text"] for r in results] == ["a", "b"]
+
+    def test_enum_values_are_unwrapped(self):
+        class Color(Enum):
+            RED = "red"
+
+        assert serialize_no_extras(Color.RED) == "red"
+
+    def test_dict_passes_through(self):
+        assert serialize_no_extras({"a": 1, "b": "x"}) == {"a": 1, "b": "x"}
+
+    def test_tuple_elements_are_recursed(self):
+        block = TextBlock.model_validate({"type": "text", "text": "hi", "snapshot": "hi"})
+        result = serialize_no_extras((block,))
+        assert len(result) == 1
+        assert result[0]["text"] == "hi"
+        assert "snapshot" not in result[0]
+
+    def test_strips_extras_from_thinking_block(self):
+        block = ThinkingBlock.model_validate(
+            {"type": "thinking", "thinking": "some reasoning", "signature": "sig123", "snapshot": "snap"}
+        )
+        result = serialize_no_extras(block)
+        assert "snapshot" not in result
+        assert result["type"] == "thinking"
+        assert result["thinking"] == "some reasoning"
+        assert result["signature"] == "sig123"

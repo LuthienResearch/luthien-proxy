@@ -39,7 +39,7 @@ from opentelemetry.trace import Span
 from luthien_proxy.credential_manager import CredentialManager
 from luthien_proxy.credentials import Credential, CredentialError
 from luthien_proxy.exceptions import BackendAPIError
-from luthien_proxy.llm.anthropic_client import AnthropicClient
+from luthien_proxy.llm.anthropic_client import AnthropicClient, serialize_no_extras
 from luthien_proxy.llm.types.anthropic import (
     AnthropicContentBlock,
     AnthropicRequest,
@@ -617,9 +617,13 @@ async def _handle_execution_streaming(
                                 )
                             io.ensure_request_recorded()
                             emitted_any = True
-                            chunk_count += 1
-                            accumulated_events.append(cast(MessageStreamEvent, emitted))
-                            yield _format_sse_event(cast(MessageStreamEvent, emitted))
+                            cast_emitted = cast(MessageStreamEvent, emitted)
+                            if cast_emitted.type not in _SYNTHETIC_EVENT_TYPES:
+                                accumulated_events.append(cast_emitted)
+                            sse = _format_sse_event(cast_emitted)
+                            if sse is not None:
+                                chunk_count += 1
+                                yield sse
                 except Exception as e:
                     caught_exception = True
                     # Headers may already be sent, so emit an in-stream error event.
@@ -634,7 +638,10 @@ async def _handle_execution_streaming(
                     else:
                         final_status = 500
                     error_event = _build_error_event(e, call_id)
-                    yield _format_sse_event(error_event)
+                    sse_error = _format_sse_event(error_event)
+                    if sse_error is None:
+                        raise RuntimeError("_format_sse_event returned None for a dict event — invariant violated")
+                    yield sse_error
                 finally:
                     if not emitted_any and not caught_exception:
                         io.ensure_request_recorded()
@@ -656,7 +663,10 @@ async def _handle_execution_streaming(
                                 message="Request blocked: policy evaluation unavailable. Contact your administrator.",
                             ),
                         )
-                        yield _format_sse_event(empty_stream_error)
+                        sse_empty = _format_sse_event(empty_stream_error)
+                        if sse_empty is None:
+                            raise RuntimeError("_format_sse_event returned None for a dict event — invariant violated")
+                        yield sse_empty
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
 
                     # Validate streaming protocol compliance (log-and-warn).
@@ -828,22 +838,32 @@ async def _handle_execution_non_streaming(
         )
 
 
-def _format_sse_event(event: MessageStreamEvent | _StreamErrorEvent) -> str:
-    """Format an Anthropic stream event as an SSE line.
+_SYNTHETIC_EVENT_TYPES = frozenset({"text", "thinking", "citation", "signature", "input_json"})
 
-    Args:
-        event: Anthropic SDK streaming event (Pydantic model) or error event dict
+_STOP_EVENT_WIRE_FIELDS: dict[str, frozenset[str]] = {
+    "content_block_stop": frozenset({"type", "index"}),
+    "message_stop": frozenset({"type"}),
+}
 
-    Returns:
-        SSE-formatted string with event type and JSON data.
+
+def _format_sse_event(event: MessageStreamEvent | _StreamErrorEvent) -> str | None:
+    """Format a streaming event as an SSE string, or return None to skip it.
+
+    Returns None for synthetic SDK events (e.g. RawTextEvent) that exist only
+    for the Python client's convenience and have no wire-protocol counterpart.
+    Dict events (error/empty-stream paths) always produce output — the callers
+    that use cast(str, ...) rely on this invariant.
     """
-    # Handle both SDK Pydantic models and TypedDicts (error events)
     if isinstance(event, dict):
         event_type = str(event.get("type", "unknown"))
         event_data: dict = dict(event)
     else:
         event_type = event.type
-        event_data = event.model_dump()
+        if event_type in _SYNTHETIC_EVENT_TYPES:
+            return None
+        serialized = serialize_no_extras(event)
+        wire_fields = _STOP_EVENT_WIRE_FIELDS.get(event_type)
+        event_data = {k: v for k, v in serialized.items() if k in wire_fields} if wire_fields else serialized
 
     json_data = json.dumps(event_data)
     return f"event: {event_type}\ndata: {json_data}\n\n"
