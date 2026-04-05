@@ -244,16 +244,7 @@ policy:
 
 Base classes and building blocks in `src/luthien_proxy/policies/` — see **[docs/policies.md](docs/policies.md)** for full reference with examples:
 
-**Quick Start Presets** (zero config):
-- `NoYappingPolicy` - Remove filler and hedging
-- `NoApologiesPolicy` - Strip apologetic language
-- `PlainDashesPolicy` - Replace Unicode dashes with hyphens
-- `PreferUvPolicy` - Replace pip commands with uv equivalents
-- `BlockDangerousCommandsPolicy` - Block rm -rf, chmod 777, etc.
-- `BlockWebRequestsPolicy` - Block curl, wget, network requests
-- `BlockSensitiveFileWritesPolicy` - Block writes to /etc, ~/.ssh, etc.
-
-**Core Policies** (configurable):
+**Configurable policies**:
 - `NoOpPolicy` - Pass-through (default)
 - `SimpleLLMPolicy` - Apply plain-English instructions via judge LLM
 - `ToolCallJudgePolicy` - Probability-based tool call blocking
