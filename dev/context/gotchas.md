@@ -336,6 +336,18 @@ if stream_state.finish_reason:
 - **Pattern**: This is the 2nd instance of this bug class in 2 months (1st was PR #134 — thinking block signatures out of order, 2nd was PR #356 — warning injection after `message_delta`). Both were discovered by humans hitting them in real usage.
 - **Architectural gap**: No pipeline-level validator enforces event ordering — each policy must get it right independently.
 
+## Claude Code Preflight Calls Share Session ID with Real Turns (2026-04-03)
+
+**Gotcha**: Claude Code sends multiple non-conversational API calls per session that share the same `session_id` as real conversation turns:
+1. **Preflight/quota check**: `max_tokens=1`, no system prompt, non-streaming, single "quota" message
+2. **Title generation**: `output_config` with `json_schema` format, has system prompt with title generation instructions, `tools=[]`
+
+Policies using session-level state trackers (like `ConversationLinkPolicy`'s once-per-session injection tracker) can be silently consumed by these invisible calls, causing the actual first real turn to miss the intended behavior.
+
+**Stateless per-request checks** (like `is_first_turn()` — checks for 1 user message, 0 assistant messages) are unaffected because they re-evaluate independently for each call.
+
+**Fix**: Use `is_first_turn()` instead of session-level trackers for first-turn injection. Future improvement: implement turn-type classification utility (see Trello card "Add turn-type classification utility for policies") so policies can skip ALL non-conversational turns, not just first-turn behavior.
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)
