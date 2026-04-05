@@ -23,7 +23,7 @@ def serialize_no_extras(obj: Any) -> Any:
         return {name: serialize_no_extras(getattr(obj, name)) for name in obj.model_fields}
     if isinstance(obj, Enum):
         return obj.value
-    if isinstance(obj, list):
+    if isinstance(obj, (list, tuple)):
         return [serialize_no_extras(item) for item in obj]
     if isinstance(obj, dict):
         return {k: serialize_no_extras(v) for k, v in obj.items()}

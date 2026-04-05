@@ -476,3 +476,13 @@ class TestSerializeNoExtras:
             RED = "red"
 
         assert serialize_no_extras(Color.RED) == "red"
+
+    def test_dict_passes_through(self):
+        assert serialize_no_extras({"a": 1, "b": "x"}) == {"a": 1, "b": "x"}
+
+    def test_tuple_elements_are_recursed(self):
+        block = TextBlock.model_validate({"type": "text", "text": "hi", "snapshot": "hi"})
+        result = serialize_no_extras((block,))
+        assert len(result) == 1
+        assert result[0]["text"] == "hi"
+        assert "snapshot" not in result[0]

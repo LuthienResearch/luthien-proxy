@@ -617,12 +617,12 @@ async def _handle_execution_streaming(
                                 )
                             io.ensure_request_recorded()
                             emitted_any = True
-                            chunk_count += 1
                             cast_emitted = cast(MessageStreamEvent, emitted)
                             if cast_emitted.type not in _SYNTHETIC_EVENT_TYPES:
                                 accumulated_events.append(cast_emitted)
                             sse = _format_sse_event(cast_emitted)
                             if sse is not None:
+                                chunk_count += 1
                                 yield sse
                 except Exception as e:
                     caught_exception = True
@@ -638,7 +638,9 @@ async def _handle_execution_streaming(
                     else:
                         final_status = 500
                     error_event = _build_error_event(e, call_id)
-                    yield cast(str, _format_sse_event(error_event))  # dict → never None
+                    sse_error = _format_sse_event(error_event)
+                    assert sse_error is not None  # dict events always produce output
+                    yield sse_error
                 finally:
                     if not emitted_any and not caught_exception:
                         io.ensure_request_recorded()
@@ -660,7 +662,9 @@ async def _handle_execution_streaming(
                                 message="Request blocked: policy evaluation unavailable. Contact your administrator.",
                             ),
                         )
-                        yield cast(str, _format_sse_event(empty_stream_error))  # dict → never None
+                        sse_empty = _format_sse_event(empty_stream_error)
+                        assert sse_empty is not None  # dict events always produce output
+                        yield sse_empty
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
 
                     # Validate streaming protocol compliance (log-and-warn).

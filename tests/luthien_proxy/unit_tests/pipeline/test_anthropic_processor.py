@@ -111,6 +111,15 @@ class TestFormatSSEEvent:
         assert data["type"] == "content_block_stop"
         assert data["index"] == 2
 
+    def test_message_stop_strips_to_wire_fields(self):
+        event = RawMessageStopEvent(type="message_stop")
+        result = _format_sse_event(event)
+
+        assert result is not None
+        data = json.loads(result.split("data: ", 1)[1].strip())
+        assert set(data.keys()) == {"type"}
+        assert data["type"] == "message_stop"
+
 
 class TestProcessRequest:
     """Tests for _process_request helper function."""
