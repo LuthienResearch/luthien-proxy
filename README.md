@@ -104,7 +104,7 @@ Luthien sits in line as a transparent proxy. Every request and response flows th
 ## Quick Start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LuthienResearch/luthien-proxy/main/scripts/install.sh | bash
+curl -fsSL https://luthien.cc/install.sh | bash
 ```
 
 No Docker required. This installs [`uv`](https://docs.astral.sh/uv/) (if needed) and the Luthien CLI, sets up the gateway with SQLite, walks you through configuration, and starts the proxy.
