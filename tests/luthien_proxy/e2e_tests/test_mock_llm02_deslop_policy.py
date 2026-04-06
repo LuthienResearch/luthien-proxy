@@ -66,7 +66,11 @@ async def test_no_yapping_strips_filler(
     api_key,
     admin_api_key,
 ):
-    """NoYappingPolicy judge replaces filler-heavy response with a concise version."""
+    """NoYappingPolicy judge replaces filler-heavy response with a concise version.
+
+    Uses ClaudeCodeSimulator (api_key) instead of raw httpx (auth_headers) because
+    the simulator handles conversation state and header construction internally.
+    """
     mock_anthropic.enqueue(text_response(_SLOPPY_RESPONSE))
     mock_anthropic.enqueue(judge_replace_text("Here is the answer."))
 
@@ -125,6 +129,7 @@ async def test_no_apologies_activates_without_400(
             )
 
     assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+    assert response.json()["type"] == "message"
 
 
 @pytest.mark.asyncio
@@ -148,3 +153,4 @@ async def test_plain_dashes_activates_without_400(
             )
 
     assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+    assert response.json()["type"] == "message"

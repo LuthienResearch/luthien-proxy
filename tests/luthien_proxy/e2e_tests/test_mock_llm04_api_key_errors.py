@@ -116,6 +116,9 @@ async def test_missing_auth_error_has_message_field(
 
     assert response.status_code in (401, 403)
     body = response.json()
+    # Gateway auth handlers raise FastAPI HTTPException → {"detail": "..."}.
+    # The broader check covers Anthropic-format errors too in case the response
+    # path ever changes.
     has_message = (
         isinstance(body.get("message"), str)
         or isinstance(body.get("detail"), str)
