@@ -781,6 +781,7 @@
                 expandedRaw: {},
                 expandedContent: {},
                 expandedDiffs: {},
+                renderedCallIds: new Set(),
 
                 init() {
                     const pathParts = window.location.pathname.split('/');
@@ -935,7 +936,57 @@
 
                 debouncedRefresh() {
                     if (this.refreshTimer) clearTimeout(this.refreshTimer);
-                    this.refreshTimer = setTimeout(() => this.loadInitial(), 1000);
+                    this.refreshTimer = setTimeout(() => this.refreshTurns(), 1000);
+                },
+
+                async refreshTurns() {
+                    try {
+                        const resp = await fetch(
+                            `/api/history/sessions/${encodeURIComponent(this.conversationId)}`,
+                            { headers: { 'Accept': 'application/json' } }
+                        );
+                        if (!resp.ok) return;
+                        const data = await resp.json();
+                        const newTurns = data.turns || [];
+
+                        this.updateStats(data);
+                        this.updateTimestamp();
+
+                        const container = document.getElementById('conversation-container');
+
+                        // Remove empty/loading state if present
+                        const emptyState = container.querySelector('.empty-state, .loading-state');
+                        if (emptyState) emptyState.remove();
+
+                        // Update existing turns that may have changed (e.g. response arrived)
+                        for (const turn of newTurns) {
+                            if (this.renderedCallIds.has(turn.call_id)) {
+                                const existing = container.querySelector(`[data-call-id="${CSS.escape(turn.call_id)}"]`);
+                                if (existing) {
+                                    const idx = newTurns.indexOf(turn);
+                                    existing.outerHTML = this.renderTurn(turn, idx + 1);
+                                }
+                            }
+                        }
+
+                        // Append only new turns
+                        for (let i = 0; i < newTurns.length; i++) {
+                            const turn = newTurns[i];
+                            if (!this.renderedCallIds.has(turn.call_id)) {
+                                this.renderedCallIds.add(turn.call_id);
+                                const html = this.renderTurn(turn, i + 1);
+                                container.insertAdjacentHTML('beforeend', html);
+                                // Add slide-in animation to the new element
+                                const newEl = container.lastElementChild;
+                                if (newEl) newEl.classList.add('new-turn');
+                            }
+                        }
+
+                        this.turns = newTurns;
+                        this.autoScrollToBottom();
+                    } catch (err) {
+                        console.error('Failed to refresh turns:', err);
+                    }
                 },
 
                 processTurns(data) {
@@ -1038,6 +1089,11 @@
                     if (!this.turns || this.turns.length === 0) {
                         container.innerHTML = '<div class="empty-state">Waiting for conversation events...</div>';
                         return;
+                    }
+
+                    this.renderedCallIds.clear();
+                    for (const turn of this.turns) {
+                        this.renderedCallIds.add(turn.call_id);
                     }
 
                     const savedState = this.snapshotExpandState();

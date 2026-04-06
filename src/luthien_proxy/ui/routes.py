@@ -64,19 +64,9 @@ async def landing_page():
 
 
 @router.get("/activity/monitor")
-async def activity_monitor(
-    request: Request,
-    admin_key: str | None = Depends(get_admin_key),
-):
-    """Activity monitor UI.
-
-    Returns the HTML page for viewing the activity stream in real-time.
-    Requires admin authentication.
-    """
-    redirect = check_auth_or_redirect(request, admin_key)
-    if redirect:
-        return redirect
-    return FileResponse(os.path.join(STATIC_DIR, "activity_monitor.html"))
+async def deprecated_activity_monitor_redirect():
+    """Redirect old activity monitor path to history."""
+    return RedirectResponse(url="/history", status_code=301)
 
 
 @router.get("/diffs")
