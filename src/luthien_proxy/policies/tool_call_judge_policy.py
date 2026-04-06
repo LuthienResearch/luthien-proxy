@@ -94,7 +94,7 @@ class ToolCallJudgeConfig(BaseModel):
 
     model: str = Field(
         default="claude-haiku-4-5",
-        description="Any LiteLLM model string, e.g. 'claude-haiku-4-5', 'gpt-4o', 'ollama/llama3'",
+        description="Any LiteLLM model string, e.g. 'claude-haiku-4-5', 'anthropic/claude-sonnet-4-5', 'ollama/llama3'",
     )
     api_base: str | None = Field(
         default=None,

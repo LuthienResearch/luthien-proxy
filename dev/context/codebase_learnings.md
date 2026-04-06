@@ -153,7 +153,7 @@ curl -X POST http://localhost:8000/api/admin/policy/set \
   -d '{
     "policy_class_ref": "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
     "config": {
-      "model": "openai/gpt-4o-mini",
+      "model": "claude-haiku-4-5",
       "probability_threshold": 0.99,
       "temperature": 0.0,
       "max_tokens": 256
