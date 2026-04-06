@@ -26,7 +26,7 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 ## Observability Checks (2025-10-08, updated 2025-11-11)
 
 - Uses OpenTelemetry for observability - see `dev/observability.md` and `dev/VIEWING_TRACES_GUIDE.md`
-- Live activity monitoring available at `/activity/monitor` on the gateway
+- Live activity monitoring available at `/history` on the gateway
 
 ## Documentation Structure (2025-10-10, updated 2025-11-11)
 
@@ -186,7 +186,7 @@ if stream_state.finish_reason:
 5. **Check LiteLLM version**: Breaking changes in LiteLLM streaming have caused issues (see litellm >= 1.81.0 gotcha)
 
 **Tools available**:
-- Activity monitor: `/activity/monitor` - live SSE stream
+- History/Conversation view: `/history` - conversation sessions and live details
 - Debug diff viewer: `/diffs?call_id=X` - before/after comparison
 - Tempo traces: Search by `luthien.call_id` attribute via `http://localhost:3200/api/search`
 

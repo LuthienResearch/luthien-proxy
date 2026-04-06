@@ -76,8 +76,7 @@ policy:
 
 Every request and response between Claude Code and the Anthropic API is recorded automatically.
 
-- **Live conversation view** - open [localhost:8000/history](http://localhost:8000/history) to see your full agent conversation in a readable format, updated in real time
-- **Activity monitor** - open [localhost:8000/activity/monitor](http://localhost:8000/activity/monitor) to see raw JSON request/response pairs streaming through the proxy
+- **Live conversation view** - open [localhost:8000/history](http://localhost:8000/history) to see your full agent conversation in a readable format, including live streaming at `/conversation/live/{id}`
 - **Policy action log** - every policy decision (blocked, modified, or allowed) is recorded with the full context of what triggered it
 
 This means you can answer questions like: what did Claude actually send to the API? Did the policy fire? What got blocked vs. allowed? Track false positives and monitor latency overhead - all from a browser tab, no extra tooling needed.
@@ -133,7 +132,7 @@ After setup, use the CLI or Claude Code to manage the proxy:
 
 - **Gateway** (Anthropic-compatible) at <http://localhost:8000>
 - **SQLite** storage (zero setup) — or PostgreSQL + Redis with `--docker`
-- **Real-time monitoring** at <http://localhost:8000/activity/monitor>
+- **Conversation history** at <http://localhost:8000/history> with live view at `/conversation/live/{id}`
 - **Policy management UI** at <http://localhost:8000/policy-config>
 
 > **Trouble accessing the dashboard?** The monitoring and policy UIs require the admin API key. On localhost, auth is bypassed by default — but if you're accessing from another host or see a login page, see [Configuration](#configuration) below.

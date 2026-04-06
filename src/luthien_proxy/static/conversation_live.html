@@ -958,13 +958,20 @@
                         const emptyState = container.querySelector('.empty-state, .loading-state');
                         if (emptyState) emptyState.remove();
 
-                        // Update existing turns that may have changed (e.g. response arrived)
-                        for (const turn of newTurns) {
-                            if (this.renderedCallIds.has(turn.call_id)) {
-                                const existing = container.querySelector(`[data-call-id="${CSS.escape(turn.call_id)}"]`);
+                        const savedState = this.snapshotExpandState();
+
+                        // Only update the most recent existing turn (most likely to
+                        // have changed, e.g. response arriving for a request-only turn).
+                        // Older turns are immutable once fully recorded.
+                        if (this.renderedCallIds.size > 0 && newTurns.length > 0) {
+                            const lastRenderedIdx = newTurns.findIndex(
+                                (t, i) => i === newTurns.length - 1 || !this.renderedCallIds.has(newTurns[i + 1]?.call_id)
+                            );
+                            if (lastRenderedIdx >= 0) {
+                                const turn = newTurns[lastRenderedIdx];
+                                const existing = container.querySelector(`[data-call-id="${turn.call_id}"]`);
                                 if (existing) {
-                                    const idx = newTurns.indexOf(turn);
-                                    existing.outerHTML = this.renderTurn(turn, idx + 1);
+                                    existing.outerHTML = this.renderTurn(turn, lastRenderedIdx + 1);
                                 }
                             }
                         }
@@ -982,6 +989,7 @@
                             }
                         }
 
+                        this.restoreExpandState(savedState);
                         this.turns = newTurns;
                         this.autoScrollToBottom();
                     } catch (err) {
@@ -1160,7 +1168,7 @@
                     }
 
                     return `
-                        <div class="${classes.join(' ')}" data-call-id="${escapeHtml(turn.call_id)}">
+                        <div class="${classes.join(' ')}" data-call-id="${turn.call_id}">
                             <div class="turn-header">
                                 <div class="turn-label">
                                     <span class="turn-number">Turn ${number}</span>

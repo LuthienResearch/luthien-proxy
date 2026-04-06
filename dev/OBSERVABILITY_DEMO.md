@@ -113,10 +113,10 @@ Watch as every 3rd word gets uppercased!
 
 ## Part 3: Real-Time Monitoring with Activity Monitor
 
-While requests are flowing, open the **Activity Monitor**:
+While requests are flowing, open the **History/Conversation View**:
 
 ```bash
-open http://localhost:8000/activity/monitor
+open http://localhost:8000/history
 ```
 
 ### What You'll See:
