@@ -32,7 +32,11 @@ async def test_missing_auth_returns_human_readable_error(
     gateway_healthy,
     gateway_url,
 ):
-    """Missing Authorization header returns a human-readable error, not a raw exception."""
+    """Missing Authorization header returns a 401/403 with a human-readable error body (not a raw exception dump).
+
+    Current response shape: FastAPI HTTPException → {"detail": "..."}.
+    The has_message check also covers Anthropic-format errors for forward compatibility.
+    """
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(
             f"{gateway_url}/v1/messages",
@@ -46,6 +50,12 @@ async def test_missing_auth_returns_human_readable_error(
         assert body.get("type") == "error", (
             f"Response text contains 'Exception' but is not an Anthropic error envelope: {body}"
         )
+    has_message = (
+        isinstance(body.get("message"), str)
+        or isinstance(body.get("detail"), str)
+        or (isinstance(body.get("error"), dict) and isinstance(body["error"].get("message"), str))
+    )
+    assert has_message, f"No human-readable message field found in error response: {body}"
 
 
 @pytest.mark.asyncio
@@ -73,6 +83,9 @@ async def test_invalid_key_in_passthrough_mode_returns_valid_message(
     body = response.json()
     assert body.get("type") == "message", f"Expected message response in passthrough mode, got: {body}"
     assert "Traceback" not in response.text, "Response contains a raw Python traceback"
+    assert any(b.get("text") == "passthrough response" for b in body.get("content", [])), (
+        f"Expected proxied mock content in response, got: {body.get('content')}"
+    )
 
 
 @pytest.mark.asyncio
@@ -102,31 +115,6 @@ async def test_invalid_key_in_strict_mode_returns_anthropic_error_envelope(
         pytest.fail(f"Error message is double-encoded JSON: {body['error']['message'][:100]}")
     except (ValueError, TypeError):
         pass
-
-
-@pytest.mark.asyncio
-async def test_missing_auth_error_has_message_field(
-    gateway_healthy,
-    gateway_url,
-):
-    """Missing auth error body contains a human-readable 'message' field."""
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.post(
-            f"{gateway_url}/v1/messages",
-            json={**BASE_REQUEST, "stream": False},
-        )
-
-    assert response.status_code in (401, 403)
-    body = response.json()
-    # Gateway auth handlers raise FastAPI HTTPException → {"detail": "..."}.
-    # The broader check covers Anthropic-format errors too in case the response
-    # path ever changes.
-    has_message = (
-        isinstance(body.get("message"), str)
-        or isinstance(body.get("detail"), str)
-        or (isinstance(body.get("error"), dict) and isinstance(body["error"].get("message"), str))
-    )
-    assert has_message, f"No human-readable message field found in error response: {body}"
 
 
 @pytest.mark.asyncio

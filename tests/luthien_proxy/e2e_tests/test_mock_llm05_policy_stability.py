@@ -171,10 +171,11 @@ async def test_concurrent_requests_during_policy_switch_no_500(
 
     asyncio.gather is best-effort concurrency — ordering is not guaranteed.
     This test catches crashes and 500s, not race conditions requiring true parallelism.
+    3 responses are enqueued for 3 POST requests; _set_policy hits the admin API,
+    not /v1/messages, so it does not consume from the mock queue.
     """
     for _ in range(3):
         mock_anthropic.enqueue(text_response("concurrent ok"))
-
     async with policy_context(_NOOP, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
         async with httpx.AsyncClient(timeout=30.0) as client:
             results = await asyncio.gather(
