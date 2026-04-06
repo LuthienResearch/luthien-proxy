@@ -104,7 +104,7 @@ Luthien sits in line as a transparent proxy. Every request and response flows th
 ## Quick Start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LuthienResearch/luthien-proxy/main/scripts/install.sh | bash
+curl -fsSL https://luthien.cc/install.sh | bash
 ```
 
 No Docker required. This installs [`uv`](https://docs.astral.sh/uv/) (if needed) and the Luthien CLI, sets up the gateway with SQLite, walks you through configuration, and starts the proxy.
@@ -244,16 +244,7 @@ policy:
 
 Base classes and building blocks in `src/luthien_proxy/policies/` — see **[docs/policies.md](docs/policies.md)** for full reference with examples:
 
-**Quick Start Presets** (zero config):
-- `NoYappingPolicy` - Remove filler and hedging
-- `NoApologiesPolicy` - Strip apologetic language
-- `PlainDashesPolicy` - Replace Unicode dashes with hyphens
-- `PreferUvPolicy` - Replace pip commands with uv equivalents
-- `BlockDangerousCommandsPolicy` - Block rm -rf, chmod 777, etc.
-- `BlockWebRequestsPolicy` - Block curl, wget, network requests
-- `BlockSensitiveFileWritesPolicy` - Block writes to /etc, ~/.ssh, etc.
-
-**Core Policies** (configurable):
+**Configurable policies**:
 - `NoOpPolicy` - Pass-through (default)
 - `SimpleLLMPolicy` - Apply plain-English instructions via judge LLM
 - `ToolCallJudgePolicy` - Probability-based tool call blocking
