@@ -23,7 +23,7 @@ from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 from tests.luthien_proxy.e2e_tests.mock_anthropic.simulator import ClaudeCodeSimulator
 
-pytestmark = [pytest.mark.mock_e2e, pytest.mark.llm02]
+pytestmark = [pytest.mark.mock_e2e, pytest.mark.mock_llm02]
 
 _NO_YAPPING = "luthien_proxy.policies.presets.no_yapping:NoYappingPolicy"
 _NO_APOLOGIES = "luthien_proxy.policies.presets.no_apologies:NoApologiesPolicy"
