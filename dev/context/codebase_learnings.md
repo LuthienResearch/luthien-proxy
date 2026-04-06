@@ -41,7 +41,7 @@ Integrated architecture - everything runs in single gateway process.
 
 **Key insight**: LiteLLM should ONLY be used for API format conversion, not parameter validation.
 
-**Problem**: When passing model-specific parameters (e.g., `verbosity: "low"` for GPT-5), litellm's `acompletion()` rejects them with "Unknown parameter" errors.
+**Problem**: When passing model-specific parameters (e.g., provider-specific options), litellm's `acompletion()` rejects them with "Unknown parameter" errors.
 
 **Solution**: Use litellm's `allowed_openai_params` mechanism:
 ```python
