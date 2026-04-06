@@ -17,7 +17,7 @@ from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicSer
 
 from luthien_proxy.policies.onboarding_policy import WELCOME_MESSAGE
 
-pytestmark = [pytest.mark.mock_e2e, pytest.mark.mock_llm01]
+pytestmark = [pytest.mark.mock_e2e, pytest.mark.uat_onboarding]
 
 _ONBOARDING_POLICY = "luthien_proxy.policies.onboarding_policy:OnboardingPolicy"
 _ONBOARDING_CONFIG = {"gateway_url": "http://localhost:8000"}
@@ -41,7 +41,11 @@ async def test_onboarding_context_injected_on_first_turn(
     auth_headers,
     admin_api_key,
 ):
-    """First turn with OnboardingPolicy active includes Luthien context and a setup hint."""
+    """OnboardingPolicy appends WELCOME_MESSAGE to the response on first turn.
+
+    The mock backend returns a canned reply; OnboardingPolicy appends the welcome
+    block via on_anthropic_response. Assertions check the injected response text.
+    """
     mock_anthropic.enqueue(text_response("I can help you with that."))
 
     async with policy_context(
