@@ -59,7 +59,6 @@ async def test_invalid_key_in_passthrough_mode_returns_valid_message(
         pytest.skip("This test covers AUTH_MODE=both passthrough behavior")
 
     mock_anthropic.enqueue(text_response("passthrough response"))
-
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(
             f"{gateway_url}/v1/messages",
@@ -67,7 +66,10 @@ async def test_invalid_key_in_passthrough_mode_returns_valid_message(
             headers={"Authorization": "Bearer sk-this-is-not-a-valid-key"},
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, (
+        "In AUTH_MODE=both, unrecognized keys are forwarded to the backend rather than rejected. "
+        "The mock backend always accepts, so we expect 200."
+    )
     body = response.json()
     assert body.get("type") == "message", f"Expected message response in passthrough mode, got: {body}"
     assert "Traceback" not in response.text, "Response contains a raw Python traceback"
