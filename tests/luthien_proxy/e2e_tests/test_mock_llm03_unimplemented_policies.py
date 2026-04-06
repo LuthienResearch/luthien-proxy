@@ -19,6 +19,7 @@ from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicSer
 pytestmark = [pytest.mark.mock_e2e, pytest.mark.uat_unimplemented]
 
 _ADMIN_POLICY_SET_PATH = "/api/admin/policy/set"
+_ADMIN_POLICY_GET_PATH = "/api/admin/policy"
 
 _NONEXISTENT_POLICY = "luthien_proxy.policies.does_not_exist:GhostPolicy"
 _INVALID_MODULE = "not.a.real.module:FakePolicy"
@@ -107,6 +108,15 @@ async def test_gateway_responsive_after_bad_policy_set(
     assert response.status_code == 200, (
         f"Gateway unresponsive after bad policy set: {response.status_code}: {response.text}"
     )
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        policy_resp = await client.get(
+            f"{gateway_url}{_ADMIN_POLICY_GET_PATH}",
+            headers={"Authorization": f"Bearer {admin_api_key}"},
+        )
+
+    assert policy_resp.status_code == 200
+    assert "GhostPolicy" not in str(policy_resp.json()), "Bad policy should not have been activated"
 
 
 @pytest.mark.asyncio

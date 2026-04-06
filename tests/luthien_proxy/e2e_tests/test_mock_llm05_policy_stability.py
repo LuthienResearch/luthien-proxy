@@ -187,6 +187,4 @@ async def test_concurrent_requests_during_policy_switch_no_500(
         for result in results:
             assert not isinstance(result, BaseException), f"Concurrent operation raised: {result}"
             assert isinstance(result, httpx.Response)
-            assert result.status_code != 500, (
-                f"Got 500 during concurrent policy switch: {result.status_code}: {result.text}"
-            )
+            assert result.status_code == 200, f"Got {result.status_code} during concurrent policy switch: {result.text}"
