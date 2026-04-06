@@ -16,7 +16,7 @@ from tests.luthien_proxy.e2e_tests.conftest import BASE_REQUEST, policy_context
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
-pytestmark = [pytest.mark.mock_e2e, pytest.mark.mock_llm03]
+pytestmark = [pytest.mark.mock_e2e, pytest.mark.uat_unimplemented]
 
 _ADMIN_POLICY_SET_PATH = "/api/admin/policy/set"
 

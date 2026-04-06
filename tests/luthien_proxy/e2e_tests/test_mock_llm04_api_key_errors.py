@@ -19,7 +19,7 @@ from tests.luthien_proxy.e2e_tests.conftest import BASE_REQUEST
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
-pytestmark = [pytest.mark.mock_e2e, pytest.mark.mock_llm04]
+pytestmark = [pytest.mark.mock_e2e, pytest.mark.uat_api_key]
 
 
 @pytest.mark.asyncio
@@ -44,16 +44,16 @@ async def test_missing_auth_returns_human_readable_error(
 
 
 @pytest.mark.asyncio
-async def test_invalid_key_error_is_anthropic_format(
+async def test_invalid_key_in_passthrough_mode_returns_valid_message(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
     gateway_url,
 ):
-    """Invalid API key error body follows the Anthropic error envelope format."""
-    auth_mode = os.getenv("AUTH_MODE", "both")
+    """In AUTH_MODE=both, an unknown key is forwarded as passthrough and returns a valid Anthropic message."""
+    if os.getenv("AUTH_MODE", "both") != "both":
+        pytest.skip("This test covers AUTH_MODE=both passthrough behavior")
 
-    if auth_mode == "both":
-        mock_anthropic.enqueue(text_response("passthrough"))
+    mock_anthropic.enqueue(text_response("passthrough response"))
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(
@@ -62,9 +62,27 @@ async def test_invalid_key_error_is_anthropic_format(
             headers={"Authorization": "Bearer sk-this-is-not-a-valid-key"},
         )
 
-    if auth_mode == "both":
-        assert response.status_code == 200
-        return
+    assert response.status_code == 200
+    body = response.json()
+    assert body.get("type") == "message", f"Expected message response in passthrough mode, got: {body}"
+    assert "Traceback" not in response.text, "Response contains a raw Python traceback"
+
+
+@pytest.mark.asyncio
+async def test_invalid_key_in_strict_mode_returns_anthropic_error_envelope(
+    gateway_healthy,
+    gateway_url,
+):
+    """In AUTH_MODE=proxy_key, an invalid key returns an Anthropic error envelope with a plain string message."""
+    if os.getenv("AUTH_MODE", "both") == "both":
+        pytest.skip("This test covers AUTH_MODE=proxy_key strict rejection behavior")
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(
+            f"{gateway_url}/v1/messages",
+            json={**BASE_REQUEST, "stream": False},
+            headers={"Authorization": "Bearer sk-this-is-not-a-valid-key"},
+        )
 
     assert response.status_code == 401, f"Expected 401 for invalid key, got {response.status_code}: {response.text}"
     body = response.json()

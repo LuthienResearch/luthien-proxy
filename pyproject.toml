@@ -92,11 +92,11 @@ markers = [
     "llm06: OWASP LLM06 - Sensitive Information Disclosure scenarios",
     "llm07: OWASP LLM07 - Insecure Plugin Design / Tool Call scenarios (reserved, no tests yet)",
     "llm08: OWASP LLM08 - Excessive Agency scenarios",
-    "mock_llm01: UAT - Onboarding Context",
-    "mock_llm02: UAT - DeSlop Policy 400 Error",
-    "mock_llm03: UAT - Unimplemented Policies",
-    "mock_llm04: UAT - API Key Error Messaging",
-    "mock_llm05: UAT - Policy Setup Stability",
+    "uat_onboarding: UAT - Onboarding Context (LLM01 Trello)",
+    "uat_deslop: UAT - DeSlop Policy activation without 400 (LLM02 Trello)",
+    "uat_unimplemented: UAT - Unimplemented policy error handling (LMM03 Trello)",
+    "uat_api_key: UAT - API Key Error Messaging format (LLM04 Trello)",
+    "uat_stability: UAT - Policy Setup Stability (LLM05 Trello)",
 ]
 timeout_func_only = false
 

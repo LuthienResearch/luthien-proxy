@@ -18,7 +18,7 @@ from tests.luthien_proxy.e2e_tests.conftest import BASE_REQUEST, policy_context
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
-pytestmark = [pytest.mark.mock_e2e, pytest.mark.mock_llm05]
+pytestmark = [pytest.mark.mock_e2e, pytest.mark.uat_stability]
 
 _ADMIN_POLICY_SET_PATH = "/api/admin/policy/set"
 _ADMIN_POLICY_GET_PATH = "/api/admin/policy"
@@ -72,7 +72,6 @@ async def test_rapid_policy_switches_no_500(
                 f"Policy switch to {class_ref} failed: {set_resp.status_code}: {set_resp.text}"
             )
 
-    # After all switches, a normal request must succeed
     mock_anthropic.enqueue(text_response("still stable"))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
@@ -84,6 +83,10 @@ async def test_rapid_policy_switches_no_500(
 
     assert response.status_code == 200, (
         f"Gateway unstable after rapid policy switches: {response.status_code}: {response.text}"
+    )
+    body = response.json()
+    assert any(b.get("text") == "still stable" for b in body.get("content", [])), (
+        f"Expected proxied mock content 'still stable', got: {body.get('content')}"
     )
 
 
@@ -156,7 +159,7 @@ async def test_concurrent_requests_during_policy_switch_no_500(
     for _ in range(3):
         mock_anthropic.enqueue(text_response("concurrent ok"))
 
-    try:
+    async with policy_context(_NOOP, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
         async with httpx.AsyncClient(timeout=30.0) as client:
             results = await asyncio.gather(
                 client.post(
@@ -184,6 +187,3 @@ async def test_concurrent_requests_during_policy_switch_no_500(
             assert result.status_code != 500, (
                 f"Got 500 during concurrent policy switch: {result.status_code}: {result.text}"
             )
-    finally:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            await _set_policy(client, gateway_url, admin_api_key, _NOOP, {})
