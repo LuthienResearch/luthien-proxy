@@ -4,6 +4,11 @@ Verify that invalid API key errors return a human-readable Anthropic-format erro
 body rather than a nested JSON blob or raw exception dump.
 Trello: https://trello.com/c/CrtFRTuS/1101
 
+Note: test_invalid_key_in_passthrough_mode_returns_valid_message and
+test_invalid_key_in_strict_mode_returns_anthropic_error_envelope are mutually exclusive
+based on AUTH_MODE. Full coverage requires running with both AUTH_MODE=both (default)
+and AUTH_MODE=proxy_key.
+
 Run:
     ./scripts/run_e2e.sh mock
     # or directly:
