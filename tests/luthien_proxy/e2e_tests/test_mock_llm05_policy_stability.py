@@ -58,36 +58,35 @@ async def test_rapid_policy_switches_no_500(
 ):
     """Rapid policy switches do not cause 500 errors on subsequent requests."""
     policies = [
-        (_NOOP, {}),
         (_ALL_CAPS, {}),
         (_DEBUG_LOGGING, {}),
         (_STRING_REPLACEMENT, {"replacements": [["hello", "hi"]]}),
-        (_NOOP, {}),
     ]
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        for class_ref, config in policies:
-            set_resp = await _set_policy(client, gateway_url, admin_api_key, class_ref, config)
-            assert set_resp.status_code == 200, (
-                f"Policy switch to {class_ref} failed: {set_resp.status_code}: {set_resp.text}"
+    async with policy_context(_NOOP, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            for class_ref, config in policies:
+                set_resp = await _set_policy(client, gateway_url, admin_api_key, class_ref, config)
+                assert set_resp.status_code == 200, (
+                    f"Policy switch to {class_ref} failed: {set_resp.status_code}: {set_resp.text}"
+                )
+
+        mock_anthropic.enqueue(text_response("still stable"))
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(
+                f"{gateway_url}/v1/messages",
+                json={**BASE_REQUEST, "stream": False},
+                headers=auth_headers,
             )
 
-    mock_anthropic.enqueue(text_response("still stable"))
-
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.post(
-            f"{gateway_url}/v1/messages",
-            json={**BASE_REQUEST, "stream": False},
-            headers=auth_headers,
+        assert response.status_code == 200, (
+            f"Gateway unstable after rapid policy switches: {response.status_code}: {response.text}"
         )
-
-    assert response.status_code == 200, (
-        f"Gateway unstable after rapid policy switches: {response.status_code}: {response.text}"
-    )
-    body = response.json()
-    assert any(b.get("text") == "still stable" for b in body.get("content", [])), (
-        f"Expected proxied mock content 'still stable', got: {body.get('content')}"
-    )
+        body = response.json()
+        assert any(b.get("text") == "still stable" for b in body.get("content", [])), (
+            f"Expected proxied mock content 'still stable', got: {body.get('content')}"
+        )
 
 
 @pytest.mark.asyncio
@@ -155,7 +154,11 @@ async def test_concurrent_requests_during_policy_switch_no_500(
     auth_headers,
     admin_api_key,
 ):
-    """Concurrent requests during a policy switch do not produce 500 errors."""
+    """Concurrent requests during a policy switch do not produce 500 errors.
+
+    asyncio.gather is best-effort concurrency — ordering is not guaranteed.
+    This test catches crashes and 500s, not race conditions requiring true parallelism.
+    """
     for _ in range(3):
         mock_anthropic.enqueue(text_response("concurrent ok"))
 

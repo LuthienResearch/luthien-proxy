@@ -32,6 +32,9 @@ _SECOND_TURN = {
     ],
 }
 
+_WELCOME_TITLE = next(line.strip() for line in WELCOME_MESSAGE.splitlines() if "Welcome to Luthien" in line)
+_WELCOME_SETUP_HINT = next(line.strip() for line in WELCOME_MESSAGE.splitlines() if "policy-config" in line)
+
 
 @pytest.mark.asyncio
 async def test_onboarding_context_injected_on_first_turn(
@@ -62,8 +65,8 @@ async def test_onboarding_context_injected_on_first_turn(
     assert response.json()["type"] == "message"
     body = response.json()
     all_text = " ".join(b["text"] for b in body["content"] if b["type"] == "text")
-    assert "Luthien" in all_text
-    assert "policy-config" in all_text or "localhost:8000" in all_text
+    assert "Welcome to Luthien" in all_text
+    assert "policy-config" in all_text
 
 
 @pytest.mark.asyncio
@@ -90,8 +93,5 @@ async def test_onboarding_context_not_repeated_on_second_turn(
     assert response.status_code == 200
     body = response.json()
     all_text = " ".join(b["text"] for b in body["content"] if b["type"] == "text")
-    assert "Welcome to Luthien" not in all_text, (
-        f"Second turn should not repeat the welcome message (see WELCOME_MESSAGE in onboarding_policy.py). "
-        f"Got: {all_text!r}"
-    )
-    assert WELCOME_MESSAGE.split("\n")[2] not in all_text
+    assert _WELCOME_TITLE not in all_text, f"Second turn should not contain the welcome title. Got: {all_text!r}"
+    assert _WELCOME_SETUP_HINT not in all_text, f"Second turn should not contain the setup hint. Got: {all_text!r}"
