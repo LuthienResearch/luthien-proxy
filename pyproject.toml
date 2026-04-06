@@ -98,6 +98,11 @@ markers = [
     "llm06: OWASP LLM06 - Sensitive Information Disclosure scenarios",
     "llm07: OWASP LLM07 - Insecure Plugin Design / Tool Call scenarios (reserved, no tests yet)",
     "llm08: OWASP LLM08 - Excessive Agency scenarios",
+    "mock_llm01: UAT - Onboarding Context",
+    "mock_llm02: UAT - DeSlop Policy 400 Error",
+    "mock_llm03: UAT - Unimplemented Policies",
+    "mock_llm04: UAT - API Key Error Messaging",
+    "mock_llm05: UAT - Policy Setup Stability",
 ]
 timeout_func_only = false
 

@@ -18,7 +18,7 @@ from tests.luthien_proxy.e2e_tests.conftest import BASE_REQUEST, policy_context
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
-pytestmark = [pytest.mark.mock_e2e, pytest.mark.llm05]
+pytestmark = [pytest.mark.mock_e2e, pytest.mark.mock_llm05]
 
 _ADMIN_POLICY_SET_PATH = "/api/admin/policy/set"
 _ADMIN_POLICY_GET_PATH = "/api/admin/policy"
@@ -44,10 +44,8 @@ async def test_policy_set_returns_200(
     admin_api_key,
 ):
     """Setting a valid policy via admin API returns 200, not 500."""
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await _set_policy(client, gateway_url, admin_api_key, _NOOP, {})
-
-    assert response.status_code == 200, f"Policy set returned {response.status_code}: {response.text}"
+    async with policy_context(_NOOP, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
+        pass
 
 
 @pytest.mark.asyncio
@@ -96,16 +94,16 @@ async def test_policy_get_after_set_reflects_new_policy(
     admin_api_key,
 ):
     """GET /api/admin/policy reflects the policy that was just set."""
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        await _set_policy(client, gateway_url, admin_api_key, _ALL_CAPS, {})
-        get_resp = await client.get(
-            f"{gateway_url}{_ADMIN_POLICY_GET_PATH}",
-            headers={"Authorization": f"Bearer {admin_api_key}"},
-        )
+    async with policy_context(_ALL_CAPS, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            get_resp = await client.get(
+                f"{gateway_url}{_ADMIN_POLICY_GET_PATH}",
+                headers={"Authorization": f"Bearer {admin_api_key}"},
+            )
 
-    assert get_resp.status_code == 200, f"Policy GET failed: {get_resp.status_code}: {get_resp.text}"
-    body = get_resp.json()
-    assert "AllCapsPolicy" in str(body), f"Expected AllCapsPolicy in GET response: {body}"
+        assert get_resp.status_code == 200, f"Policy GET failed: {get_resp.status_code}: {get_resp.text}"
+        body = get_resp.json()
+        assert "AllCapsPolicy" in str(body), f"Expected AllCapsPolicy in GET response: {body}"
 
 
 @pytest.mark.asyncio
@@ -158,31 +156,34 @@ async def test_concurrent_requests_during_policy_switch_no_500(
     for _ in range(3):
         mock_anthropic.enqueue(text_response("concurrent ok"))
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        # Fire 3 requests and a policy switch concurrently
-        results = await asyncio.gather(
-            client.post(
-                f"{gateway_url}/v1/messages",
-                json={**BASE_REQUEST, "stream": False},
-                headers=auth_headers,
-            ),
-            client.post(
-                f"{gateway_url}/v1/messages",
-                json={**BASE_REQUEST, "stream": False},
-                headers=auth_headers,
-            ),
-            _set_policy(client, gateway_url, admin_api_key, _DEBUG_LOGGING, {}),
-            client.post(
-                f"{gateway_url}/v1/messages",
-                json={**BASE_REQUEST, "stream": False},
-                headers=auth_headers,
-            ),
-            return_exceptions=True,
-        )
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            results = await asyncio.gather(
+                client.post(
+                    f"{gateway_url}/v1/messages",
+                    json={**BASE_REQUEST, "stream": False},
+                    headers=auth_headers,
+                ),
+                client.post(
+                    f"{gateway_url}/v1/messages",
+                    json={**BASE_REQUEST, "stream": False},
+                    headers=auth_headers,
+                ),
+                _set_policy(client, gateway_url, admin_api_key, _DEBUG_LOGGING, {}),
+                client.post(
+                    f"{gateway_url}/v1/messages",
+                    json={**BASE_REQUEST, "stream": False},
+                    headers=auth_headers,
+                ),
+                return_exceptions=True,
+            )
 
-    for result in results:
-        assert not isinstance(result, BaseException), f"Concurrent operation raised: {result}"
-        assert isinstance(result, httpx.Response)
-        assert result.status_code != 500, (
-            f"Got 500 during concurrent policy switch: {result.status_code}: {result.text}"
-        )
+        for result in results:
+            assert not isinstance(result, BaseException), f"Concurrent operation raised: {result}"
+            assert isinstance(result, httpx.Response)
+            assert result.status_code != 500, (
+                f"Got 500 during concurrent policy switch: {result.status_code}: {result.text}"
+            )
+    finally:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await _set_policy(client, gateway_url, admin_api_key, _NOOP, {})
