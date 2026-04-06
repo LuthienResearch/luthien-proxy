@@ -142,8 +142,18 @@ async def test_policy_context_restores_noop_after_test(
     )
     body = outside_resp.json()
     content_text = " ".join(b["text"] for b in body["content"] if b["type"] == "text")
-    # NoOpPolicy passes through unchanged — text should NOT be all-caps
     assert content_text == "outside context", f"Expected passthrough after context exit, got: {content_text!r}"
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        policy_resp = await client.get(
+            f"{gateway_url}{_ADMIN_POLICY_GET_PATH}",
+            headers={"Authorization": f"Bearer {admin_api_key}"},
+        )
+
+    assert policy_resp.status_code == 200
+    assert "NoOpPolicy" in str(policy_resp.json()), (
+        f"Expected NoOpPolicy to be active after context exit, got: {policy_resp.json()}"
+    )
 
 
 @pytest.mark.asyncio
