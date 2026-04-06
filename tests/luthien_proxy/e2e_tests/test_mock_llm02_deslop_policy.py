@@ -133,7 +133,7 @@ async def test_no_apologies_activates_without_400(
 
 
 @pytest.mark.asyncio
-async def test_plain_dashes_activates_without_400(
+async def test_plain_dashes_replaces_em_dashes(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
     gateway_url,

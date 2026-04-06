@@ -33,10 +33,13 @@ _SECOND_TURN = {
 }
 
 _WELCOME_TITLE: str = next((line.strip() for line in WELCOME_MESSAGE.splitlines() if "Welcome to Luthien" in line), "")
-assert _WELCOME_TITLE, "WELCOME_MESSAGE no longer contains 'Welcome to Luthien' — update test constants"
-
 _WELCOME_SETUP_HINT: str = next((line.strip() for line in WELCOME_MESSAGE.splitlines() if "policy-config" in line), "")
-assert _WELCOME_SETUP_HINT, "WELCOME_MESSAGE no longer contains 'policy-config' — update test constants"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _assert_welcome_message_shape():
+    assert _WELCOME_TITLE, "WELCOME_MESSAGE no longer contains 'Welcome to Luthien' — update test constants"
+    assert _WELCOME_SETUP_HINT, "WELCOME_MESSAGE no longer contains 'policy-config' — update test constants"
 
 
 @pytest.mark.asyncio
