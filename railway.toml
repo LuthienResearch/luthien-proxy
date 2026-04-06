@@ -19,6 +19,5 @@ restartPolicyMaxRetries = 3
 # PROXY_API_KEY - Stable API key for clients (auto-generated if not set)
 # ADMIN_API_KEY - API key for admin endpoints
 # REDIS_URL - Auto-populated when adding Redis (optional, enables real-time UI)
-# OPENAI_API_KEY - OpenAI API key (if using)
-# ANTHROPIC_API_KEY - Anthropic API key (if using)
+# ANTHROPIC_API_KEY - Anthropic API key
 # GATEWAY_PORT - Auto-detected from Railway's PORT (no manual config needed)

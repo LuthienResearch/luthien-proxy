@@ -29,10 +29,6 @@ PORT=${GATEWAY_PORT:-8000}
 API_KEY=${PROXY_API_KEY:-sk-luthien-dev-key}
 
 # Validate required API keys
-if [[ -z "${OPENAI_API_KEY:-}" ]] || [[ "$OPENAI_API_KEY" = "your_openai_api_key_here" ]]; then
-    echo "WARNING: OPENAI_API_KEY not set or using placeholder value"
-fi
-
 if [[ -z "${ANTHROPIC_API_KEY:-}" ]] || [[ "$ANTHROPIC_API_KEY" = "your_anthropic_api_key_here" ]]; then
     echo "WARNING: ANTHROPIC_API_KEY not set or using placeholder value"
 fi

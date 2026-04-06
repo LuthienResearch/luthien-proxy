@@ -79,7 +79,7 @@ class PolicyListResponse(BaseModel):
 class ChatRequest(BaseModel):
     """Request for testing chat through the proxy."""
 
-    model: str = Field(..., description="Model to use (e.g., 'gpt-4o', 'claude-3-5-sonnet-20241022')")
+    model: str = Field(..., description="Model to use (e.g., 'claude-haiku-4-5', 'claude-sonnet-4-5')")
     message: str = Field(..., description="Message to send")
     stream: bool = Field(default=False, description="Whether to stream the response")
     use_mock: bool = Field(

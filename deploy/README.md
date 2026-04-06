@@ -39,11 +39,10 @@ All of these must be set for the deployment to work:
 
 ### Optional Environment Variables
 
-At least one LLM provider API key is needed to proxy requests:
+An LLM provider API key is needed to proxy requests:
 
 | Variable | Description |
 |----------|-------------|
-| `OPENAI_API_KEY` | Your OpenAI API key (for GPT models) |
 | `ANTHROPIC_API_KEY` | Your Anthropic API key (for Claude models) |
 
 ## Post-Deployment
@@ -68,11 +67,6 @@ curl https://your-app.railway.app/v1/messages \
 ### Configure Claude Code
 
 ```bash
-# Set the API base URL
-export OPENAI_API_BASE=https://your-app.railway.app/v1
-export OPENAI_API_KEY=your-proxy-api-key
-
-# Or for Anthropic
 export ANTHROPIC_API_BASE=https://your-app.railway.app
 export ANTHROPIC_API_KEY=your-proxy-api-key
 ```

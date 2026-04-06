@@ -13,7 +13,7 @@ This guide walks through testing the AllCapsPolicy and exploring all observabili
 1. **Set up environment** (if not already done):
    ```bash
    cp .env.example .env
-   # Edit .env to add your OPENAI_API_KEY and/or ANTHROPIC_API_KEY
+   # Edit .env to add your ANTHROPIC_API_KEY
    ```
 
 2. **Start the full observability stack** (includes gateway):
@@ -130,7 +130,7 @@ open http://localhost:8000/activity/monitor
 
 2. **Filter the events**:
    - **By Call ID**: Copy a call_id from an event, paste into filter → see all events for that request
-   - **By Model**: Type "gpt-3.5" → see only GPT-3.5 requests
+   - **By Model**: Type "claude" → see only Claude requests
    - **By Event Type**: Select "Policy Events" → see only policy transformations
 
 3. **Event Details** you can inspect:
@@ -220,7 +220,7 @@ curl -s "http://localhost:8000/v1/messages" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -d '{
-    "model": "gpt-3.5-turbo",
+    "model": "claude-haiku-4-5",
     "messages": [{"role": "user", "content": "Say: one two three four five"}],
     "max_tokens": 20
   }' | jq
@@ -242,7 +242,7 @@ for i in {1..5}; do
   curl -s "http://localhost:8000/v1/messages" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer YOUR_API_KEY" \
-    -d "{\"model\":\"gpt-3.5-turbo\",\"messages\":[{\"role\":\"user\",\"content\":\"Count to $i\"}],\"max_tokens\":20}" &
+    -d "{\"model\":\"claude-haiku-4-5\",\"messages\":[{\"role\":\"user\",\"content\":\"Count to $i\"}],\"max_tokens\":20}" &
 done
 wait
 ```
