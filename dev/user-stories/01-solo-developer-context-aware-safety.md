@@ -28,7 +28,7 @@ Alex works on a large codebase and often has long conversations with Claude span
    - This affects user data, not agent artifacts
    - Blocks and **injects a message into the response**: "I've paused this operation. Deleting config files could affect your project. Please confirm by listing the specific files you want removed."
 8. Alex sees the injected message in Claude Code's output naturally
-9. Alex can view the full conversation history in the **Conversation Viewer UI** at `localhost:8000/conversations/{session_id}`
+9. Alex can view the full conversation history in the **Conversation Viewer UI** at `localhost:8000/conversation/live/{session_id}`
 10. The UI shows the message flow, highlights interventions, and lets Alex drill into policy decisions
 
 ## Acceptance Criteria

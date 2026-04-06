@@ -13,7 +13,7 @@ import logging
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 
 from luthien_proxy.auth import check_auth_or_redirect, verify_admin_token
 from luthien_proxy.dependencies import get_admin_key, get_db_pool
@@ -55,28 +55,9 @@ async def history_list_page(
 
 
 @router.get("/session/{session_id}")
-async def history_detail_page(
-    request: Request,
-    session_id: str,
-    admin_key: str | None = Depends(get_admin_key),
-    db_pool: DatabasePool = Depends(get_db_pool),
-):
-    """Conversation history detail UI.
-
-    Returns the HTML page for viewing a specific session's conversation.
-    Requires admin authentication. Returns 404 if session doesn't exist.
-    """
-    redirect = check_auth_or_redirect(request, admin_key)
-    if redirect:
-        return redirect
-
-    # Validate session exists before serving HTML
-    try:
-        await fetch_session_detail(session_id, db_pool)
-    except ValueError:
-        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}") from None
-
-    return FileResponse(os.path.join(STATIC_DIR, "history_detail.html"))
+async def deprecated_history_detail_redirect(session_id: str):
+    """Redirect old history detail path to live conversation view."""
+    return RedirectResponse(url=f"/conversation/live/{session_id}", status_code=301)
 
 
 # --- JSON API Endpoints ---

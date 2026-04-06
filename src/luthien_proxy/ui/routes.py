@@ -64,14 +64,20 @@ async def landing_page():
 
 
 @router.get("/activity/monitor")
-async def activity_monitor(
+async def deprecated_activity_monitor_redirect():
+    """Redirect old activity monitor path to history."""
+    return RedirectResponse(url="/history", status_code=301)
+
+
+@router.get("/debug/activity")
+async def debug_activity_monitor(
     request: Request,
     admin_key: str | None = Depends(get_admin_key),
 ):
-    """Activity monitor UI.
+    """Raw SSE event stream viewer for debugging.
 
-    Returns the HTML page for viewing the activity stream in real-time.
-    Requires admin authentication.
+    Low-level view of all gateway events. For normal use, see /history
+    and /conversation/live/{id} instead.
     """
     redirect = check_auth_or_redirect(request, admin_key)
     if redirect:
