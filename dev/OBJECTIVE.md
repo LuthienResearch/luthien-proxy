@@ -39,4 +39,4 @@ PR #491 cleaned up the README. This pass audits the remaining codebase: config e
 
 - Trello: https://trello.com/c/jiKgyiKE
 - Branch: worktree-remove-openai-refs
-- PR: (filled after creation)
+- PR: https://github.com/LuthienResearch/luthien-proxy/pull/503
