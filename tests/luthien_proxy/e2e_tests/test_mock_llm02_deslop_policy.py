@@ -140,9 +140,9 @@ async def test_plain_dashes_activates_without_400(
     auth_headers,
     admin_api_key,
 ):
-    """PlainDashesPolicy activates and serves a request without 400."""
-    mock_anthropic.enqueue(text_response("Here — is the answer."))
-    mock_anthropic.enqueue(judge_pass())
+    """PlainDashesPolicy replaces em-dashes with plain ASCII dashes without 400."""
+    mock_anthropic.enqueue(text_response("Here \u2014 is the answer."))
+    mock_anthropic.enqueue(judge_replace_text("Here - is the answer."))
 
     async with policy_context(_PLAIN_DASHES, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -154,3 +154,7 @@ async def test_plain_dashes_activates_without_400(
 
     assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
     assert response.json()["type"] == "message"
+    body = response.json()
+    content_text = " ".join(b["text"] for b in body["content"] if b["type"] == "text")
+    assert "\u2014" not in content_text, f"Em-dash should have been replaced, got: {content_text!r}"
+    assert "Here - is the answer." in content_text

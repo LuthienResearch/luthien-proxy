@@ -43,7 +43,10 @@ async def test_policy_set_returns_200(
     gateway_url,
     admin_api_key,
 ):
-    """Setting a valid policy via admin API returns 200, not 500."""
+    """Setting a valid policy via admin API returns 200, not 500.
+
+    The 200 assertion is enforced inside policy_context — it raises if the set call fails.
+    """
     async with policy_context(_NOOP, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
         pass
 
