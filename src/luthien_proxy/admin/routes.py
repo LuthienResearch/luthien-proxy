@@ -345,8 +345,8 @@ async def send_chat(
             model=body.model,
         )
 
-    # Determine which credential to use.
-    # Priority: custom key from request > last user credential (OAuth) > server client key
+    # Determine which credential to use for the test request to the gateway.
+    # Priority: custom key from request > CLIENT_API_KEY > last user credential (OAuth)
     from luthien_proxy.gateway_routes import get_last_user_credential  # noqa: PLC0415
 
     test_api_key: str | None = None
@@ -354,19 +354,22 @@ async def send_chat(
 
     if body.api_key is not None and body.api_key.strip():
         test_api_key = body.api_key.strip()
+    elif settings.client_api_key:
+        # Prefer CLIENT_API_KEY — the gateway accepts it and uses the server's
+        # ANTHROPIC_API_KEY for the actual LLM call.
+        test_api_key = settings.client_api_key
     else:
+        # No server key — try the last user credential (OAuth passthrough)
         user_cred = get_last_user_credential()
         if user_cred is not None:
             test_api_key = user_cred.value
             use_bearer = user_cred.credential_type == CredentialType.AUTH_TOKEN
-        else:
-            test_api_key = settings.client_api_key
 
     if not test_api_key:
         return ChatResponse(
             success=False,
-            error="No credential available — route a request through the proxy first, "
-            "or set CLIENT_API_KEY on the server",
+            error="No credential available — set CLIENT_API_KEY or route a request "
+            "through the proxy first",
             model=body.model,
         )
 
