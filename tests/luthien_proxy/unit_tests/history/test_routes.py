@@ -272,13 +272,6 @@ class TestDeprecatedHistoryDetailRedirect:
         assert result.headers["location"] == "/conversation/live/test-session-123"
 
     @pytest.mark.asyncio
-    async def test_preserves_session_id_in_redirect(self):
-        from luthien_proxy.history.routes import deprecated_history_detail_redirect
-
-        result = await deprecated_history_detail_redirect("abc-def-456")
-        assert "abc-def-456" in result.headers["location"]
-
-    @pytest.mark.asyncio
     async def test_url_encodes_special_characters(self):
         from luthien_proxy.history.routes import deprecated_history_detail_redirect
 
