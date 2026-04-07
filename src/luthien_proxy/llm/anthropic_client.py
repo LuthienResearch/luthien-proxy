@@ -1,33 +1,13 @@
 """Anthropic SDK client wrapper for making API calls."""
 
 from collections.abc import AsyncIterator
-from enum import Enum
-from typing import Any
 
 import anthropic
 import anthropic.types
 from anthropic.types import RawMessageStreamEvent
 from opentelemetry import trace
-from pydantic import BaseModel
 
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse, build_usage
-
-
-def serialize_no_extras(obj: Any) -> Any:
-    """Recursively serialize a Pydantic model tree, emitting only declared model_fields (no __pydantic_extra__)."""
-    # The Anthropic SDK uses extra='allow', so beta responses include undocumented
-    # fields (e.g. 'snapshot' from interleaved-thinking) that break strict client
-    # validators like @ai-sdk/anthropic. Only emit fields declared in model_fields.
-    if isinstance(obj, BaseModel):
-        return {name: serialize_no_extras(getattr(obj, name)) for name in type(obj).model_fields}
-    if isinstance(obj, Enum):
-        return obj.value
-    if isinstance(obj, (list, tuple, set, frozenset)):
-        return [serialize_no_extras(item) for item in obj]  # non-list iterables become lists (JSON has no tuple/set)
-    if isinstance(obj, dict):
-        return {k: serialize_no_extras(v) for k, v in obj.items()}
-    return obj
-
 
 tracer = trace.get_tracer(__name__)
 
@@ -153,7 +133,7 @@ class AnthropicClient:
         """Convert SDK Message to AnthropicResponse TypedDict."""
         content_blocks = []
         for block in message.content:
-            content_blocks.append(serialize_no_extras(block))
+            content_blocks.append(block.model_dump())
 
         return AnthropicResponse(
             id=message.id,
@@ -177,9 +157,9 @@ class AnthropicClient:
         """Get complete response from Anthropic API.
 
         Uses streaming internally and accumulates the final message.
-        Some models (e.g. Opus) require streaming — using messages.stream()
-        for all models avoids SDK errors for models that reject
-        non-streaming requests with high max_tokens.
+        The Anthropic API requires streaming for sufficiently long responses
+        (high max_tokens) — using messages.stream() avoids errors from the
+        API rejecting non-streaming requests that would exceed the limit.
 
         Args:
             request: Anthropic Messages API request.

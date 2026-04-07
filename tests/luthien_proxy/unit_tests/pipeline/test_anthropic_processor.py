@@ -114,15 +114,21 @@ class TestFormatSSEEvent:
         assert set(data.keys()) == {"type"}
         assert data["type"] == "message_stop"
 
-    def test_strips_pydantic_extras_from_raw_event(self):
+    def test_passes_through_unknown_wire_fields(self):
+        """Raw wire events may include fields the SDK hasn't modeled yet.
+        The proxy should pass them through transparently via model_dump()."""
         event = RawContentBlockDeltaEvent.model_validate(
-            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "hi"}, "snapshot": "hi"}
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "text_delta", "text": "hi"},
+                "new_api_field": 42,
+            }
         )
         result = _format_sse_event(event)
 
-        assert result is not None
         data = json.loads(result.split("data: ", 1)[1].strip())
-        assert "snapshot" not in data
+        assert data["new_api_field"] == 42
         assert data["type"] == "content_block_delta"
 
 

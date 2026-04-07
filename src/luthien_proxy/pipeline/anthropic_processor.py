@@ -39,7 +39,7 @@ from opentelemetry.trace import Span
 from luthien_proxy.credential_manager import CredentialManager
 from luthien_proxy.credentials import Credential, CredentialError
 from luthien_proxy.exceptions import BackendAPIError
-from luthien_proxy.llm.anthropic_client import AnthropicClient, serialize_no_extras
+from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.types.anthropic import (
     AnthropicContentBlock,
     AnthropicRequest,
@@ -837,15 +837,16 @@ def _format_sse_event(event: MessageStreamEvent | _StreamErrorEvent) -> str:
 
     The client uses messages.create(stream=True), which yields only raw
     wire-protocol events — no synthetic SDK convenience events to filter.
-    serialize_no_extras strips any __pydantic_extra__ fields the SDK's
-    extra='allow' config may have collected.
+    model_dump() faithfully reproduces whatever the API sent, including any
+    new fields the SDK hasn't added to model_fields yet, making the proxy
+    as transparent as a direct connection.
     """
     if isinstance(event, dict):
         event_type = str(event.get("type", "unknown"))
         event_data: dict = dict(event)
     else:
         event_type = event.type
-        event_data = serialize_no_extras(event)
+        event_data = event.model_dump()
 
     json_data = json.dumps(event_data)
     return f"event: {event_type}\ndata: {json_data}\n\n"
