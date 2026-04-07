@@ -94,7 +94,9 @@ docker rm luthien-standalone-dev 2>/dev/null || true
 
 # Build the standalone container
 echo "🔨 Building standalone container..."
-docker build -f docker/Dockerfile.standalone -t luthien-standalone-dev .
+docker build -f docker/Dockerfile.standalone \
+  --build-arg BUILD_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)" \
+  -t luthien-standalone-dev .
 
 # Create named volumes if they don't exist
 echo "📦 Creating persistent volumes..."

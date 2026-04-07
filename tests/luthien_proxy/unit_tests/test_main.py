@@ -248,7 +248,7 @@ class TestCreateApp:
         )
 
         assert app.title == "Luthien Proxy Gateway"
-        assert app.version == "2.0.0"
+        assert app.version  # derived from git commit hash
         assert app.description == "Multi-provider LLM proxy with integrated control plane"
 
     @pytest.mark.asyncio
@@ -316,7 +316,7 @@ class TestCreateApp:
             assert response.status_code == 200
             data = response.json()
             assert data["status"] == "healthy"
-            assert data["version"] == "2.0.0"
+            assert data["version"]  # derived from git commit hash
             assert data["auth_mode"] in ("proxy_key", "both", "passthrough", None)
             assert "last_credential_type" in data
             assert "last_credential_at" in data

@@ -42,8 +42,9 @@ document.addEventListener('alpine:init', () => {
             };
 
             const updateBadge = async () => {
+                let data;
                 try {
-                    const data = await fetch('/health').then(r => r.json());
+                    data = await fetch('/health').then(r => r.json());
                     let badgeType = null; // 'warning' or 'ok'
                     let badgeLabel = null;
                     let tooltipText = null;
@@ -112,6 +113,7 @@ document.addEventListener('alpine:init', () => {
                 } catch (_) {
                     // Health check failure is not fatal — nav still works without the badge.
                 }
+                return data;
             };
 
             function createBadgeElement(type, label, tooltip) {
@@ -183,8 +185,17 @@ document.addEventListener('alpine:init', () => {
             document.addEventListener('click', closeTooltip);
             window.addEventListener('resize', positionTooltip);
 
-            await updateBadge();
+            const healthData = await updateBadge();
             const intervalId = setInterval(updateBadge, 30000);
+
+            // Render version footer from the health data we already fetched
+            if (healthData && healthData.version) {
+                const footer = document.createElement('footer');
+                footer.className = 'luthien-footer';
+                footer.textContent = 'luthien-proxy @ ' + healthData.version;
+                document.body.appendChild(footer);
+            }
+
             this.$cleanup(() => {
                 clearInterval(intervalId);
                 if (activeTooltip) activeTooltip.remove();

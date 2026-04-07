@@ -98,6 +98,14 @@ def start_gateway(
 
     env["GATEWAY_PORT"] = str(port)
 
+    # Pass the proxy commit hash so the gateway can report its version
+    # even when running from a pip-installed venv (no .git/ directory).
+    version_file = Path(repo_path) / ".version"
+    if version_file.is_file():
+        full_sha = version_file.read_text().strip()
+        if full_sha and full_sha != "unknown":
+            env["LUTHIEN_BUILD_COMMIT"] = full_sha[:8]
+
     log_path = _log_file(repo_path)
     log_handle = open(log_path, "a")
 

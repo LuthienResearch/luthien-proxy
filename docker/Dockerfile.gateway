@@ -22,6 +22,10 @@ WORKDIR /app
 # Copy project files needed to build/install the local package
 COPY pyproject.toml uv.lock README.md ./
 COPY src/ ./src/
+
+# Bake git commit hash into the package for version reporting
+ARG BUILD_COMMIT=unknown
+RUN echo "${BUILD_COMMIT}" > ./src/luthien_proxy/BUILD_COMMIT
 COPY config/ ./config/
 # Migrations and startup scripts
 COPY migrations/ ./migrations/
