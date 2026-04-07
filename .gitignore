@@ -75,8 +75,7 @@ docs/superpowers/specs/
 
 # Generated version files (hatch-vcs)
 src/luthien_cli/src/luthien_cli/_version.py
-# Baked at Docker build time, never committed
-src/luthien_proxy/BUILD_COMMIT
+src/luthien_proxy/_version.py
 
 # Real-API test failure captures (runtime artifacts, .gitkeep tracks the directory)
 tests/**/failure_registry/*.json

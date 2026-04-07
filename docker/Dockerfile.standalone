@@ -48,9 +48,9 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 COPY src/ ./src/
 
-# Bake git commit hash into the package for version reporting
+# Write version file before package install (hatch-vcs can't read .git/ in Docker)
 ARG BUILD_COMMIT=unknown
-RUN echo "${BUILD_COMMIT}" > ./src/luthien_proxy/BUILD_COMMIT
+RUN echo "__version__ = version = '0.0.0+${BUILD_COMMIT}'" > ./src/luthien_proxy/_version.py
 COPY config/ ./config/
 COPY migrations/ ./migrations/
 COPY docker/run-migrations.sh ./docker/
