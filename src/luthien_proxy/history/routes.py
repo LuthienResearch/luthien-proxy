@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
@@ -60,7 +61,7 @@ async def deprecated_history_detail_redirect(session_id: str):
 
     No auth check here — the redirect target handles auth.
     """
-    return RedirectResponse(url=f"/conversation/live/{session_id}", status_code=301)
+    return RedirectResponse(url=f"/conversation/live/{quote(session_id, safe='')}", status_code=301)
 
 
 # --- JSON API Endpoints ---

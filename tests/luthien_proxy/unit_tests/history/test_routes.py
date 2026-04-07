@@ -277,3 +277,13 @@ class TestDeprecatedHistoryDetailRedirect:
 
         result = await deprecated_history_detail_redirect("abc-def-456")
         assert "abc-def-456" in result.headers["location"]
+
+    @pytest.mark.asyncio
+    async def test_url_encodes_special_characters(self):
+        from luthien_proxy.history.routes import deprecated_history_detail_redirect
+
+        result = await deprecated_history_detail_redirect("id with spaces#fragment")
+        location = result.headers["location"]
+        assert " " not in location
+        assert "#" not in location
+        assert "id%20with%20spaces%23fragment" in location

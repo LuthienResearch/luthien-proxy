@@ -1112,7 +1112,7 @@
                     const classes = ['turn', `turn-${number - 1}`];
                     if (hasIntervention) classes.push('has-intervention');
 
-                    const callId = turn.call_id;
+                    const callId = escapeHtml(turn.call_id);
                     const requestHtml = (turn.request_messages || []).map((m, mi) => this.renderMessage(m, `${callId}-req-${mi}`)).join('');
                     const responseHtml = (turn.response_messages || []).map((m, mi) => this.renderMessage(m, `${callId}-res-${mi}`)).join('');
 
@@ -1166,7 +1166,7 @@
                     }
 
                     return `
-                        <div class="${classes.join(' ')}" data-call-id="${escapeHtml(turn.call_id)}">
+                        <div class="${classes.join(' ')}" data-call-id="${callId}">
                             <div class="turn-header">
                                 <div class="turn-label">
                                     <span class="turn-number">Turn ${number}</span>
@@ -1233,7 +1233,7 @@
                 },
 
                 renderDiffSection(turn) {
-                    const diffId = `diff-${turn.call_id}`;
+                    const diffId = `diff-${escapeHtml(turn.call_id)}`;
 
                     let requestDiffHtml = '';
                     if (turn.request_was_modified && turn.original_request_messages) {

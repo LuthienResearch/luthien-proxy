@@ -149,7 +149,7 @@ EventEmitter (observability/emitter.py)
            |-- InProcessEventPublisher (local mode)
                     |
                     v
-              /conversation/live/{id} SSE endpoint (history/routes.py)
+              /api/activity/stream SSE endpoint (ui/routes.py)
 ```
 
 `EventEmitter` is the high-level multi-sink dispatcher. `EventPublisherProtocol` is the transport layer for the SSE activity stream specifically. Don't confuse the two — "Emitter" dispatches to multiple sinks, "Publisher" is one specific sink (the SSE activity feed).
