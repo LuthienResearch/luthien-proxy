@@ -81,6 +81,7 @@ class PolicyClassInfo(BaseModel):
     short_description: str = Field(default="", description="One-liner for the catalog card")
     badges: list[str] = Field(default_factory=list, description="Quick-signal badges (e.g., 'Auto-Retry')")
     user_alert_template: str = Field(default="", description="Template for user-facing alert message")
+    instructions_summary: str = Field(default="", description="Human-readable summary of policy instructions")
 
 
 class PolicyListResponse(BaseModel):
@@ -105,6 +106,11 @@ class ChatRequest(BaseModel):
         default=None,
         description="Optional API key to use for this test request. "
         "Overrides the server's client key as the credential sent to the gateway.",
+    )
+    use_bearer: bool = Field(
+        default=False,
+        description="When True, send the credential as Authorization: Bearer instead of x-api-key. "
+        "Use this for OAuth tokens (Claude subscriptions).",
     )
     capture_before: bool = Field(
         default=False,
@@ -295,6 +301,7 @@ async def list_available_policies(
             short_description=p.get("short_description", ""),
             badges=p.get("badges", []),
             user_alert_template=p.get("user_alert_template", ""),
+            instructions_summary=p.get("instructions_summary", ""),
         )
         for p in discovered
     ]
@@ -363,7 +370,11 @@ async def send_chat(
     }
 
     try:
-        request_headers: dict[str, str] = {"x-api-key": test_api_key}
+        request_headers: dict[str, str] = (
+            {"Authorization": f"Bearer {test_api_key}"}
+            if body.use_bearer
+            else {"x-api-key": test_api_key}
+        )
         if body.capture_before:
             request_headers["x-luthien-capture-before"] = "true"
 

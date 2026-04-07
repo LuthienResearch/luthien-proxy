@@ -528,6 +528,7 @@ def discover_policies() -> list[dict[str, Any]]:
                     "short_description": getattr(attr, "short_description", ""),
                     "badges": list(getattr(attr, "badges", ())),
                     "user_alert_template": getattr(attr, "user_alert_template", ""),
+                    "instructions_summary": getattr(attr, "instructions_summary", ""),
                 }
             )
 

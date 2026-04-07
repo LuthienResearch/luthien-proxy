@@ -76,7 +76,7 @@ const state = {
     selectedModel: DEFAULT_MODEL,
     isActivating: false,
     cachedCredentials: [],
-    credentialSource: 'server',
+    credentialSource: 'oauth',
     showHidden: false,
     expandedChainIndex: -1,
     expandedAvailablePolicy: null,
@@ -137,9 +137,19 @@ document.addEventListener('alpine:init', () => {
     Alpine.store('drawer', { open: false, path: '', index: -1 });
 });
 
+const DEFAULT_PROPOSED_REF = 'luthien_proxy.policies.presets.deslop:DeSlopPolicy';
+
 document.addEventListener('DOMContentLoaded', async () => {
     initFilterInput();
     await Promise.all([loadPolicies(), loadCurrentPolicy(), loadModels(), loadGatewaySettings()]);
+    // Auto-propose De-Slop if nothing is in the chain yet
+    if (state.chain.length === 0) {
+        const defaultPolicy = getPolicy(DEFAULT_PROPOSED_REF);
+        if (defaultPolicy) {
+            state.chain.push({ classRef: DEFAULT_PROPOSED_REF, config: defaultConfigFor(defaultPolicy) });
+            state.expandedChainIndex = 0;
+        }
+    }
     renderAll();
 });
 
@@ -479,10 +489,25 @@ function renderProposedSingle(content) {
         content.appendChild(badgeRow);
     }
 
-    const descEl = document.createElement('div');
-    descEl.className = 'proposed-desc';
-    descEl.textContent = p.description || p.short_description || '';
-    content.appendChild(descEl);
+    // Instructions summary (like whiteboard "Instructions for judge LLM" box)
+    if (p.instructions_summary) {
+        const instrEl = document.createElement('div');
+        instrEl.className = 'proposed-instructions';
+        const instrLabel = document.createElement('div');
+        instrLabel.className = 'proposed-instructions-label';
+        instrLabel.textContent = 'Instructions for judge LLM';
+        const instrText = document.createElement('div');
+        instrText.className = 'proposed-instructions-text';
+        instrText.textContent = p.instructions_summary;
+        instrEl.appendChild(instrLabel);
+        instrEl.appendChild(instrText);
+        content.appendChild(instrEl);
+    } else {
+        const descEl = document.createElement('div');
+        descEl.className = 'proposed-desc';
+        descEl.textContent = p.description || p.short_description || '';
+        content.appendChild(descEl);
+    }
 
     // User alert preview
     if (p.user_alert_template) {
@@ -914,12 +939,29 @@ function renderTestSection(side) {
     if (state.credentialSource === 'server') opt1.selected = true;
     credSelect.appendChild(opt1);
     const opt2 = document.createElement('option');
-    opt2.value = 'custom';
-    opt2.textContent = 'Enter API key...';
-    if (state.credentialSource === 'custom') opt2.selected = true;
+    opt2.value = 'oauth';
+    opt2.textContent = 'Your Claude credential';
+    if (state.credentialSource === 'oauth') opt2.selected = true;
     credSelect.appendChild(opt2);
+    const opt3 = document.createElement('option');
+    opt3.value = 'custom';
+    opt3.textContent = 'Enter API key...';
+    if (state.credentialSource === 'custom') opt3.selected = true;
+    credSelect.appendChild(opt3);
     credRow.appendChild(credSelect);
     advancedBody.appendChild(credRow);
+
+    if (state.credentialSource === 'oauth') {
+        const credOauth = document.createElement('div');
+        credOauth.className = 'test-cred-custom';
+        const credInput = document.createElement('input');
+        credInput.type = 'password';
+        credInput.className = 'credential-input';
+        credInput.id = 'cred-input-' + side;
+        credInput.placeholder = 'Paste your OAuth token here';
+        credOauth.appendChild(credInput);
+        advancedBody.appendChild(credOauth);
+    }
 
     if (state.credentialSource === 'custom') {
         const credCustom = document.createElement('div');
@@ -928,7 +970,7 @@ function renderTestSection(side) {
         credInput.type = 'password';
         credInput.className = 'credential-input';
         credInput.id = 'cred-input-' + side;
-        credInput.placeholder = 'sk-ant-... or OAuth token';
+        credInput.placeholder = 'sk-ant-...';
         credCustom.appendChild(credInput);
         advancedBody.appendChild(credCustom);
     }
@@ -943,7 +985,13 @@ function renderTestSection(side) {
     textarea.className = 'test-textarea';
     textarea.id = 'test-input-' + side;
     textarea.placeholder = 'Enter test message...';
-    textarea.rows = 2;
+    textarea.rows = 3;
+    // Pre-fill with a sloppy AI-written example so the user can see the policy clean it up
+    textarea.value = 'I\'m thrilled to share that I\'ve been on an absolutely incredible journey! ' +
+        'After delving deep into the comprehensive world of automation \u2014 and I mean DEEP \u2014 ' +
+        'I\'ve leveraged cutting-edge tools to streamline my cold outreach pipeline. ' +
+        'It\'s been a pivotal paradigm shift that has fundamentally transformed how I facilitate ' +
+        'meaningful connections. I\'d be happy to share more insights \u2014 feel free to reach out!';
     textarea.onkeydown = function(event) {
         if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); runTest(side); }
     };
@@ -1038,8 +1086,15 @@ async function runTest(side) {
             use_mock: useMock,
             capture_before: true,
         };
-        if (state.credentialSource === 'custom') {
-            const credInput = document.getElementById(`cred-input-${side}`);
+        if (state.credentialSource === 'oauth') {
+            const credInput = document.getElementById('cred-input-' + side);
+            const token = credInput ? credInput.value.trim() : '';
+            if (token) {
+                testPayload.api_key = token;
+                testPayload.use_bearer = true;
+            }
+        } else if (state.credentialSource === 'custom') {
+            const credInput = document.getElementById('cred-input-' + side);
             const key = credInput ? credInput.value.trim() : '';
             if (key) testPayload.api_key = key;
         }

@@ -15,6 +15,12 @@ class DeSlopPolicy(SimpleLLMPolicy):
     display_name = "De-Slop"
     short_description = "Removes AI writing tells — em dashes, filler phrases, corporate tone."
     badges = ()
+    instructions_summary = (
+        "Avoid AI writing tells such as em dashes. "
+        "Replace with commas, semicolons, or periods. "
+        "Avoid filler words like 'delve', 'leverage', 'utilize', 'comprehensive'. "
+        "Remove opening pleasantries and trailing filler."
+    )
 
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""

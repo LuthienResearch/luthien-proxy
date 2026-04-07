@@ -40,6 +40,7 @@ class BasePolicy:
     short_description: str = ""
     badges: tuple[str, ...] = ()
     user_alert_template: str = ""
+    instructions_summary: str = ""
 
     def freeze_configured_state(self) -> None:
         """Validate configured instance shape.
