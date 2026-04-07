@@ -19,6 +19,10 @@ class AllCapsPolicy(TextModifierPolicy):
     Tool calls, thinking blocks, and images pass through unchanged.
     """
 
+    category = "simple_utilities"
+    display_name = "All Caps"
+    short_description = "Converts all response text to UPPERCASE."
+
     def modify_text(self, text: str) -> str:
         """Convert text to uppercase."""
         return text.upper()

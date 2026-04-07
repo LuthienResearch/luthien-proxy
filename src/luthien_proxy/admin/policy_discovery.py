@@ -11,6 +11,7 @@ import importlib
 import inspect
 import logging
 import pkgutil
+import re
 import types
 import typing
 from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
@@ -428,6 +429,20 @@ def extract_description(policy_class: type) -> str:
     return ""
 
 
+def _derive_display_name(class_name: str) -> str:
+    """Derive a friendly display name from a class name.
+
+    E.g. 'StringReplacementPolicy' -> 'String Replacement',
+         'NoOpPolicy' -> 'No-Op'.
+    """
+    name = class_name.removesuffix("Policy")
+    # Insert space before uppercase letters
+    name = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name)
+    # Handle sequences like "LLM" -> keep together
+    name = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", " ", name)
+    return name.strip()
+
+
 _discovered_policies_cache: list[dict[str, Any]] | None = None
 
 
@@ -508,6 +523,11 @@ def discover_policies() -> list[dict[str, Any]]:
                     "description": description,
                     "config_schema": config_schema,
                     "example_config": example_config,
+                    "category": getattr(attr, "category", "advanced"),
+                    "display_name": getattr(attr, "display_name", "") or _derive_display_name(attr_name),
+                    "short_description": getattr(attr, "short_description", ""),
+                    "badges": list(getattr(attr, "badges", ())),
+                    "user_alert_template": getattr(attr, "user_alert_template", ""),
                 }
             )
 

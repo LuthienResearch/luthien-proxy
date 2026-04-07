@@ -58,6 +58,10 @@ class MultiSerialPolicy(BasePolicy, AnthropicExecutionInterface):
     All sub-policies must implement AnthropicExecutionInterface.
     """
 
+    category = "internal"
+    display_name = "Policy Chain"
+    short_description = "Runs multiple policies sequentially as a pipeline."
+
     def __init__(self, policies: list[dict[str, Any]]) -> None:
         """Initialize with a list of policy config dicts to run in sequence."""
         self._sub_policies: tuple[BasePolicy, ...] = tuple(load_sub_policy(cfg) for cfg in policies)

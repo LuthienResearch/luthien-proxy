@@ -10,6 +10,11 @@ class NoApologiesPolicy(SimpleLLMPolicy):
     direct and focused on the actual content.
     """
 
+    category = "simple_utilities"
+    display_name = "No Apologies"
+    short_description = "Removes 'I apologize', 'I'm sorry', and other apologetic filler."
+    badges = ()
+
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""
         super().__init__(

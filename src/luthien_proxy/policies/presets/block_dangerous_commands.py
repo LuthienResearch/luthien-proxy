@@ -11,6 +11,11 @@ class BlockDangerousCommandsPolicy(SimpleLLMPolicy):
     why the command was blocked.
     """
 
+    category = "active_monitoring"
+    display_name = "Block Commands"
+    short_description = "Blocks dangerous shell commands like rm -rf, chmod 777, and mkfs."
+    badges = ("Blocks",)
+
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""
         super().__init__(

@@ -201,6 +201,10 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
     - "cOOl" -> "rADical" (mixed: c->r lower, O->A upper, O->D upper, l->i lower, extra chars literal)
     """
 
+    category = "simple_utilities"
+    display_name = "String Replacement"
+    short_description = "Replaces specified strings in LLM responses (e.g. find & replace)."
+
     def __init__(self, config: StringReplacementConfig | None = None):
         """Initialize with optional config. Accepts dict or Pydantic model."""
         self.config = self._init_config(config, StringReplacementConfig)

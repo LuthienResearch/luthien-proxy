@@ -10,6 +10,11 @@ class PlainDashesPolicy(SimpleLLMPolicy):
     Useful for terminal environments where Unicode dashes render poorly.
     """
 
+    category = "simple_utilities"
+    display_name = "Plain Dashes"
+    short_description = "Replaces em-dashes (—) with regular dashes (-)."
+    badges = ()
+
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""
         super().__init__(

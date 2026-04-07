@@ -150,6 +150,11 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
             {tool_name}, {tool_arguments}, {probability}, {explanation}
     """
 
+    category = "active_monitoring"
+    display_name = "Tool Call Judge"
+    short_description = "Evaluates tool calls with an LLM and blocks harmful ones."
+    badges = ("Blocks",)
+
     @property
     def short_policy_name(self) -> str:
         """Short human-readable name for the policy."""

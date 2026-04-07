@@ -10,6 +10,11 @@ class NoYappingPolicy(SimpleLLMPolicy):
     and excessive qualifiers, leaving only substantive content.
     """
 
+    category = "simple_utilities"
+    display_name = "No Yapping"
+    short_description = "Enforces concise responses by cutting filler, hedging, and preamble."
+    badges = ()
+
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""
         super().__init__(

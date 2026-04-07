@@ -19,6 +19,7 @@ The pipeline creates a structured span hierarchy for observability:
 
 from __future__ import annotations
 
+import base64
 import copy
 import json
 import logging
@@ -835,10 +836,34 @@ async def _handle_execution_non_streaming(
                     output_tokens=usage.get("output_tokens", 0),
                 )
 
+        response_headers: dict[str, str] = {"X-Call-ID": call_id}
+
+        # When the test UI requests before/after capture, include pre-policy
+        # content in a response header so the test endpoint can show a diff.
+        capture_before = False
+        if policy_ctx.raw_http_request:
+            capture_before = policy_ctx.raw_http_request.headers.get("x-luthien-capture-before") == "true"
+        if capture_before and original_response_payload:
+            before_text = _extract_text_content(original_response_payload)
+            if before_text is not None:
+                response_headers["X-Luthien-Before-Content"] = base64.b64encode(before_text.encode()).decode()
+
         return JSONResponse(
             content=final_response_payload,
-            headers={"X-Call-ID": call_id},
+            headers=response_headers,
         )
+
+
+def _extract_text_content(response: dict) -> str | None:
+    """Extract concatenated text content from an Anthropic response dict."""
+    content = response.get("content")
+    if not content or not isinstance(content, list):
+        return None
+    parts = []
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "text":
+            parts.append(block.get("text", ""))
+    return "".join(parts) if parts else None
 
 
 def _format_sse_event(event: MessageStreamEvent | _StreamErrorEvent) -> str:

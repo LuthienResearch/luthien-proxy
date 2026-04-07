@@ -113,6 +113,11 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         max_tokens: Max output tokens for judge (default: 4096)
     """
 
+    category = "active_monitoring"
+    display_name = "LLM-as-Judge"
+    short_description = "Apply plain-English instructions to evaluate and rewrite responses."
+    badges = ("Judge",)
+
     @property
     def short_policy_name(self) -> str:
         """Short human-readable name for the policy."""

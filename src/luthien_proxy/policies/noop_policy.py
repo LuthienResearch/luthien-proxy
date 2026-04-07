@@ -18,6 +18,10 @@ class NoOpPolicy(BasePolicy, AnthropicHookPolicy):
     Implements AnthropicHookPolicy. All hooks use default passthrough behavior.
     """
 
+    category = "internal"
+    display_name = "No-Op"
+    short_description = "Passes through all data unchanged."
+
     @property
     def short_policy_name(self) -> str:
         """Return 'NoOp'."""
