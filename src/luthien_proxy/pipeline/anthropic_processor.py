@@ -196,9 +196,12 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
             with tracer.start_as_current_span("send_upstream") as span:
                 span.set_attribute("luthien.phase", "send_upstream")
                 async for event in self._anthropic_client.stream(final_request, extra_headers=extra_headers):
+                    # RawMessageStreamEvent members are a subset of MessageStreamEvent;
+                    # cast bridges Pyright's strict union checking.
+                    mse = cast(MessageStreamEvent, event)
                     if self._buffer_raw_events:
-                        self._raw_backend_events.append(event)
-                    yield event
+                        self._raw_backend_events.append(mse)
+                    yield mse
 
         return _stream()
 
@@ -617,9 +620,10 @@ async def _handle_execution_streaming(
                                 )
                             io.ensure_request_recorded()
                             emitted_any = True
+                            cast_emitted = cast(MessageStreamEvent, emitted)
+                            accumulated_events.append(cast_emitted)
                             chunk_count += 1
-                            accumulated_events.append(cast(MessageStreamEvent, emitted))
-                            yield _format_sse_event(cast(MessageStreamEvent, emitted))
+                            yield _format_sse_event(cast_emitted)
                 except Exception as e:
                     caught_exception = True
                     # Headers may already be sent, so emit an in-stream error event.
@@ -829,15 +833,14 @@ async def _handle_execution_non_streaming(
 
 
 def _format_sse_event(event: MessageStreamEvent | _StreamErrorEvent) -> str:
-    """Format an Anthropic stream event as an SSE line.
+    """Format a streaming event as an SSE string.
 
-    Args:
-        event: Anthropic SDK streaming event (Pydantic model) or error event dict
-
-    Returns:
-        SSE-formatted string with event type and JSON data.
+    The client uses messages.create(stream=True), which yields only raw
+    wire-protocol events — no synthetic SDK convenience events to filter.
+    model_dump() faithfully reproduces whatever the API sent, including any
+    new fields the SDK hasn't added to model_fields yet, making the proxy
+    as transparent as a direct connection.
     """
-    # Handle both SDK Pydantic models and TypedDicts (error events)
     if isinstance(event, dict):
         event_type = str(event.get("type", "unknown"))
         event_data: dict = dict(event)
