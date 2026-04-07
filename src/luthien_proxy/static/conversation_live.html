@@ -781,6 +781,8 @@
                 expandedRaw: {},
                 expandedContent: {},
                 expandedDiffs: {},
+                renderedCallIds: new Set(),
+                turnFingerprints: {},
 
                 init() {
                     const pathParts = window.location.pathname.split('/');
@@ -935,7 +937,60 @@
 
                 debouncedRefresh() {
                     if (this.refreshTimer) clearTimeout(this.refreshTimer);
-                    this.refreshTimer = setTimeout(() => this.loadInitial(), 1000);
+                    this.refreshTimer = setTimeout(() => this.refreshTurns(), 1000);
+                },
+
+                async refreshTurns() {
+                    try {
+                        const resp = await fetch(
+                            `/api/history/sessions/${encodeURIComponent(this.conversationId)}`,
+                            { headers: { 'Accept': 'application/json' } }
+                        );
+                        if (!resp.ok) return;
+                        const data = await resp.json();
+                        const newTurns = data.turns || [];
+
+                        this.updateStats(data);
+                        this.updateTimestamp();
+
+                        const container = document.getElementById('conversation-container');
+
+                        // Remove empty/loading state if present
+                        const emptyState = container.querySelector('.empty-state, .loading-state');
+                        if (emptyState) emptyState.remove();
+
+                        const savedState = this.snapshotExpandState();
+
+                        // Update existing turns only if their data changed
+                        // (e.g. response arrived, late policy annotation)
+                        for (let i = 0; i < newTurns.length; i++) {
+                            const turn = newTurns[i];
+                            const fp = JSON.stringify(turn);
+                            if (this.renderedCallIds.has(turn.call_id)) {
+                                if (fp !== this.turnFingerprints[turn.call_id]) {
+                                    const existing = container.querySelector(`[data-call-id="${CSS.escape(turn.call_id)}"]`);
+                                    if (existing) {
+                                        existing.outerHTML = this.renderTurn(turn, i + 1);
+                                    }
+                                    this.turnFingerprints[turn.call_id] = fp;
+                                }
+                            } else {
+                                // New turn — append
+                                this.renderedCallIds.add(turn.call_id);
+                                this.turnFingerprints[turn.call_id] = fp;
+                                const html = this.renderTurn(turn, i + 1);
+                                container.insertAdjacentHTML('beforeend', html);
+                                const newEl = container.lastElementChild;
+                                if (newEl) newEl.classList.add('new-turn');
+                            }
+                        }
+
+                        this.restoreExpandState(savedState);
+                        this.turns = newTurns;
+                        this.autoScrollToBottom();
+                    } catch (err) {
+                        console.error('Failed to refresh turns:', err);
+                    }
                 },
 
                 processTurns(data) {
@@ -1040,6 +1095,13 @@
                         return;
                     }
 
+                    this.renderedCallIds.clear();
+                    this.turnFingerprints = {};
+                    for (const turn of this.turns) {
+                        this.renderedCallIds.add(turn.call_id);
+                        this.turnFingerprints[turn.call_id] = JSON.stringify(turn);
+                    }
+
                     const savedState = this.snapshotExpandState();
                     container.innerHTML = this.turns.map((turn, i) => this.renderTurn(turn, i + 1)).join('');
                     this.restoreExpandState(savedState);
@@ -1050,7 +1112,7 @@
                     const classes = ['turn', `turn-${number - 1}`];
                     if (hasIntervention) classes.push('has-intervention');
 
-                    const callId = turn.call_id;
+                    const callId = escapeHtml(turn.call_id);
                     const requestHtml = (turn.request_messages || []).map((m, mi) => this.renderMessage(m, `${callId}-req-${mi}`)).join('');
                     const responseHtml = (turn.response_messages || []).map((m, mi) => this.renderMessage(m, `${callId}-res-${mi}`)).join('');
 
@@ -1104,7 +1166,7 @@
                     }
 
                     return `
-                        <div class="${classes.join(' ')}" data-call-id="${escapeHtml(turn.call_id)}">
+                        <div class="${classes.join(' ')}" data-call-id="${callId}">
                             <div class="turn-header">
                                 <div class="turn-label">
                                     <span class="turn-number">Turn ${number}</span>
@@ -1171,7 +1233,7 @@
                 },
 
                 renderDiffSection(turn) {
-                    const diffId = `diff-${turn.call_id}`;
+                    const diffId = `diff-${escapeHtml(turn.call_id)}`;
 
                     let requestDiffHtml = '';
                     if (turn.request_was_modified && turn.original_request_messages) {

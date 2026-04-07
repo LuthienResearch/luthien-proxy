@@ -117,7 +117,7 @@ fi
 
 echo -e "${GREEN}🎯 Claude Code will now route through the gateway with policy enforcement${NC}"
 echo -e "${YELLOW}📊 Monitor requests at:${NC}"
-echo -e "   • Activity Monitor:  http://localhost:${GATEWAY_PORT_VAR}/activity/monitor"
+echo -e "   • History:           http://localhost:${GATEWAY_PORT_VAR}/history"
 echo -e "   • Diff Viewer:       http://localhost:${GATEWAY_PORT_VAR}/diffs"
 echo ""
 

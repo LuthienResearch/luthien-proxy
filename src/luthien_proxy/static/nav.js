@@ -8,7 +8,6 @@ document.addEventListener('alpine:init', () => {
     Alpine.data('luthienNav', () => ({
         currentPath: window.location.pathname,
         links: [
-            { href: '/activity/monitor', label: 'Activity' },
             { href: '/history', label: 'History' },
             { href: '/policy-config', label: 'Policies' },
             { href: '/diffs', label: 'Diffs' },
