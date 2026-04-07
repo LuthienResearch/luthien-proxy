@@ -196,9 +196,12 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
             with tracer.start_as_current_span("send_upstream") as span:
                 span.set_attribute("luthien.phase", "send_upstream")
                 async for event in self._anthropic_client.stream(final_request, extra_headers=extra_headers):
+                    # RawMessageStreamEvent members are a subset of MessageStreamEvent;
+                    # cast bridges Pyright's strict union checking.
+                    mse = cast(MessageStreamEvent, event)
                     if self._buffer_raw_events:
-                        self._raw_backend_events.append(event)
-                    yield event
+                        self._raw_backend_events.append(mse)
+                    yield mse
 
         return _stream()
 
@@ -618,12 +621,9 @@ async def _handle_execution_streaming(
                             io.ensure_request_recorded()
                             emitted_any = True
                             cast_emitted = cast(MessageStreamEvent, emitted)
-                            if cast_emitted.type not in _SYNTHETIC_EVENT_TYPES:
-                                accumulated_events.append(cast_emitted)
-                            sse = _format_sse_event(cast_emitted)
-                            if sse is not None:
-                                chunk_count += 1
-                                yield sse
+                            accumulated_events.append(cast_emitted)
+                            chunk_count += 1
+                            yield _format_sse_event(cast_emitted)
                 except Exception as e:
                     caught_exception = True
                     # Headers may already be sent, so emit an in-stream error event.
@@ -638,10 +638,7 @@ async def _handle_execution_streaming(
                     else:
                         final_status = 500
                     error_event = _build_error_event(e, call_id)
-                    sse_error = _format_sse_event(error_event)
-                    if sse_error is None:
-                        raise RuntimeError("_format_sse_event returned None for a dict event — invariant violated")
-                    yield sse_error
+                    yield _format_sse_event(error_event)
                 finally:
                     if not emitted_any and not caught_exception:
                         io.ensure_request_recorded()
@@ -663,10 +660,7 @@ async def _handle_execution_streaming(
                                 message="Request blocked: policy evaluation unavailable. Contact your administrator.",
                             ),
                         )
-                        sse_empty = _format_sse_event(empty_stream_error)
-                        if sse_empty is None:
-                            raise RuntimeError("_format_sse_event returned None for a dict event — invariant violated")
-                        yield sse_empty
+                        yield _format_sse_event(empty_stream_error)
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
 
                     # Validate streaming protocol compliance (log-and-warn).
@@ -838,32 +832,20 @@ async def _handle_execution_non_streaming(
         )
 
 
-_SYNTHETIC_EVENT_TYPES = frozenset({"text", "thinking", "citation", "signature", "input_json"})
+def _format_sse_event(event: MessageStreamEvent | _StreamErrorEvent) -> str:
+    """Format a streaming event as an SSE string.
 
-_STOP_EVENT_WIRE_FIELDS: dict[str, frozenset[str]] = {
-    "content_block_stop": frozenset({"type", "index"}),
-    "message_stop": frozenset({"type"}),
-}
-
-
-def _format_sse_event(event: MessageStreamEvent | _StreamErrorEvent) -> str | None:
-    """Format a streaming event as an SSE string, or return None to skip it.
-
-    Returns None for synthetic SDK events (e.g. RawTextEvent) that exist only
-    for the Python client's convenience and have no wire-protocol counterpart.
-    Dict events (error/empty-stream paths) always produce output — the callers
-    that use cast(str, ...) rely on this invariant.
+    The client uses messages.create(stream=True), which yields only raw
+    wire-protocol events — no synthetic SDK convenience events to filter.
+    serialize_no_extras strips any __pydantic_extra__ fields the SDK's
+    extra='allow' config may have collected.
     """
     if isinstance(event, dict):
         event_type = str(event.get("type", "unknown"))
         event_data: dict = dict(event)
     else:
         event_type = event.type
-        if event_type in _SYNTHETIC_EVENT_TYPES:
-            return None
-        serialized = serialize_no_extras(event)
-        wire_fields = _STOP_EVENT_WIRE_FIELDS.get(event_type)
-        event_data = {k: v for k, v in serialized.items() if k in wire_fields} if wire_fields else serialized
+        event_data = serialize_no_extras(event)
 
     json_data = json.dumps(event_data)
     return f"event: {event_type}\ndata: {json_data}\n\n"

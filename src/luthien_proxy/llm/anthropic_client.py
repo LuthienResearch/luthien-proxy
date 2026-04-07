@@ -2,17 +2,15 @@
 
 from collections.abc import AsyncIterator
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import anthropic
 import anthropic.types
+from anthropic.types import RawMessageStreamEvent
 from opentelemetry import trace
 from pydantic import BaseModel
 
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse, build_usage
-
-if TYPE_CHECKING:
-    from anthropic.lib.streaming import MessageStreamEvent
 
 
 def serialize_no_extras(obj: Any) -> Any:
@@ -203,15 +201,20 @@ class AnthropicClient:
 
     async def stream(
         self, request: AnthropicRequest, extra_headers: dict[str, str] | None = None
-    ) -> AsyncIterator["MessageStreamEvent"]:
+    ) -> AsyncIterator[RawMessageStreamEvent]:
         """Stream response from Anthropic API.
+
+        Uses messages.create(stream=True) to get raw wire-protocol events only,
+        avoiding the SDK's high-level MessageStream which injects synthetic
+        convenience events (text, thinking, citation, etc.) that have no
+        wire-protocol counterpart.
 
         Args:
             request: Anthropic Messages API request.
             extra_headers: Additional headers to forward to the API (e.g. anthropic-beta).
 
         Yields:
-            Streaming events from the Anthropic SDK (includes text, thinking, etc.).
+            Raw streaming events matching the Anthropic wire protocol.
         """
         with tracer.start_as_current_span("anthropic.stream") as span:
             span.set_attribute("llm.model", request["model"])
@@ -220,9 +223,10 @@ class AnthropicClient:
             kwargs = self._prepare_request_kwargs(request)
             if extra_headers:
                 kwargs["extra_headers"] = extra_headers
-            async with self._client.messages.stream(**kwargs) as stream:
+            stream = await self._client.messages.create(**kwargs, stream=True)
+            async with stream:
                 async for event in stream:
-                    yield event  # type: ignore[misc]
+                    yield event
 
 
 __all__ = ["AnthropicClient"]

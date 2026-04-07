@@ -95,27 +95,21 @@ class TestFormatSSEEvent:
 
         assert result.startswith("event: unknown\n")
 
-    @pytest.mark.parametrize("event_type", ["text", "thinking", "citation", "signature", "input_json"])
-    def test_returns_none_for_synthetic_event_types(self, event_type: str):
-        event = MagicMock()
-        event.type = event_type
-        assert _format_sse_event(event) is None
-
-    def test_content_block_stop_strips_to_wire_fields(self):
+    def test_content_block_stop_has_only_wire_fields(self):
+        """RawContentBlockStopEvent only has wire-protocol fields (type, index)."""
         event = RawContentBlockStopEvent(type="content_block_stop", index=2)
         result = _format_sse_event(event)
 
-        assert result is not None
         data = json.loads(result.split("data: ", 1)[1].strip())
         assert set(data.keys()) == {"type", "index"}
         assert data["type"] == "content_block_stop"
         assert data["index"] == 2
 
-    def test_message_stop_strips_to_wire_fields(self):
+    def test_message_stop_has_only_wire_fields(self):
+        """RawMessageStopEvent only has wire-protocol fields (type)."""
         event = RawMessageStopEvent(type="message_stop")
         result = _format_sse_event(event)
 
-        assert result is not None
         data = json.loads(result.split("data: ", 1)[1].strip())
         assert set(data.keys()) == {"type"}
         assert data["type"] == "message_stop"
