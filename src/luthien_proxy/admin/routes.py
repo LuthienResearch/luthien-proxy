@@ -345,15 +345,28 @@ async def send_chat(
             model=body.model,
         )
 
-    # Determine which API key to use: custom key takes precedence over server client key
-    test_api_key = settings.client_api_key
+    # Determine which credential to use.
+    # Priority: custom key from request > last user credential (OAuth) > server client key
+    from luthien_proxy.gateway_routes import get_last_user_credential  # noqa: PLC0415
+
+    test_api_key: str | None = None
+    use_bearer = body.use_bearer
+
     if body.api_key is not None and body.api_key.strip():
         test_api_key = body.api_key.strip()
+    else:
+        user_cred = get_last_user_credential()
+        if user_cred is not None:
+            test_api_key = user_cred.value
+            use_bearer = user_cred.credential_type == CredentialType.AUTH_TOKEN
+        else:
+            test_api_key = settings.client_api_key
 
     if not test_api_key:
         return ChatResponse(
             success=False,
-            error="No API key available — set CLIENT_API_KEY on the server or provide a custom key",
+            error="No credential available — route a request through the proxy first, "
+            "or set CLIENT_API_KEY on the server",
             model=body.model,
         )
 
@@ -371,9 +384,7 @@ async def send_chat(
 
     try:
         request_headers: dict[str, str] = (
-            {"Authorization": f"Bearer {test_api_key}"}
-            if body.use_bearer
-            else {"x-api-key": test_api_key}
+            {"Authorization": f"Bearer {test_api_key}"} if use_bearer else {"x-api-key": test_api_key}
         )
         if body.capture_before:
             request_headers["x-luthien-capture-before"] = "true"

@@ -76,7 +76,7 @@ const state = {
     selectedModel: DEFAULT_MODEL,
     isActivating: false,
     cachedCredentials: [],
-    credentialSource: 'oauth',
+    credentialSource: 'server',
     showHidden: false,
     expandedChainIndex: -1,
     expandedAvailablePolicy: null,
@@ -939,29 +939,12 @@ function renderTestSection(side) {
     if (state.credentialSource === 'server') opt1.selected = true;
     credSelect.appendChild(opt1);
     const opt2 = document.createElement('option');
-    opt2.value = 'oauth';
-    opt2.textContent = 'Your Claude credential';
-    if (state.credentialSource === 'oauth') opt2.selected = true;
+    opt2.value = 'custom';
+    opt2.textContent = 'Enter API key...';
+    if (state.credentialSource === 'custom') opt2.selected = true;
     credSelect.appendChild(opt2);
-    const opt3 = document.createElement('option');
-    opt3.value = 'custom';
-    opt3.textContent = 'Enter API key...';
-    if (state.credentialSource === 'custom') opt3.selected = true;
-    credSelect.appendChild(opt3);
     credRow.appendChild(credSelect);
     advancedBody.appendChild(credRow);
-
-    if (state.credentialSource === 'oauth') {
-        const credOauth = document.createElement('div');
-        credOauth.className = 'test-cred-custom';
-        const credInput = document.createElement('input');
-        credInput.type = 'password';
-        credInput.className = 'credential-input';
-        credInput.id = 'cred-input-' + side;
-        credInput.placeholder = 'Paste your OAuth token here';
-        credOauth.appendChild(credInput);
-        advancedBody.appendChild(credOauth);
-    }
 
     if (state.credentialSource === 'custom') {
         const credCustom = document.createElement('div');
@@ -986,12 +969,15 @@ function renderTestSection(side) {
     textarea.id = 'test-input-' + side;
     textarea.placeholder = 'Enter test message...';
     textarea.rows = 3;
-    // Pre-fill with a sloppy AI-written example so the user can see the policy clean it up
-    textarea.value = 'I\'m thrilled to share that I\'ve been on an absolutely incredible journey! ' +
-        'After delving deep into the comprehensive world of automation \u2014 and I mean DEEP \u2014 ' +
-        'I\'ve leveraged cutting-edge tools to streamline my cold outreach pipeline. ' +
-        'It\'s been a pivotal paradigm shift that has fundamentally transformed how I facilitate ' +
-        'meaningful connections. I\'d be happy to share more insights \u2014 feel free to reach out!';
+    // Pre-fill with example text for De-Slop policy
+    const activeRef = state.currentPolicy ? state.currentPolicy.class_ref : '';
+    if (activeRef === 'luthien_proxy.policies.presets.deslop:DeSlopPolicy') {
+        textarea.value = 'I\'m thrilled to share that I\'ve been on an absolutely incredible journey! ' +
+            'After delving deep into the comprehensive world of automation \u2014 and I mean DEEP \u2014 ' +
+            'I\'ve leveraged cutting-edge tools to streamline my cold outreach pipeline. ' +
+            'It\'s been a pivotal paradigm shift that has fundamentally transformed how I facilitate ' +
+            'meaningful connections. I\'d be happy to share more insights \u2014 feel free to reach out!';
+    }
     textarea.onkeydown = function(event) {
         if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); runTest(side); }
     };
@@ -1086,14 +1072,7 @@ async function runTest(side) {
             use_mock: useMock,
             capture_before: true,
         };
-        if (state.credentialSource === 'oauth') {
-            const credInput = document.getElementById('cred-input-' + side);
-            const token = credInput ? credInput.value.trim() : '';
-            if (token) {
-                testPayload.api_key = token;
-                testPayload.use_bearer = true;
-            }
-        } else if (state.credentialSource === 'custom') {
+        if (state.credentialSource === 'custom') {
             const credInput = document.getElementById('cred-input-' + side);
             const key = credInput ? credInput.value.trim() : '';
             if (key) testPayload.api_key = key;
