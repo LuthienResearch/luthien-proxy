@@ -782,6 +782,7 @@
                 expandedContent: {},
                 expandedDiffs: {},
                 renderedCallIds: new Set(),
+                turnFingerprints: {},
 
                 init() {
                     const pathParts = window.location.pathname.split('/');
@@ -960,30 +961,25 @@
 
                         const savedState = this.snapshotExpandState();
 
-                        // Only update the most recent existing turn (most likely to
-                        // have changed, e.g. response arriving for a request-only turn).
-                        // Older turns are immutable once fully recorded.
-                        if (this.renderedCallIds.size > 0 && newTurns.length > 0) {
-                            const lastRenderedIdx = newTurns.findIndex(
-                                (t, i) => i === newTurns.length - 1 || !this.renderedCallIds.has(newTurns[i + 1]?.call_id)
-                            );
-                            if (lastRenderedIdx >= 0) {
-                                const turn = newTurns[lastRenderedIdx];
-                                const existing = container.querySelector(`[data-call-id="${turn.call_id}"]`);
-                                if (existing) {
-                                    existing.outerHTML = this.renderTurn(turn, lastRenderedIdx + 1);
-                                }
-                            }
-                        }
-
-                        // Append only new turns
+                        // Update existing turns only if their data changed
+                        // (e.g. response arrived, late policy annotation)
                         for (let i = 0; i < newTurns.length; i++) {
                             const turn = newTurns[i];
-                            if (!this.renderedCallIds.has(turn.call_id)) {
+                            const fp = JSON.stringify(turn);
+                            if (this.renderedCallIds.has(turn.call_id)) {
+                                if (fp !== this.turnFingerprints[turn.call_id]) {
+                                    const existing = container.querySelector(`[data-call-id="${turn.call_id}"]`);
+                                    if (existing) {
+                                        existing.outerHTML = this.renderTurn(turn, i + 1);
+                                    }
+                                    this.turnFingerprints[turn.call_id] = fp;
+                                }
+                            } else {
+                                // New turn — append
                                 this.renderedCallIds.add(turn.call_id);
+                                this.turnFingerprints[turn.call_id] = fp;
                                 const html = this.renderTurn(turn, i + 1);
                                 container.insertAdjacentHTML('beforeend', html);
-                                // Add slide-in animation to the new element
                                 const newEl = container.lastElementChild;
                                 if (newEl) newEl.classList.add('new-turn');
                             }
@@ -1100,8 +1096,10 @@
                     }
 
                     this.renderedCallIds.clear();
+                    this.turnFingerprints = {};
                     for (const turn of this.turns) {
                         this.renderedCallIds.add(turn.call_id);
+                        this.turnFingerprints[turn.call_id] = JSON.stringify(turn);
                     }
 
                     const savedState = this.snapshotExpandState();
