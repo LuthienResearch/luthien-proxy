@@ -968,7 +968,7 @@
                             const fp = JSON.stringify(turn);
                             if (this.renderedCallIds.has(turn.call_id)) {
                                 if (fp !== this.turnFingerprints[turn.call_id]) {
-                                    const existing = container.querySelector(`[data-call-id="${turn.call_id}"]`);
+                                    const existing = container.querySelector(`[data-call-id="${CSS.escape(turn.call_id)}"]`);
                                     if (existing) {
                                         existing.outerHTML = this.renderTurn(turn, i + 1);
                                     }
@@ -1166,7 +1166,7 @@
                     }
 
                     return `
-                        <div class="${classes.join(' ')}" data-call-id="${turn.call_id}">
+                        <div class="${classes.join(' ')}" data-call-id="${escapeHtml(turn.call_id)}">
                             <div class="turn-header">
                                 <div class="turn-label">
                                     <span class="turn-number">Turn ${number}</span>

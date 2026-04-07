@@ -56,7 +56,10 @@ async def history_list_page(
 
 @router.get("/session/{session_id}")
 async def deprecated_history_detail_redirect(session_id: str):
-    """Redirect old history detail path to live conversation view."""
+    """Redirect old history detail path to live conversation view.
+
+    No auth check here — the redirect target handles auth.
+    """
     return RedirectResponse(url=f"/conversation/live/{session_id}", status_code=301)
 
 
