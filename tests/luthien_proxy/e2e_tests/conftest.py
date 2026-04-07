@@ -116,8 +116,8 @@ def mock_anthropic():
 
 @pytest.fixture(scope="session")
 def mock_anthropic_port(mock_anthropic: MockAnthropicServer) -> int:
-    """The port the mock Anthropic server is listening on."""
-    return mock_anthropic.port
+    """The port the mock Anthropic server is listening on (HTTP tier only)."""
+    return mock_anthropic.port  # type: ignore[union-attr]
 
 
 @pytest.fixture(autouse=True)
@@ -133,7 +133,7 @@ def _reset_mock_server(request):
     if not request.node.get_closest_marker("mock_e2e"):
         yield
         return
-    server: MockAnthropicServer = request.getfixturevalue("mock_anthropic")
+    server = request.getfixturevalue("mock_anthropic")
     server.drain_queue()
     server.clear_requests()
     yield
