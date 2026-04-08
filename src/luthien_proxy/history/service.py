@@ -372,8 +372,7 @@ async def _fetch_session_list_pg(
     user_hash_where = ""
     if user_hash is not None:
         user_hash_join = "INNER JOIN session_user_hash uh ON s.session_id = uh.session_id"
-        user_hash_where = (
-            """
+        user_hash_where = """
             ,
             session_user_hash AS (
                 SELECT DISTINCT session_id
@@ -381,7 +380,6 @@ async def _fetch_session_list_pg(
                 WHERE session_id IS NOT NULL
                 AND user_hash = $3
             )"""
-        )
 
     count_query = """
         SELECT COUNT(DISTINCT session_id)
