@@ -150,17 +150,19 @@ luthien policy set MyPolicy --config '{"threshold": 0.8, "keywords": ["foo"]}'
 - **Mutable instance attributes are rejected.** `freeze_configured_state()` runs
   at load time and raises if your policy has `dict`, `list`, `set`, or `bytearray`
   attributes. Use `tuple` or `frozenset` instead.
-- **Hot-swap is instant.** The API activates the new policy for all subsequent
-  requests — no gateway restart needed.
+- **Hot-swap works for existing policies.** Switching between already-loaded
+  policies is instant — no restart needed. But creating a new policy file or
+  editing an existing one requires a gateway restart to clear Python's module
+  cache and the policy discovery cache.
 
 ## 4. Workflow: Create and Activate a Policy
 
 1. Create a new file in `src/luthien_proxy/policies/my_policy.py`
 2. Define your policy class (see examples above)
-3. Activate it: `luthien policy set MyPolicy`
-4. Test by sending a message through the proxy
-5. Iterate — edit the file, restart the gateway (`luthien down && luthien up`), \
-and re-activate to pick up code changes
+3. Restart the gateway to discover the new policy: `luthien down && luthien up`
+4. Activate it: `luthien policy set MyPolicy`
+5. Test by sending a message through the proxy
+6. To iterate: edit the file, then restart and re-activate (`luthien down && luthien up`)
 """
 
 
