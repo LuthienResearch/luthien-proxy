@@ -46,6 +46,7 @@ def _row_to_entry(row: Mapping[str, Any]) -> RequestLogEntry:
         id=str(row["id"]),
         transaction_id=str(row["transaction_id"]),
         session_id=str(row["session_id"]) if row["session_id"] else None,
+        user_hash=str(row["user_hash"]) if row["user_hash"] else None,
         direction=str(row["direction"]),
         http_method=str(row["http_method"]) if row["http_method"] else None,
         url=str(row["url"]) if row["url"] else None,
@@ -72,6 +73,7 @@ async def list_request_logs(
     direction: str | None = None,
     endpoint: str | None = None,
     session_id: str | None = None,
+    user_hash: str | None = None,
     status: int | None = None,
     model: str | None = None,
     after: str | None = None,
@@ -87,6 +89,7 @@ async def list_request_logs(
         direction: Filter by 'inbound' or 'outbound'.
         endpoint: Filter by endpoint path.
         session_id: Filter by session ID.
+        user_hash: Filter by user hash.
         status: Filter by response status code.
         model: Filter by model name.
         after: ISO datetime — only entries started at or after this time.
@@ -113,6 +116,8 @@ async def list_request_logs(
         _add("endpoint = ?", endpoint)
     if session_id:
         _add("session_id = ?", session_id)
+    if user_hash:
+        _add("user_hash = ?", user_hash)
     if status is not None:
         _add("response_status = ?", status)
     if model:
@@ -196,6 +201,7 @@ async def get_transaction_logs(
     inbound = None
     outbound = None
     session_id = None
+    user_hash = None
 
     for row in rows:
         entry = _row_to_entry(row)
@@ -205,10 +211,13 @@ async def get_transaction_logs(
             outbound = entry
         if entry.session_id:
             session_id = entry.session_id
+        if entry.user_hash:
+            user_hash = entry.user_hash
 
     return RequestLogDetailResponse(
         transaction_id=transaction_id,
         session_id=session_id,
+        user_hash=user_hash,
         inbound=inbound,
         outbound=outbound,
     )
