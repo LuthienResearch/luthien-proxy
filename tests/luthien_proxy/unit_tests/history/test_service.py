@@ -693,6 +693,49 @@ class TestBuildTurn:
         assert len(turn.response_messages) == 1
         assert not turn.had_policy_intervention
 
+    def test_request_params_allowlist(self):
+        """Test that request_params only includes allowlisted fields."""
+        events = [
+            {
+                "event_type": "transaction.request_recorded",
+                "payload": {
+                    "final_model": "gpt-4",
+                    "original_request": {
+                        "messages": [{"role": "user", "content": "Hi"}],
+                        "max_tokens": 1024,
+                        "model": "gpt-4",
+                        "stream": True,
+                        "metadata": {"api_key": "secret"},
+                        "system": "You are helpful",
+                        "tools": [{"name": "tool1"}, {"name": "tool2"}],
+                    },
+                    "final_request": {
+                        "messages": [{"role": "user", "content": "Hi"}],
+                        "max_tokens": 1024,
+                        "model": "gpt-4",
+                        "stream": True,
+                        "metadata": {"api_key": "secret"},
+                        "system": "You are helpful",
+                        "tools": [{"name": "tool1"}, {"name": "tool2"}],
+                    },
+                },
+                "created_at": datetime(2025, 1, 15, 10, 0, 0),
+            },
+        ]
+
+        turn = _build_turn("call-123", events)
+
+        assert turn.request_params is not None
+        assert turn.request_params["max_tokens"] == 1024
+        assert turn.request_params["model"] == "gpt-4"
+        assert turn.request_params["stream"] is True
+        assert turn.request_params["tools_count"] == 2
+        # Sensitive/unknown fields must NOT leak
+        assert "metadata" not in turn.request_params
+        assert "system" not in turn.request_params
+        assert "messages" not in turn.request_params
+        assert "tools" not in turn.request_params
+
     def test_turn_with_policy_intervention(self):
         """Test turn with policy modification."""
         events = [

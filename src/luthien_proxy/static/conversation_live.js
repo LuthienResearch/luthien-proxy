@@ -242,7 +242,9 @@ function conversationViewer() {
         },
 
         processTurns(data) {
-            this.turns = this.presentTurns(data.turns || []);
+            const rawTurns = data.turns || [];
+            this._rawTurns = rawTurns;
+            this.turns = this.presentTurns(rawTurns);
         },
 
         // Presentation pipeline: classify preflight turns and compute
@@ -279,12 +281,16 @@ function conversationViewer() {
         // Classify non-conversational preflight turns using structural
         // request params (not response content heuristics).
         //   - Quota probe: max_tokens === 1
-        //   - Title generation: output_config.format.type === "json_schema"
+        //   - Title generation: json_schema output + low max_tokens (≤256)
         // These can appear at any position in the session.
         classifyPreflight(turn) {
             const params = turn.request_params || {};
             if (params.max_tokens === 1) return true;
-            if (params.output_config?.format?.type === 'json_schema') return true;
+            // json_schema alone isn't sufficient — real conversations can use
+            // structured output. Title generation uses json_schema with a
+            // small token budget.
+            if (params.output_config?.format?.type === 'json_schema'
+                && params.max_tokens != null && params.max_tokens <= 256) return true;
             return false;
         },
 
@@ -389,9 +395,11 @@ function conversationViewer() {
 
             this.renderedCallIds.clear();
             this.turnFingerprints = {};
-            for (const turn of this.turns) {
+            const rawTurns = this._rawTurns || this.turns;
+            for (let i = 0; i < this.turns.length; i++) {
+                const turn = this.turns[i];
                 this.renderedCallIds.add(turn.call_id);
-                this.turnFingerprints[turn.call_id] = JSON.stringify(turn);
+                this.turnFingerprints[turn.call_id] = JSON.stringify(rawTurns[i]);
             }
 
             const savedState = this.snapshotExpandState();

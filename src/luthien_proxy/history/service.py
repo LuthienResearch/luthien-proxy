@@ -207,7 +207,7 @@ def _parse_request_messages(request: dict[str, Any]) -> list[ConversationMessage
                                     message_type=MessageType.TOOL_RESULT,
                                     content=text,
                                     tool_call_id=block.get("tool_use_id"),
-                                    is_error=is_error if is_error else None,
+                                    is_error=is_error,
                                 )
                             )
                         elif block.get("type") == "text" and block.get("text", "").strip():
@@ -641,6 +641,12 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
     )
 
 
+_REQUEST_PARAM_ALLOWLIST = frozenset({
+    "model", "max_tokens", "stream", "temperature",
+    "top_p", "top_k", "stop_sequences", "output_config",
+})
+
+
 def _build_turn(call_id: str, events: list[StoredEvent]) -> ConversationTurn:
     """Build a conversation turn from a list of events for a call."""
     request_messages: list[ConversationMessage] = []
@@ -672,16 +678,14 @@ def _build_turn(call_id: str, events: list[StoredEvent]) -> ConversationTurn:
 
             request_messages = _parse_request_messages(final_req)
 
-            # Pass through request params (minus messages/system)
-            # so the frontend can classify turn type (preflight, etc.)
-            request_params = {
-                k: v
-                for k, v in final_req.items()
-                if k not in ("messages", "system")
-            }
-            # Replace full tool definitions with just the count
-            if "tools" in request_params and isinstance(request_params["tools"], list):
-                request_params["tools_count"] = len(request_params.pop("tools"))
+            # Pass through a curated set of request params so the
+            # frontend can classify turn type (preflight, etc.).
+            # Allowlist to avoid leaking sensitive/unknown fields.
+            request_params = {k: v for k, v in final_req.items() if k in _REQUEST_PARAM_ALLOWLIST}
+            # Include tool count (not full definitions) for context
+            tools = final_req.get("tools")
+            if isinstance(tools, list):
+                request_params["tools_count"] = len(tools)
 
             # Check for modifications at turn level
             if original_req is not None and original_req != final_req:
