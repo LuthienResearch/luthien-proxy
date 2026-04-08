@@ -677,13 +677,12 @@
                         interventionsHtml = `<span class="interventions-none">no policies triggered</span>`;
                     }
 
-                    const displayName = userLabels[session.user_hash] || null;
-                    const userLabel = displayName
-                        ? displayName
-                        : session.user_hash.substring(0, 8);
-                    const userBadge = session.user_hash
-                        ? `<span class="user-badge" title="Click to set name · ${escapeHtml(session.user_hash)}" onclick="editUserLabel('${escapeHtml(session.user_hash)}', event)">user: ${escapeHtml(userLabel)}</span>`
-                        : '';
+                    let userBadge = '';
+                    if (session.user_hash) {
+                        const displayName = userLabels[session.user_hash] || null;
+                        const userLabel = displayName || session.user_hash.substring(0, 8);
+                        userBadge = `<span class="user-badge" title="Click to set name · ${escapeHtml(session.user_hash)}" onclick="editUserLabel('${escapeHtml(session.user_hash)}', event)">user: ${escapeHtml(userLabel)}</span>`;
+                    }
 
                     const hasPreview = !!session.preview_message;
                     html += `
