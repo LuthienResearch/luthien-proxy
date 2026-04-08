@@ -3,4 +3,4 @@ category: Chores & Docs
 pr: 
 ---
 
-**Index page subheader**: Added a plain-language description of Luthien under the gateway title on the homepage
+**Homepage subheader**: Replaced value-prop marketing copy with a plain technical description of what Luthien does, aimed at users who have already installed it
