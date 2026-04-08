@@ -154,7 +154,7 @@ async def set_user_label(
     display_name = body.display_name.strip()
     if not display_name:
         raise HTTPException(status_code=400, detail="display_name must not be blank")
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc)
     async with db_pool.connection() as conn:
         await conn.execute(
             """INSERT INTO user_labels (user_hash, display_name, created_at, updated_at)
