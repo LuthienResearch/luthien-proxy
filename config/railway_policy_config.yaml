@@ -5,7 +5,11 @@
 #   2. English language rules — applies plain-English safety/style rules via a judge LLM
 #
 # The judge uses the same Anthropic credentials as the proxied request (OAuth
-# passthrough), so no extra API key is needed.
+# passthrough), so no extra API key is needed — but it does make an additional
+# LLM call per response block, which counts against your Claude usage.
+#
+# The safety policy is best-effort: if the judge LLM errors (rate limit,
+# timeout), content passes through unreviewed with a warning appended.
 #
 # To customize: edit the instructions below, or replace this file entirely by
 # setting POLICY_CONFIG to a different path in your Railway service variables.

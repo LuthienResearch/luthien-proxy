@@ -25,14 +25,19 @@ export ANTHROPIC_BASE_URL=https://your-domain.up.railway.app
 
 That's it. Claude Code uses your existing Claude subscription (OAuth pass-through) —
 no extra API key needed. All requests flow through the proxy, where the default
-policies apply safety rules and log conversations to the activity monitor.
+policies log conversations and apply safety rules via a judge LLM.
+
+> **Note:** The safety policy makes an additional LLM call (Haiku) per response
+> to review content. This counts against your Claude usage. To disable it, set
+> `POLICY_CONFIG` to a config without the SimpleLLMPolicy, or remove it from
+> `config/railway_policy_config.yaml`.
 
 ## What you get out of the box
 
 | Feature | Default |
 |---------|---------|
 | Auth mode | **Passthrough** — your Claude session flows through, no server API key needed |
-| Database | **SQLite** — zero config, persists on Railway's ephemeral disk |
+| Database | **SQLite** — zero config, stored on Railway's ephemeral disk (lost on redeploy; add Postgres for durability) |
 | Policies | **Debug logging** (activity monitor at `/activity`) + **English safety rules** (redact secrets, block harmful content, professional tone) |
 | Admin API | Auto-generated key (printed in deploy logs) |
 
@@ -53,7 +58,7 @@ two policies:
 
 1. **Debug logging** — records all requests/responses, powers the `/activity` UI
 2. **English safety rules** — a SimpleLLMPolicy that reviews responses using a
-   judge LLM with plain-English instructions
+   judge LLM with plain-English instructions (best-effort: fails open on errors)
 
 To customize the safety rules, edit the `instructions` field in the YAML. You
 can write rules in plain English — the judge LLM interprets and applies them.
@@ -118,5 +123,5 @@ The auto-generated admin key is printed in the deploy logs. Search for
 
 ## Cost
 
-Railway proxy resource usage is approximately **$1-5/month** for a single-user
+Railway proxy resource usage is approximately **$5/month** for a single-user
 deployment. LLM API costs are billed through your Claude subscription, not Railway.
