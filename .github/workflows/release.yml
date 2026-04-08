@@ -33,7 +33,8 @@ jobs:
           NOTES=$(awk -v ver="$VERSION" '
             /^## / {
               if (found) exit
-              if (index($0, ver) > 0) found=1
+              # $2 is the version field (e.g. "3.0.1" from "## 3.0.1 | 2026-04-08")
+              if ($2 == ver || $2 == "v" ver) found=1
               next
             }
             found { print }
