@@ -281,6 +281,10 @@ function conversationViewer() {
                     displayMessages = messages;
                 } else {
                     displayMessages = messages.slice(prevRealMsgCount);
+                    if (displayMessages.length === 0 && messages.length > 0) {
+                        console.warn('Dedup produced empty messages for turn', turn.call_id,
+                            '— cumulative array invariant may be violated');
+                    }
                     prevRealMsgCount = messages.length;
                 }
 

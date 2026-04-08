@@ -353,6 +353,30 @@ class TestAnthropicToolResultExtraction:
         assert result[0].content == "Plain string result"
         assert result[0].tool_call_id == "toolu_str"
 
+    def test_tool_result_missing_tool_use_id(self):
+        """Test that tool_result without tool_use_id gets tool_call_id=None.
+
+        The frontend cannot pair such results with tool calls, but parsing
+        must not crash.
+        """
+        request = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "content": "orphan result"},
+                    ],
+                }
+            ]
+        }
+
+        result = _parse_request_messages(request)
+
+        assert len(result) == 1
+        assert result[0].message_type == MessageType.TOOL_RESULT
+        assert result[0].content == "orphan result"
+        assert result[0].tool_call_id is None
+
     def test_tool_result_with_nested_content_blocks(self):
         """Test tool_result with nested content blocks (list of text blocks)."""
         request = {

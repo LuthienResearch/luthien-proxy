@@ -201,6 +201,7 @@ def _parse_request_messages(request: dict[str, Any]) -> list[ConversationMessage
                         if block.get("type") == "tool_result":
                             result_content = block.get("content")
                             text = extract_text_content(result_content) if result_content is not None else ""
+                            # False/None → None; only True propagates
                             is_error = block.get("is_error") or None
                             messages.append(
                                 ConversationMessage(
