@@ -30,6 +30,10 @@ function conversationViewer() {
             this.setupEventDelegation();
             this.loadInitial();
             this.connectSSE();
+            window.addEventListener('beforeunload', () => {
+                if (this.evtSource) this.evtSource.close();
+                if (this.refreshTimer) clearTimeout(this.refreshTimer);
+            });
         },
 
         setupEventDelegation() {
@@ -261,18 +265,23 @@ function conversationViewer() {
         // messages. So for turn N, display = request_messages.slice(prevCount).
         // Preflight turns are excluded from the count so they don't disrupt the
         // sequence.
+        //
+        // Invariant: the API sends a stable, strictly-growing cumulative
+        // message array. If a policy rewrites or reorders earlier messages,
+        // the slicing will produce incorrect results.
         presentTurns(rawTurns) {
             let prevRealMsgCount = 0;
 
             return rawTurns.map(turn => {
                 const isPreflight = this.classifyPreflight(turn);
+                const messages = turn.request_messages || [];
 
                 let displayMessages;
                 if (isPreflight) {
-                    displayMessages = turn.request_messages;
+                    displayMessages = messages;
                 } else {
-                    displayMessages = turn.request_messages.slice(prevRealMsgCount);
-                    prevRealMsgCount = turn.request_messages.length;
+                    displayMessages = messages.slice(prevRealMsgCount);
+                    prevRealMsgCount = messages.length;
                 }
 
                 return { ...turn, _isPreflight: isPreflight, _displayMessages: displayMessages };
