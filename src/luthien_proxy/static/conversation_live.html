@@ -224,6 +224,36 @@
             animation: slideIn 0.4s ease-out;
         }
 
+        .turn.preflight {
+            opacity: 0.5;
+            border-color: #1e1e21;
+        }
+
+        .turn.preflight .turn-header {
+            background: #151517;
+            cursor: pointer;
+        }
+
+        .turn.preflight .preflight-badge {
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: #52525b;
+            background: #52525b15;
+            padding: 3px 8px;
+            border-radius: 4px;
+            border: 1px solid #52525b30;
+        }
+
+        .turn.preflight .turn-body {
+            display: none;
+        }
+
+        .turn.preflight.expanded .turn-body {
+            display: block;
+        }
+
         @keyframes slideIn {
             from { opacity: 0; transform: translateY(12px); }
             to { opacity: 1; transform: translateY(0); }
@@ -296,6 +326,18 @@
         .message.assistant { background: #0f1420; border-left-color: #3b82f6; }
         .message.tool_call { background: #1a1708; border-left-color: #fbbf24; }
         .message.tool_result { background: #0a1a1a; border-left-color: #06b6d4; }
+        .message.tool-error { background: #1a0a0a; border-left-color: #ef4444; }
+        .message.tool-error .message-type { color: #f87171; }
+
+        .error-badge {
+            font-size: 10px;
+            font-weight: 600;
+            color: #ef4444;
+            background: #ef444415;
+            padding: 1px 6px;
+            border-radius: 3px;
+            border: 1px solid #ef444430;
+        }
 
         .message-header {
             display: flex;
@@ -386,7 +428,6 @@
         }
 
         .tool-input {
-            margin-top: 8px;
             padding: 10px 12px;
             background: #09090b;
             border-radius: 6px;
@@ -396,6 +437,129 @@
             color: #a1a1aa;
             overflow-x: auto;
         }
+
+        .tool-input pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        /* Tool result: code-style block */
+        .tool-result-content {
+            background: #09090b;
+            border-radius: 6px;
+            border: 1px solid #27272a;
+            padding: 10px 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: #a1a1aa;
+            overflow-x: auto;
+        }
+
+        .tool-result-content pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .tool-result-content.truncated {
+            max-height: 280px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .tool-result-content.truncated::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 50px;
+            background: linear-gradient(transparent, #09090b);
+            pointer-events: none;
+        }
+
+        .tool-result-content.truncated.expanded {
+            max-height: none;
+            overflow: visible;
+        }
+
+        .tool-result-content.truncated.expanded::after {
+            display: none;
+        }
+
+        /* Visual grouping: tool calls and their results */
+        .message.tool_call + .message.tool_result,
+        .message.tool_result + .message.tool_result {
+            margin-top: 4px;
+            border-top-left-radius: 2px;
+            border-top-right-radius: 2px;
+        }
+
+        .message.tool_call {
+            margin-bottom: 0;
+            border-bottom-left-radius: 2px;
+            border-bottom-right-radius: 2px;
+        }
+
+        /* Collapsible tagged sections */
+        .tagged-section {
+            margin: 6px 0;
+            border: 1px solid #27272a;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .tagged-section summary {
+            padding: 6px 10px;
+            background: #1c1c1f;
+            font-size: 11px;
+            font-weight: 600;
+            color: #71717a;
+            cursor: pointer;
+            user-select: none;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .tagged-section summary::-webkit-details-marker { display: none; }
+
+        .tagged-section summary::before {
+            content: '▶';
+            font-size: 8px;
+            transition: transform 0.15s;
+        }
+
+        .tagged-section[open] summary::before {
+            transform: rotate(90deg);
+        }
+
+        .tagged-section .tagged-content {
+            padding: 8px 10px;
+            font-size: 12px;
+            color: #a1a1aa;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 300px;
+            overflow-y: auto;
+            background: #09090b;
+            border-top: 1px solid #27272a;
+        }
+
+        .tag-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            padding: 1px 6px;
+            border-radius: 3px;
+            background: #27272a;
+            color: #a1a1aa;
+        }
+
+        .tagged-section.system-reminder .tag-label { background: #6366f115; color: #818cf8; }
+        .tagged-section.policy-context .tag-label { background: #fbbf2415; color: #fbbf24; }
+        .tagged-section.bash-output .tag-label { background: #4ade8015; color: #4ade80; }
 
         /* Event timeline */
         .event-timeline {
@@ -764,564 +928,6 @@
 
     <script defer src="/static/vendor/alpine.min.js"></script>
     <script src="/static/nav.js"></script>
-
-    <script>
-        function conversationViewer() {
-            return {
-                conversationId: '',
-                turns: [],
-                rawEvents: {},
-                stats: { turns: 0, interventions: 0, models: [], events: 0 },
-                connection: 'connecting',
-                autoScroll: true,
-                lastUpdated: '',
-                evtSource: null,
-                pollTimer: null,
-                refreshTimer: null,
-                expandedRaw: {},
-                expandedContent: {},
-                expandedDiffs: {},
-                renderedCallIds: new Set(),
-                turnFingerprints: {},
-
-                init() {
-                    const pathParts = window.location.pathname.split('/');
-                    this.conversationId = decodeURIComponent(pathParts[pathParts.length - 1]);
-                    this.setupEventDelegation();
-                    this.loadInitial();
-                    this.connectSSE();
-                },
-
-                setupEventDelegation() {
-                    const container = document.getElementById('conversation-container');
-                    container.addEventListener('click', (e) => {
-                        const target = e.target.closest('[data-event-timeline]');
-                        if (target) {
-                            const callId = target.getAttribute('data-event-timeline');
-                            const list = target.parentElement.querySelector('.event-list');
-                            if (list) {
-                                list.classList.toggle('visible');
-                                target.classList.toggle('open');
-                            }
-                            return;
-                        }
-
-                        const diffBtn = e.target.closest('[data-diff-toggle]');
-                        if (diffBtn) {
-                            const diffId = diffBtn.getAttribute('data-diff-toggle');
-                            const panel = document.getElementById(diffId);
-                            if (panel) {
-                                panel.classList.toggle('visible');
-                                diffBtn.classList.toggle('open');
-                            }
-                            return;
-                        }
-
-                        const expandBtn = e.target.closest('[data-expand-btn]');
-                        if (expandBtn) {
-                            const contentId = expandBtn.getAttribute('data-expand-btn');
-                            const el = document.getElementById(contentId);
-                            if (el) {
-                                const expanded = el.classList.contains('expanded');
-                                el.classList.toggle('expanded');
-                                expandBtn.textContent = expanded ? 'Show more' : 'Show less';
-                            }
-                            return;
-                        }
-
-                        const rawBtn = e.target.closest('[data-toggle-raw]');
-                        if (rawBtn) {
-                            const eventKey = rawBtn.getAttribute('data-toggle-raw');
-                            const el = document.getElementById(`raw-${eventKey}`);
-                            if (el) {
-                                el.classList.toggle('visible');
-                                rawBtn.textContent = el.classList.contains('visible') ? 'Hide' : 'Raw';
-                            }
-                            return;
-                        }
-                    });
-                },
-
-                async loadInitial() {
-                    try {
-                        const resp = await fetch(
-                            `/api/history/sessions/${encodeURIComponent(this.conversationId)}`,
-                            { headers: { 'Accept': 'application/json' } }
-                        );
-
-                        if (!resp.ok) {
-                            if (resp.status === 403) {
-                                window.location.href = '/login?error=required&next=' +
-                                    encodeURIComponent(window.location.pathname);
-                                return;
-                            }
-                            if (resp.status === 404) throw new Error('Conversation not found');
-                            throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
-                        }
-
-                        const data = await resp.json();
-                        this.processTurns(data);
-                        this.updateStats(data);
-                        this.updateTimestamp();
-                        this.renderTurns();
-                        this.$nextTick(() => this.autoScrollToBottom());
-                    } catch (err) {
-                        this.showError(`Failed to load: ${err.message}`);
-                    }
-                },
-
-                connectSSE() {
-                    if (this.evtSource) {
-                        this.evtSource.close();
-                    }
-
-                    try {
-                        this.evtSource = new EventSource('/api/activity/stream');
-
-                        this.evtSource.onopen = () => {
-                            this.connection = 'connected';
-                        };
-
-                        this.evtSource.onmessage = (evt) => {
-                            try {
-                                const data = JSON.parse(evt.data);
-                                const eventSessionId = data.data?.session_id || data.session_id;
-                                if (eventSessionId === this.conversationId) {
-                                    this.handleSSEEvent(data);
-                                }
-                            } catch (e) {
-                                console.error('Failed to parse SSE event:', e);
-                            }
-                        };
-
-                        this.evtSource.onerror = () => {
-                            this.connection = 'reconnecting';
-                            if (this.evtSource.readyState === EventSource.CLOSED) {
-                                this.evtSource.close();
-                                setTimeout(() => this.connectSSE(), 3000);
-                            }
-                        };
-                    } catch (err) {
-                        console.error('Failed to connect SSE:', err);
-                        this.connection = 'reconnecting';
-                        setTimeout(() => this.connectSSE(), 3000);
-                    }
-                },
-
-                handleSSEEvent(event) {
-                    if (!event.event_type) return;
-
-                    const eventType = event.event_type.toLowerCase();
-                    const callId = event.call_id || event.id;
-
-                    if (!this.rawEvents[callId]) {
-                        this.rawEvents[callId] = [];
-                    }
-
-                    this.rawEvents[callId].push({
-                        type: eventType,
-                        timestamp: event.timestamp || new Date().toISOString(),
-                        data: event
-                    });
-
-                    this.stats.events++;
-
-                    const shouldRefresh = eventType.includes('request_recorded') ||
-                                        eventType.includes('response_recorded') ||
-                                        eventType.includes('policy.');
-
-                    if (shouldRefresh) {
-                        this.debouncedRefresh();
-                    }
-                },
-
-                debouncedRefresh() {
-                    if (this.refreshTimer) clearTimeout(this.refreshTimer);
-                    this.refreshTimer = setTimeout(() => this.refreshTurns(), 1000);
-                },
-
-                async refreshTurns() {
-                    try {
-                        const resp = await fetch(
-                            `/api/history/sessions/${encodeURIComponent(this.conversationId)}`,
-                            { headers: { 'Accept': 'application/json' } }
-                        );
-                        if (!resp.ok) return;
-                        const data = await resp.json();
-                        const newTurns = data.turns || [];
-
-                        this.updateStats(data);
-                        this.updateTimestamp();
-
-                        const container = document.getElementById('conversation-container');
-
-                        // Remove empty/loading state if present
-                        const emptyState = container.querySelector('.empty-state, .loading-state');
-                        if (emptyState) emptyState.remove();
-
-                        const savedState = this.snapshotExpandState();
-
-                        // Update existing turns only if their data changed
-                        // (e.g. response arrived, late policy annotation)
-                        for (let i = 0; i < newTurns.length; i++) {
-                            const turn = newTurns[i];
-                            const fp = JSON.stringify(turn);
-                            if (this.renderedCallIds.has(turn.call_id)) {
-                                if (fp !== this.turnFingerprints[turn.call_id]) {
-                                    const existing = container.querySelector(`[data-call-id="${CSS.escape(turn.call_id)}"]`);
-                                    if (existing) {
-                                        existing.outerHTML = this.renderTurn(turn, i + 1);
-                                    }
-                                    this.turnFingerprints[turn.call_id] = fp;
-                                }
-                            } else {
-                                // New turn — append
-                                this.renderedCallIds.add(turn.call_id);
-                                this.turnFingerprints[turn.call_id] = fp;
-                                const html = this.renderTurn(turn, i + 1);
-                                container.insertAdjacentHTML('beforeend', html);
-                                const newEl = container.lastElementChild;
-                                if (newEl) newEl.classList.add('new-turn');
-                            }
-                        }
-
-                        this.restoreExpandState(savedState);
-                        this.turns = newTurns;
-                        this.autoScrollToBottom();
-                    } catch (err) {
-                        console.error('Failed to refresh turns:', err);
-                    }
-                },
-
-                processTurns(data) {
-                    this.turns = data.turns || [];
-                },
-
-                updateStats(data) {
-                    this.stats.turns = data.turns?.length || 0;
-                    this.stats.interventions = data.total_policy_interventions || 0;
-                    this.stats.models = [...new Set(data.models_used || [])];
-                    this.stats.events = Object.values(this.rawEvents).reduce((sum, events) => sum + events.length, 0);
-                },
-
-                updateTimestamp() {
-                    const now = new Date();
-                    this.lastUpdated = `Updated ${now.toLocaleTimeString()}`;
-                },
-
-                autoScrollToBottom() {
-                    if (this.autoScroll) {
-                        const container = document.getElementById('conversation-container');
-                        if (container && container.lastElementChild) {
-                            container.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                        }
-                    }
-                },
-
-                toggleAutoScroll() {
-                    this.autoScroll = !this.autoScroll;
-                    if (this.autoScroll) {
-                        this.autoScrollToBottom();
-                    }
-                },
-
-                connectionText() {
-                    if (this.connection === 'connected') return 'Connected via SSE';
-                    if (this.connection === 'reconnecting') return 'Reconnecting...';
-                    if (!this.autoScroll) return 'Paused';
-                    return 'Connecting...';
-                },
-
-                showError(msg) {
-                    const container = document.getElementById('conversation-container');
-                    container.innerHTML = `<div class="error-state">${escapeHtml(msg)}</div>`;
-                },
-
-                formatTime(iso) {
-                    if (!iso) return '';
-                    const date = new Date(iso);
-                    return date.toLocaleTimeString();
-                },
-
-                snapshotExpandState() {
-                    const state = { visible: [], expanded: [], open: [] };
-                    document.querySelectorAll('.visible[id]').forEach(el => state.visible.push(el.id));
-                    document.querySelectorAll('.expanded[id]').forEach(el => state.expanded.push(el.id));
-                    document.querySelectorAll('.open[data-event-timeline]').forEach(el => {
-                        state.open.push(el.getAttribute('data-event-timeline'));
-                    });
-                    document.querySelectorAll('.open[data-diff-toggle]').forEach(el => {
-                        state.open.push('diff:' + el.getAttribute('data-diff-toggle'));
-                    });
-                    return state;
-                },
-
-                restoreExpandState(state) {
-                    state.visible.forEach(id => {
-                        const el = document.getElementById(id);
-                        if (el) el.classList.add('visible');
-                    });
-                    state.expanded.forEach(id => {
-                        const el = document.getElementById(id);
-                        if (el) {
-                            el.classList.add('expanded');
-                            const btn = document.querySelector(`[data-expand-btn="${id}"]`);
-                            if (btn) btn.textContent = 'Show less';
-                        }
-                    });
-                    state.open.forEach(key => {
-                        if (key.startsWith('diff:')) {
-                            const diffId = key.slice(5);
-                            const panel = document.getElementById(diffId);
-                            const btn = document.querySelector(`[data-diff-toggle="${diffId}"]`);
-                            if (panel) panel.classList.add('visible');
-                            if (btn) btn.classList.add('open');
-                        } else {
-                            const btn = document.querySelector(`[data-event-timeline="${key}"]`);
-                            if (btn) {
-                                btn.classList.add('open');
-                                const list = btn.parentElement?.querySelector('.event-list');
-                                if (list) list.classList.add('visible');
-                            }
-                        }
-                    });
-                },
-
-                renderTurns() {
-                    const container = document.getElementById('conversation-container');
-
-                    if (!this.turns || this.turns.length === 0) {
-                        container.innerHTML = '<div class="empty-state">Waiting for conversation events...</div>';
-                        return;
-                    }
-
-                    this.renderedCallIds.clear();
-                    this.turnFingerprints = {};
-                    for (const turn of this.turns) {
-                        this.renderedCallIds.add(turn.call_id);
-                        this.turnFingerprints[turn.call_id] = JSON.stringify(turn);
-                    }
-
-                    const savedState = this.snapshotExpandState();
-                    container.innerHTML = this.turns.map((turn, i) => this.renderTurn(turn, i + 1)).join('');
-                    this.restoreExpandState(savedState);
-                },
-
-                renderTurn(turn, number) {
-                    const hasIntervention = turn.had_policy_intervention;
-                    const classes = ['turn', `turn-${number - 1}`];
-                    if (hasIntervention) classes.push('has-intervention');
-
-                    const callId = escapeHtml(turn.call_id);
-                    const requestHtml = (turn.request_messages || []).map((m, mi) => this.renderMessage(m, `${callId}-req-${mi}`)).join('');
-                    const responseHtml = (turn.response_messages || []).map((m, mi) => this.renderMessage(m, `${callId}-res-${mi}`)).join('');
-
-                    let diffHtml = '';
-                    if (turn.request_was_modified || turn.response_was_modified) {
-                        diffHtml = this.renderDiffSection(turn);
-                    }
-
-                    let annotationsHtml = '';
-                    if (turn.annotations && turn.annotations.length > 0) {
-                        annotationsHtml = `
-                            <div class="messages">
-                                ${turn.annotations.map(a => `
-                                    <div class="policy-event">
-                                        <span class="policy-event-label">${escapeHtml(a.policy_name)}:</span>
-                                        ${escapeHtml(a.summary)}
-                                    </div>
-                                `).join('')}
-                            </div>
-                        `;
-                    }
-
-                    let eventTimelineHtml = '';
-                    const events = this.rawEvents[callId] || [];
-                    if (events.length > 0) {
-                        const eventsHtml = events.map((evt, idx) => {
-                            const eventKey = `${callId}-${idx}`;
-                            return `
-                                <div class="event-item">
-                                    <span class="event-timestamp">${this.formatTime(evt.timestamp)}</span>
-                                    <span class="event-type">${escapeHtml(evt.type)}</span>
-                                    <button class="event-raw-toggle" data-toggle-raw="${eventKey}">Raw</button>
-                                    <div class="event-raw-data" id="raw-${eventKey}">
-                                        <pre>${escapeHtml(JSON.stringify(evt.data, null, 2))}</pre>
-                                    </div>
-                                </div>
-                            `;
-                        }).join('');
-
-                        eventTimelineHtml = `
-                            <div class="event-timeline">
-                                <button class="event-timeline-toggle" data-event-timeline="${callId}">
-                                    <span class="arrow">▶</span>
-                                    Raw Events (${events.length})
-                                </button>
-                                <div class="event-list">
-                                    ${eventsHtml}
-                                </div>
-                            </div>
-                        `;
-                    }
-
-                    return `
-                        <div class="${classes.join(' ')}" data-call-id="${callId}">
-                            <div class="turn-header">
-                                <div class="turn-label">
-                                    <span class="turn-number">Turn ${number}</span>
-                                    ${turn.model ? `<span class="turn-model">${escapeHtml(turn.model)}</span>` : ''}
-                                </div>
-                                ${hasIntervention ? '<span class="intervention-badge">Policy Modified</span>' : ''}
-                            </div>
-                            <div class="turn-body">
-                                <div class="messages">
-                                    ${requestHtml}
-                                    ${responseHtml}
-                                </div>
-                                ${eventTimelineHtml}
-                                ${diffHtml}
-                                ${annotationsHtml}
-                            </div>
-                        </div>
-                    `;
-                },
-
-                renderMessage(msg, stableId) {
-                    const typeClass = msg.message_type.toLowerCase();
-                    const typeLabel = {
-                        'system': 'System', 'user': 'User', 'assistant': 'Assistant',
-                        'tool_call': 'Tool Call', 'tool_result': 'Tool Result'
-                    }[typeClass] || msg.message_type;
-
-                    let headerExtra = '';
-                    if (msg.message_type === 'tool_call' && msg.tool_name) {
-                        headerExtra += `<span class="tool-name">${escapeHtml(msg.tool_name)}</span>`;
-                    }
-                    if (msg.tool_call_id) {
-                        headerExtra += `<span class="tool-call-id">${escapeHtml(msg.tool_call_id)}</span>`;
-                    }
-
-                    const content = msg.content || '';
-                    const shouldTruncate = content.length > 800;
-                    const contentId = `c-${stableId}`;
-
-                    let toolInputHtml = '';
-                    if (msg.message_type === 'tool_call' && msg.tool_input) {
-                        toolInputHtml = `
-                            <div class="tool-input">
-                                <pre>${escapeHtml(JSON.stringify(msg.tool_input, null, 2))}</pre>
-                            </div>
-                        `;
-                    }
-
-                    const expandBtn = shouldTruncate
-                        ? `<button class="expand-btn" data-expand-btn="${contentId}">Show more</button>`
-                        : '';
-
-                    return `
-                        <div class="message ${typeClass}">
-                            <div class="message-header">
-                                <span class="message-type">${typeLabel}</span>
-                                ${headerExtra}
-                            </div>
-                            <div class="${shouldTruncate ? 'message-content truncated' : 'message-content'}" id="${contentId}">${escapeHtml(content)}</div>
-                            ${expandBtn}
-                            ${toolInputHtml}
-                        </div>
-                    `;
-                },
-
-                renderDiffSection(turn) {
-                    const diffId = `diff-${escapeHtml(turn.call_id)}`;
-
-                    let requestDiffHtml = '';
-                    if (turn.request_was_modified && turn.original_request_messages) {
-                        requestDiffHtml = this.renderDiffPanels(
-                            'Request',
-                            turn.original_request_messages,
-                            turn.request_messages
-                        );
-                    }
-
-                    let responseDiffHtml = '';
-                    if (turn.response_was_modified && turn.original_response_messages) {
-                        responseDiffHtml = this.renderDiffPanels(
-                            'Response',
-                            turn.original_response_messages,
-                            turn.response_messages
-                        );
-                    }
-
-                    return `
-                        <div class="diff-section">
-                            <button class="diff-toggle" data-diff-toggle="${diffId}">
-                                <span class="arrow">▶</span>
-                                View Policy Divergence
-                            </button>
-                            <div class="diff-panels" id="${diffId}">
-                                ${requestDiffHtml}
-                                ${responseDiffHtml}
-                            </div>
-                        </div>
-                    `;
-                },
-
-                renderDiffPanels(label, originalMsgs, finalMsgs) {
-                    const maxLen = Math.max(originalMsgs.length, finalMsgs.length);
-
-                    let origContent = '';
-                    let finalContent = '';
-
-                    for (let i = 0; i < maxLen; i++) {
-                        const origMsg = originalMsgs[i];
-                        const finalMsg = finalMsgs[i];
-
-                        const origText = origMsg ? (origMsg.content || '') : '';
-                        const finalText = finalMsg ? (finalMsg.content || '') : '';
-                        const changed = origText !== finalText;
-
-                        const role = (origMsg && origMsg.message_type) || (finalMsg && finalMsg.message_type) || 'unknown';
-
-                        origContent += `
-                            <div class="diff-message ${changed ? 'changed' : ''}">
-                                <div class="diff-message-role">${escapeHtml(role)}</div>
-                                <div class="diff-message-content">${escapeHtml(origText || '(empty)')}</div>
-                            </div>
-                        `;
-
-                        finalContent += `
-                            <div class="diff-message ${changed ? 'changed' : ''}">
-                                <div class="diff-message-role">${escapeHtml(role)}</div>
-                                <div class="diff-message-content">${escapeHtml(finalText || '(empty)')}</div>
-                            </div>
-                        `;
-                    }
-
-                    return `
-                        <div class="diff-panel">
-                            <div class="diff-panel-header original">Original ${label}</div>
-                            <div class="diff-panel-body">${origContent}</div>
-                        </div>
-                        <div class="diff-panel">
-                            <div class="diff-panel-header final">Final ${label} (sent to LLM)</div>
-                            <div class="diff-panel-body">${finalContent}</div>
-                        </div>
-                    `;
-                }
-            };
-        }
-
-        function escapeHtml(str) {
-            if (str === null || str === undefined) return '';
-            const div = document.createElement('div');
-            div.textContent = String(str);
-            return div.innerHTML;
-        }
-
-        document.addEventListener('alpine:init', () => {
-            Alpine.data('conversationViewer', conversationViewer);
-        });
-    </script>
+    <script src="/static/conversation_live.js"></script>
 </body>
 </html>

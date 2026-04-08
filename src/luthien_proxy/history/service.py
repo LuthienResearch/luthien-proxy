@@ -172,14 +172,13 @@ def _parse_request_messages(request: dict[str, Any]) -> list[ConversationMessage
 
         content = extract_text_content(msg.get("content"))
 
-        # For tool results, include the tool_call_id
+        # For OpenAI-style tool results, include the tool_call_id
         tool_call_id = msg.get("tool_call_id") if msg_type == MessageType.TOOL_RESULT else None
 
         # For assistant messages, extract any tool calls first
         if msg_type == MessageType.ASSISTANT:
             tool_call_msgs = _extract_tool_calls(msg)
             if tool_call_msgs:
-                # Add tool calls, then optionally add text content if present
                 messages.extend(tool_call_msgs)
                 if content:
                     messages.append(
@@ -189,6 +188,37 @@ def _parse_request_messages(request: dict[str, Any]) -> list[ConversationMessage
                         )
                     )
                 continue
+
+        # Anthropic-style tool results: user messages with tool_result content blocks.
+        # Split these into separate TOOL_RESULT messages with their tool_use_id
+        # so the frontend can pair them with tool calls.
+        if msg_type == MessageType.USER:
+            raw_content = msg.get("content")
+            if isinstance(raw_content, list):
+                has_tool_results = any(b.get("type") == "tool_result" for b in raw_content)
+                if has_tool_results:
+                    for block in raw_content:
+                        if block.get("type") == "tool_result":
+                            result_content = block.get("content")
+                            text = extract_text_content(result_content) if result_content is not None else ""
+                            # False/None → None; only True propagates
+                            is_error = block.get("is_error") or None
+                            messages.append(
+                                ConversationMessage(
+                                    message_type=MessageType.TOOL_RESULT,
+                                    content=text,
+                                    tool_call_id=block.get("tool_use_id"),
+                                    is_error=is_error,
+                                )
+                            )
+                        elif block.get("type") == "text" and block.get("text", "").strip():
+                            messages.append(
+                                ConversationMessage(
+                                    message_type=MessageType.USER,
+                                    content=block["text"],
+                                )
+                            )
+                    continue
 
         messages.append(
             ConversationMessage(
@@ -612,6 +642,20 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
     )
 
 
+_REQUEST_PARAM_ALLOWLIST = frozenset(
+    {
+        "model",
+        "max_tokens",
+        "stream",
+        "temperature",
+        "top_p",
+        "top_k",
+        "stop_sequences",
+        "output_config",
+    }
+)
+
+
 def _build_turn(call_id: str, events: list[StoredEvent]) -> ConversationTurn:
     """Build a conversation turn from a list of events for a call."""
     request_messages: list[ConversationMessage] = []
@@ -623,6 +667,7 @@ def _build_turn(call_id: str, events: list[StoredEvent]) -> ConversationTurn:
     timestamp: str = ""
     request_was_modified = False
     response_was_modified = False
+    request_params: dict[str, Any] | None = None
 
     for event in events:
         event_type = event["event_type"]
@@ -641,6 +686,25 @@ def _build_turn(call_id: str, events: list[StoredEvent]) -> ConversationTurn:
                 raise KeyError("transaction.request_recorded missing 'final_request'")
 
             request_messages = _parse_request_messages(final_req)
+
+            # Pass through a curated set of request params so the
+            # frontend can classify turn type (preflight, etc.).
+            # Allowlist to avoid leaking sensitive/unknown fields.
+            # tools_count is a synthetic field added below (not in the allowlist).
+            request_params = {k: v for k, v in final_req.items() if k in _REQUEST_PARAM_ALLOWLIST}
+            # Sanitize output_config: only pass format.type, not the full
+            # schema body (which may contain proprietary structure info)
+            oc = request_params.get("output_config")
+            if isinstance(oc, dict):
+                fmt = oc.get("format")
+                if isinstance(fmt, dict):
+                    request_params["output_config"] = {"format": {"type": fmt.get("type")}}
+                else:
+                    del request_params["output_config"]
+            # Include tool count (not full definitions) for context
+            tools = final_req.get("tools")
+            if isinstance(tools, list):
+                request_params["tools_count"] = len(tools)
 
             # Check for modifications at turn level
             if original_req is not None and original_req != final_req:
@@ -691,6 +755,7 @@ def _build_turn(call_id: str, events: list[StoredEvent]) -> ConversationTurn:
         response_was_modified=response_was_modified,
         original_request_messages=original_request_messages,
         original_response_messages=original_response_messages,
+        request_params=request_params,
     )
 
 
