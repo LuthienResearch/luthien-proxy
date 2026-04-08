@@ -336,6 +336,43 @@
             border: 1px solid #3d0a0a;
             border-radius: 8px;
         }
+
+        .user-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            background: #2a2a3a;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.75em;
+            color: #8b8ba0;
+        }
+
+        select.filter-dropdown {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 16px;
+            padding: 4px 12px;
+            font-size: 12px;
+            color: #888;
+            cursor: pointer;
+            transition: all 0.15s;
+            outline: none;
+            appearance: none;
+            padding-right: 24px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23888' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+        }
+
+        select.filter-dropdown:hover {
+            border-color: #555;
+            color: #e5e5e5;
+        }
+
+        select.filter-dropdown option {
+            background: #1a1a1a;
+            color: #e5e5e5;
+        }
     </style>
 </head>
 <body>
@@ -371,6 +408,9 @@
             <span class="quick-filter" data-filter="lastweek" onclick="applyQuickFilter('lastweek')">Last week <span class="count" id="count-lastweek"></span></span>
             <span class="quick-filter" data-filter="30days" onclick="applyQuickFilter('30days')">Last 30 days <span class="count" id="count-30days"></span></span>
             <span class="quick-filter" data-filter="claude" onclick="applyQuickFilter('claude')">Claude Code <span class="count" id="count-claude"></span></span>
+            <select id="user-filter" class="filter-dropdown" style="margin-left: 8px;">
+                <option value="">All users</option>
+            </select>
             <div class="filter-dropdown">
                 <span class="filter-dropdown-btn" onclick="toggleDropdown()">More filters ▾</span>
                 <div class="filter-dropdown-menu" id="filter-dropdown">
@@ -477,6 +517,12 @@
             // Apply filter
             let filtered = getFilteredSessions(currentFilter);
 
+            // Apply user filter
+            const selectedUser = document.getElementById('user-filter').value;
+            if (selectedUser) {
+                filtered = filtered.filter(s => s.user_hash === selectedUser);
+            }
+
             // Apply search if there's a query
             const query = document.getElementById('search-input').value.toLowerCase();
             if (query) {
@@ -527,6 +573,25 @@
                 updateFilterCounts();
                 applyFilters();
 
+                // Populate user filter dropdown
+                try {
+                    const userResp = await fetch('/api/history/users', {
+                        headers: {'Accept': 'application/json'}
+                    });
+                    const userData = await userResp.json();
+                    const userFilter = document.getElementById('user-filter');
+                    userData.users.forEach(hash => {
+                        const option = document.createElement('option');
+                        option.value = hash;
+                        option.textContent = hash.substring(0, 12) + '...';
+                        userFilter.appendChild(option);
+                    });
+                } catch (e) {
+                    // User filter population is non-critical; silently ignore
+                }
+
+                document.getElementById('user-filter').addEventListener('change', applyFilters);
+
             } catch (error) {
                 container.innerHTML = `<div class="error">Failed to load sessions: ${escapeHtml(error.message)}</div>`;
             }
@@ -570,12 +635,16 @@
                         interventionsHtml = `<span class="interventions-none">no policies triggered</span>`;
                     }
 
+                    const userBadge = session.user_hash
+                        ? `<span class="user-badge" title="${escapeHtml(session.user_hash)}">${escapeHtml(session.user_hash.substring(0, 8))}</span>`
+                        : '';
+
                     const hasPreview = !!session.preview_message;
                     html += `
                         <div class="session-card" onclick="viewSession('${escapeHtml(session.session_id)}')">
                             <div class="session-main">
                                 <div class="session-preview${hasPreview ? '' : ' session-preview-empty'}">${escapeHtml(previewText)}</div>
-                                <div class="session-meta">${metaParts.join(' · ')} · ${interventionsHtml}</div>
+                                <div class="session-meta">${metaParts.join(' · ')} · ${interventionsHtml}${userBadge ? ' · ' + userBadge : ''}</div>
                             </div>
                             <div class="session-right">
                                 <div class="session-time">${timeStr}</div>
