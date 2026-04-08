@@ -59,7 +59,7 @@ from luthien_proxy.utils.credential_cache import (
 )
 from luthien_proxy.utils.migration_check import check_migrations
 from luthien_proxy.utils.url import sanitize_url_for_logging
-from luthien_proxy.version import PROXY_VERSION as proxy_version
+from luthien_proxy.version import PROXY_DISPLAY_VERSION
 
 # Configure OpenTelemetry tracing and logging EARLY (before app creation)
 # This ensures the tracer provider is set up before any spans are created
@@ -295,7 +295,7 @@ def create_app(
     app = FastAPI(
         title="Luthien Proxy Gateway",
         description="Multi-provider LLM proxy with integrated control plane",
-        version=proxy_version,
+        version=PROXY_DISPLAY_VERSION,
         lifespan=lifespan,
     )
 
@@ -355,7 +355,7 @@ def create_app(
 
         return {
             "status": "healthy",
-            "version": proxy_version,
+            "version": PROXY_DISPLAY_VERSION,
             "auth_mode": auth_mode,
             "last_credential_type": last_credential_type,
             "last_credential_at": last_credential_at,
