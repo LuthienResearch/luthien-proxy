@@ -23,6 +23,8 @@ policy:
         config: {}
 
       # Policy 2: English language rules — edit instructions to taste
+      # Note: outer 'config' is MultiSerialPolicy's sub-policy config,
+      #        inner 'config' is SimpleLLMPolicy's own settings.
       - class: "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
         config:
           config:

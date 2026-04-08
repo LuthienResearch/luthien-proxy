@@ -36,7 +36,7 @@ policies log conversations and apply safety rules via a judge LLM.
 
 | Feature | Default |
 |---------|---------|
-| Auth mode | **Passthrough** — your Claude session flows through, no server API key needed |
+| Auth mode | **Passthrough** — your Claude session flows through, no server API key needed. The endpoint is public: anyone with the URL can proxy through it using their own credentials. Set `PROXY_API_KEY` to restrict access. |
 | Database | **SQLite** — zero config, stored on Railway's ephemeral disk (lost on redeploy; add Postgres for durability) |
 | Policies | **Debug logging** (activity monitor at `/activity`) + **English safety rules** (redact secrets, block harmful content, professional tone) |
 | Admin API | Auto-generated key (printed in deploy logs) |
