@@ -26,7 +26,7 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 ## Observability Checks (2025-10-08, updated 2025-11-11)
 
 - Uses OpenTelemetry for observability - see `dev/observability.md` and `dev/VIEWING_TRACES_GUIDE.md`
-- Live activity monitoring available at `/activity/monitor` on the gateway
+- Live activity monitoring available at `/history` on the gateway
 
 ## Documentation Structure (2025-10-10, updated 2025-11-11)
 
@@ -186,7 +186,7 @@ if stream_state.finish_reason:
 5. **Check LiteLLM version**: Breaking changes in LiteLLM streaming have caused issues (see litellm >= 1.81.0 gotcha)
 
 **Tools available**:
-- Activity monitor: `/activity/monitor` - live SSE stream
+- History/Conversation view: `/history` - conversation sessions and live details
 - Debug diff viewer: `/diffs?call_id=X` - before/after comparison
 - Tempo traces: Search by `luthien.call_id` attribute via `http://localhost:3200/api/search`
 
@@ -347,6 +347,33 @@ Policies using session-level state trackers (like `ConversationLinkPolicy`'s onc
 **Stateless per-request checks** (like `is_first_turn()` — checks for 1 user message, 0 assistant messages) are unaffected because they re-evaluate independently for each call.
 
 **Fix**: Use `is_first_turn()` instead of session-level trackers for first-turn injection. Future improvement: implement turn-type classification utility (see Trello card "Add turn-type classification utility for policies") so policies can skip ALL non-conversational turns, not just first-turn behavior.
+
+---
+
+## Conversation Viewer Dedup Assumes Stable Cumulative History (2026-04-08)
+
+**Gotcha**: The conversation viewer deduplicates messages by slicing each turn's `request_messages` array based on the previous turn's message count. This assumes the API always sends a stable, strictly-growing cumulative array.
+
+- **Invariant**: `turn[N].request_messages[0..K]` is identical to `turn[N-1].request_messages[0..K]` where K is the previous turn's length.
+- **Breaks when**: A policy rewrites earlier messages (different content at same positions), or the conversation is retried/resumed from a checkpoint (count resets or changes).
+- **Failure mode**: Wrong messages shown in wrong turns — silently, with no error. A `console.warn` fires only when the slice produces *empty* results, not when it produces *wrong* results.
+- **Mitigation**: Preflight turns (probes, title gen) are excluded from the running count so they don't corrupt the sequence.
+
+## Fingerprint Source Must Match Between Initial Load and Refresh (2026-04-08)
+
+**Gotcha**: The conversation viewer fingerprints turns to detect changes and avoid unnecessary DOM re-renders. The fingerprint source must be consistent between initial load (`renderTurns`) and SSE-triggered refresh (`refreshTurns`).
+
+- **Bug found**: Initial load fingerprinted *presented* turns (with `_isPreflight`, `_displayMessages` fields), while refresh fingerprinted *raw* server turns. These always differed, causing full re-renders on every SSE event.
+- **Fix**: Both paths now fingerprint raw server data (`_rawTurns`), not derived presentation state.
+- **Coupling**: `rawTurns[i]` and `newTurns[i]` are aligned because `presentTurns()` maps 1:1 without filtering. If `presentTurns` ever filters turns, the index alignment breaks silently. A dev assertion guards this.
+
+## request_params Blocklist Leaks Unknown Fields to Browser (2026-04-08)
+
+**Gotcha**: When passing request parameters to the conversation viewer frontend, a blocklist approach (`if k not in ("messages", "system")`) forwards every field not explicitly excluded — including `metadata`, credentials, and any future fields added to the request pipeline.
+
+- **Symptom**: Sensitive data visible in browser dev tools via the session detail API response
+- **Fix**: Switched to an allowlist (`_REQUEST_PARAM_ALLOWLIST`). Only explicitly approved fields reach the frontend.
+- **Also**: `output_config` is sanitized to only pass `format.type`, not the full JSON schema body.
 
 ---
 

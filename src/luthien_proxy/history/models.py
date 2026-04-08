@@ -41,6 +41,7 @@ class ConversationMessage(BaseModel):
     tool_name: str | None = None
     tool_call_id: str | None = None
     tool_input: dict[str, object] | None = None
+    is_error: bool | None = None
 
 
 class ConversationTurn(BaseModel):
@@ -61,6 +62,8 @@ class ConversationTurn(BaseModel):
     response_was_modified: bool = False
     original_request_messages: list[ConversationMessage] | None = None
     original_response_messages: list[ConversationMessage] | None = None
+    # Request params (everything except messages/system, which are already parsed)
+    request_params: dict[str, Any] | None = None
 
 
 class SessionSummary(BaseModel):

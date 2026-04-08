@@ -258,3 +258,25 @@ class TestExportSessionRoute:
             assert ">" not in disposition
             assert "(" not in disposition
             assert ")" not in disposition
+
+
+class TestDeprecatedHistoryDetailRedirect:
+    """Test deprecated /history/session/{id} redirects to live view."""
+
+    @pytest.mark.asyncio
+    async def test_redirects_to_conversation_live(self):
+        from luthien_proxy.history.routes import deprecated_history_detail_redirect
+
+        result = await deprecated_history_detail_redirect("test-session-123")
+        assert result.status_code == 301
+        assert result.headers["location"] == "/conversation/live/test-session-123"
+
+    @pytest.mark.asyncio
+    async def test_url_encodes_special_characters(self):
+        from luthien_proxy.history.routes import deprecated_history_detail_redirect
+
+        result = await deprecated_history_detail_redirect("id with spaces#fragment")
+        location = result.headers["location"]
+        assert " " not in location
+        assert "#" not in location
+        assert "id%20with%20spaces%23fragment" in location

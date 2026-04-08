@@ -1,16 +1,13 @@
 """Anthropic SDK client wrapper for making API calls."""
 
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING
 
 import anthropic
 import anthropic.types
+from anthropic.types import RawMessageStreamEvent
 from opentelemetry import trace
 
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse, build_usage
-
-if TYPE_CHECKING:
-    from anthropic.lib.streaming import MessageStreamEvent
 
 tracer = trace.get_tracer(__name__)
 
@@ -136,8 +133,7 @@ class AnthropicClient:
         """Convert SDK Message to AnthropicResponse TypedDict."""
         content_blocks = []
         for block in message.content:
-            block_dict = block.model_dump()
-            content_blocks.append(block_dict)
+            content_blocks.append(block.model_dump())
 
         return AnthropicResponse(
             id=message.id,
@@ -161,9 +157,9 @@ class AnthropicClient:
         """Get complete response from Anthropic API.
 
         Uses streaming internally and accumulates the final message.
-        Some models (e.g. Opus) require streaming — using messages.stream()
-        for all models avoids SDK errors for models that reject
-        non-streaming requests with high max_tokens.
+        The Anthropic API requires streaming for sufficiently long responses
+        (high max_tokens) — using messages.stream() avoids errors from the
+        API rejecting non-streaming requests that would exceed the limit.
 
         Args:
             request: Anthropic Messages API request.
@@ -185,15 +181,20 @@ class AnthropicClient:
 
     async def stream(
         self, request: AnthropicRequest, extra_headers: dict[str, str] | None = None
-    ) -> AsyncIterator["MessageStreamEvent"]:
+    ) -> AsyncIterator[RawMessageStreamEvent]:
         """Stream response from Anthropic API.
+
+        Uses messages.create(stream=True) to get raw wire-protocol events only,
+        avoiding the SDK's high-level MessageStream which injects synthetic
+        convenience events (text, thinking, citation, etc.) that have no
+        wire-protocol counterpart.
 
         Args:
             request: Anthropic Messages API request.
             extra_headers: Additional headers to forward to the API (e.g. anthropic-beta).
 
         Yields:
-            Streaming events from the Anthropic SDK (includes text, thinking, etc.).
+            Raw streaming events matching the Anthropic wire protocol.
         """
         with tracer.start_as_current_span("anthropic.stream") as span:
             span.set_attribute("llm.model", request["model"])
@@ -202,9 +203,10 @@ class AnthropicClient:
             kwargs = self._prepare_request_kwargs(request)
             if extra_headers:
                 kwargs["extra_headers"] = extra_headers
-            async with self._client.messages.stream(**kwargs) as stream:
+            stream = await self._client.messages.create(**kwargs, stream=True)
+            async with stream:
                 async for event in stream:
-                    yield event  # type: ignore[misc]
+                    yield event
 
 
 __all__ = ["AnthropicClient"]

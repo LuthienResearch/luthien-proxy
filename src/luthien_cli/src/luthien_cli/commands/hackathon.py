@@ -337,7 +337,7 @@ def _show_hackathon_guide(
         Panel(
             textwrap.dedent(f"""\
                 {gateway_url}/policy-config        Visual policy picker and config editor
-                {gateway_url}/activity/monitor     Live stream of requests and responses
+                {gateway_url}/history              Conversation history and live monitoring
                 {gateway_url}/diffs                Before/after policy transformation diffs
                 {gateway_url}/request-logs/viewer  Full HTTP request/response log viewer
                 {gateway_url}/health               Gateway health check"""),

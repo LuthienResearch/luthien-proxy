@@ -270,4 +270,38 @@ Request → get_request_credential() → Credential (from headers)
 
 ---
 
+## Conversation History Viewer Architecture (2026-04-08)
+
+The conversation viewer (`/history`) has a **backend extraction layer** and a **frontend presentation pipeline**.
+
+### Backend: `history/service.py` + `history/models.py`
+
+- **Event-based reconstruction**: Turns are built from stored `conversation_events` rows grouped by `call_id`. Each turn combines `transaction.request_recorded` (request) and `transaction.*_response_recorded` (response) events.
+- **Dual format support**: Parses both OpenAI-style (`choices[].message`) and Anthropic-style (`role + content blocks`) request/response payloads.
+- **Anthropic tool_result extraction**: User messages with `tool_result` content blocks are split into separate `TOOL_RESULT` messages with `tool_call_id` (from `tool_use_id`), enabling frontend pairing.
+- **`request_params` allowlist**: A curated set of request parameters (`_REQUEST_PARAM_ALLOWLIST`) is passed to the frontend for turn classification. Uses an **allowlist** (not blocklist) to prevent leaking sensitive fields. `output_config` is sanitized to only pass `format.type`.
+- **Preview extraction**: Session titles come from the first non-probe user message. Probes are detected structurally (`max_tokens <= 1`), not by content.
+
+### Frontend: `conversation_live.js`
+
+The frontend has a **presentation pipeline** that transforms raw API turns into display-ready data:
+
+```
+Raw turns (from API) → presentTurns() → displayed turns
+                         ├── classifyPreflight() — structural classification
+                         └── dedup via message slicing
+```
+
+- **Dedup**: The API sends cumulative message history each turn. `presentTurns()` slices `request_messages` based on the previous non-preflight turn's message count to show only new content.
+- **Preflight classification**: Uses structural request params (not response content): `max_tokens === 1` (quota probe) or `json_schema + max_tokens ≤ 256` (title generation).
+- **Tool call/result pairing**: Results are matched to calls by `tool_call_id`. Request tool_calls that duplicate response tool_calls are suppressed.
+- **Fingerprinting**: Raw server turn data is fingerprinted (`JSON.stringify`) for incremental DOM updates. The fingerprint must always use raw (not presented) turns to avoid false mismatches.
+- **Tagged content**: XML-tagged sections (`<system-reminder>`, `<policy-context>`, etc.) are rendered as collapsible `<details>` blocks.
+
+### Key invariant
+
+The dedup algorithm assumes the API sends a **stable, strictly-growing cumulative message array**. If a policy rewrites earlier messages, the slice offset will be wrong. A `console.warn` fires when the invariant produces empty display messages, but wrong-but-non-empty results are silent.
+
+---
+
 (Add learnings as discovered during development with timestamps: YYYY-MM-DD)

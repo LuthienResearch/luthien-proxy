@@ -158,6 +158,10 @@ if [ -z "$_pre_env_compose_name" ]; then
 fi
 echo "📦 Docker project: ${COMPOSE_PROJECT_NAME}"
 
+# Pass commit hash to Docker build for version reporting
+BUILD_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+export BUILD_COMMIT
+
 # Check for insecure default credentials
 echo "🔒 Checking for insecure default credentials..."
 insecure_defaults=false

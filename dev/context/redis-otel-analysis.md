@@ -20,7 +20,7 @@ We currently maintain two separate observability channels:
 2. **Redis Pub/Sub** - Real-time activity stream
    - Lightweight JSON events published to `luthien:activity` channel
    - Consumed by `/activity/stream` (SSE endpoint)
-   - Rendered in `/activity/monitor` (HTML UI)
+   - Rendered in `/history` (HTML UI)
    - Near-instant delivery (milliseconds)
    - Minimal data, fire-and-forget
 

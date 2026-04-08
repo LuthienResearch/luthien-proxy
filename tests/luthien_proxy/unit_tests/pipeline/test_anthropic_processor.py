@@ -95,6 +95,42 @@ class TestFormatSSEEvent:
 
         assert result.startswith("event: unknown\n")
 
+    def test_content_block_stop_has_only_wire_fields(self):
+        """RawContentBlockStopEvent only has wire-protocol fields (type, index)."""
+        event = RawContentBlockStopEvent(type="content_block_stop", index=2)
+        result = _format_sse_event(event)
+
+        data = json.loads(result.split("data: ", 1)[1].strip())
+        assert set(data.keys()) == {"type", "index"}
+        assert data["type"] == "content_block_stop"
+        assert data["index"] == 2
+
+    def test_message_stop_has_only_wire_fields(self):
+        """RawMessageStopEvent only has wire-protocol fields (type)."""
+        event = RawMessageStopEvent(type="message_stop")
+        result = _format_sse_event(event)
+
+        data = json.loads(result.split("data: ", 1)[1].strip())
+        assert set(data.keys()) == {"type"}
+        assert data["type"] == "message_stop"
+
+    def test_passes_through_unknown_wire_fields(self):
+        """Raw wire events may include fields the SDK hasn't modeled yet.
+        The proxy should pass them through transparently via model_dump()."""
+        event = RawContentBlockDeltaEvent.model_validate(
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "text_delta", "text": "hi"},
+                "new_api_field": 42,
+            }
+        )
+        result = _format_sse_event(event)
+
+        data = json.loads(result.split("data: ", 1)[1].strip())
+        assert data["new_api_field"] == 42
+        assert data["type"] == "content_block_delta"
+
 
 class TestProcessRequest:
     """Tests for _process_request helper function."""

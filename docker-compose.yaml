@@ -88,6 +88,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.gateway
+      args:
+        BUILD_COMMIT: ${BUILD_COMMIT:-unknown}
     env_file: .env
     environment:
       # Non-sensitive config can use shell override via ${VAR} syntax

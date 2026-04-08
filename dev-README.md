@@ -72,8 +72,8 @@ The gateway integrates everything into a single FastAPI application:
   - Client formatters for Anthropic format
 
 - **UI** (`src/luthien_proxy/ui/`): Real-time monitoring and debugging
-  - `/activity/monitor` - Live activity feed
-  - `/api/activity/stream` - SSE activity stream
+  - `/history` - Conversation history view
+  - `/conversation/live/{id}` - Live conversation streaming view
   - Debug endpoints for inspection
 
 **Documentation**:
@@ -97,8 +97,8 @@ The gateway integrates everything into a single FastAPI application:
 
 **UI Endpoints:**
 
-- `GET /activity/monitor` - Real-time activity monitor (HTML)
-- `GET /api/activity/stream` - SSE activity stream (JSON)
+- `GET /history` - Conversation history view (HTML)
+- `GET /conversation/live/{id}` - Live conversation view with SSE streaming
 - `GET /debug` - Debug information viewer
 
 **Authentication:**
@@ -191,7 +191,7 @@ The observability stack is completely optional and does not affect core function
 
 - **Distributed tracing** with OpenTelemetry and Tempo
 - **Structured logging** with trace context (trace_id, span_id)
-- **Real-time activity feed** at `/activity/monitor`
+- **Real-time conversation view** at `/conversation/live/{id}`
 
 ### Configuration
 

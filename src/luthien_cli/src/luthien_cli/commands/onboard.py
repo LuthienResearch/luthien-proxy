@@ -183,12 +183,27 @@ def _write_policy(repo_path: str, gateway_url: str) -> None:
         f.write(yaml_content)
 
 
+def _get_proxy_version(gateway_url: str) -> str:
+    """Fetch the proxy version from the running gateway's health endpoint."""
+    try:
+        import httpx
+
+        r = httpx.get(f"{gateway_url}/health", timeout=5.0)
+        return r.json().get("version", "unknown")
+    except Exception:
+        return "unknown"
+
+
 def _show_results(
     console: Console,
     gateway_url: str,
     mode: str,
 ) -> None:
     """Show the final success panel and prompt user to launch Claude Code."""
+    from importlib.metadata import version
+
+    cli_version = version("luthien-cli")
+    proxy_version = _get_proxy_version(gateway_url)
     config_url = f"{gateway_url}/policy-config"
 
     console.print()
@@ -198,8 +213,8 @@ def _show_results(
                 [green bold]Gateway is running![/green bold]
 
                 [bold]What was installed:[/bold]
-                  [bold]luthien[/bold] CLI      — manage, configure, and interact with the proxy
-                  [bold]luthien-proxy[/bold]    — the gateway server itself
+                  [bold]luthien[/bold] CLI      {cli_version} — manage, configure, and interact with the proxy
+                  [bold]luthien-proxy[/bold]    {proxy_version} — the gateway server itself
 
                 [bold]Gateway URL:[/bold]  {gateway_url}
                 [bold]Policy:[/bold]       OnboardingPolicy (welcome on first turn)
