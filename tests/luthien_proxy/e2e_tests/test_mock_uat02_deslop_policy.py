@@ -1,4 +1,4 @@
-"""Mock e2e tests for LLM02: DeSlop Policy 400 Error.
+"""Mock e2e tests for UAT02: DeSlop Policy 400 Error.
 
 Verify DeSlop-style policies (NoYappingPolicy, NoApologiesPolicy, PlainDashesPolicy)
 activate and serve requests without returning 400 errors.
@@ -7,7 +7,7 @@ Trello: https://trello.com/c/99Zgysbl/1099
 Run:
     ./scripts/run_e2e.sh mock
     # or directly:
-    uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_llm02_deslop_policy.py -v
+    uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_uat02_deslop_policy.py -v
 """
 
 import httpx
@@ -42,7 +42,7 @@ async def test_no_yapping_activates_without_400(
     auth_headers,
     admin_api_key,
 ):
-    """NoYappingPolicy activates and serves a non-streaming request without 400."""
+    """NoYappingPolicy activates, serves a non-streaming request, and passes clean content through."""
     mock_anthropic.enqueue(text_response("Here is the answer."))
     mock_anthropic.enqueue(judge_pass())
 
@@ -55,7 +55,10 @@ async def test_no_yapping_activates_without_400(
             )
 
     assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
-    assert response.json()["type"] == "message"
+    body = response.json()
+    assert body["type"] == "message"
+    content_text = " ".join(b["text"] for b in body["content"] if b["type"] == "text")
+    assert "Here is the answer." in content_text, f"Judge passed but content missing: {content_text!r}"
 
 
 @pytest.mark.asyncio
@@ -116,7 +119,7 @@ async def test_no_apologies_activates_without_400(
     auth_headers,
     admin_api_key,
 ):
-    """NoApologiesPolicy activates and serves a request without 400."""
+    """NoApologiesPolicy activates, serves a request, and passes clean content through."""
     mock_anthropic.enqueue(text_response("Here is the answer."))
     mock_anthropic.enqueue(judge_pass())
 
@@ -129,7 +132,10 @@ async def test_no_apologies_activates_without_400(
             )
 
     assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
-    assert response.json()["type"] == "message"
+    body = response.json()
+    assert body["type"] == "message"
+    content_text = " ".join(b["text"] for b in body["content"] if b["type"] == "text")
+    assert "Here is the answer." in content_text, f"Judge passed but content missing: {content_text!r}"
 
 
 @pytest.mark.asyncio

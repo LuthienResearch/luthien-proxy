@@ -1,18 +1,13 @@
-"""Mock e2e tests for LLM04: API Key Error Messaging.
+"""Mock e2e tests for UAT04: API Key Error Messaging.
 
 Verify that invalid API key errors return a human-readable Anthropic-format error
 body rather than a nested JSON blob or raw exception dump.
 Trello: https://trello.com/c/CrtFRTuS/1101
 
-Note: test_invalid_key_in_passthrough_mode_returns_valid_message and
-test_invalid_key_in_strict_mode_returns_anthropic_error_envelope are mutually exclusive
-based on AUTH_MODE. Full coverage requires running with both AUTH_MODE=both (default)
-and AUTH_MODE=proxy_key.
-
 Run:
     ./scripts/run_e2e.sh mock
     # or directly:
-    uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_llm04_api_key_errors.py -v
+    uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_uat04_api_key_errors.py -v
 """
 
 import json
@@ -59,16 +54,24 @@ async def test_missing_auth_returns_human_readable_error(
 
 
 @pytest.mark.asyncio
-async def test_invalid_key_in_passthrough_mode_returns_valid_message(
+async def test_invalid_key_returns_clean_response(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
     gateway_url,
 ):
-    """In AUTH_MODE=both, an unknown key is forwarded as passthrough and returns a valid Anthropic message."""
-    if os.getenv("AUTH_MODE", "both") != "both":
-        pytest.skip("This test covers AUTH_MODE=both passthrough behavior")
+    """An invalid key returns a clean response regardless of AUTH_MODE.
 
-    mock_anthropic.enqueue(text_response("passthrough response"))
+    AUTH_MODE=both (default): unknown keys are forwarded as passthrough — mock
+    backend accepts them, so we get a valid message response.
+    AUTH_MODE=proxy_key: invalid keys are rejected with an Anthropic error envelope.
+    Both paths must return structured responses without tracebacks or double-encoded JSON.
+    """
+    auth_mode = os.getenv("AUTH_MODE", "both")
+
+    # In passthrough mode the request reaches the mock backend
+    if auth_mode == "both":
+        mock_anthropic.enqueue(text_response("passthrough response"))
+
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(
             f"{gateway_url}/v1/messages",
@@ -76,45 +79,27 @@ async def test_invalid_key_in_passthrough_mode_returns_valid_message(
             headers={"Authorization": "Bearer sk-this-is-not-a-valid-key"},
         )
 
-    assert response.status_code == 200, (
-        "In AUTH_MODE=both, unrecognized keys are forwarded to the backend rather than rejected. "
-        "The mock backend always accepts, so we expect 200."
-    )
-    body = response.json()
-    assert body.get("type") == "message", f"Expected message response in passthrough mode, got: {body}"
     assert "Traceback" not in response.text, "Response contains a raw Python traceback"
-    assert any(b.get("text") == "passthrough response" for b in body.get("content", [])), (
-        f"Expected proxied mock content in response, got: {body.get('content')}"
-    )
 
-
-@pytest.mark.asyncio
-async def test_invalid_key_in_strict_mode_returns_anthropic_error_envelope(
-    gateway_healthy,
-    gateway_url,
-):
-    """In AUTH_MODE=proxy_key, an invalid key returns an Anthropic error envelope with a plain string message."""
-    if os.getenv("AUTH_MODE", "both") == "both":
-        pytest.skip("This test covers AUTH_MODE=proxy_key strict rejection behavior")
-
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.post(
-            f"{gateway_url}/v1/messages",
-            json={**BASE_REQUEST, "stream": False},
-            headers={"Authorization": "Bearer sk-this-is-not-a-valid-key"},
-        )
-
-    assert response.status_code == 401, f"Expected 401 for invalid key, got {response.status_code}: {response.text}"
     body = response.json()
-    assert body.get("type") == "error", f"Expected Anthropic error envelope, got: {body}"
-    assert "error" in body, f"Missing 'error' field in response: {body}"
-    assert "message" in body["error"], f"Missing 'message' in error field: {body['error']}"
-    assert isinstance(body["error"]["message"], str), f"Error message is not a string: {type(body['error']['message'])}"
-    try:
-        json.loads(body["error"]["message"])
-        pytest.fail(f"Error message is double-encoded JSON: {body['error']['message'][:100]}")
-    except (ValueError, TypeError):
-        pass
+    if auth_mode == "both":
+        assert response.status_code == 200, (
+            "In AUTH_MODE=both, unrecognized keys are forwarded to the backend. "
+            f"Expected 200, got {response.status_code}: {response.text}"
+        )
+        assert body.get("type") == "message", f"Expected message response in passthrough mode, got: {body}"
+        assert any(b.get("text") == "passthrough response" for b in body.get("content", [])), (
+            f"Expected proxied mock content in response, got: {body.get('content')}"
+        )
+    else:
+        assert response.status_code == 401, f"Expected 401 for invalid key, got {response.status_code}: {response.text}"
+        assert body.get("type") == "error", f"Expected Anthropic error envelope, got: {body}"
+        assert isinstance(body.get("error", {}).get("message"), str), f"Missing or non-string error message: {body}"
+        try:
+            json.loads(body["error"]["message"])
+            pytest.fail(f"Error message is double-encoded JSON: {body['error']['message'][:100]}")
+        except (ValueError, TypeError):
+            pass
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,4 @@
-"""Mock e2e tests for LLM01: Onboarding Context.
+"""Mock e2e tests for UAT01: Onboarding Context.
 
 Verify Claude knows what Luthien is after onboarding policy is active.
 Trello: https://trello.com/c/p9YJcdCV/1098
@@ -6,7 +6,7 @@ Trello: https://trello.com/c/p9YJcdCV/1098
 Run:
     ./scripts/run_e2e.sh mock
     # or directly:
-    uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_llm01_onboarding_context.py -v
+    uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_uat01_onboarding_context.py -v
 """
 
 import httpx
@@ -71,8 +71,8 @@ async def test_onboarding_context_injected_on_first_turn(
     assert response.json()["type"] == "message"
     body = response.json()
     all_text = " ".join(b["text"] for b in body["content"] if b["type"] == "text")
-    assert "Welcome to Luthien" in all_text
-    assert "policy-config" in all_text
+    assert _WELCOME_TITLE in all_text
+    assert _WELCOME_SETUP_HINT in all_text
 
 
 @pytest.mark.asyncio
@@ -99,8 +99,8 @@ async def test_onboarding_context_injected_on_first_turn_streaming(
                 assert response.status_code == 200, f"Expected 200, got {response.status_code}"
                 all_text = await collect_sse_text(response)
 
-    assert "Welcome to Luthien" in all_text
-    assert "policy-config" in all_text
+    assert _WELCOME_TITLE in all_text
+    assert _WELCOME_SETUP_HINT in all_text
 
 
 @pytest.mark.asyncio

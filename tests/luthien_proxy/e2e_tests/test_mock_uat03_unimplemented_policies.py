@@ -1,4 +1,4 @@
-"""Mock e2e tests for LLM03: Unimplemented Policies.
+"""Mock e2e tests for UAT03: Unimplemented Policies.
 
 Verify that activating a non-existent or misconfigured policy class gives a clear
 error response rather than a silent 500 crash or an error loop.
@@ -7,7 +7,7 @@ Trello: https://trello.com/c/IUxmYwSW/1100
 Run:
     ./scripts/run_e2e.sh mock
     # or directly:
-    uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_llm03_unimplemented_policies.py -v
+    uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_uat03_unimplemented_policies.py -v
 """
 
 import httpx

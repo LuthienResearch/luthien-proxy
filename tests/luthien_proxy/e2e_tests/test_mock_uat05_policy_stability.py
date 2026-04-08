@@ -1,4 +1,4 @@
-"""Mock e2e tests for LLM05: Policy Setup Stability.
+"""Mock e2e tests for UAT05: Policy Setup Stability.
 
 Verify that policy setup via the admin API completes without 500 errors or error
 loops, and that the gateway remains stable after rapid policy switches.
@@ -7,7 +7,7 @@ Trello: https://trello.com/c/lx5CHHi8/1102
 Run:
     ./scripts/run_e2e.sh mock
     # or directly:
-    uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_llm05_policy_stability.py -v
+    uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_uat05_policy_stability.py -v
 """
 
 import asyncio
@@ -38,17 +38,28 @@ async def _set_policy(client: httpx.AsyncClient, gateway_url: str, admin_api_key
 
 
 @pytest.mark.asyncio
-async def test_policy_set_returns_200(
+async def test_policy_set_returns_200_and_activates(
+    mock_anthropic: MockAnthropicServer,
     gateway_healthy,
     gateway_url,
+    auth_headers,
     admin_api_key,
 ):
-    """Setting a valid policy via admin API returns 200, not 500.
+    """Setting a valid policy via admin API returns 200 and the policy serves requests."""
+    mock_anthropic.enqueue(text_response("noop passthrough"))
 
-    The 200 assertion is enforced inside policy_context — it raises if the set call fails.
-    """
     async with policy_context(_NOOP, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
-        pass
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(
+                f"{gateway_url}/v1/messages",
+                json={**BASE_REQUEST, "stream": False},
+                headers=auth_headers,
+            )
+
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+    body = response.json()
+    content_text = " ".join(b["text"] for b in body["content"] if b["type"] == "text")
+    assert "noop passthrough" in content_text, f"Policy didn't serve request: {content_text!r}"
 
 
 @pytest.mark.asyncio
@@ -160,7 +171,7 @@ async def test_policy_context_restores_noop_after_test(
 
 
 @pytest.mark.asyncio
-async def test_concurrent_requests_during_policy_switch_no_500(
+async def test_batch_requests_during_policy_switch_no_500(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
     gateway_url,
