@@ -345,6 +345,11 @@
             font-family: monospace;
             font-size: 0.75em;
             color: #8b8ba0;
+            cursor: pointer;
+        }
+
+        .user-badge:hover {
+            background: #3a3a4a;
         }
 
         select.filter-dropdown {
@@ -435,6 +440,7 @@
 
     <script>
         let allSessions = [];
+        let userLabels = {};
         let currentFilter = 'all';
         let currentSort = 'newest';
 
@@ -570,31 +576,67 @@
                 const data = await response.json();
                 allSessions = data.sessions;
 
+                // Fetch user labels
+                try {
+                    const labelsResp = await fetch('/api/history/user-labels', {
+                        headers: {'Accept': 'application/json'}
+                    });
+                    const labelsData = await labelsResp.json();
+                    userLabels = labelsData.labels || {};
+                } catch (e) {
+                    // Label fetch is non-critical; silently ignore
+                }
+
                 updateFilterCounts();
                 applyFilters();
 
-                // Populate user filter dropdown
-                try {
-                    const userResp = await fetch('/api/history/users', {
-                        headers: {'Accept': 'application/json'}
-                    });
-                    const userData = await userResp.json();
-                    const userFilter = document.getElementById('user-filter');
-                    userData.users.forEach(hash => {
-                        const option = document.createElement('option');
-                        option.value = hash;
-                        option.textContent = hash.substring(0, 12) + '...';
-                        userFilter.appendChild(option);
-                    });
-                } catch (e) {
-                    // User filter population is non-critical; silently ignore
-                }
-
+                populateUserFilter();
                 document.getElementById('user-filter').addEventListener('change', applyFilters);
 
             } catch (error) {
                 container.innerHTML = `<div class="error">Failed to load sessions: ${escapeHtml(error.message)}</div>`;
             }
+        }
+
+        function populateUserFilter() {
+            const userFilter = document.getElementById('user-filter');
+            const selectedValue = userFilter.value;
+            // Clear existing options except the first "All users"
+            while (userFilter.options.length > 1) {
+                userFilter.remove(1);
+            }
+            // Collect unique user hashes from loaded sessions
+            const hashes = [...new Set(allSessions.map(s => s.user_hash).filter(Boolean))].sort();
+            hashes.forEach(hash => {
+                const option = document.createElement('option');
+                option.value = hash;
+                option.textContent = userLabels[hash] || hash.substring(0, 12) + '...';
+                userFilter.appendChild(option);
+            });
+            userFilter.value = selectedValue;
+        }
+
+        async function editUserLabel(hash, event) {
+            event.stopPropagation();
+            const currentName = userLabels[hash] || '';
+            const name = prompt('Display name for this user:', currentName);
+            if (name === null) return; // cancelled
+            if (name.trim() === '') {
+                // Delete label
+                await fetch('/api/history/user-labels/' + encodeURIComponent(hash), {method: 'DELETE'});
+                delete userLabels[hash];
+            } else {
+                // Set label
+                await fetch('/api/history/user-labels/' + encodeURIComponent(hash), {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({display_name: name.trim()})
+                });
+                userLabels[hash] = name.trim();
+            }
+            // Re-render
+            applyFilters();
+            populateUserFilter();
         }
 
         function renderSessions(sessions) {
@@ -635,8 +677,9 @@
                         interventionsHtml = `<span class="interventions-none">no policies triggered</span>`;
                     }
 
+                    const displayName = userLabels[session.user_hash] || null;
                     const userBadge = session.user_hash
-                        ? `<span class="user-badge" title="${escapeHtml(session.user_hash)}">${escapeHtml(session.user_hash.substring(0, 8))}</span>`
+                        ? `<span class="user-badge" title="${escapeHtml(session.user_hash)}" onclick="editUserLabel('${escapeHtml(session.user_hash)}', event)">${escapeHtml(displayName || session.user_hash.substring(0, 8))}</span>`
                         : '';
 
                     const hasPreview = !!session.preview_message;

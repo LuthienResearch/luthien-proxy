@@ -4,6 +4,7 @@ Provides endpoints for:
 - Listing recent sessions
 - Viewing session details
 - Exporting sessions to markdown
+- User label management (assign display names to user hashes)
 - HTML UI pages
 """
 
@@ -11,10 +12,12 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime, timezone
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
+from pydantic import BaseModel, Field
 
 from luthien_proxy.auth import check_auth_or_redirect, verify_admin_token
 from luthien_proxy.dependencies import get_admin_key, get_db_pool
@@ -31,6 +34,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/history", tags=["history"])
 api_router = APIRouter(prefix="/api/history", tags=["history-api"])
+
+
+class UserLabelRequest(BaseModel):
+    """Request body for setting a user display name."""
+
+    display_name: str = Field(..., description="Human-readable display name for the user")
+
 
 # Static directory for HTML templates
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
@@ -101,17 +111,74 @@ async def list_sessions(
 async def list_users(
     _: str = Depends(verify_admin_token),
     db_pool: DatabasePool = Depends(get_db_pool),
-) -> dict[str, list[str]]:
-    """List distinct user hashes.
+) -> dict:
+    """List distinct user hashes with any assigned labels.
 
     Returns all distinct user_hash values from conversation_calls,
-    useful for populating a user filter dropdown in the UI.
+    plus a labels mapping from user_hash to display_name.
     """
     async with db_pool.connection() as conn:
         rows = await conn.fetch(
             "SELECT DISTINCT user_hash FROM conversation_calls WHERE user_hash IS NOT NULL ORDER BY user_hash"
         )
-    return {"users": [str(row["user_hash"]) for row in rows]}
+        label_rows = await conn.fetch("SELECT user_hash, display_name FROM user_labels")
+    labels = {str(row["user_hash"]): str(row["display_name"]) for row in label_rows}
+    return {
+        "users": [str(row["user_hash"]) for row in rows],
+        "labels": labels,
+    }
+
+
+@api_router.get("/user-labels")
+async def list_user_labels(
+    _: str = Depends(verify_admin_token),
+    db_pool: DatabasePool = Depends(get_db_pool),
+) -> dict:
+    """Return all user labels.
+
+    Returns a mapping from user_hash to display_name for all labeled users.
+    """
+    async with db_pool.connection() as conn:
+        rows = await conn.fetch("SELECT user_hash, display_name FROM user_labels ORDER BY display_name")
+    return {"labels": {str(row["user_hash"]): str(row["display_name"]) for row in rows}}
+
+
+@api_router.put("/user-labels/{user_hash}")
+async def set_user_label(
+    user_hash: str,
+    body: UserLabelRequest,
+    _: str = Depends(verify_admin_token),
+    db_pool: DatabasePool = Depends(get_db_pool),
+) -> dict:
+    """Create or update a display name for a user hash."""
+    display_name = body.display_name.strip()
+    if not display_name:
+        raise HTTPException(status_code=400, detail="display_name must not be blank")
+    now = datetime.now(timezone.utc).isoformat()
+    async with db_pool.connection() as conn:
+        await conn.execute(
+            """INSERT INTO user_labels (user_hash, display_name, created_at, updated_at)
+               VALUES ($1, $2, $3, $3)
+               ON CONFLICT (user_hash) DO UPDATE SET
+                   display_name = EXCLUDED.display_name,
+                   updated_at = EXCLUDED.updated_at""",
+            user_hash,
+            display_name,
+            now,
+        )
+    return {"user_hash": user_hash, "display_name": display_name}
+
+
+@api_router.delete("/user-labels/{user_hash}")
+async def delete_user_label(
+    user_hash: str,
+    _: str = Depends(verify_admin_token),
+    db_pool: DatabasePool = Depends(get_db_pool),
+) -> dict:
+    """Remove a user label."""
+    async with db_pool.connection() as conn:
+        await conn.execute("DELETE FROM user_labels WHERE user_hash = $1", user_hash)
+    return {"deleted": True}
 
 
 @api_router.get("/sessions/{session_id}", response_model=SessionDetail)
