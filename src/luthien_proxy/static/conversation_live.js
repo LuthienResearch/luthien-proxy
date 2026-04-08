@@ -16,9 +16,6 @@ function conversationViewer() {
         lastUpdated: '',
         evtSource: null,
         refreshTimer: null,
-        expandedRaw: {},
-        expandedContent: {},
-        expandedDiffs: {},
         renderedCallIds: new Set(),
         turnFingerprints: {},
         _rawTurns: [],
@@ -200,6 +197,10 @@ function conversationViewer() {
                 const data = await resp.json();
                 const rawTurns = data.turns || [];
                 const newTurns = this.presentTurns(rawTurns);
+                if (rawTurns.length !== newTurns.length) {
+                    console.error('presentTurns must map 1:1 with rawTurns');
+                }
+                this._rawTurns = rawTurns;
                 this.turns = newTurns;
 
                 this.updateStats(data);

@@ -690,7 +690,17 @@ def _build_turn(call_id: str, events: list[StoredEvent]) -> ConversationTurn:
             # Pass through a curated set of request params so the
             # frontend can classify turn type (preflight, etc.).
             # Allowlist to avoid leaking sensitive/unknown fields.
+            # tools_count is a synthetic field added below (not in the allowlist).
             request_params = {k: v for k, v in final_req.items() if k in _REQUEST_PARAM_ALLOWLIST}
+            # Sanitize output_config: only pass format.type, not the full
+            # schema body (which may contain proprietary structure info)
+            oc = request_params.get("output_config")
+            if isinstance(oc, dict):
+                fmt = oc.get("format")
+                if isinstance(fmt, dict):
+                    request_params["output_config"] = {"format": {"type": fmt.get("type")}}
+                else:
+                    del request_params["output_config"]
             # Include tool count (not full definitions) for context
             tools = final_req.get("tools")
             if isinstance(tools, list):
