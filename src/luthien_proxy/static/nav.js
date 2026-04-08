@@ -189,8 +189,9 @@ document.addEventListener('alpine:init', () => {
             const intervalId = setInterval(updateBadge, 30000);
 
             // Render version footer from the health data we already fetched
+            let footer = null;
             if (healthData && healthData.version) {
-                const footer = document.createElement('footer');
+                footer = document.createElement('footer');
                 footer.className = 'luthien-footer';
                 footer.textContent = 'luthien-proxy @ ' + healthData.version;
                 document.body.appendChild(footer);
@@ -199,6 +200,7 @@ document.addEventListener('alpine:init', () => {
             this.$cleanup(() => {
                 clearInterval(intervalId);
                 if (activeTooltip) activeTooltip.remove();
+                if (footer) footer.remove();
                 document.removeEventListener('click', closeTooltip);
                 window.removeEventListener('resize', positionTooltip);
             });
