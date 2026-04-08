@@ -425,8 +425,8 @@ class TestAnthropicToolResultExtraction:
         assert result[1].message_type == MessageType.USER
         assert result[1].content == "Valid text"
 
-    def test_tool_result_with_is_error_field(self):
-        """Test that tool_result with is_error field doesn't break extraction."""
+    def test_tool_result_with_is_error_true(self):
+        """Test that tool_result with is_error=True is propagated."""
         request = {
             "messages": [
                 {
@@ -445,11 +445,34 @@ class TestAnthropicToolResultExtraction:
 
         result = _parse_request_messages(request)
 
-        # is_error is currently ignored but shouldn't break parsing
         assert len(result) == 1
         assert result[0].message_type == MessageType.TOOL_RESULT
         assert result[0].content == "Error occurred"
         assert result[0].tool_call_id == "toolu_error"
+        assert result[0].is_error is True
+
+    def test_tool_result_with_is_error_false(self):
+        """Test that is_error=False is normalized to None (no error badge)."""
+        request = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_ok",
+                            "content": "Success",
+                            "is_error": False,
+                        },
+                    ],
+                }
+            ]
+        }
+
+        result = _parse_request_messages(request)
+
+        assert len(result) == 1
+        assert result[0].is_error is None
 
     def test_complex_mixed_blocks(self):
         """Test a complex scenario with multiple text + tool_result blocks."""

@@ -22,6 +22,7 @@ function conversationViewer() {
         expandedDiffs: {},
         renderedCallIds: new Set(),
         turnFingerprints: {},
+        _rawTurns: [],
 
         init() {
             const pathParts = window.location.pathname.split('/');
@@ -395,7 +396,7 @@ function conversationViewer() {
 
             this.renderedCallIds.clear();
             this.turnFingerprints = {};
-            const rawTurns = this._rawTurns || this.turns;
+            const rawTurns = this._rawTurns;
             for (let i = 0; i < this.turns.length; i++) {
                 const turn = this.turns[i];
                 this.renderedCallIds.add(turn.call_id);
