@@ -86,9 +86,8 @@ async def test_rapid_policy_switches_no_500(
                     f"Policy switch to {class_ref} failed: {set_resp.status_code}: {set_resp.text}"
                 )
 
-        mock_anthropic.enqueue(text_response("still stable"))
+            mock_anthropic.enqueue(text_response("still stable"))
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
                 f"{gateway_url}/v1/messages",
                 json={**BASE_REQUEST, "stream": False},
