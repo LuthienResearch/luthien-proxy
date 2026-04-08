@@ -9,11 +9,13 @@ import sys
 import click
 from rich.console import Console
 
+from urllib.parse import quote
+
 from luthien_cli.commands.up import ensure_gateway_up
-from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config
+from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config, save_config
 
 
-def _exec_claude(gateway_url: str, extra_args: list[str] | None = None) -> None:
+def _exec_claude(gateway_url: str, user_name: str | None = None, extra_args: list[str] | None = None) -> None:
     """Replace the current process with Claude Code.
 
     Uses os.execvpe so Claude Code inherits this process's PID,
@@ -25,13 +27,19 @@ def _exec_claude(gateway_url: str, extra_args: list[str] | None = None) -> None:
         print("Error: Claude Code CLI not found. Install: npm install -g @anthropic-ai/claude-code")
         raise SystemExit(1)
 
-    url = gateway_url.rstrip("/") + "/"
+    base = gateway_url.rstrip("/")
+    if user_name:
+        url = f"{base}/u/{quote(user_name, safe='')}/"
+    else:
+        url = base + "/"
 
     env = os.environ.copy()
     env["ANTHROPIC_BASE_URL"] = url
     env.pop("ANTHROPIC_API_KEY", None)
 
     print(f"Routing through {gateway_url} (OAuth passthrough)")
+    if user_name:
+        print(f"Identified as: {user_name}")
     print("Tip: run luthien commands with ! such as !luthien status, !luthien logs, !luthien up, and !luthien down")
     sys.stdout.flush()
 
@@ -67,7 +75,17 @@ def _launch_claude(console: Console, extra_args: list[str] | None = None) -> Non
     """
     ensure_gateway_up(console)
     config = load_config(DEFAULT_CONFIG_PATH)
-    _exec_claude(config.gateway_url, extra_args)
+
+    # Prompt for display name on first run (shown in proxy dashboard)
+    if not config.user_name and sys.stdin.isatty():
+        console.print()
+        name = console.input("[bold]What's your name?[/bold] (shown to your team in the proxy dashboard)\n> ").strip()
+        if name:
+            config.user_name = name
+            save_config(config, DEFAULT_CONFIG_PATH)
+            console.print(f"Saved! You can change this later in ~/.luthien/config.toml\n")
+
+    _exec_claude(config.gateway_url, config.user_name, extra_args)
 
 
 @click.command(context_settings={"ignore_unknown_options": True})

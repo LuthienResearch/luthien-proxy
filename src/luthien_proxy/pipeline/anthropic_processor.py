@@ -22,6 +22,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+from datetime import datetime, timezone
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Literal, TypedDict, TypeGuard, cast
@@ -392,6 +393,25 @@ async def process_anthropic_request(
             user_hash = extract_user_hash({}, user_credential)
         if user_hash:
             root_span.set_attribute("luthien.user_hash", user_hash)
+
+        # Auto-label user from /u/{name}/ URL prefix (set by luthien CLI)
+        luthien_user: str | None = getattr(request.state, "luthien_user", None)
+        if luthien_user and user_hash and db_pool:
+            try:
+                async with db_pool.connection() as conn:
+                    await conn.execute(
+                        """INSERT INTO user_labels (user_hash, display_name, created_at, updated_at)
+                           VALUES ($1, $2, $3, $3)
+                           ON CONFLICT (user_hash) DO UPDATE SET
+                               display_name = EXCLUDED.display_name,
+                               updated_at = EXCLUDED.updated_at""",
+                        user_hash,
+                        luthien_user,
+                        datetime.now(timezone.utc),
+                    )
+            except Exception:
+                logger.debug(f"[{call_id}] Failed to auto-label user {luthien_user}")
+
 
         if usage_collector:
             usage_collector.record_session(session_id)

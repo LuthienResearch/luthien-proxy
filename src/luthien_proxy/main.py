@@ -323,6 +323,23 @@ def create_app(
 
     app.add_middleware(StaticCacheMiddleware)
 
+    # Extract username from /u/{name}/ URL prefix.
+    # The luthien CLI sets ANTHROPIC_BASE_URL=http://proxy:8000/u/stefan/
+    # so Claude Code requests arrive at /u/stefan/v1/messages.
+    # This middleware strips the prefix and stores the name on request.state.
+    class UserPrefixMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            path = request.scope.get("path", "")
+            if path.startswith("/u/"):
+                parts = path.split("/", 3)  # ['', 'u', 'name', 'rest...']
+                if len(parts) >= 4:
+                    request.state.luthien_user = parts[2]
+                    request.scope["path"] = "/" + parts[3]
+            response = await call_next(request)
+            return response
+
+    app.add_middleware(UserPrefixMiddleware)
+
     # Include routers
     app.include_router(gateway_router)  # /v1/messages
     app.include_router(debug_router)  # /api/debug/*
