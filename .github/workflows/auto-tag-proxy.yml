@@ -36,7 +36,7 @@ jobs:
       - name: Get latest proxy tag
         id: latest
         run: |
-          TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
+          TAG=$(git tag -l 'v[0-9]*' --sort=-v:refname | head -1)
           if [ -z "$TAG" ]; then
             echo "found=false" >> "$GITHUB_OUTPUT"
           else
@@ -83,6 +83,7 @@ jobs:
           else
             VERSION="${LATEST_TAG#v}"
             IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+            PATCH="${PATCH%%[-+]*}"  # strip pre-release/build metadata
             NEW_TAG="v${MAJOR}.${MINOR}.$((PATCH + 1))"
           fi
           echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
@@ -104,7 +105,7 @@ jobs:
         run: |
           python3 <<'PY'
           import os, re
-          from datetime import date, timezone, datetime
+          from datetime import timezone, datetime
           from pathlib import Path
 
           path = Path("CHANGELOG.md")
@@ -152,7 +153,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changelog changes to commit"
           else
-            git commit -m "chore(release): compile changelog for ${TAG} [skip auto-tag-proxy]"
+            git commit -m "chore(release): compile changelog for ${TAG} [skip auto-tag-proxy] [skip ci]"
           fi
 
       - name: Verify main hasn't advanced
