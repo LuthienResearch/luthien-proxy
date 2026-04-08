@@ -332,4 +332,36 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 ---
 
+## Allowlist (Not Blocklist) for Frontend-Exposed Request Params (2026-04-08)
+
+**Decision**: Use an explicit allowlist (`_REQUEST_PARAM_ALLOWLIST`) when passing request parameters to the conversation viewer frontend, rather than excluding known-sensitive fields.
+
+**Rationale**:
+- A blocklist (`if k not in ("messages", "system")`) forwards every unknown field — any new field added to the request pipeline (by policies, LiteLLM, or the Anthropic API) is automatically leaked to the browser.
+- An allowlist (`model`, `max_tokens`, `stream`, `temperature`, `top_p`, `top_k`, `stop_sequences`, `output_config`) only passes explicitly approved fields.
+- `output_config` is further sanitized to only include `format.type` (not the full JSON schema body, which may contain proprietary structure).
+
+**Alternatives rejected**:
+- Blocklist: grows stale the moment someone adds a field. A single `metadata: {api_key: "..."}` slip leaks credentials to the frontend.
+- No params at all: frontend needs `max_tokens` and `output_config.format.type` for preflight classification.
+
+---
+
+## Structural Preflight Classification Over Content Heuristics (2026-04-08)
+
+**Decision**: Classify non-conversational turns (quota probes, title generation) using structural request parameters, not response content.
+
+**Approach**:
+- Quota probe: `max_tokens === 1` (structural, catches all probes regardless of content)
+- Title generation: `output_config.format.type === 'json_schema'` AND `max_tokens ≤ 256`
+
+**Rationale**:
+- Content heuristics (e.g., `response.length <= 2`, `startsWith('{"title"')`) are fragile and create false positives on short legitimate responses.
+- `json_schema` alone is insufficient — real conversations can use structured output. The `max_tokens ≤ 256` guard prevents false positives.
+- Position-based guards ("only classify early turns") were removed because Claude Code sends probes at any position in the session.
+
+**Trade-off**: If Claude Code changes its probe structure (e.g., `max_tokens=2`), the classification silently stops working. The allowlisted `max_tokens` field in `request_params` makes this debuggable from the frontend.
+
+---
+
 (Add new decisions as they're made with timestamps: YYYY-MM-DD)

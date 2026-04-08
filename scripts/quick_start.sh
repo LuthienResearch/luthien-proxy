@@ -158,6 +158,10 @@ if [ -z "$_pre_env_compose_name" ]; then
 fi
 echo "📦 Docker project: ${COMPOSE_PROJECT_NAME}"
 
+# Pass commit hash to Docker build for version reporting
+BUILD_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+export BUILD_COMMIT
+
 # Check for insecure default credentials
 echo "🔒 Checking for insecure default credentials..."
 insecure_defaults=false
@@ -182,10 +186,6 @@ if [ -f .env ] && [ -f .env.example ]; then
     fi
 
     # Check if real API keys are missing (empty or placeholder)
-    if [[ -z "${OPENAI_API_KEY:-}" ]] || [[ "$OPENAI_API_KEY" = "your_openai_api_key_here" ]]; then
-        echo "ℹ️  INFO: OPENAI_API_KEY not set (only local models will work)"
-    fi
-
     if [[ -z "${ANTHROPIC_API_KEY:-}" ]] || [[ "$ANTHROPIC_API_KEY" = "your_anthropic_api_key_here" ]]; then
         echo "ℹ️  INFO: ANTHROPIC_API_KEY not set (only local models will work)"
     fi

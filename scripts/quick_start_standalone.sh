@@ -70,10 +70,6 @@ if [ -f .env ] && [ -f .env.example ]; then
     fi
 
     # Check if real API keys are missing (empty or placeholder)
-    if [[ -z "${OPENAI_API_KEY:-}" ]] || [[ "$OPENAI_API_KEY" = "your_openai_api_key_here" ]]; then
-        echo "ℹ️  INFO: OPENAI_API_KEY not set (only local models will work)"
-    fi
-
     if [[ -z "${ANTHROPIC_API_KEY:-}" ]] || [[ "$ANTHROPIC_API_KEY" = "your_anthropic_api_key_here" ]]; then
         echo "ℹ️  INFO: ANTHROPIC_API_KEY not set (only local models will work)"
     fi
@@ -94,7 +90,9 @@ docker rm luthien-standalone-dev 2>/dev/null || true
 
 # Build the standalone container
 echo "🔨 Building standalone container..."
-docker build -f docker/Dockerfile.standalone -t luthien-standalone-dev .
+docker build -f docker/Dockerfile.standalone \
+  --build-arg BUILD_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)" \
+  -t luthien-standalone-dev .
 
 # Create named volumes if they don't exist
 echo "📦 Creating persistent volumes..."

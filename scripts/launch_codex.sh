@@ -45,7 +45,7 @@ if ! curl -sf "http://localhost:${GATEWAY_PORT_VAR}/health" > /dev/null 2>&1; th
 fi
 
 echo "✅ Gateway is running on port ${GATEWAY_PORT_VAR}"
-echo "📊 Monitor at: http://localhost:${GATEWAY_PORT_VAR}/activity/monitor"
+echo "📊 Monitor at: http://localhost:${GATEWAY_PORT_VAR}/history"
 
 # Use PROXY_API_KEY for gateway authentication
 export LITELLM_MASTER_KEY="${PROXY_API_KEY:-sk-luthien-dev-key}"

@@ -88,10 +88,10 @@ The diff viewer at `http://localhost:8000/diffs` links directly to Tempo traces 
 ## Step 4: Real-Time Activity Monitor
 
 ```bash
-open http://localhost:8000/activity/monitor
+open http://localhost:8000/history
 ```
 
-This shows live events from Redis pub/sub (separate from traces).
+This shows live conversation sessions and history (separate from traces).
 
 ---
 

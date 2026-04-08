@@ -16,7 +16,7 @@ docker run -p 8000:8000 \
   -v luthien-redis:/data \
   -e PROXY_API_KEY=sk-my-key \
   -e ADMIN_API_KEY=admin-my-key \
-  -e OPENAI_API_KEY=sk-... \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
   luthien-standalone
 ```
 
@@ -30,7 +30,6 @@ All standard Luthien env vars work. The most important ones:
 |---|---|---|---|
 | `PROXY_API_KEY` | Yes | — | API key clients use to authenticate |
 | `ADMIN_API_KEY` | Yes | — | API key for admin endpoints |
-| `OPENAI_API_KEY` | No | — | OpenAI API key for upstream calls |
 | `ANTHROPIC_API_KEY` | No | — | Anthropic API key for upstream calls |
 | `GATEWAY_PORT` | No | `8000` | Port the gateway listens on |
 | `POLICY_CONFIG` | No | `/app/config/policy_config.yaml` | Policy config file path |

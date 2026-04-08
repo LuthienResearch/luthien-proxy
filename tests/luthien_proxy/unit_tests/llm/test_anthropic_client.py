@@ -301,24 +301,35 @@ class TestAnthropicClientComplete:
         assert "cache_read_input_tokens" not in result["usage"]
 
 
+def _mock_raw_stream(mock_async_client: AsyncMock, events: list) -> None:
+    """Set up mock_async_client.messages.create to return an AsyncStream-like
+    context manager that yields the given raw events.
+
+    stream() uses messages.create(stream=True), which returns an AsyncStream
+    that supports both async context manager and async iteration.
+    """
+
+    async def mock_stream_iter():
+        for event in events:
+            yield event
+
+    mock_stream = MagicMock()
+    mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+    mock_stream.__aexit__ = AsyncMock(return_value=None)
+    mock_stream.__aiter__ = lambda self: mock_stream_iter()
+    mock_async_client.messages.create = AsyncMock(return_value=mock_stream)
+
+
 class TestAnthropicClientStream:
     """Test AnthropicClient.stream() method."""
 
     @pytest.mark.asyncio
     async def test_stream_success(self, sample_request: AnthropicRequest, sample_stream_events: list):
-        """Test successful streaming."""
+        """Test successful streaming yields only raw wire-protocol events."""
         client = AnthropicClient(api_key="test-key")
 
-        async def mock_stream_iter():
-            for event in sample_stream_events:
-                yield event
-
         mock_async_client = AsyncMock()
-        mock_stream = MagicMock()
-        mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
-        mock_stream.__aexit__ = AsyncMock(return_value=None)
-        mock_stream.__aiter__ = lambda self: mock_stream_iter()
-        mock_async_client.messages.stream = MagicMock(return_value=mock_stream)
+        _mock_raw_stream(mock_async_client, sample_stream_events)
         client._client = mock_async_client
 
         events = []
@@ -336,7 +347,7 @@ class TestAnthropicClientStream:
 
     @pytest.mark.asyncio
     async def test_stream_passes_parameters(self, sample_stream_events: list):
-        """Test that stream passes parameters correctly."""
+        """Test that stream passes parameters correctly via messages.create(stream=True)."""
         client = AnthropicClient(api_key="test-key")
         request = AnthropicRequest(
             model=DEFAULT_TEST_MODEL,
@@ -346,43 +357,28 @@ class TestAnthropicClientStream:
             system="Be concise.",
         )
 
-        async def mock_stream_iter():
-            for event in sample_stream_events:
-                yield event
-
         mock_async_client = AsyncMock()
-        mock_stream = MagicMock()
-        mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
-        mock_stream.__aexit__ = AsyncMock(return_value=None)
-        mock_stream.__aiter__ = lambda self: mock_stream_iter()
-        mock_async_client.messages.stream = MagicMock(return_value=mock_stream)
+        _mock_raw_stream(mock_async_client, sample_stream_events)
         client._client = mock_async_client
 
         async for _ in client.stream(request):
             pass
 
-        mock_async_client.messages.stream.assert_called_once()
-        call_kwargs = mock_async_client.messages.stream.call_args.kwargs
+        mock_async_client.messages.create.assert_called_once()
+        call_kwargs = mock_async_client.messages.create.call_args.kwargs
         assert call_kwargs["model"] == DEFAULT_TEST_MODEL
         assert call_kwargs["max_tokens"] == 100
         assert call_kwargs["temperature"] == 0.5
         assert call_kwargs["system"] == "Be concise."
+        assert call_kwargs["stream"] is True
 
     @pytest.mark.asyncio
     async def test_stream_text_delta_content(self, sample_request: AnthropicRequest, sample_stream_events: list):
         """Test that text delta events contain expected content."""
         client = AnthropicClient(api_key="test-key")
 
-        async def mock_stream_iter():
-            for event in sample_stream_events:
-                yield event
-
         mock_async_client = AsyncMock()
-        mock_stream = MagicMock()
-        mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
-        mock_stream.__aexit__ = AsyncMock(return_value=None)
-        mock_stream.__aiter__ = lambda self: mock_stream_iter()
-        mock_async_client.messages.stream = MagicMock(return_value=mock_stream)
+        _mock_raw_stream(mock_async_client, sample_stream_events)
         client._client = mock_async_client
 
         text_deltas = []

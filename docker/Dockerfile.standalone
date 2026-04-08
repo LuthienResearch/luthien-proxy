@@ -9,7 +9,7 @@
 #     -v luthien-pgdata:/var/lib/postgresql/data \
 #     -v luthien-redis:/data \
 #     -e PROXY_API_KEY=sk-my-key \
-#     -e OPENAI_API_KEY=sk-... \
+#     -e ANTHROPIC_API_KEY=sk-ant-... \
 #     luthien-standalone
 #
 # Volume mount points:
@@ -47,7 +47,13 @@ WORKDIR /app
 
 COPY pyproject.toml uv.lock README.md ./
 COPY src/ ./src/
+
 COPY config/ ./config/
+
+# hatch-vcs needs .git/ to resolve the version, but .git/ is excluded from
+# Docker context. SETUPTOOLS_SCM_PRETEND_VERSION is the official escape hatch.
+ARG BUILD_COMMIT=unknown
+ENV SETUPTOOLS_SCM_PRETEND_VERSION="0.0.0+${BUILD_COMMIT}"
 COPY migrations/ ./migrations/
 COPY docker/run-migrations.sh ./docker/
 COPY docker/standalone-entry.sh ./docker/
