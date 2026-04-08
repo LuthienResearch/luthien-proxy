@@ -41,6 +41,7 @@ class ConversationMessage(BaseModel):
     tool_name: str | None = None
     tool_call_id: str | None = None
     tool_input: dict[str, object] | None = None
+    is_error: bool | None = None
 
 
 class ConversationTurn(BaseModel):

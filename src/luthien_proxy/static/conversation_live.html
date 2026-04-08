@@ -224,6 +224,36 @@
             animation: slideIn 0.4s ease-out;
         }
 
+        .turn.preflight {
+            opacity: 0.5;
+            border-color: #1e1e21;
+        }
+
+        .turn.preflight .turn-header {
+            background: #151517;
+            cursor: pointer;
+        }
+
+        .turn.preflight .preflight-badge {
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: #52525b;
+            background: #52525b15;
+            padding: 3px 8px;
+            border-radius: 4px;
+            border: 1px solid #52525b30;
+        }
+
+        .turn.preflight .turn-body {
+            display: none;
+        }
+
+        .turn.preflight.expanded .turn-body {
+            display: block;
+        }
+
         @keyframes slideIn {
             from { opacity: 0; transform: translateY(12px); }
             to { opacity: 1; transform: translateY(0); }
@@ -296,6 +326,18 @@
         .message.assistant { background: #0f1420; border-left-color: #3b82f6; }
         .message.tool_call { background: #1a1708; border-left-color: #fbbf24; }
         .message.tool_result { background: #0a1a1a; border-left-color: #06b6d4; }
+        .message.tool-error { background: #1a0a0a; border-left-color: #ef4444; }
+        .message.tool-error .message-type { color: #f87171; }
+
+        .error-badge {
+            font-size: 10px;
+            font-weight: 600;
+            color: #ef4444;
+            background: #ef444415;
+            padding: 1px 6px;
+            border-radius: 3px;
+            border: 1px solid #ef444430;
+        }
 
         .message-header {
             display: flex;
@@ -386,7 +428,6 @@
         }
 
         .tool-input {
-            margin-top: 8px;
             padding: 10px 12px;
             background: #09090b;
             border-radius: 6px;
@@ -396,6 +437,129 @@
             color: #a1a1aa;
             overflow-x: auto;
         }
+
+        .tool-input pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        /* Tool result: code-style block */
+        .tool-result-content {
+            background: #09090b;
+            border-radius: 6px;
+            border: 1px solid #27272a;
+            padding: 10px 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: #a1a1aa;
+            overflow-x: auto;
+        }
+
+        .tool-result-content pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .tool-result-content.truncated {
+            max-height: 280px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .tool-result-content.truncated::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 50px;
+            background: linear-gradient(transparent, #09090b);
+            pointer-events: none;
+        }
+
+        .tool-result-content.truncated.expanded {
+            max-height: none;
+            overflow: visible;
+        }
+
+        .tool-result-content.truncated.expanded::after {
+            display: none;
+        }
+
+        /* Visual grouping: tool calls and their results */
+        .message.tool_call + .message.tool_result,
+        .message.tool_result + .message.tool_result {
+            margin-top: 4px;
+            border-top-left-radius: 2px;
+            border-top-right-radius: 2px;
+        }
+
+        .message.tool_call {
+            margin-bottom: 0;
+            border-bottom-left-radius: 2px;
+            border-bottom-right-radius: 2px;
+        }
+
+        /* Collapsible tagged sections */
+        .tagged-section {
+            margin: 6px 0;
+            border: 1px solid #27272a;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .tagged-section summary {
+            padding: 6px 10px;
+            background: #1c1c1f;
+            font-size: 11px;
+            font-weight: 600;
+            color: #71717a;
+            cursor: pointer;
+            user-select: none;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .tagged-section summary::-webkit-details-marker { display: none; }
+
+        .tagged-section summary::before {
+            content: '▶';
+            font-size: 8px;
+            transition: transform 0.15s;
+        }
+
+        .tagged-section[open] summary::before {
+            transform: rotate(90deg);
+        }
+
+        .tagged-section .tagged-content {
+            padding: 8px 10px;
+            font-size: 12px;
+            color: #a1a1aa;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 300px;
+            overflow-y: auto;
+            background: #09090b;
+            border-top: 1px solid #27272a;
+        }
+
+        .tag-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            padding: 1px 6px;
+            border-radius: 3px;
+            background: #27272a;
+            color: #a1a1aa;
+        }
+
+        .tagged-section.system-reminder .tag-label { background: #6366f115; color: #818cf8; }
+        .tagged-section.policy-context .tag-label { background: #fbbf2415; color: #fbbf24; }
+        .tagged-section.bash-output .tag-label { background: #4ade8015; color: #4ade80; }
 
         /* Event timeline */
         .event-timeline {
@@ -795,6 +959,13 @@
                 setupEventDelegation() {
                     const container = document.getElementById('conversation-container');
                     container.addEventListener('click', (e) => {
+                        // Toggle preflight turn expansion
+                        const preflightHeader = e.target.closest('.preflight .turn-header');
+                        if (preflightHeader) {
+                            preflightHeader.closest('.turn').classList.toggle('expanded');
+                            return;
+                        }
+
                         const target = e.target.closest('[data-event-timeline]');
                         if (target) {
                             const callId = target.getAttribute('data-event-timeline');
@@ -948,7 +1119,9 @@
                         );
                         if (!resp.ok) return;
                         const data = await resp.json();
-                        const newTurns = data.turns || [];
+                        const rawTurns = data.turns || [];
+                        const newTurns = this.presentTurns(rawTurns);
+                        this.turns = newTurns;
 
                         this.updateStats(data);
                         this.updateTimestamp();
@@ -961,11 +1134,12 @@
 
                         const savedState = this.snapshotExpandState();
 
-                        // Update existing turns only if their data changed
-                        // (e.g. response arrived, late policy annotation)
+                        // Update existing turns only if their server data changed
+                        // (e.g. response arrived, late policy annotation).
+                        // Fingerprint raw server data, not derived presentation state.
                         for (let i = 0; i < newTurns.length; i++) {
                             const turn = newTurns[i];
-                            const fp = JSON.stringify(turn);
+                            const fp = JSON.stringify(rawTurns[i]);
                             if (this.renderedCallIds.has(turn.call_id)) {
                                 if (fp !== this.turnFingerprints[turn.call_id]) {
                                     const existing = container.querySelector(`[data-call-id="${CSS.escape(turn.call_id)}"]`);
@@ -986,7 +1160,6 @@
                         }
 
                         this.restoreExpandState(savedState);
-                        this.turns = newTurns;
                         this.autoScrollToBottom();
                     } catch (err) {
                         console.error('Failed to refresh turns:', err);
@@ -994,11 +1167,72 @@
                 },
 
                 processTurns(data) {
-                    this.turns = data.turns || [];
+                    this.turns = this.presentTurns(data.turns || []);
+                },
+
+                // Presentation pipeline: classify preflight turns and compute
+                // display messages (dedup) entirely on the client side.
+                //
+                // The API sends the full conversation history on every request:
+                //   Turn 1: [user₀]
+                //   Turn 2: [user₀, assistant₁, user₂]
+                //   Turn 3: [user₀, assistant₁, user₂, tool_call₂, tool_result₂, user₃]
+                //
+                // user₀ (the initial message with all preamble) is re-sent identically
+                // every turn. New content appears at the end, after the previous turn's
+                // messages. So for turn N, display = request_messages.slice(prevCount).
+                // Preflight turns are excluded from the count so they don't disrupt the
+                // sequence.
+                presentTurns(rawTurns) {
+                    let prevRealMsgCount = 0;
+
+                    return rawTurns.map(turn => {
+                        const isPreflight = this.classifyPreflight(turn);
+
+                        let displayMessages;
+                        if (isPreflight) {
+                            displayMessages = turn.request_messages;
+                        } else {
+                            displayMessages = turn.request_messages.slice(prevRealMsgCount);
+                            prevRealMsgCount = turn.request_messages.length;
+                        }
+
+                        return { ...turn, _isPreflight: isPreflight, _displayMessages: displayMessages };
+                    });
+                },
+
+                classifyPreflight(turn) {
+                    const reqMsgs = turn.request_messages || [];
+                    if (reqMsgs.length > 1) return false;
+
+                    // Use original response if policy modified it, otherwise final
+                    const origResp = turn.original_response_messages || turn.response_messages || [];
+                    const finalResp = turn.response_messages || [];
+
+                    // Check original response for probe/title patterns
+                    // (policies like onboarding append text, masking the short original)
+                    for (const msgs of [origResp, finalResp]) {
+                        if (msgs.length !== 1) continue;
+                        const content = msgs[0].content || '';
+
+                        // Quota probe: original response is 1-2 chars
+                        if (content.length <= 2) return true;
+
+                        // Title generation: response starts with {"title":
+                        const firstLine = content.split('\n', 1)[0].trim();
+                        if (firstLine.startsWith('{"title"')) {
+                            try {
+                                const parsed = JSON.parse(firstLine);
+                                if (parsed.title && Object.keys(parsed).length <= 3) return true;
+                            } catch (e) { /* not JSON, not preflight */ }
+                        }
+                    }
+                    return false;
                 },
 
                 updateStats(data) {
-                    this.stats.turns = data.turns?.length || 0;
+                    const realTurns = this.turns.filter(t => !t._isPreflight);
+                    this.stats.turns = realTurns.length;
                     this.stats.interventions = data.total_policy_interventions || 0;
                     this.stats.models = [...new Set(data.models_used || [])];
                     this.stats.events = Object.values(this.rawEvents).reduce((sum, events) => sum + events.length, 0);
@@ -1109,12 +1343,69 @@
 
                 renderTurn(turn, number) {
                     const hasIntervention = turn.had_policy_intervention;
+                    const isPreflight = turn._isPreflight;
                     const classes = ['turn', `turn-${number - 1}`];
                     if (hasIntervention) classes.push('has-intervention');
+                    if (isPreflight) classes.push('preflight');
 
                     const callId = escapeHtml(turn.call_id);
-                    const requestHtml = (turn.request_messages || []).map((m, mi) => this.renderMessage(m, `${callId}-req-${mi}`)).join('');
-                    const responseHtml = (turn.response_messages || []).map((m, mi) => this.renderMessage(m, `${callId}-res-${mi}`)).join('');
+                    const displayMessages = turn._displayMessages || turn.request_messages || [];
+                    const responseMessages = turn.response_messages || [];
+
+                    // Build unified message list pairing tool calls with their results.
+                    // Tool results (from request) match tool calls (from request or response)
+                    // via tool_call_id. We also skip request tool_calls that duplicate
+                    // a response tool_call from this same turn (the API re-sends them).
+                    const toolResultsByCallId = {};
+                    for (const m of displayMessages) {
+                        if (m.message_type === 'tool_result' && m.tool_call_id) {
+                            toolResultsByCallId[m.tool_call_id] = m;
+                        }
+                    }
+
+                    // Track response tool_call IDs to suppress duplicates from request
+                    const responseToolCallIds = new Set();
+                    for (const m of responseMessages) {
+                        if (m.message_type === 'tool_call' && m.tool_call_id) {
+                            responseToolCallIds.add(m.tool_call_id);
+                        }
+                    }
+
+                    const orderedMessages = [];
+                    const usedResultIds = new Set();
+
+                    // Request messages: skip tool_results (paired later) and
+                    // tool_calls that also appear in the response (duplicates)
+                    for (const m of displayMessages) {
+                        if (m.message_type === 'tool_result') continue;
+                        if (m.message_type === 'tool_call' && responseToolCallIds.has(m.tool_call_id)) continue;
+                        orderedMessages.push(m);
+                        // If this request tool_call has a result, pair it
+                        if (m.message_type === 'tool_call' && toolResultsByCallId[m.tool_call_id]) {
+                            orderedMessages.push(toolResultsByCallId[m.tool_call_id]);
+                            usedResultIds.add(m.tool_call_id);
+                        }
+                    }
+
+                    // Response messages with paired results
+                    for (const m of responseMessages) {
+                        orderedMessages.push(m);
+                        if (m.message_type === 'tool_call' && toolResultsByCallId[m.tool_call_id]) {
+                            orderedMessages.push(toolResultsByCallId[m.tool_call_id]);
+                            usedResultIds.add(m.tool_call_id);
+                        }
+                    }
+
+                    // Any orphaned tool results
+                    for (const id in toolResultsByCallId) {
+                        if (!usedResultIds.has(id)) {
+                            orderedMessages.push(toolResultsByCallId[id]);
+                        }
+                    }
+
+                    const messagesHtml = orderedMessages.map((m, mi) =>
+                        this.renderMessage(m, `${callId}-m${mi}`)
+                    ).join('');
 
                     let diffHtml = '';
                     if (turn.request_was_modified || turn.response_was_modified) {
@@ -1172,12 +1463,12 @@
                                     <span class="turn-number">Turn ${number}</span>
                                     ${turn.model ? `<span class="turn-model">${escapeHtml(turn.model)}</span>` : ''}
                                 </div>
+                                ${isPreflight ? '<span class="preflight-badge">Preflight</span>' : ''}
                                 ${hasIntervention ? '<span class="intervention-badge">Policy Modified</span>' : ''}
                             </div>
                             <div class="turn-body">
                                 <div class="messages">
-                                    ${requestHtml}
-                                    ${responseHtml}
+                                    ${messagesHtml}
                                 </div>
                                 ${eventTimelineHtml}
                                 ${diffHtml}
@@ -1203,21 +1494,45 @@
                     }
 
                     const content = msg.content || '';
-                    const shouldTruncate = content.length > 800;
                     const contentId = `c-${stableId}`;
 
-                    let toolInputHtml = '';
+                    // Tool calls: show only the pretty-formatted input, not raw content
                     if (msg.message_type === 'tool_call' && msg.tool_input) {
-                        toolInputHtml = `
-                            <div class="tool-input">
-                                <pre>${escapeHtml(JSON.stringify(msg.tool_input, null, 2))}</pre>
+                        return `
+                            <div class="message ${typeClass}">
+                                <div class="message-header">
+                                    <span class="message-type">${typeLabel}</span>
+                                    ${headerExtra}
+                                </div>
+                                <div class="tool-input">
+                                    <pre>${escapeHtml(JSON.stringify(msg.tool_input, null, 2))}</pre>
+                                </div>
                             </div>
                         `;
                     }
 
-                    const expandBtn = shouldTruncate
-                        ? `<button class="expand-btn" data-expand-btn="${contentId}">Show more</button>`
-                        : '';
+                    // Tool results: code-style block
+                    if (msg.message_type === 'tool_result') {
+                        const shouldTruncate = content.length > 800;
+                        const expandBtn = shouldTruncate
+                            ? `<button class="expand-btn" data-expand-btn="${contentId}">Show more</button>`
+                            : '';
+                        const errorClass = msg.is_error ? ' tool-error' : '';
+                        const errorBadge = msg.is_error ? '<span class="error-badge">Error</span>' : '';
+                        return `
+                            <div class="message ${typeClass}${errorClass}" ${msg.tool_call_id ? `data-tool-call-id="${escapeHtml(msg.tool_call_id)}"` : ''}>
+                                <div class="message-header">
+                                    <span class="message-type">${typeLabel}</span>
+                                    ${errorBadge}
+                                    ${headerExtra}
+                                </div>
+                                <div class="tool-result-content ${shouldTruncate ? 'truncated' : ''}" id="${contentId}"><pre>${escapeHtml(content)}</pre></div>
+                                ${expandBtn}
+                            </div>
+                        `;
+                    }
+
+                    const renderedContent = this.renderContentWithTags(content, contentId);
 
                     return `
                         <div class="message ${typeClass}">
@@ -1225,10 +1540,91 @@
                                 <span class="message-type">${typeLabel}</span>
                                 ${headerExtra}
                             </div>
-                            <div class="${shouldTruncate ? 'message-content truncated' : 'message-content'}" id="${contentId}">${escapeHtml(content)}</div>
-                            ${expandBtn}
-                            ${toolInputHtml}
+                            ${renderedContent}
                         </div>
+                    `;
+                },
+
+                renderContentWithTags(content, contentId) {
+                    const TAG_LABELS = {
+                        'system-reminder': 'System Reminder',
+                        'policy-context': 'Policy Context',
+                        'local-command-caveat': 'Local Command',
+                        'bash-input': 'Shell Command',
+                        'bash-stdout': 'Shell Output',
+                        'bash-stderr': 'Shell Error',
+                    };
+                    const TAG_CLASSES = {
+                        'system-reminder': 'system-reminder',
+                        'policy-context': 'policy-context',
+                        'bash-input': 'bash-output',
+                        'bash-stdout': 'bash-output',
+                        'bash-stderr': 'bash-output',
+                    };
+
+                    // Known wrapper tags are flat (never nested within themselves)
+                    // so a simple regex is reliable here.
+                    const tagNames = Object.keys(TAG_LABELS).map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+                    const tagPattern = new RegExp(
+                        '<(' + tagNames.join('|') + ')(?:\\s[^>]*)?>([\\s\\S]*?)</\\1>',
+                        'g'
+                    );
+
+                    const parts = [];
+                    let lastIndex = 0;
+                    let match;
+
+                    while ((match = tagPattern.exec(content)) !== null) {
+                        if (match.index > lastIndex) {
+                            const before = content.slice(lastIndex, match.index).trim();
+                            if (before) parts.push({ type: 'text', content: before });
+                        }
+                        parts.push({ type: 'tag', tagName: match[1], content: match[2].trim() });
+                        lastIndex = match.index + match[0].length;
+                    }
+
+                    if (lastIndex < content.length) {
+                        const remaining = content.slice(lastIndex).trim();
+                        if (remaining) parts.push({ type: 'text', content: remaining });
+                    }
+
+                    // If no tags found, fall back to plain rendering
+                    if (parts.length === 0 || (parts.length === 1 && parts[0].type === 'text')) {
+                        return this._renderPlainContent(content, contentId);
+                    }
+
+                    return parts.map((part, i) => {
+                        if (part.type === 'text') {
+                            const shouldTruncate = part.content.length > 800;
+                            const partId = `${contentId}-p${i}`;
+                            const expandBtn = shouldTruncate
+                                ? `<button class="expand-btn" data-expand-btn="${partId}">Show more</button>`
+                                : '';
+                            return `
+                                <div class="${shouldTruncate ? 'message-content truncated' : 'message-content'}" id="${partId}">${escapeHtml(part.content)}</div>
+                                ${expandBtn}
+                            `;
+                        }
+
+                        const label = TAG_LABELS[part.tagName] || part.tagName;
+                        const cssClass = TAG_CLASSES[part.tagName] || '';
+                        return `
+                            <details class="tagged-section ${cssClass}">
+                                <summary><span class="tag-label">${escapeHtml(label)}</span></summary>
+                                <div class="tagged-content">${escapeHtml(part.content)}</div>
+                            </details>
+                        `;
+                    }).join('');
+                },
+
+                _renderPlainContent(content, contentId) {
+                    const shouldTruncate = content.length > 800;
+                    const expandBtn = shouldTruncate
+                        ? `<button class="expand-btn" data-expand-btn="${contentId}">Show more</button>`
+                        : '';
+                    return `
+                        <div class="${shouldTruncate ? 'message-content truncated' : 'message-content'}" id="${contentId}">${escapeHtml(content)}</div>
+                        ${expandBtn}
                     `;
                 },
 

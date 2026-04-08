@@ -238,6 +238,248 @@ class TestExtractToolCalls:
         assert len(result) == 0
 
 
+class TestAnthropicToolResultExtraction:
+    """Test Anthropic-style tool_result extraction in user messages.
+
+    When a user message contains a list with tool_result blocks, they are
+    extracted into separate TOOL_RESULT messages with tool_call_id (from
+    tool_use_id), and text blocks are extracted as separate USER messages.
+    """
+
+    def test_single_tool_result_in_user_message(self):
+        """Test extracting a single tool_result from a user message."""
+        request = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "toolu_abc123", "content": "result text"},
+                    ],
+                }
+            ]
+        }
+
+        result = _parse_request_messages(request)
+
+        assert len(result) == 1
+        assert result[0].message_type == MessageType.TOOL_RESULT
+        assert result[0].content == "result text"
+        assert result[0].tool_call_id == "toolu_abc123"
+
+    def test_mixed_text_and_tool_result(self):
+        """Test extracting mixed text + tool_result blocks from a user message."""
+        request = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Here's what I found"},
+                        {"type": "tool_result", "tool_use_id": "toolu_xyz", "content": "Tool output"},
+                    ],
+                }
+            ]
+        }
+
+        result = _parse_request_messages(request)
+
+        assert len(result) == 2
+        assert result[0].message_type == MessageType.USER
+        assert result[0].content == "Here's what I found"
+        assert result[1].message_type == MessageType.TOOL_RESULT
+        assert result[1].content == "Tool output"
+        assert result[1].tool_call_id == "toolu_xyz"
+
+    def test_multiple_tool_result_blocks(self):
+        """Test extracting multiple tool_result blocks from a user message."""
+        request = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "toolu_1", "content": "First result"},
+                        {"type": "tool_result", "tool_use_id": "toolu_2", "content": "Second result"},
+                    ],
+                }
+            ]
+        }
+
+        result = _parse_request_messages(request)
+
+        assert len(result) == 2
+        assert result[0].message_type == MessageType.TOOL_RESULT
+        assert result[0].content == "First result"
+        assert result[0].tool_call_id == "toolu_1"
+        assert result[1].message_type == MessageType.TOOL_RESULT
+        assert result[1].content == "Second result"
+        assert result[1].tool_call_id == "toolu_2"
+
+    def test_tool_result_with_none_content(self):
+        """Test that tool_result with None content becomes empty string."""
+        request = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "toolu_empty", "content": None},
+                    ],
+                }
+            ]
+        }
+
+        result = _parse_request_messages(request)
+
+        assert len(result) == 1
+        assert result[0].message_type == MessageType.TOOL_RESULT
+        assert result[0].content == ""
+        assert result[0].tool_call_id == "toolu_empty"
+
+    def test_tool_result_with_string_content(self):
+        """Test that tool_result with string content (not list) is extracted."""
+        request = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "toolu_str", "content": "Plain string result"},
+                    ],
+                }
+            ]
+        }
+
+        result = _parse_request_messages(request)
+
+        assert len(result) == 1
+        assert result[0].message_type == MessageType.TOOL_RESULT
+        assert result[0].content == "Plain string result"
+        assert result[0].tool_call_id == "toolu_str"
+
+    def test_tool_result_with_nested_content_blocks(self):
+        """Test tool_result with nested content blocks (list of text blocks)."""
+        request = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_nested",
+                            "content": [
+                                {"type": "text", "text": "First part"},
+                                {"type": "text", "text": "Second part"},
+                            ],
+                        },
+                    ],
+                }
+            ]
+        }
+
+        result = _parse_request_messages(request)
+
+        assert len(result) == 1
+        assert result[0].message_type == MessageType.TOOL_RESULT
+        # Nested content blocks should be concatenated with newlines
+        assert result[0].content == "First part\nSecond part"
+        assert result[0].tool_call_id == "toolu_nested"
+
+    def test_text_only_user_message_not_special_path(self):
+        """Test that text-only user message (no tool_results) uses normal path."""
+        request = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Just a question"},
+                    ],
+                }
+            ]
+        }
+
+        result = _parse_request_messages(request)
+
+        assert len(result) == 1
+        assert result[0].message_type == MessageType.USER
+        assert result[0].content == "Just a question"
+        assert result[0].tool_call_id is None
+
+    def test_whitespace_only_text_blocks_filtered(self):
+        """Test that whitespace-only text blocks are filtered out."""
+        request = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "   \n\t  "},  # Whitespace only
+                        {"type": "tool_result", "tool_use_id": "toolu_ws", "content": "Result"},
+                        {"type": "text", "text": "Valid text"},
+                    ],
+                }
+            ]
+        }
+
+        result = _parse_request_messages(request)
+
+        assert len(result) == 2
+        # Whitespace-only text should be filtered
+        assert result[0].message_type == MessageType.TOOL_RESULT
+        assert result[0].content == "Result"
+        assert result[1].message_type == MessageType.USER
+        assert result[1].content == "Valid text"
+
+    def test_tool_result_with_is_error_field(self):
+        """Test that tool_result with is_error field doesn't break extraction."""
+        request = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_error",
+                            "content": "Error occurred",
+                            "is_error": True,
+                        },
+                    ],
+                }
+            ]
+        }
+
+        result = _parse_request_messages(request)
+
+        # is_error is currently ignored but shouldn't break parsing
+        assert len(result) == 1
+        assert result[0].message_type == MessageType.TOOL_RESULT
+        assert result[0].content == "Error occurred"
+        assert result[0].tool_call_id == "toolu_error"
+
+    def test_complex_mixed_blocks(self):
+        """Test a complex scenario with multiple text + tool_result blocks."""
+        request = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "First observation"},
+                        {"type": "tool_result", "tool_use_id": "tool1", "content": "Data from tool 1"},
+                        {"type": "text", "text": "Second observation"},
+                        {"type": "tool_result", "tool_use_id": "tool2", "content": "Data from tool 2"},
+                    ],
+                }
+            ]
+        }
+
+        result = _parse_request_messages(request)
+
+        assert len(result) == 4
+        assert result[0].message_type == MessageType.USER
+        assert result[0].content == "First observation"
+        assert result[1].message_type == MessageType.TOOL_RESULT
+        assert result[1].tool_call_id == "tool1"
+        assert result[2].message_type == MessageType.USER
+        assert result[2].content == "Second observation"
+        assert result[3].message_type == MessageType.TOOL_RESULT
+        assert result[3].tool_call_id == "tool2"
+
+
 class TestParseRequestMessages:
     """Test request message parsing."""
 

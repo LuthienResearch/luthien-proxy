@@ -172,14 +172,13 @@ def _parse_request_messages(request: dict[str, Any]) -> list[ConversationMessage
 
         content = extract_text_content(msg.get("content"))
 
-        # For tool results, include the tool_call_id
+        # For OpenAI-style tool results, include the tool_call_id
         tool_call_id = msg.get("tool_call_id") if msg_type == MessageType.TOOL_RESULT else None
 
         # For assistant messages, extract any tool calls first
         if msg_type == MessageType.ASSISTANT:
             tool_call_msgs = _extract_tool_calls(msg)
             if tool_call_msgs:
-                # Add tool calls, then optionally add text content if present
                 messages.extend(tool_call_msgs)
                 if content:
                     messages.append(
@@ -189,6 +188,36 @@ def _parse_request_messages(request: dict[str, Any]) -> list[ConversationMessage
                         )
                     )
                 continue
+
+        # Anthropic-style tool results: user messages with tool_result content blocks.
+        # Split these into separate TOOL_RESULT messages with their tool_use_id
+        # so the frontend can pair them with tool calls.
+        if msg_type == MessageType.USER:
+            raw_content = msg.get("content")
+            if isinstance(raw_content, list):
+                has_tool_results = any(b.get("type") == "tool_result" for b in raw_content)
+                if has_tool_results:
+                    for block in raw_content:
+                        if block.get("type") == "tool_result":
+                            result_content = block.get("content")
+                            text = extract_text_content(result_content) if result_content is not None else ""
+                            is_error = block.get("is_error") or None
+                            messages.append(
+                                ConversationMessage(
+                                    message_type=MessageType.TOOL_RESULT,
+                                    content=text,
+                                    tool_call_id=block.get("tool_use_id"),
+                                    is_error=is_error if is_error else None,
+                                )
+                            )
+                        elif block.get("type") == "text" and block.get("text", "").strip():
+                            messages.append(
+                                ConversationMessage(
+                                    message_type=MessageType.USER,
+                                    content=block["text"],
+                                )
+                            )
+                    continue
 
         messages.append(
             ConversationMessage(
