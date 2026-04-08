@@ -641,10 +641,18 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
     )
 
 
-_REQUEST_PARAM_ALLOWLIST = frozenset({
-    "model", "max_tokens", "stream", "temperature",
-    "top_p", "top_k", "stop_sequences", "output_config",
-})
+_REQUEST_PARAM_ALLOWLIST = frozenset(
+    {
+        "model",
+        "max_tokens",
+        "stream",
+        "temperature",
+        "top_p",
+        "top_k",
+        "stop_sequences",
+        "output_config",
+    }
+)
 
 
 def _build_turn(call_id: str, events: list[StoredEvent]) -> ConversationTurn:
