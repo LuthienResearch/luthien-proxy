@@ -82,6 +82,9 @@ def extract_session_id_from_headers(headers: dict[str, str]) -> str | None:
 # Format: user_<hash>_account__session_<uuid>
 _USER_HASH_PATTERN = re.compile(r"^user_(.+?)_account__")
 
+# Number of hex characters to keep from SHA-256 digest (64 bits of entropy)
+_CREDENTIAL_HASH_LENGTH = 16
+
 
 def extract_user_hash(body: dict[str, Any], credential: Credential | None) -> str | None:
     """Extract a stable user identifier from request metadata or credential.
@@ -91,6 +94,10 @@ def extract_user_hash(body: dict[str, Any], credential: Credential | None) -> st
     - OAuth mode: JSON ``{"device_id": "...", "session_id": "..."}`` -> hash credential
 
     Falls back to hashing the credential value if metadata doesn't contain a user ID.
+
+    Args:
+        body: Raw request body as dict (expected to have optional ``metadata.user_id`` field)
+        credential: The authenticated credential for this request, used as fallback identifier
 
     Returns:
         Stable user hash string, or None if no identifying info is available.
@@ -106,7 +113,7 @@ def extract_user_hash(body: dict[str, Any], credential: Credential | None) -> st
 
     # Fallback: hash the credential value
     if credential is not None:
-        return hashlib.sha256(credential.value.encode()).hexdigest()[:16]
+        return hashlib.sha256(credential.value.encode()).hexdigest()[:_CREDENTIAL_HASH_LENGTH]
 
     return None
 
