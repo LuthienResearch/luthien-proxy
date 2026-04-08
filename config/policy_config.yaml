@@ -28,9 +28,9 @@ policy:
 # policy:
 #   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
 #   config:
-#     model: "openai/gpt-4o-mini"  # Use gpt-4o-mini for JSON mode support (gpt-4 base doesn't support it)
-#     api_base: null  # Uses default OpenAI API
-#     api_key: null  # Falls back to OPENAI_API_KEY env var
+#     model: "claude-haiku-4-5"
+#     api_base: null  # Uses model's default backend
+#     api_key: null  # Falls back to ANTHROPIC_API_KEY env var
 #     probability_threshold: 0.01
 #     temperature: 0.0
 #     max_tokens: 256

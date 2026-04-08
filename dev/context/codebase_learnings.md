@@ -41,7 +41,7 @@ Integrated architecture - everything runs in single gateway process.
 
 **Key insight**: LiteLLM should ONLY be used for API format conversion, not parameter validation.
 
-**Problem**: When passing model-specific parameters (e.g., `verbosity: "low"` for GPT-5), litellm's `acompletion()` rejects them with "Unknown parameter" errors.
+**Problem**: When passing model-specific parameters (e.g., provider-specific options), litellm's `acompletion()` rejects them with "Unknown parameter" errors.
 
 **Solution**: Use litellm's `allowed_openai_params` mechanism:
 ```python
@@ -153,7 +153,7 @@ curl -X POST http://localhost:8000/api/admin/policy/set \
   -d '{
     "policy_class_ref": "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
     "config": {
-      "model": "openai/gpt-4o-mini",
+      "model": "claude-haiku-4-5",
       "probability_threshold": 0.99,
       "temperature": 0.0,
       "max_tokens": 256

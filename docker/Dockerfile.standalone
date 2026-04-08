@@ -9,7 +9,7 @@
 #     -v luthien-pgdata:/var/lib/postgresql/data \
 #     -v luthien-redis:/data \
 #     -e PROXY_API_KEY=sk-my-key \
-#     -e OPENAI_API_KEY=sk-... \
+#     -e ANTHROPIC_API_KEY=sk-ant-... \
 #     luthien-standalone
 #
 # Volume mount points:

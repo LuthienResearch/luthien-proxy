@@ -17,7 +17,7 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 ## Docker Development (2025-10-08, updated 2026-02-03)
 
-- **Shell env overrides .env for API keys**: Docker Compose's `${VAR}` syntax checks shell environment FIRST, `.env` file second. If `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` is set in your shell (e.g., from `~/.zshrc`), it will override `.env` values. The fix is to use `env_file: .env` in docker-compose.yaml and NOT list API keys in the `environment:` block.
+- **Shell env overrides .env for API keys**: Docker Compose's `${VAR}` syntax checks shell environment FIRST, `.env` file second. If `ANTHROPIC_API_KEY` is set in your shell (e.g., from `~/.zshrc`), it will override `.env` values. The fix is to use `env_file: .env` in docker-compose.yaml and NOT list API keys in the `environment:` block.
 - **Env changes require recreate, not restart**: `docker compose restart gateway` updates the code, but does NOT reload `.env` changes - it reuses the existing container config. Use `docker compose up -d gateway` to recreate with updated env vars.
 - Check logs with `docker compose logs -f gateway` when debugging
 - Long-running compose or `uv` commands can hang the CLI; launch them via `scripts/run_bg_command.sh` so you can poll logs (`tail -f`) and terminate with the recorded PID if needed.
