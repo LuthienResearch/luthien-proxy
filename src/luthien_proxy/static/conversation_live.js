@@ -15,7 +15,6 @@ function conversationViewer() {
         autoScroll: true,
         lastUpdated: '',
         evtSource: null,
-        pollTimer: null,
         refreshTimer: null,
         expandedRaw: {},
         expandedContent: {},
@@ -217,6 +216,8 @@ function conversationViewer() {
                 // Update existing turns only if their server data changed
                 // (e.g. response arrived, late policy annotation).
                 // Fingerprint raw server data, not derived presentation state.
+                // rawTurns[i] and newTurns[i] are aligned because presentTurns
+                // maps 1:1 without filtering.
                 for (let i = 0; i < newTurns.length; i++) {
                     const turn = newTurns[i];
                     const fp = JSON.stringify(rawTurns[i]);
