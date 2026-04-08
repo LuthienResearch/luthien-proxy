@@ -110,7 +110,7 @@ No Docker required. This installs [`uv`](https://docs.astral.sh/uv/) (if needed)
 
 > **Claude Pro/Max users**: You don't need an API key. Luthien passes your existing Claude subscription credentials through to the Anthropic API — no extra cost, no configuration needed.
 
-> **Platform support**: Linux and macOS. Windows is not currently supported.
+> **🚨 Platform support**: Linux and macOS. Windows is **not currently supported.**
 
 After setup, use the CLI or Claude Code to manage the proxy:
 
