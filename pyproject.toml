@@ -98,6 +98,11 @@ markers = [
     "llm06: OWASP LLM06 - Sensitive Information Disclosure scenarios",
     "llm07: OWASP LLM07 - Insecure Plugin Design / Tool Call scenarios (reserved, no tests yet)",
     "llm08: OWASP LLM08 - Excessive Agency scenarios",
+    "uat_onboarding: UAT - Onboarding Context (LLM01 Trello)",
+    "uat_deslop: UAT - DeSlop Policy activation without 400 (LLM02 Trello)",
+    "uat_unimplemented: UAT - Unimplemented policy error handling (LLM03 Trello)",
+    "uat_api_key: UAT - API Key Error Messaging format (LLM04 Trello)",
+    "uat_stability: UAT - Policy Setup Stability (LLM05 Trello)",
 ]
 timeout_func_only = false
 
