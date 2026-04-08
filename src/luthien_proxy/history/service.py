@@ -438,7 +438,7 @@ async def _fetch_session_list_pg(
                 AND COALESCE((payload->'final_request'->>'max_tokens')::int, 2) > 1
                 ORDER BY session_id, created_at ASC
             ),
-            session_user AS (
+            session_user_info AS (
                 SELECT DISTINCT ON (session_id)
                     session_id,
                     user_hash
@@ -463,7 +463,7 @@ async def _fetch_session_list_pg(
             FROM session_stats s
             LEFT JOIN session_models m ON s.session_id = m.session_id
             LEFT JOIN session_first_message f ON s.session_id = f.session_id
-            LEFT JOIN session_user u ON s.session_id = u.session_id
+            LEFT JOIN session_user_info u ON s.session_id = u.session_id
             {user_hash_join}
             GROUP BY s.session_id, s.first_ts, s.last_ts,
                      s.total_events, s.turn_count, s.policy_interventions,
