@@ -22,7 +22,6 @@ class LuthienConfig:
     admin_key: str | None = None
     repo_path: str | None = None
     mode: str = "local"
-    user_name: str | None = None
 
 
 def load_config(path: Path = DEFAULT_CONFIG_PATH) -> LuthienConfig:
@@ -35,7 +34,6 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> LuthienConfig:
 
     gateway = data.get("gateway", {})
     local = data.get("local", {})
-    user = data.get("user", {})
 
     return LuthienConfig(
         gateway_url=gateway.get("url", "http://localhost:8000"),
@@ -43,7 +41,6 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> LuthienConfig:
         admin_key=gateway.get("admin_key"),
         repo_path=local.get("repo_path"),
         mode=local.get("mode", "local"),
-        user_name=user.get("name"),
     )
 
 
@@ -65,8 +62,6 @@ def save_config(config: LuthienConfig, path: Path = DEFAULT_CONFIG_PATH) -> None
         data["local"]["repo_path"] = config.repo_path
     if config.mode:
         data["local"]["mode"] = config.mode
-    if config.user_name:
-        data["user"] = {"name": config.user_name}
 
     with open(path, "wb") as f:
         tomli_w.dump(data, f)
