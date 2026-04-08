@@ -652,6 +652,7 @@ def _build_turn(call_id: str, events: list[StoredEvent]) -> ConversationTurn:
     timestamp: str = ""
     request_was_modified = False
     response_was_modified = False
+    request_params: dict[str, Any] | None = None
 
     for event in events:
         event_type = event["event_type"]
@@ -670,6 +671,17 @@ def _build_turn(call_id: str, events: list[StoredEvent]) -> ConversationTurn:
                 raise KeyError("transaction.request_recorded missing 'final_request'")
 
             request_messages = _parse_request_messages(final_req)
+
+            # Pass through request params (minus messages/system)
+            # so the frontend can classify turn type (preflight, etc.)
+            request_params = {
+                k: v
+                for k, v in final_req.items()
+                if k not in ("messages", "system")
+            }
+            # Replace full tool definitions with just the count
+            if "tools" in request_params and isinstance(request_params["tools"], list):
+                request_params["tools_count"] = len(request_params.pop("tools"))
 
             # Check for modifications at turn level
             if original_req is not None and original_req != final_req:
@@ -720,6 +732,7 @@ def _build_turn(call_id: str, events: list[StoredEvent]) -> ConversationTurn:
         response_was_modified=response_was_modified,
         original_request_messages=original_request_messages,
         original_response_messages=original_response_messages,
+        request_params=request_params,
     )
 
 

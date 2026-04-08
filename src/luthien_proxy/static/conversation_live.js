@@ -260,14 +260,9 @@ function conversationViewer() {
         // sequence.
         presentTurns(rawTurns) {
             let prevRealMsgCount = 0;
-            // Preflight turns (quota probes, title generation) only
-            // appear at the very start of a session. Once we see a
-            // real conversational turn, stop classifying.
-            let seenRealTurn = false;
 
             return rawTurns.map(turn => {
-                const isPreflight = !seenRealTurn && this.classifyPreflight(turn);
-                if (!isPreflight) seenRealTurn = true;
+                const isPreflight = this.classifyPreflight(turn);
 
                 let displayMessages;
                 if (isPreflight) {
@@ -281,34 +276,15 @@ function conversationViewer() {
             });
         },
 
-        // Only called for early turns (before the first real turn).
-        // Detects Claude Code's non-conversational preflight calls:
-        //   - Quota probes: single request message, response is {"title":...} JSON
-        //   - Title generation: same pattern with a title object
-        // Checks original_response_messages when policy modified the response.
+        // Classify non-conversational preflight turns using structural
+        // request params (not response content heuristics).
+        //   - Quota probe: max_tokens === 1
+        //   - Title generation: output_config.format.type === "json_schema"
+        // These can appear at any position in the session.
         classifyPreflight(turn) {
-            const reqMsgs = turn.request_messages || [];
-            if (reqMsgs.length > 1) return false;
-
-            const origResp = turn.original_response_messages || turn.response_messages || [];
-            const finalResp = turn.response_messages || [];
-
-            for (const msgs of [origResp, finalResp]) {
-                if (msgs.length !== 1) continue;
-                const content = msgs[0].content || '';
-
-                // Quota probe: response is empty or trivially short (1-2 chars)
-                if (content.length <= 2) return true;
-
-                // Title generation: response is {"title": "..."}
-                const firstLine = content.split('\n', 1)[0].trim();
-                if (firstLine.startsWith('{"title"')) {
-                    try {
-                        const parsed = JSON.parse(firstLine);
-                        if (parsed.title && Object.keys(parsed).length <= 3) return true;
-                    } catch (e) { /* not JSON, not preflight */ }
-                }
-            }
+            const params = turn.request_params || {};
+            if (params.max_tokens === 1) return true;
+            if (params.output_config?.format?.type === 'json_schema') return true;
             return false;
         },
 
