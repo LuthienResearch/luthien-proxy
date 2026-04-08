@@ -82,14 +82,36 @@ async def list_sessions(
         ge=0,
         description="Number of sessions to skip for pagination",
     ),
+    user_hash: str | None = Query(
+        default=None,
+        description="Filter sessions by user hash",
+    ),
 ) -> SessionListResponse:
     """List recent sessions with summaries.
 
     Returns a list of session summaries ordered by most recent activity,
     including turn counts, policy interventions, and models used.
     Supports pagination via limit and offset parameters.
+    Optionally filters by user_hash.
     """
-    return await fetch_session_list(limit, db_pool, offset)
+    return await fetch_session_list(limit, db_pool, offset, user_hash=user_hash)
+
+
+@api_router.get("/users")
+async def list_users(
+    _: str = Depends(verify_admin_token),
+    db_pool: DatabasePool = Depends(get_db_pool),
+) -> dict[str, list[str]]:
+    """List distinct user hashes.
+
+    Returns all distinct user_hash values from conversation_calls,
+    useful for populating a user filter dropdown in the UI.
+    """
+    async with db_pool.connection() as conn:
+        rows = await conn.fetch(
+            "SELECT DISTINCT user_hash FROM conversation_calls WHERE user_hash IS NOT NULL ORDER BY user_hash"
+        )
+    return {"users": [str(row["user_hash"]) for row in rows]}
 
 
 @api_router.get("/sessions/{session_id}", response_model=SessionDetail)

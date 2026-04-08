@@ -77,6 +77,7 @@ class SessionSummary(BaseModel):
     policy_interventions: int
     models_used: list[str]
     preview_message: str | None = None  # Preview of session (last user message, truncated)
+    user_hash: str | None = None
 
 
 class SessionListResponse(BaseModel):
