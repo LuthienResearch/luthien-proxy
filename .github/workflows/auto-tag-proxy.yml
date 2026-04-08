@@ -1,0 +1,181 @@
+name: Auto-tag Proxy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: auto-tag-proxy
+  cancel-in-progress: false
+
+jobs:
+  auto-tag:
+    # Skip CI-authored changelog commits to avoid infinite loop
+    if: >-
+      !contains(github.event.head_commit.message, '[skip auto-tag-proxy]')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Generate token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Fetch tags
+        run: git fetch origin --tags --force
+
+      - name: Get latest proxy tag
+        id: latest
+        run: |
+          TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
+          if [ -z "$TAG" ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check for proxy-relevant changes
+        id: changes
+        env:
+          LATEST_FOUND: ${{ steps.latest.outputs.found }}
+          LATEST_TAG: ${{ steps.latest.outputs.tag }}
+        run: |
+          if [ "$LATEST_FOUND" = "false" ]; then
+            echo "count=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Count changed files, excluding CLI-only paths
+          COUNT=$(git diff --name-only "${LATEST_TAG}..HEAD" \
+            | grep -Ev '^(src/luthien_cli/|tests/luthien_cli/)' \
+            | wc -l | tr -d ' ')
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Install uv
+        if: steps.changes.outputs.count != '0'
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.13"
+
+      - name: Run unit tests
+        if: steps.changes.outputs.count != '0'
+        run: uv run pytest tests/luthien_proxy/unit_tests/ -v
+
+      - name: Determine new tag
+        if: steps.changes.outputs.count != '0'
+        id: bump
+        env:
+          LATEST_FOUND: ${{ steps.latest.outputs.found }}
+          LATEST_TAG: ${{ steps.latest.outputs.tag }}
+        run: |
+          if [ "$LATEST_FOUND" = "false" ]; then
+            NEW_TAG="v3.0.0"
+          else
+            VERSION="${LATEST_TAG#v}"
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+            NEW_TAG="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+          fi
+          echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${NEW_TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Compile changelog fragments
+        if: steps.changes.outputs.count != '0'
+        run: |
+          FRAG_COUNT=$(find changelog.d -maxdepth 1 -type f \
+            ! -name README.md ! -name .gitkeep | wc -l | tr -d ' ')
+          if [ "$FRAG_COUNT" -gt 0 ]; then
+            uv run python scripts/compile_changelog.py
+          fi
+
+      - name: Cut release section in CHANGELOG.md
+        if: steps.changes.outputs.count != '0'
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          python3 <<'PY'
+          import os, re
+          from datetime import date, timezone, datetime
+          from pathlib import Path
+
+          path = Path("CHANGELOG.md")
+          text = path.read_text()
+          version = os.environ["VERSION"]
+          today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+          m = re.search(r"^## Unreleased.*$", text, re.MULTILINE)
+          if not m:
+              raise SystemExit("No '## Unreleased' header found")
+
+          body_start = m.end()
+          while body_start < len(text) and text[body_start] == "\n":
+              body_start += 1
+
+          next_h2 = re.search(r"^## ", text[body_start:], re.MULTILINE)
+          body_end = body_start + next_h2.start() if next_h2 else len(text)
+          unreleased_body = text[body_start:body_end].strip()
+
+          before = text[:m.start()].rstrip("\n")
+          after = text[body_end:].lstrip("\n")
+
+          parts = [before, "", "## Unreleased | TBA", ""]
+          if unreleased_body:
+              parts += [f"## {version} | {today}", "", unreleased_body, ""]
+          else:
+              parts += [f"## {version} | {today}", ""]
+
+          if after:
+              parts.append(after)
+
+          path.write_text("\n".join(parts))
+          PY
+
+      - name: Commit changelog
+        if: steps.changes.outputs.count != '0'
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          git config user.name "luthien-ci[bot]"
+          git config user.email "luthien-ci[bot]@users.noreply.github.com"
+
+          git add CHANGELOG.md changelog.d/
+
+          if git diff --cached --quiet; then
+            echo "No changelog changes to commit"
+          else
+            git commit -m "chore(release): compile changelog for ${TAG} [skip auto-tag-proxy]"
+          fi
+
+      - name: Verify main hasn't advanced
+        if: steps.changes.outputs.count != '0'
+        id: verify
+        run: |
+          git fetch origin main
+          REMOTE=$(git rev-parse origin/main)
+          EXPECTED="${{ github.sha }}"
+          if [ "$REMOTE" != "$EXPECTED" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::main advanced during run; skipping tag"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push changelog and tag
+        if: >-
+          steps.changes.outputs.count != '0'
+          && steps.verify.outputs.skip != 'true'
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          git push origin HEAD:main
+          git tag "$TAG"
+          git push origin "$TAG"
