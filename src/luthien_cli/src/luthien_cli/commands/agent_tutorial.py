@@ -87,7 +87,9 @@ async def on_anthropic_stream_complete(
 
 Import types from:
 ```python
+from anthropic.lib.streaming import MessageStreamEvent
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
+from luthien_proxy.policy_core import AnthropicPolicyEmission
 from luthien_proxy.policy_core.policy_context import PolicyContext
 ```
 
@@ -157,7 +159,8 @@ luthien policy set MyPolicy --config '{"threshold": 0.8, "keywords": ["foo"]}'
 2. Define your policy class (see examples above)
 3. Activate it: `luthien policy set MyPolicy`
 4. Test by sending a message through the proxy
-5. Iterate — edit the file and re-activate to pick up changes
+5. Iterate — edit the file, restart the gateway (`luthien down && luthien up`), \
+and re-activate to pick up code changes
 """
 
 
