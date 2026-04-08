@@ -173,7 +173,7 @@ class TestProcessRequest:
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            anthropic_request, raw_http_request, session_id = await _process_request(
+            anthropic_request, raw_http_request, session_id, user_hash = await _process_request(
                 request=mock_request,
                 call_id="test-call-id",
                 emitter=mock_emitter,
@@ -186,6 +186,7 @@ class TestProcessRequest:
         assert raw_http_request.method == "POST"
         assert raw_http_request.path == "/v1/messages"
         assert session_id is None
+        assert user_hash is None
         mock_emitter.record.assert_called()
 
     @pytest.mark.asyncio
@@ -204,13 +205,14 @@ class TestProcessRequest:
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            _anthropic_request, _raw_http_request, session_id = await _process_request(
+            _anthropic_request, _raw_http_request, session_id, user_hash = await _process_request(
                 request=mock_request,
                 call_id="test-call-id",
                 emitter=mock_emitter,
             )
 
         assert session_id == "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        assert user_hash == "abc123"
 
     @pytest.mark.asyncio
     async def test_extracts_session_id_from_header_fallback(self, mock_request, mock_emitter, mock_span):
@@ -226,13 +228,14 @@ class TestProcessRequest:
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            _anthropic_request, _raw_http_request, session_id = await _process_request(
+            _anthropic_request, _raw_http_request, session_id, user_hash = await _process_request(
                 request=mock_request,
                 call_id="test-call-id",
                 emitter=mock_emitter,
             )
 
         assert session_id == "oauth-session-abc123"
+        assert user_hash is None  # No metadata.user_id with user hash pattern
 
     @pytest.mark.asyncio
     async def test_request_size_limit_exceeded(self, mock_request, mock_emitter, mock_span):
@@ -2021,6 +2024,7 @@ class TestAnthropicPolicyIOBuffering:
             emitter=MagicMock(),
             call_id="test-call",
             session_id=None,
+            user_hash=None,
             request_log_recorder=MagicMock(),
             is_streaming=is_streaming,
         )

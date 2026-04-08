@@ -236,22 +236,25 @@ class EventEmitter:
             EventEmitter interface.
         """
         db_pool = cast(DatabasePool, self._db_pool)
-        # Extract session_id from data if present (set by processor via convention above)
+        # Extract session_id and user_hash from data if present (set by processor via convention above)
         session_id = data.get("session_id") if isinstance(data, dict) else None
+        user_hash = data.get("user_hash") if isinstance(data, dict) else None
 
         try:
             async with db_pool.connection() as conn:
-                # Ensure call row exists with session_id
+                # Ensure call row exists with session_id and user_hash
                 await conn.execute(
                     """
-                    INSERT INTO conversation_calls (call_id, created_at, session_id)
-                    VALUES ($1, $2, $3)
+                    INSERT INTO conversation_calls (call_id, created_at, session_id, user_hash)
+                    VALUES ($1, $2, $3, $4)
                     ON CONFLICT (call_id) DO UPDATE SET
-                        session_id = COALESCE(conversation_calls.session_id, EXCLUDED.session_id)
+                        session_id = COALESCE(conversation_calls.session_id, EXCLUDED.session_id),
+                        user_hash = COALESCE(conversation_calls.user_hash, EXCLUDED.user_hash)
                     """,
                     transaction_id,
                     timestamp,
                     session_id,
+                    user_hash,
                 )
 
                 # Insert event with session_id, ordering by created_at
