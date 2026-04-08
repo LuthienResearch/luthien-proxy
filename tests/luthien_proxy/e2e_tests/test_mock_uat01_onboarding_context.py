@@ -20,7 +20,6 @@ from luthien_proxy.policies.onboarding_policy import WELCOME_MESSAGE
 pytestmark = [pytest.mark.mock_e2e, pytest.mark.uat_onboarding]
 
 _ONBOARDING_POLICY = "luthien_proxy.policies.onboarding_policy:OnboardingPolicy"
-_ONBOARDING_CONFIG = {"gateway_url": "http://localhost:8000"}
 
 _FIRST_TURN = {**BASE_REQUEST, "messages": [{"role": "user", "content": "What is Luthien?"}]}
 _SECOND_TURN = {
@@ -58,7 +57,7 @@ async def test_onboarding_context_injected_on_first_turn(
     mock_anthropic.enqueue(text_response("I can help you with that."))
 
     async with policy_context(
-        _ONBOARDING_POLICY, _ONBOARDING_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+        _ONBOARDING_POLICY, {"gateway_url": gateway_url}, gateway_url=gateway_url, admin_api_key=admin_api_key
     ):
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
@@ -87,7 +86,7 @@ async def test_onboarding_context_injected_on_first_turn_streaming(
     mock_anthropic.enqueue(text_response("I can help you with that."))
 
     async with policy_context(
-        _ONBOARDING_POLICY, _ONBOARDING_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+        _ONBOARDING_POLICY, {"gateway_url": gateway_url}, gateway_url=gateway_url, admin_api_key=admin_api_key
     ):
         async with httpx.AsyncClient(timeout=30.0) as client:
             async with client.stream(
@@ -115,7 +114,7 @@ async def test_onboarding_context_not_repeated_on_second_turn(
     mock_anthropic.enqueue(text_response("Follow-up response."))
 
     async with policy_context(
-        _ONBOARDING_POLICY, _ONBOARDING_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+        _ONBOARDING_POLICY, {"gateway_url": gateway_url}, gateway_url=gateway_url, admin_api_key=admin_api_key
     ):
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(

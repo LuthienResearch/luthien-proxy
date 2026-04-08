@@ -30,6 +30,7 @@ _STRING_REPLACEMENT = "luthien_proxy.policies.string_replacement_policy:StringRe
 
 
 async def _set_policy(client: httpx.AsyncClient, gateway_url: str, admin_api_key: str, class_ref: str, config: dict):
+    """Fire-and-forget policy set (no activation polling — unlike conftest.set_policy)."""
     return await client.post(
         f"{gateway_url}{_ADMIN_POLICY_SET_PATH}",
         headers={"Authorization": f"Bearer {admin_api_key}"},
