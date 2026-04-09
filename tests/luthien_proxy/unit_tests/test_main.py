@@ -140,7 +140,6 @@ class TestAutoProvisionDefaults:
 
     def test_provisions_policy_config_when_missing(self, monkeypatch):
         monkeypatch.delenv("POLICY_CONFIG", raising=False)
-        monkeypatch.delenv("RAILWAY_SERVICE_NAME", raising=False)
 
         result = auto_provision_defaults()
 
@@ -165,7 +164,6 @@ class TestAutoProvisionDefaults:
         assert os.environ["ADMIN_API_KEY"] == result["ADMIN_API_KEY"]
 
     def test_does_not_override_existing_values(self, monkeypatch):
-        monkeypatch.delenv("RAILWAY_SERVICE_NAME", raising=False)
         monkeypatch.setenv("DATABASE_URL", "postgresql://existing")
         monkeypatch.setenv("PROXY_API_KEY", "sk-existing")
         monkeypatch.setenv("ADMIN_API_KEY", "admin-existing")
@@ -186,7 +184,6 @@ class TestAutoProvisionDefaults:
         monkeypatch.delenv("ADMIN_API_KEY", raising=False)
         monkeypatch.delenv("POLICY_CONFIG", raising=False)
         monkeypatch.delenv("POLICY_SOURCE", raising=False)
-        monkeypatch.delenv("RAILWAY_SERVICE_NAME", raising=False)
         monkeypatch.setenv("HOME", str(tmp_path))
 
         result = auto_provision_defaults()
@@ -194,92 +191,6 @@ class TestAutoProvisionDefaults:
         assert len(result) == 4
         assert all(k in result for k in ("DATABASE_URL", "ADMIN_API_KEY", "POLICY_CONFIG", "POLICY_SOURCE"))
         assert "PROXY_API_KEY" not in result
-
-
-class TestAutoProvisionDefaultsRailway:
-    """Test Railway-specific auto-provisioning behavior."""
-
-    def _clear_env(self, monkeypatch):
-        """Remove all vars that auto_provision_defaults might read."""
-        for var in (
-            "DATABASE_URL",
-            "PROXY_API_KEY",
-            "ADMIN_API_KEY",
-            "POLICY_CONFIG",
-            "POLICY_SOURCE",
-            "AUTH_MODE",
-            "LOCALHOST_AUTH_BYPASS",
-            "RAILWAY_SERVICE_NAME",
-        ):
-            monkeypatch.delenv(var, raising=False)
-
-    def test_railway_sets_passthrough_auth(self, monkeypatch, tmp_path):
-        self._clear_env(monkeypatch)
-        monkeypatch.setenv("RAILWAY_SERVICE_NAME", "gateway")
-        monkeypatch.setenv("HOME", str(tmp_path))
-
-        result = auto_provision_defaults()
-
-        assert result["AUTH_MODE"] == "passthrough"
-        assert os.environ["AUTH_MODE"] == "passthrough"
-
-    def test_railway_sets_railway_policy_config(self, monkeypatch, tmp_path):
-        self._clear_env(monkeypatch)
-        monkeypatch.setenv("RAILWAY_SERVICE_NAME", "gateway")
-        monkeypatch.setenv("HOME", str(tmp_path))
-
-        result = auto_provision_defaults()
-
-        assert result["POLICY_CONFIG"] == "config/railway_policy_config.yaml"
-
-    def test_railway_disables_localhost_auth_bypass(self, monkeypatch, tmp_path):
-        self._clear_env(monkeypatch)
-        monkeypatch.setenv("RAILWAY_SERVICE_NAME", "gateway")
-        monkeypatch.setenv("HOME", str(tmp_path))
-
-        result = auto_provision_defaults()
-
-        assert result["LOCALHOST_AUTH_BYPASS"] == "false"
-        assert os.environ["LOCALHOST_AUTH_BYPASS"] == "false"
-
-    def test_railway_does_not_override_explicit_auth_mode(self, monkeypatch, tmp_path):
-        self._clear_env(monkeypatch)
-        monkeypatch.setenv("RAILWAY_SERVICE_NAME", "gateway")
-        monkeypatch.setenv("AUTH_MODE", "both")
-        monkeypatch.setenv("HOME", str(tmp_path))
-
-        result = auto_provision_defaults()
-
-        assert "AUTH_MODE" not in result
-        assert os.environ["AUTH_MODE"] == "both"
-
-    def test_railway_does_not_override_explicit_policy_config(self, monkeypatch, tmp_path):
-        self._clear_env(monkeypatch)
-        monkeypatch.setenv("RAILWAY_SERVICE_NAME", "gateway")
-        monkeypatch.setenv("POLICY_CONFIG", "config/custom.yaml")
-        monkeypatch.setenv("HOME", str(tmp_path))
-
-        result = auto_provision_defaults()
-
-        assert "POLICY_CONFIG" not in result
-        assert os.environ["POLICY_CONFIG"] == "config/custom.yaml"
-
-    def test_non_railway_does_not_set_auth_mode(self, monkeypatch, tmp_path):
-        self._clear_env(monkeypatch)
-        monkeypatch.setenv("HOME", str(tmp_path))
-
-        result = auto_provision_defaults()
-
-        assert "AUTH_MODE" not in result
-        assert "LOCALHOST_AUTH_BYPASS" not in result
-
-    def test_non_railway_uses_default_policy_config(self, monkeypatch, tmp_path):
-        self._clear_env(monkeypatch)
-        monkeypatch.setenv("HOME", str(tmp_path))
-
-        result = auto_provision_defaults()
-
-        assert result["POLICY_CONFIG"] == "config/policy_config.yaml"
 
 
 @pytest.fixture
@@ -305,11 +216,22 @@ def mock_db_pool():
     """Create a mock database pool for testing."""
     mock = AsyncMock()
     mock_pool = AsyncMock()
-    # fetchrow returns None by default (no rows found)
     mock_pool.fetchrow = AsyncMock(return_value=None)
     mock.get_pool = AsyncMock(return_value=mock_pool)
     mock.close = AsyncMock()
     mock.is_sqlite = False
+
+    mock_conn = AsyncMock()
+    mock_conn.execute = AsyncMock(return_value=None)
+
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _connection():
+        yield mock_conn
+
+    mock.connection = _connection
+    mock._mock_conn = mock_conn
     return mock
 
 
@@ -337,7 +259,7 @@ class TestCreateApp:
         )
 
         assert app.title == "Luthien Proxy Gateway"
-        assert app.version and app.version != "unknown"
+        assert app.version == "2.0.0"
         assert app.description == "Multi-provider LLM proxy with integrated control plane"
 
     @pytest.mark.asyncio
@@ -390,7 +312,7 @@ class TestCreateApp:
         assert "/v1/messages" in routes or any("/v1/messages" in str(r) for r in routes if r)
 
     def test_create_app_health_endpoint(self, policy_config_file, mock_db_pool, mock_redis_client):
-        """Test health endpoint returns correct response shape."""
+        """Test health endpoint returns correct response shape with checks."""
         mock_redis_client.get = AsyncMock(return_value=None)
         app = create_app(
             api_key="test-key",
@@ -405,10 +327,15 @@ class TestCreateApp:
             assert response.status_code == 200
             data = response.json()
             assert data["status"] == "healthy"
-            assert data["version"] and data["version"] != "unknown"
+            assert data["version"] == "2.0.0"
             assert data["auth_mode"] in ("proxy_key", "both", "passthrough", None)
             assert "last_credential_type" in data
             assert "last_credential_at" in data
+            assert "checks" in data
+            assert data["checks"]["db"]["status"] == "ok"
+            assert "latency_ms" in data["checks"]["db"]
+            assert data["checks"]["redis"]["status"] == "ok"
+            assert "latency_ms" in data["checks"]["redis"]
 
     def test_create_app_health_endpoint_proxy_key_mode(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Health endpoint reports auth_mode=proxy_key when configured."""
@@ -571,3 +498,112 @@ class TestConnectRedis:
 
             with pytest.raises(RuntimeError, match="Failed to connect to Redis"):
                 await connect_redis("redis://invalid:6379")
+
+
+class TestHealthChecks:
+    def test_healthy_db_and_redis(self, policy_config_file, mock_db_pool, mock_redis_client):
+        mock_redis_client.get = AsyncMock(return_value=None)
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+        with TestClient(app) as client:
+            data = client.get("/health").json()
+            assert data["status"] == "healthy"
+            assert data["checks"]["db"]["status"] == "ok"
+            assert isinstance(data["checks"]["db"]["latency_ms"], (int, float))
+            assert data["checks"]["redis"]["status"] == "ok"
+            assert isinstance(data["checks"]["redis"]["latency_ms"], (int, float))
+
+    def test_db_error_returns_unhealthy(self, policy_config_file, mock_db_pool, mock_redis_client):
+        mock_redis_client.get = AsyncMock(return_value=None)
+        mock_db_pool._mock_conn.execute = AsyncMock(side_effect=RuntimeError("connection refused"))
+
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+        with TestClient(app) as client:
+            response = client.get("/health")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "unhealthy"
+            assert data["checks"]["db"]["status"] == "error"
+            assert "connection refused" in data["checks"]["db"]["error"]
+            assert data["checks"]["redis"]["status"] == "ok"
+
+    def test_redis_error_returns_degraded(self, policy_config_file, mock_db_pool, mock_redis_client):
+        mock_redis_client.get = AsyncMock(return_value=None)
+        mock_redis_client.ping = AsyncMock(side_effect=ConnectionError("redis down"))
+
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+        with TestClient(app) as client:
+            data = client.get("/health").json()
+            assert data["status"] == "degraded"
+            assert data["checks"]["db"]["status"] == "ok"
+            assert data["checks"]["redis"]["status"] == "error"
+            assert "redis down" in data["checks"]["redis"]["error"]
+
+    def test_both_not_configured_returns_healthy(self, policy_config_file, mock_db_pool, mock_redis_client):
+        mock_redis_client.get = AsyncMock(return_value=None)
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+        with TestClient(app) as client:
+            app.state.dependencies.db_pool = None
+            app.state.dependencies.redis_client = None
+            data = client.get("/health").json()
+            assert data["status"] == "healthy"
+            assert data["checks"]["db"]["status"] == "not_configured"
+            assert data["checks"]["redis"]["status"] == "not_configured"
+
+    def test_db_error_and_redis_error_returns_unhealthy(self, policy_config_file, mock_db_pool, mock_redis_client):
+        mock_redis_client.get = AsyncMock(return_value=None)
+        mock_db_pool._mock_conn.execute = AsyncMock(side_effect=RuntimeError("db down"))
+        mock_redis_client.ping = AsyncMock(side_effect=ConnectionError("redis down"))
+
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+        with TestClient(app) as client:
+            data = client.get("/health").json()
+            assert data["status"] == "unhealthy"
+            assert data["checks"]["db"]["status"] == "error"
+            assert data["checks"]["redis"]["status"] == "error"
+
+    def test_preserves_existing_fields(self, policy_config_file, mock_db_pool, mock_redis_client):
+        mock_redis_client.get = AsyncMock(return_value=None)
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+        with TestClient(app) as client:
+            data = client.get("/health").json()
+            assert "version" in data
+            assert "auth_mode" in data
+            assert "last_credential_type" in data
+            assert "last_credential_at" in data
+            assert "checks" in data

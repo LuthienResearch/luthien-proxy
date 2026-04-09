@@ -6,6 +6,7 @@ import argparse
 import logging
 import os
 import secrets
+import time
 from contextlib import asynccontextmanager
 
 import litellm
@@ -59,7 +60,6 @@ from luthien_proxy.utils.credential_cache import (
 )
 from luthien_proxy.utils.migration_check import check_migrations
 from luthien_proxy.utils.url import sanitize_url_for_logging
-from luthien_proxy.version import PROXY_DISPLAY_VERSION
 
 # Configure OpenTelemetry tracing and logging EARLY (before app creation)
 # This ensures the tracer provider is set up before any spans are created
@@ -295,7 +295,7 @@ def create_app(
     app = FastAPI(
         title="Luthien Proxy Gateway",
         description="Multi-provider LLM proxy with integrated control plane",
-        version=PROXY_DISPLAY_VERSION,
+        version="2.0.0",
         lifespan=lifespan,
     )
 
@@ -337,11 +337,7 @@ def create_app(
     # Simple utility endpoints
     @app.get("/health")
     async def health(request: Request):
-        """Health check endpoint.
-
-        Returns gateway status, auth mode, and last observed credential type so
-        operators and the UI can surface billing mode warnings accurately.
-        """
+        """Health check with DB and Redis infrastructure checks."""
         deps = getattr(request.app.state, "dependencies", None)
         auth_mode = None
         if deps and deps.credential_manager:
@@ -353,12 +349,50 @@ def create_app(
             last_credential_type = deps.last_credential_info.get("type")
             last_credential_at = deps.last_credential_info.get("timestamp")
 
+        checks: dict[str, dict[str, object]] = {}
+
+        db_pool = deps.db_pool if deps else None
+        if db_pool is None:
+            checks["db"] = {"status": "not_configured"}
+        else:
+            try:
+                start = time.perf_counter()
+                async with db_pool.connection() as conn:
+                    await conn.execute("SELECT 1")
+                elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
+                checks["db"] = {"status": "ok", "latency_ms": elapsed_ms}
+            except Exception as exc:
+                checks["db"] = {"status": "error", "error": str(exc)}
+
+        redis_client = deps.redis_client if deps else None
+        if redis_client is None:
+            checks["redis"] = {"status": "not_configured"}
+        else:
+            try:
+                start = time.perf_counter()
+                await redis_client.ping()
+                elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
+                checks["redis"] = {"status": "ok", "latency_ms": elapsed_ms}
+            except Exception as exc:
+                checks["redis"] = {"status": "error", "error": str(exc)}
+
+        db_status = checks["db"]["status"]
+        redis_status = checks["redis"]["status"]
+
+        if db_status == "error":
+            status = "unhealthy"
+        elif redis_status == "error":
+            status = "degraded"
+        else:
+            status = "healthy"
+
         return {
-            "status": "healthy",
-            "version": PROXY_DISPLAY_VERSION,
+            "status": status,
+            "version": "2.0.0",
             "auth_mode": auth_mode,
             "last_credential_type": last_credential_type,
             "last_credential_at": last_credential_at,
+            "checks": checks,
         }
 
     # Format HTTPExceptions and validation errors as Anthropic errors on /v1/messages paths
@@ -505,11 +539,6 @@ def configure_local_mode() -> None:
     os.environ["POLICY_SOURCE"] = "file"
 
 
-def _is_railway() -> bool:
-    """Detect if running on Railway (RAILWAY_SERVICE_NAME is auto-injected)."""
-    return bool(os.environ.get("RAILWAY_SERVICE_NAME"))
-
-
 def auto_provision_defaults() -> dict[str, str]:
     """Auto-provision sensible defaults for missing environment variables.
 
@@ -517,16 +546,10 @@ def auto_provision_defaults() -> dict[str, str]:
     without any pre-configured environment variables. Only sets values that are
     not already present — never overrides explicit configuration.
 
-    On Railway, additional defaults are applied:
-      - AUTH_MODE=passthrough (OAuth pass-through, no server API key needed)
-      - POLICY_CONFIG=config/railway_policy_config.yaml (logging + English rules)
-      - LOCALHOST_AUTH_BYPASS=false (not applicable on cloud)
-
     Returns:
         Dict of variable names to auto-provisioned values (empty if nothing was provisioned).
     """
     provisioned: dict[str, str] = {}
-    on_railway = _is_railway()
 
     if not os.environ.get("DATABASE_URL"):
         data_dir = os.path.join(os.path.expanduser("~"), ".luthien")
@@ -542,7 +565,7 @@ def auto_provision_defaults() -> dict[str, str]:
         provisioned["ADMIN_API_KEY"] = value
 
     if not os.environ.get("POLICY_CONFIG"):
-        value = "config/railway_policy_config.yaml" if on_railway else "config/policy_config.yaml"
+        value = "config/policy_config.yaml"
         os.environ["POLICY_CONFIG"] = value
         provisioned["POLICY_CONFIG"] = value
 
@@ -550,17 +573,6 @@ def auto_provision_defaults() -> dict[str, str]:
         value = "file"
         os.environ["POLICY_SOURCE"] = value
         provisioned["POLICY_SOURCE"] = value
-
-    # Railway-specific defaults: passthrough auth and no localhost bypass
-    if on_railway:
-        if not os.environ.get("AUTH_MODE"):
-            value = "passthrough"
-            os.environ["AUTH_MODE"] = value
-            provisioned["AUTH_MODE"] = value
-
-        if not os.environ.get("LOCALHOST_AUTH_BYPASS"):
-            os.environ["LOCALHOST_AUTH_BYPASS"] = "false"
-            provisioned["LOCALHOST_AUTH_BYPASS"] = "false"
 
     return provisioned
 
