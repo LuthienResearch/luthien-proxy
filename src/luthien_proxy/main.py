@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 import os
 import secrets
+import time
 from contextlib import asynccontextmanager
 
 import litellm
@@ -339,8 +341,9 @@ def create_app(
     async def health(request: Request):
         """Health check endpoint.
 
-        Returns gateway status, auth mode, and last observed credential type so
-        operators and the UI can surface billing mode warnings accurately.
+        Probes DB and Redis in parallel and reports per-component status so
+        operators and monitoring tools can distinguish degraded from unhealthy.
+        Returns HTTP 200 always — callers must inspect the body for status.
         """
         deps = getattr(request.app.state, "dependencies", None)
         auth_mode = None
@@ -353,12 +356,47 @@ def create_app(
             last_credential_type = deps.last_credential_info.get("type")
             last_credential_at = deps.last_credential_info.get("timestamp")
 
+        async def _check_db() -> dict[str, object]:
+            db_pool = getattr(deps, "db_pool", None) if deps else None
+            if db_pool is None:
+                return {"status": "not_configured"}
+            try:
+                t0 = time.perf_counter()
+                async with db_pool.connection() as conn:
+                    await conn.execute("SELECT 1")
+                return {"status": "ok", "latency_ms": round((time.perf_counter() - t0) * 1000, 1)}
+            except Exception:
+                logger.exception("Health check: DB probe failed")
+                return {"status": "error", "error": "database check failed"}
+
+        async def _check_redis() -> dict[str, object]:
+            redis_client = getattr(deps, "redis_client", None) if deps else None
+            if redis_client is None:
+                return {"status": "not_configured"}
+            try:
+                t0 = time.perf_counter()
+                await redis_client.ping()
+                return {"status": "ok", "latency_ms": round((time.perf_counter() - t0) * 1000, 1)}
+            except Exception:
+                logger.exception("Health check: Redis probe failed")
+                return {"status": "error", "error": "redis check failed"}
+
+        db_check, redis_check = await asyncio.gather(_check_db(), _check_redis())
+
+        if db_check["status"] == "error":
+            overall = "unhealthy"
+        elif redis_check["status"] == "error":
+            overall = "degraded"
+        else:
+            overall = "healthy"
+
         return {
-            "status": "healthy",
+            "status": overall,
             "version": PROXY_DISPLAY_VERSION,
             "auth_mode": auth_mode,
             "last_credential_type": last_credential_type,
             "last_credential_at": last_credential_at,
+            "checks": {"db": db_check, "redis": redis_check},
         }
 
     # Format HTTPExceptions and validation errors as Anthropic errors on /v1/messages paths
