@@ -3,6 +3,10 @@
 Provides a simple interface for recording events to multiple sinks (stdout, db, event publisher).
 Events are also added to the current OTel span as span events.
 
+DB writes are buffered in a bounded asyncio.Queue and flushed by a single
+background drain task in batches.  Stdout and event-publisher writes happen
+inline in record().
+
 The EventEmitter should be injected via PolicyContext or Dependencies, not accessed
 via global state.
 """
@@ -14,6 +18,7 @@ import base64
 import json
 import logging
 import sys
+import time
 from datetime import UTC, datetime
 from typing import Any, Protocol, cast
 
@@ -23,6 +28,9 @@ from opentelemetry import trace
 from luthien_proxy.observability.event_publisher import EventPublisherProtocol
 from luthien_proxy.utils.constants import OTEL_SPAN_ID_HEX_LENGTH, OTEL_TRACE_ID_HEX_LENGTH
 from luthien_proxy.utils.db import DatabasePool
+
+# Type alias for the DB queue item tuple
+DbQueueItem = tuple[str, str, dict[str, Any], datetime, str | None, str | None]
 
 
 def _safe_serialize(obj: Any) -> Any:
@@ -119,7 +127,11 @@ class NullEventEmitter:
 
 
 class EventEmitter:
-    """Emits events to multiple sinks: stdout, database, and redis."""
+    """Emits events to multiple sinks: stdout, database, and event publisher.
+
+    DB writes are buffered in a bounded queue and flushed by a background
+    drain task in batches.  Stdout and event-publisher writes happen inline.
+    """
 
     dropped_db_writes: int = 0
 
@@ -128,11 +140,61 @@ class EventEmitter:
         db_pool: "DatabasePool | None" = None,
         event_publisher: "EventPublisherProtocol | None" = None,
         stdout_enabled: bool = True,
+        max_queue_size: int = 10_000,
+        batch_size: int = 50,
+        drain_interval_ms: int = 100,
+        shutdown_drain_timeout_s: float = 5.0,
     ):
         """Initialize the event emitter with optional sinks."""
         self._db_pool = db_pool
         self._event_publisher = event_publisher
         self._stdout_enabled = stdout_enabled
+        self._max_queue_size = max_queue_size
+        self._batch_size = batch_size
+        self._drain_interval_s = drain_interval_ms / 1000.0
+        self._shutdown_drain_timeout_s = shutdown_drain_timeout_s
+
+        self._db_queue: asyncio.Queue[DbQueueItem] | None = None
+        self._drain_task: asyncio.Task[None] | None = None
+        self.dropped_events: int = 0
+        self._drop_log_interval_s: float = 10.0
+        self._last_drop_log: float = 0.0
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def start(self) -> None:
+        """Start the background drain loop.  Call after the event loop is running."""
+        if self._db_pool is not None:
+            self._db_queue = asyncio.Queue(maxsize=self._max_queue_size)
+            self._drain_task = asyncio.create_task(self._drain_loop())
+            self._drain_task.add_done_callback(_log_task_exception)
+
+    async def shutdown(self) -> None:
+        """Stop the drain loop and flush remaining events."""
+        if self._drain_task is not None:
+            self._drain_task.cancel()
+            try:
+                await self._drain_task
+            except asyncio.CancelledError:
+                pass
+
+        # Drain remaining items
+        if self._db_queue is not None and not self._db_queue.empty():
+            remaining = self._collect_batch(max_items=self._db_queue.qsize())
+            if remaining:
+                try:
+                    await asyncio.wait_for(
+                        self._write_db_batch(remaining),
+                        timeout=self._shutdown_drain_timeout_s,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to drain {len(remaining)} events on shutdown: {e}")
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     async def emit(
         self,
@@ -142,32 +204,14 @@ class EventEmitter:
     ) -> None:
         """Emit an event to all configured sinks.
 
-        Args:
-            transaction_id: Unique identifier for this transaction
-            event_type: Type of event (e.g., "policy.modified_request")
-            data: Event payload
+        Prefer record() for fire-and-forget usage.  This async method is
+        kept for backward compatibility and direct-await callers.
         """
-        timestamp = datetime.now(UTC)
-
-        # Ensure data is JSON-serializable before passing to sinks
-        safe_data = _safe_serialize(data)
-
-        # Add to current OTel span as a span event
-        span = trace.get_current_span()
-        if span.is_recording():
-            span.add_event(event_type, {"transaction_id": transaction_id, **safe_data})
-
-        # Emit to all sinks concurrently
-        tasks = []
-        if self._stdout_enabled:
-            tasks.append(self._write_stdout(transaction_id, event_type, safe_data, timestamp))
-        if self._db_pool:
-            tasks.append(self._write_db(transaction_id, event_type, safe_data, timestamp))
-        if self._event_publisher:
-            tasks.append(self._write_events(transaction_id, event_type, safe_data, timestamp))
-
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        self.record(transaction_id, event_type, data)
+        # If DB queue exists, wait for the drain loop to process
+        if self._db_queue is not None:
+            while not self._db_queue.empty():
+                await asyncio.sleep(0.01)
 
     def record(
         self,
@@ -175,27 +219,152 @@ class EventEmitter:
         event_type: str,
         data: dict[str, Any],
     ) -> None:
-        """Record an event (fire-and-forget).
+        """Record an event to all configured sinks.
 
-        This method conforms to EventEmitterProtocol and is the primary interface
-        for recording events. It dispatches to emit() in a background task.
-
-        Args:
-            transaction_id: Unique identifier for this transaction
-            event_type: Type of event (e.g., "policy.modified_request")
-            data: Event payload
+        Stdout and event-publisher writes happen inline.  DB writes are
+        enqueued for the background drain loop.  If the queue is full,
+        the event is dropped (DB only -- stdout and SSE still fire).
         """
-        task = asyncio.create_task(self.emit(transaction_id, event_type, data))
-        task.add_done_callback(_log_task_exception)
+        timestamp = datetime.now(UTC)
+        safe_data = _safe_serialize(data)
 
-    async def _write_stdout(
+        # OTel span event
+        span = trace.get_current_span()
+        if span.is_recording():
+            span.add_event(event_type, {"transaction_id": transaction_id, **safe_data})
+
+        # Stdout -- inline, synchronous
+        if self._stdout_enabled:
+            self._write_stdout_sync(transaction_id, event_type, safe_data, timestamp)
+
+        # Event publisher (SSE) -- lightweight fire-and-forget
+        if self._event_publisher:
+            task = asyncio.create_task(
+                self._write_events(transaction_id, event_type, safe_data, timestamp)
+            )
+            task.add_done_callback(_log_task_exception)
+
+        # DB -- enqueue for background batch drain
+        if self._db_queue is not None:
+            session_id = data.get("session_id") if isinstance(data, dict) else None
+            user_hash = data.get("user_hash") if isinstance(data, dict) else None
+            try:
+                self._db_queue.put_nowait(
+                    (transaction_id, event_type, safe_data, timestamp, session_id, user_hash)
+                )
+            except asyncio.QueueFull:
+                self.dropped_events += 1
+                now = time.monotonic()
+                if now - self._last_drop_log >= self._drop_log_interval_s:
+                    logger.warning(
+                        f"DB write queue full ({self._max_queue_size}), "
+                        f"dropped {self.dropped_events} events total"
+                    )
+                    self._last_drop_log = now
+
+    # ------------------------------------------------------------------
+    # Drain loop & batch DB writes
+    # ------------------------------------------------------------------
+
+    def _collect_batch(
+        self, max_items: int | None = None
+    ) -> list[DbQueueItem]:
+        """Collect a batch of events from the queue (non-blocking)."""
+        if self._db_queue is None:
+            return []
+        limit = max_items if max_items is not None else self._batch_size
+        batch: list[DbQueueItem] = []
+        while len(batch) < limit:
+            try:
+                batch.append(self._db_queue.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+        return batch
+
+    async def _drain_loop(self) -> None:
+        """Background task: drain the queue and batch-write to DB."""
+        assert self._db_queue is not None  # noqa: S101
+        while True:
+            try:
+                # Wait for the first event (with timeout to allow cancellation checks)
+                first = await asyncio.wait_for(
+                    self._db_queue.get(), timeout=self._drain_interval_s
+                )
+            except TimeoutError:
+                continue
+            except asyncio.CancelledError:
+                return
+
+            # Collect more events non-blocking
+            batch: list[DbQueueItem] = [first] + self._collect_batch()
+
+            try:
+                await self._write_db_batch(batch)
+            except Exception as e:
+                EventEmitter.dropped_db_writes += len(batch)
+                logger.warning(
+                    f"Batch DB write failed ({len(batch)} events dropped, "
+                    f"{EventEmitter.dropped_db_writes} total): {e}",
+                    exc_info=True,
+                )
+
+    async def _write_db_batch(
+        self,
+        batch: list[DbQueueItem],
+    ) -> None:
+        """Write a batch of events to the database in a single transaction."""
+        db_pool = cast(DatabasePool, self._db_pool)
+
+        async with db_pool.connection() as conn:
+            async with conn.transaction():
+                # Deduplicate conversation_calls by call_id
+                seen_calls: dict[str, tuple[str, datetime, str | None]] = {}
+                for transaction_id, _, _, timestamp, session_id, _user_hash in batch:
+                    if transaction_id not in seen_calls:
+                        seen_calls[transaction_id] = (transaction_id, timestamp, session_id)
+
+                # Upsert conversation_calls
+                for call_id, ts, sid in seen_calls.values():
+                    await conn.execute(
+                        """
+                        INSERT INTO conversation_calls (call_id, created_at, session_id)
+                        VALUES ($1, $2, $3)
+                        ON CONFLICT (call_id) DO UPDATE SET
+                            session_id = COALESCE(conversation_calls.session_id, EXCLUDED.session_id)
+                        """,
+                        call_id,
+                        ts,
+                        sid,
+                    )
+
+                # Insert events
+                for transaction_id, event_type, safe_data, timestamp, session_id, _ in batch:
+                    await conn.execute(
+                        """
+                        INSERT INTO conversation_events (call_id, event_type, payload, created_at, session_id)
+                        VALUES ($1, $2, $3, $4, $5)
+                        """,
+                        transaction_id,
+                        event_type,
+                        json.dumps(safe_data),
+                        timestamp,
+                        session_id,
+                    )
+
+        logger.debug(f"Batch wrote {len(batch)} events to DB")
+
+    # ------------------------------------------------------------------
+    # Inline sink writers
+    # ------------------------------------------------------------------
+
+    def _write_stdout_sync(
         self,
         transaction_id: str,
         event_type: str,
         data: dict[str, Any],
         timestamp: datetime,
     ) -> None:
-        """Write event to stdout as JSON."""
+        """Write event to stdout as JSON (synchronous)."""
         try:
             span = trace.get_current_span()
             ctx = span.get_span_context()
@@ -219,6 +388,16 @@ class EventEmitter:
         except Exception as e:
             logger.warning(f"Failed to write event to stdout: {repr(e)}", exc_info=True)
 
+    async def _write_stdout(
+        self,
+        transaction_id: str,
+        event_type: str,
+        data: dict[str, Any],
+        timestamp: datetime,
+    ) -> None:
+        """Write event to stdout as JSON (async, kept for backward compat)."""
+        self._write_stdout_sync(transaction_id, event_type, data, timestamp)
+
     async def _write_db(
         self,
         transaction_id: str,
@@ -226,7 +405,7 @@ class EventEmitter:
         data: dict[str, Any],
         timestamp: datetime,
     ) -> None:
-        """Write event to PostgreSQL.
+        """Write event to PostgreSQL (kept for backward compat).
 
         Session ID Propagation Convention:
             The session_id is extracted from the event data dict if present.

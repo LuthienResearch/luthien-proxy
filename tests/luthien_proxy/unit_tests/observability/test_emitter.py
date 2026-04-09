@@ -5,7 +5,7 @@ import json
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
 import pytest
@@ -152,8 +152,8 @@ class TestEventEmitter:
         """emit() should serialize data before passing to sinks."""
         emitter = EventEmitter(stdout_enabled=False)
 
-        # Patch _write_stdout to capture what's passed
-        with patch.object(emitter, "_write_stdout", new_callable=AsyncMock) as mock:
+        # Patch _write_stdout_sync to capture what's passed
+        with patch.object(emitter, "_write_stdout_sync") as mock:
             emitter._stdout_enabled = True
             await emitter.emit(
                 "tx-123",
@@ -177,7 +177,7 @@ class TestEventEmitter:
             def __str__(self) -> str:
                 return "<CustomClass>"
 
-        with patch.object(emitter, "_write_stdout", new_callable=AsyncMock) as mock:
+        with patch.object(emitter, "_write_stdout_sync") as mock:
             emitter._stdout_enabled = True
             await emitter.emit(
                 "tx-123",
@@ -190,27 +190,33 @@ class TestEventEmitter:
             assert data == {"custom": "<CustomClass>"}
 
     @pytest.mark.asyncio
-    async def test_record_creates_background_task(self) -> None:
-        """record() should create a background task for emit()."""
-        emitter = EventEmitter(stdout_enabled=False)
-
-        with patch.object(emitter, "emit", new_callable=AsyncMock) as mock_emit:
+    async def test_record_enqueues_for_db(self) -> None:
+        """record() should enqueue events for the DB drain loop."""
+        mock_pool = AsyncMock()
+        emitter = EventEmitter(db_pool=mock_pool, stdout_enabled=False)
+        emitter.start()
+        try:
             emitter.record("tx-123", "test.event", {"key": "value"})
-
-            # Give the background task a chance to run
-            await asyncio.sleep(0)
-
-            mock_emit.assert_called_once_with("tx-123", "test.event", {"key": "value"})
+            assert emitter._db_queue is not None
+            assert emitter._db_queue.qsize() == 1
+        finally:
+            await emitter.shutdown()
 
     @pytest.mark.asyncio
-    async def test_emit_writes_to_db_sink(self) -> None:
-        """emit() should write events to the database when db_pool is provided.
+    async def test_emit_writes_to_db_via_drain(self) -> None:
+        """emit() should write events to the database via the drain loop.
 
         Regression test: TYPE_CHECKING imports previously caused NameError in
         _write_db because cast(DatabasePool, ...) evaluated DatabasePool at
         runtime, but it was only imported under TYPE_CHECKING.
         """
         mock_conn = AsyncMock()
+        mock_conn.transaction = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(),
+                __aexit__=AsyncMock(return_value=False),
+            )
+        )
 
         @asynccontextmanager
         async def fake_connection():
@@ -219,11 +225,21 @@ class TestEventEmitter:
         mock_pool = AsyncMock()
         mock_pool.connection = fake_connection
 
-        emitter = EventEmitter(db_pool=mock_pool, stdout_enabled=False)
-        await emitter.emit("tx-123", "test.event", {"key": "value"})
+        emitter = EventEmitter(
+            db_pool=mock_pool,
+            stdout_enabled=False,
+            drain_interval_ms=10,
+        )
+        emitter.start()
+        try:
+            await emitter.emit("tx-123", "test.event", {"key": "value"})
+            # Give drain loop time to process
+            await asyncio.sleep(0.15)
 
-        # DB sink should have been called (INSERT into conversation_calls + events)
-        assert mock_conn.execute.call_count == 2
+            # DB sink should have been called (upsert conversation_calls + INSERT events)
+            assert mock_conn.execute.call_count == 2
+        finally:
+            await emitter.shutdown()
 
     @pytest.mark.asyncio
     async def test_emit_writes_to_event_publisher_sink(self) -> None:
@@ -232,6 +248,9 @@ class TestEventEmitter:
 
         emitter = EventEmitter(event_publisher=mock_publisher, stdout_enabled=False)
         await emitter.emit("tx-123", "test.event", {"key": "value"})
+
+        # Give the fire-and-forget SSE task a chance to run
+        await asyncio.sleep(0)
 
         mock_publisher.publish_event.assert_called_once_with(
             call_id="tx-123",
@@ -255,7 +274,7 @@ class TestEventEmitter:
         emitter = EventEmitter(db_pool=mock_pool, stdout_enabled=False)
 
         before = EventEmitter.dropped_db_writes
-        await emitter.emit("tx-123", "test.event", {"key": "value"})
+        await emitter._write_db("tx-123", "test.event", {"key": "value"}, datetime.now(UTC))
         assert EventEmitter.dropped_db_writes == before + 1
 
     @pytest.mark.asyncio
@@ -274,7 +293,7 @@ class TestEventEmitter:
         emitter = EventEmitter(db_pool=mock_pool, stdout_enabled=False)
 
         before = EventEmitter.dropped_db_writes
-        await emitter.emit("tx-123", "test.event", {"key": "value"})
+        await emitter._write_db("tx-123", "test.event", {"key": "value"}, datetime.now(UTC))
         assert EventEmitter.dropped_db_writes == before + 1
 
     @pytest.mark.asyncio
@@ -299,3 +318,127 @@ class TestEventEmitter:
             return_exceptions=True,
         )
         assert any(isinstance(r, ValueError) for r in results)
+
+
+class TestBoundedEventEmitter:
+    """Tests for bounded queue behavior."""
+
+    @pytest.mark.asyncio
+    async def test_record_drops_event_when_queue_full(self) -> None:
+        """record() should drop events when the DB write queue is full."""
+        emitter = EventEmitter(
+            db_pool=AsyncMock(),
+            stdout_enabled=False,
+            max_queue_size=2,
+        )
+        emitter.start()
+        try:
+            # Fill the queue
+            emitter.record("tx-1", "test.event", {"i": 1})
+            emitter.record("tx-2", "test.event", {"i": 2})
+            # This one should be dropped
+            emitter.record("tx-3", "test.event", {"i": 3})
+
+            assert emitter.dropped_events == 1
+            assert emitter._db_queue is not None
+            assert emitter._db_queue.qsize() == 2
+        finally:
+            await emitter.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_drain_loop_writes_batches_to_db(self) -> None:
+        """The drain loop should batch-write queued events to the database."""
+        mock_conn = AsyncMock()
+        mock_conn.transaction = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(),
+                __aexit__=AsyncMock(return_value=False),
+            )
+        )
+
+        @asynccontextmanager
+        async def fake_connection():
+            yield mock_conn
+
+        mock_pool = AsyncMock()
+        mock_pool.connection = fake_connection
+
+        emitter = EventEmitter(
+            db_pool=mock_pool,
+            stdout_enabled=False,
+            max_queue_size=100,
+            batch_size=10,
+            drain_interval_ms=10,
+        )
+        emitter.start()
+        try:
+            # Enqueue 3 events
+            emitter.record("tx-1", "test.event", {"i": 1})
+            emitter.record("tx-2", "test.event", {"i": 2})
+            emitter.record("tx-3", "test.event", {"i": 3})
+
+            # Wait for drain loop to process
+            await asyncio.sleep(0.15)
+
+            # DB should have been written to -- at least 3 event inserts
+            # (calls table upserts + events table inserts)
+            assert mock_conn.execute.call_count >= 3
+            assert emitter._db_queue is not None
+            assert emitter._db_queue.qsize() == 0
+        finally:
+            await emitter.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_drain_loop_continues_after_db_error(self) -> None:
+        """The drain loop should keep running after a batch write failure."""
+        call_count = 0
+
+        @asynccontextmanager
+        async def fake_connection():
+            nonlocal call_count
+            call_count += 1
+            mock_conn = AsyncMock()
+            if call_count == 1:
+                mock_conn.execute = AsyncMock(
+                    side_effect=asyncpg.PostgresError("connection lost")
+                )
+                mock_conn.transaction = MagicMock(
+                    return_value=AsyncMock(
+                        __aenter__=AsyncMock(),
+                        __aexit__=AsyncMock(return_value=False),
+                    )
+                )
+            else:
+                mock_conn.transaction = MagicMock(
+                    return_value=AsyncMock(
+                        __aenter__=AsyncMock(),
+                        __aexit__=AsyncMock(return_value=False),
+                    )
+                )
+            yield mock_conn
+
+        mock_pool = AsyncMock()
+        mock_pool.connection = fake_connection
+
+        emitter = EventEmitter(
+            db_pool=mock_pool,
+            stdout_enabled=False,
+            max_queue_size=100,
+            drain_interval_ms=10,
+        )
+        before = EventEmitter.dropped_db_writes
+        emitter.start()
+        try:
+            # First event: will fail
+            emitter.record("tx-1", "test.event", {"i": 1})
+            await asyncio.sleep(0.1)
+
+            # Second event: should succeed (drain loop recovered)
+            emitter.record("tx-2", "test.event", {"i": 2})
+            await asyncio.sleep(0.1)
+
+            assert EventEmitter.dropped_db_writes > before
+            assert emitter._db_queue is not None
+            assert emitter._db_queue.qsize() == 0
+        finally:
+            await emitter.shutdown()
