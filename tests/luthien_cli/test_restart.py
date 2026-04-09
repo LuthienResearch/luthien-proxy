@@ -29,7 +29,7 @@ def test_restart_fails_without_repo_path(mock_load):
     assert "No repo_path configured" in result.output
 
 
-@patch("luthien_cli.commands.up.ensure_gateway_up")
+@patch("luthien_cli.commands.restart.ensure_gateway_up")
 @patch("luthien_cli.commands.restart.stop_gateway")
 @patch("luthien_cli.commands.restart.is_gateway_running", return_value=True)
 @patch("luthien_cli.commands.restart.load_config")
@@ -42,7 +42,7 @@ def test_restart_local_stops_then_starts(mock_load, mock_running, mock_stop, moc
     mock_up.assert_called_once()
 
 
-@patch("luthien_cli.commands.up.ensure_gateway_up")
+@patch("luthien_cli.commands.restart.ensure_gateway_up")
 @patch("luthien_cli.commands.restart.is_gateway_running", return_value=False)
 @patch("luthien_cli.commands.restart.load_config")
 def test_restart_local_no_running_gateway(mock_load, mock_running, mock_up):
@@ -61,7 +61,7 @@ def test_restart_unknown_mode(mock_load):
     assert "Unknown mode" in result.output
 
 
-@patch("luthien_cli.commands.up.ensure_gateway_up")
+@patch("luthien_cli.commands.restart.ensure_gateway_up")
 @patch("subprocess.run")
 @patch("luthien_cli.commands.restart.load_config")
 def test_restart_docker_mode(mock_load, mock_subprocess, mock_up):
@@ -76,7 +76,7 @@ def test_restart_docker_mode(mock_load, mock_subprocess, mock_up):
     mock_up.assert_called_once()
 
 
-@patch("luthien_cli.commands.up.ensure_gateway_up")
+@patch("luthien_cli.commands.restart.ensure_gateway_up")
 @patch("subprocess.run")
 @patch("luthien_cli.commands.restart.load_config")
 def test_restart_docker_warns_on_failure(mock_load, mock_subprocess, mock_up):
@@ -89,7 +89,7 @@ def test_restart_docker_warns_on_failure(mock_load, mock_subprocess, mock_up):
     mock_up.assert_called_once()
 
 
-@patch("luthien_cli.commands.up.ensure_gateway_up")
+@patch("luthien_cli.commands.restart.ensure_gateway_up")
 @patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="docker", timeout=60))
 @patch("luthien_cli.commands.restart.load_config")
 def test_restart_docker_handles_timeout(mock_load, mock_subprocess, mock_up):

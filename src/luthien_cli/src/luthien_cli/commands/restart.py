@@ -1,8 +1,11 @@
 """luthien restart -- stop and start the gateway."""
 
+import subprocess
+
 import click
 from rich.console import Console
 
+from luthien_cli.commands.up import ensure_gateway_up
 from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config
 from luthien_cli.local_process import is_gateway_running, stop_gateway
 
@@ -14,8 +17,6 @@ def restart():
     Stops the running gateway and starts it again. Useful after editing
     policy files to pick up code changes.
     """
-    from luthien_cli.commands.up import ensure_gateway_up
-
     console = Console()
     config = load_config(DEFAULT_CONFIG_PATH)
 
@@ -29,8 +30,6 @@ def restart():
         else:
             console.print("[dim]No running gateway found — starting fresh.[/dim]")
     elif config.mode == "docker":
-        import subprocess
-
         try:
             with console.status("Stopping containers..."):
                 result = subprocess.run(
