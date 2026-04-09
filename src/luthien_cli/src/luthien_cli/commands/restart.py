@@ -31,16 +31,19 @@ def restart():
     elif config.mode == "docker":
         import subprocess
 
-        with console.status("Stopping containers..."):
-            result = subprocess.run(
-                ["docker", "compose", "down"],
-                cwd=config.repo_path,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-        if result.returncode != 0:
-            console.print(f"[yellow]Warning: docker compose down failed:[/yellow]\n{result.stderr}")
+        try:
+            with console.status("Stopping containers..."):
+                result = subprocess.run(
+                    ["docker", "compose", "down"],
+                    cwd=config.repo_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+            if result.returncode != 0:
+                console.print(f"[yellow]Warning: docker compose down failed:[/yellow]\n{result.stderr}")
+        except subprocess.TimeoutExpired:
+            console.print("[yellow]Warning: docker compose down timed out after 60s[/yellow]")
     else:
         console.print(f"[red]Unknown mode: {config.mode}[/red]")
         raise SystemExit(1)

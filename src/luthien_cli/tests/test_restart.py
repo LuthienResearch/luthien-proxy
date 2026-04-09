@@ -1,5 +1,6 @@
 """Tests for the restart CLI command."""
 
+import subprocess
 from unittest.mock import patch
 
 from click.testing import CliRunner
@@ -85,4 +86,15 @@ def test_restart_docker_warns_on_failure(mock_load, mock_subprocess, mock_up):
     result = CliRunner().invoke(restart)
     assert result.exit_code == 0
     assert "Warning" in result.output
+    mock_up.assert_called_once()
+
+
+@patch("luthien_cli.commands.up.ensure_gateway_up")
+@patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="docker", timeout=60))
+@patch("luthien_cli.commands.restart.load_config")
+def test_restart_docker_handles_timeout(mock_load, mock_subprocess, mock_up):
+    mock_load.return_value = _mock_config(mode="docker")
+    result = CliRunner().invoke(restart)
+    assert result.exit_code == 0
+    assert "timed out" in result.output
     mock_up.assert_called_once()
