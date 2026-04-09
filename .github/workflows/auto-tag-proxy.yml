@@ -124,12 +124,13 @@ jobs:
         if: steps.changes.outputs.count != '0'
         env:
           TAG: ${{ steps.bump.outputs.tag }}
+          TRIGGER_SHA: ${{ github.sha }}
         run: |
           git fetch origin main
 
           # If main advanced (e.g. previous auto-tag run pushed a changelog
           # commit), rebase our changelog commit on top of the new HEAD.
-          if [ "$(git rev-parse origin/main)" != "${{ github.sha }}" ]; then
+          if [ "$(git rev-parse origin/main)" != "$TRIGGER_SHA" ]; then
             echo "main advanced — rebasing changelog commit"
             if ! git rebase origin/main; then
               echo "::error::Rebase failed (conflict). Skipping tag."
@@ -138,6 +139,9 @@ jobs:
             fi
           fi
 
+          # Push changelog commit, then tag on the pushed commit. The
+          # concurrency group serializes runs, so no other auto-tag can
+          # interleave between these two pushes.
           git push origin HEAD:main
           git tag "$TAG"
           git push origin "$TAG"

@@ -78,6 +78,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # BUILD_VERSION is only used by Dockerfile.gateway and
+          # Dockerfile.standalone; other Dockerfiles silently ignore it.
           build-args: |
             BUILD_COMMIT=${{ github.sha }}
             BUILD_VERSION=${{ steps.strip-v.outputs.version || '' }}

@@ -19,6 +19,7 @@ parse_fragment = compile_changelog.parse_fragment
 collect_fragments = compile_changelog.collect_fragments
 build_section = compile_changelog.build_section
 insert_into_changelog = compile_changelog.insert_into_changelog
+cut_release = compile_changelog.cut_release
 SKIP_FILES = compile_changelog.SKIP_FILES
 
 
@@ -151,6 +152,78 @@ class TestBuildSection:
         section = build_section(grouped)
         assert "- **A**: works" in section
         assert "  - sub-bullet" in section
+
+
+class TestCutRelease:
+    def test_moves_unreleased_to_versioned_section(self, changelog_file: Path) -> None:
+        # Add content under Unreleased
+        changelog_file.write_text(
+            textwrap.dedent("""\
+            # CHANGELOG
+
+            ## Unreleased | TBA
+
+            ### Features
+
+            - **New thing**: it works
+
+            ## 0.0.2 | 2025-11-07
+
+            - Old entry
+            """)
+        )
+        cut_release("1.0.0", dry_run=False)
+        content = changelog_file.read_text()
+        assert "## Unreleased | TBA" in content
+        assert "## 1.0.0 |" in content
+        assert "- **New thing**: it works" in content
+        # Versioned section comes after empty Unreleased
+        unreleased_pos = content.index("## Unreleased")
+        versioned_pos = content.index("## 1.0.0")
+        old_pos = content.index("## 0.0.2")
+        assert unreleased_pos < versioned_pos < old_pos
+
+    def test_empty_unreleased_creates_header_only(self, changelog_file: Path) -> None:
+        cut_release("2.0.0", dry_run=False)
+        content = changelog_file.read_text()
+        assert "## 2.0.0 |" in content
+        assert "## Unreleased | TBA" in content
+
+    def test_skips_if_version_already_exists(self, changelog_file: Path) -> None:
+        changelog_file.write_text(
+            textwrap.dedent("""\
+            # CHANGELOG
+
+            ## Unreleased | TBA
+
+            ## 3.0.0 | 2026-04-09
+
+            - Existing release
+
+            ## 0.0.2 | 2025-11-07
+
+            - Old entry
+            """)
+        )
+        original = changelog_file.read_text()
+        cut_release("3.0.0", dry_run=False)
+        assert changelog_file.read_text() == original
+
+    def test_missing_unreleased_header_exits(self, changelog_file: Path) -> None:
+        changelog_file.write_text("# CHANGELOG\n\n## 0.0.2 | 2025-11-07\n\n- Old entry\n")
+        with pytest.raises(SystemExit):
+            cut_release("1.0.0", dry_run=False)
+
+    def test_preserves_content_after_unreleased(self, changelog_file: Path) -> None:
+        cut_release("1.0.0", dry_run=False)
+        content = changelog_file.read_text()
+        assert "## 0.0.2 | 2025-11-07" in content
+        assert "- Old entry" in content
+
+    def test_dry_run_does_not_modify(self, changelog_file: Path) -> None:
+        original = changelog_file.read_text()
+        cut_release("1.0.0", dry_run=True)
+        assert changelog_file.read_text() == original
 
 
 class TestInsertIntoChangelog:
