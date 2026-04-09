@@ -4,6 +4,35 @@ let eventSource = null;
 let eventCount = 0;
 let allEvents = [];
 
+// SSE throttle: batch DOM updates to max 10/sec
+const SSE_THROTTLE_MS = 100;
+let pendingEvents = [];
+let throttleTimer = null;
+
+function flushPendingEvents() {
+    throttleTimer = null;
+    if (pendingEvents.length === 0) return;
+
+    // Process all pending events in one DOM batch
+    const batch = pendingEvents;
+    pendingEvents = [];
+
+    for (const event of batch) {
+        addEvent(event);
+    }
+}
+
+function enqueueEvent(event) {
+    pendingEvents.push(event);
+    // Cap pending buffer to prevent memory buildup
+    if (pendingEvents.length > 500) {
+        pendingEvents = pendingEvents.slice(-200);
+    }
+    if (!throttleTimer) {
+        throttleTimer = setTimeout(flushPendingEvents, SSE_THROTTLE_MS);
+    }
+}
+
 // DOM elements
 const statusEl = document.getElementById('status');
 const statusTextEl = document.getElementById('status-text');
@@ -331,7 +360,7 @@ function connect() {
     eventSource.onmessage = (e) => {
         try {
             const event = JSON.parse(e.data);
-            addEvent(event);
+            enqueueEvent(event);
         } catch (err) {
             console.error('Failed to parse event:', err, e.data);
         }
