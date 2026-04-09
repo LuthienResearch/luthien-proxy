@@ -924,22 +924,14 @@ class TestFetchSessionList:
                 "call_count": 3,
                 "policy_event_count": 1,
                 "user_hash": "abc123",
-            },
-        ]
-        model_rows = [
-            {"session_id": "session-1", "model": "gpt-4"},
-            {"session_id": "session-1", "model": "claude-3"},
-        ]
-        preview_rows = [
-            {
-                "session_id": "session-1",
-                "request_payload": {"final_request": {"messages": [{"role": "user", "content": "Hello world"}]}},
+                "models_used": "gpt-4,claude-3",
+                "preview_message": "Hello world",
             },
         ]
 
         mock_conn = AsyncMock()
         mock_conn.fetchval.return_value = 1  # Total count
-        mock_conn.fetch.side_effect = [summary_rows, model_rows, preview_rows]
+        mock_conn.fetch.return_value = summary_rows
 
         mock_pool = MagicMock()
         mock_pool.is_sqlite = False
@@ -954,7 +946,7 @@ class TestFetchSessionList:
         assert result.sessions[0].session_id == "session-1"
         assert result.sessions[0].turn_count == 3
         assert result.sessions[0].policy_interventions == 1
-        assert "gpt-4" in result.sessions[0].models_used
+        assert result.sessions[0].models_used == ["gpt-4", "claude-3"]
         assert result.sessions[0].preview_message == "Hello world"
         assert result.sessions[0].user_hash == "abc123"
 
@@ -970,14 +962,14 @@ class TestFetchSessionList:
                 "call_count": 2,
                 "policy_event_count": 0,
                 "user_hash": None,
+                "models_used": "gpt-4",
+                "preview_message": None,
             },
         ]
-        model_rows = [{"session_id": "session-2", "model": "gpt-4"}]
-        preview_rows: list[dict] = []  # No first message
 
         mock_conn = AsyncMock()
         mock_conn.fetchval.return_value = 100  # Total count
-        mock_conn.fetch.side_effect = [summary_rows, model_rows, preview_rows]
+        mock_conn.fetch.return_value = summary_rows
 
         mock_pool = MagicMock()
         mock_pool.is_sqlite = False

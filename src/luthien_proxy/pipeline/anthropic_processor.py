@@ -22,9 +22,9 @@ from __future__ import annotations
 import copy
 import json
 import logging
-from datetime import datetime, timezone
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterator
+from datetime import datetime, timezone
 from typing import Literal, TypedDict, TypeGuard, cast
 
 from anthropic import APIConnectionError as AnthropicConnectionError
@@ -411,7 +411,6 @@ async def process_anthropic_request(
                     )
             except Exception:
                 logger.debug(f"[{call_id}] Failed to auto-label user {luthien_user}")
-
 
         if usage_collector:
             usage_collector.record_session(session_id)

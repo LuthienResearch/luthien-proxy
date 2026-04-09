@@ -280,9 +280,11 @@ class TestEventEmitter:
         emitter = EventEmitter(db_pool=mock_pool, stdout_enabled=False)
 
         with pytest.raises(ValueError, match="unexpected"):
-            await emitter._write_db_batch([
-                ("tx-123", "test.event", {"key": "value"}, datetime.now(UTC), None, None),
-            ])
+            await emitter._write_db_batch(
+                [
+                    ("tx-123", "test.event", {"key": "value"}, datetime.now(UTC), None, None),
+                ]
+            )
 
 
 class TestBoundedEventEmitter:
@@ -364,9 +366,7 @@ class TestBoundedEventEmitter:
             call_count += 1
             mock_conn = AsyncMock()
             if call_count == 1:
-                mock_conn.execute = AsyncMock(
-                    side_effect=asyncpg.PostgresError("connection lost")
-                )
+                mock_conn.execute = AsyncMock(side_effect=asyncpg.PostgresError("connection lost"))
                 mock_conn.transaction = MagicMock(
                     return_value=AsyncMock(
                         __aenter__=AsyncMock(),

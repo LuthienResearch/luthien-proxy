@@ -12,7 +12,7 @@ import json
 import logging
 import re
 from datetime import datetime
-from typing import Any, TypedDict, cast
+from typing import Any, TypedDict
 
 from luthien_proxy.utils.db import DatabasePool, parse_db_ts
 
@@ -25,9 +25,6 @@ from .models import (
     SessionListResponse,
     SessionSummary,
 )
-
-# DB row payload type: asyncpg returns dict, aiosqlite returns str, may be NULL
-_PreviewPayload = dict[str, Any] | str | None
 
 
 class StoredEvent(TypedDict):
@@ -283,6 +280,20 @@ def _parse_response_messages(response: dict[str, Any]) -> list[ConversationMessa
     return messages
 
 
+def _parse_models_csv(models_csv: str | None) -> list[str]:
+    """Parse comma-separated model names, deduplicating."""
+    if not models_csv:
+        return []
+    seen: set[str] = set()
+    result: list[str] = []
+    for m in models_csv.split(","):
+        m = m.strip()
+        if m and m not in seen:
+            seen.add(m)
+            result.append(m)
+    return result
+
+
 # Maximum length for first user message preview
 _FIRST_MESSAGE_MAX_LENGTH = 100
 
@@ -366,9 +377,8 @@ async def fetch_session_list(
 async def _fetch_session_list_pg(
     limit: int, db_pool: DatabasePool, offset: int = 0, user_hash: str | None = None
 ) -> SessionListResponse:
-    """PostgreSQL version: reads pre-computed session_summaries, then fetches models/preview."""
+    """PostgreSQL version: reads everything from pre-computed session_summaries."""
     async with db_pool.connection() as conn:
-        # Count and main stats from session_summaries (fast — no GROUP BY)
         if user_hash is not None:
             total_count = await conn.fetchval(
                 "SELECT COUNT(*) FROM session_summaries WHERE user_hash = $1",
@@ -377,7 +387,8 @@ async def _fetch_session_list_pg(
             rows = await conn.fetch(
                 """
                 SELECT session_id, first_seen, last_seen, event_count,
-                       call_count, policy_event_count, user_hash
+                       call_count, policy_event_count, user_hash,
+                       models_used, preview_message
                 FROM session_summaries
                 WHERE user_hash = $1
                 ORDER BY last_seen DESC
@@ -392,7 +403,8 @@ async def _fetch_session_list_pg(
             rows = await conn.fetch(
                 """
                 SELECT session_id, first_seen, last_seen, event_count,
-                       call_count, policy_event_count, user_hash
+                       call_count, policy_event_count, user_hash,
+                       models_used, preview_message
                 FROM session_summaries
                 ORDER BY last_seen DESC
                 LIMIT $1 OFFSET $2
@@ -406,49 +418,6 @@ async def _fetch_session_list_pg(
         if not rows:
             return SessionListResponse(sessions=[], total=total, offset=offset, has_more=False)
 
-        session_ids = [str(row["session_id"]) for row in rows]
-
-        # Fetch models for this page (indexed lookup)
-        model_rows = await conn.fetch(
-            """
-            SELECT DISTINCT session_id, payload->>'final_model' as model
-            FROM conversation_events
-            WHERE session_id = ANY($1)
-            AND event_type = 'transaction.request_recorded'
-            AND payload->>'final_model' IS NOT NULL
-            """,
-            session_ids,
-        )
-
-        # Fetch first message preview for this page
-        preview_rows = await conn.fetch(
-            """
-            SELECT DISTINCT ON (session_id)
-                session_id, payload as request_payload
-            FROM conversation_events
-            WHERE session_id = ANY($1)
-            AND event_type = 'transaction.request_recorded'
-            AND COALESCE((payload->'final_request'->>'max_tokens')::int, 2) > 1
-            ORDER BY session_id, created_at ASC
-            """,
-            session_ids,
-        )
-
-    # Build lookup maps
-    models_by_session: dict[str, list[str]] = {}
-    for r in model_rows:
-        sid = str(r["session_id"])
-        model = str(r["model"])
-        session_models = models_by_session.setdefault(sid, [])
-        if model not in session_models:
-            session_models.append(model)
-
-    preview_by_session: dict[str, str | None] = {}
-    for r in preview_rows:
-        sid = str(r["session_id"])
-        if sid not in preview_by_session:
-            preview_by_session[sid] = _extract_preview_message(cast(_PreviewPayload, r["request_payload"]))
-
     sessions = [
         SessionSummary(
             session_id=str(row["session_id"]),
@@ -457,8 +426,8 @@ async def _fetch_session_list_pg(
             turn_count=int(row["call_count"]),  # type: ignore[arg-type]
             total_events=int(row["event_count"]),  # type: ignore[arg-type]
             policy_interventions=int(row["policy_event_count"]),  # type: ignore[arg-type]
-            models_used=models_by_session.get(str(row["session_id"]), []),
-            preview_message=preview_by_session.get(str(row["session_id"])),
+            models_used=_parse_models_csv(str(row["models_used"]) if row["models_used"] else None),
+            preview_message=str(row["preview_message"]) if row["preview_message"] else None,
             user_hash=str(row["user_hash"]) if row["user_hash"] else None,
         )
         for row in rows
@@ -472,9 +441,8 @@ async def _fetch_session_list_pg(
 async def _fetch_session_list_sqlite(
     limit: int, db_pool: DatabasePool, offset: int = 0, user_hash: str | None = None
 ) -> SessionListResponse:
-    """SQLite version: reads pre-computed session_summaries, then fetches models/preview."""
+    """SQLite version: reads everything from pre-computed session_summaries."""
     async with db_pool.connection() as conn:
-        # Count and main stats from session_summaries (fast — no GROUP BY)
         if user_hash is not None:
             total_count = await conn.fetchval(
                 "SELECT COUNT(*) FROM session_summaries WHERE user_hash = $1",
@@ -483,7 +451,8 @@ async def _fetch_session_list_sqlite(
             rows = await conn.fetch(
                 """
                 SELECT session_id, first_seen, last_seen, event_count,
-                       call_count, policy_event_count, user_hash
+                       call_count, policy_event_count, user_hash,
+                       models_used, preview_message
                 FROM session_summaries
                 WHERE user_hash = $1
                 ORDER BY last_seen DESC
@@ -498,7 +467,8 @@ async def _fetch_session_list_sqlite(
             rows = await conn.fetch(
                 """
                 SELECT session_id, first_seen, last_seen, event_count,
-                       call_count, policy_event_count, user_hash
+                       call_count, policy_event_count, user_hash,
+                       models_used, preview_message
                 FROM session_summaries
                 ORDER BY last_seen DESC
                 LIMIT $1 OFFSET $2
@@ -512,70 +482,6 @@ async def _fetch_session_list_sqlite(
         if not rows:
             return SessionListResponse(sessions=[], total=total, offset=offset, has_more=False)
 
-        session_ids = [str(row["session_id"]) for row in rows]
-        placeholders = ", ".join(f"${i + 1}" for i in range(len(session_ids)))
-
-        # One query for all models on this page
-        model_rows = await conn.fetch(
-            f"""
-            SELECT session_id, json_extract(payload, '$.final_model') as model
-            FROM conversation_events
-            WHERE session_id IN ({placeholders})
-            AND event_type = 'transaction.request_recorded'
-            AND json_extract(payload, '$.final_model') IS NOT NULL
-            """,
-            *session_ids,
-        )
-
-        # One query for first qualifying preview per session on this page
-        preview_rows = await conn.fetch(
-            f"""
-            SELECT session_id, payload as request_payload
-            FROM conversation_events
-            WHERE session_id IN ({placeholders})
-            AND event_type = 'transaction.request_recorded'
-            AND COALESCE(
-                CAST(json_extract(payload, '$.final_request.max_tokens') AS INTEGER),
-                2
-            ) > 1
-            ORDER BY session_id, created_at ASC
-            """,
-            *session_ids,
-        )
-
-        # One query for user_hash per session on this page
-        user_hash_rows = await conn.fetch(
-            f"""
-            SELECT session_id, user_hash
-            FROM conversation_calls
-            WHERE session_id IN ({placeholders})
-            AND user_hash IS NOT NULL
-            ORDER BY session_id, created_at ASC
-            """,
-            *session_ids,
-        )
-
-    # Build per-session lookup maps from the bulk results
-    models_by_session: dict[str, list[str]] = {}
-    for r in model_rows:
-        sid = str(r["session_id"])
-        model = str(r["model"])
-        session_models = models_by_session.setdefault(sid, [])
-        if model not in session_models:
-            session_models.append(model)
-
-    preview_by_session: dict[str, str | None] = {}
-    for r in preview_rows:
-        sid = str(r["session_id"])
-        if sid not in preview_by_session:
-            preview_by_session[sid] = _extract_preview_message(cast(_PreviewPayload, r["request_payload"]))
-
-    user_hash_by_session: dict[str, str] = {}
-    for r in user_hash_rows:
-        sid = str(r["session_id"])
-        if sid not in user_hash_by_session:
-            user_hash_by_session[sid] = str(r["user_hash"])
-
     sessions = [
         SessionSummary(
             session_id=str(row["session_id"]),
@@ -584,9 +490,9 @@ async def _fetch_session_list_sqlite(
             turn_count=int(row["call_count"]),  # type: ignore[arg-type]
             total_events=int(row["event_count"]),  # type: ignore[arg-type]
             policy_interventions=int(row["policy_event_count"]),  # type: ignore[arg-type]
-            models_used=models_by_session.get(str(row["session_id"]), []),
-            preview_message=preview_by_session.get(str(row["session_id"])),
-            user_hash=user_hash_by_session.get(str(row["session_id"])),
+            models_used=_parse_models_csv(str(row["models_used"]) if row["models_used"] else None),
+            preview_message=str(row["preview_message"]) if row["preview_message"] else None,
+            user_hash=str(row["user_hash"]) if row["user_hash"] else None,
         )
         for row in rows
     ]

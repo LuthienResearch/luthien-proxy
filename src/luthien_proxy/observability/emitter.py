@@ -75,6 +75,69 @@ def _safe_serialize(obj: Any) -> Any:
 
 logger = logging.getLogger(__name__)
 
+_PREVIEW_MAX_LENGTH = 200
+_SYSTEM_REMINDER_RE = __import__("re").compile(r"<system-reminder>.*?</system-reminder>", __import__("re").DOTALL)
+
+
+def _extract_session_metadata(
+    events: list[DbQueueItem],
+) -> tuple[list[str], str | None]:
+    """Extract model names and preview message from request events in a batch.
+
+    Returns (models, preview_message). Preview is the first user message text
+    from the earliest non-probe request event, or None if none found.
+    """
+    models: list[str] = []
+    preview: str | None = None
+
+    # Sort request events by timestamp to get the earliest first
+    request_events = sorted(
+        (e for e in events if e[1] == "transaction.request_recorded"),
+        key=lambda e: e[3],
+    )
+
+    for event in request_events:
+        data = event[2]  # safe_data dict
+
+        # Extract model
+        model = data.get("final_model")
+        if model and model not in models:
+            models.append(model)
+
+        # Extract preview from earliest non-probe request
+        if preview is None:
+            request = data.get("final_request") or data.get("original_request") or {}
+            if isinstance(request, dict):
+                max_tokens = request.get("max_tokens")
+                if max_tokens is not None:
+                    try:
+                        if int(max_tokens) <= 1:
+                            continue  # probe request, skip
+                    except (TypeError, ValueError):
+                        pass
+                messages = request.get("messages", [])
+                for msg in messages:
+                    if not isinstance(msg, dict) or msg.get("role") != "user":
+                        continue
+                    content = msg.get("content")
+                    if isinstance(content, list):
+                        # Anthropic format: list of content blocks
+                        content = " ".join(
+                            b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
+                        )
+                    if isinstance(content, str) and content.strip():
+                        text = content.strip()
+                        text = _SYSTEM_REMINDER_RE.sub("", text).strip()
+                        if not text:
+                            continue
+                        text = " ".join(text.split())
+                        if len(text) > _PREVIEW_MAX_LENGTH:
+                            text = text[:_PREVIEW_MAX_LENGTH] + "..."
+                        preview = text
+                        break
+
+    return models, preview
+
 
 def _log_task_exception(task: asyncio.Task[None]) -> None:
     """Log exceptions from fire-and-forget tasks to prevent silent failures."""
@@ -238,9 +301,7 @@ class EventEmitter:
 
         # Event publisher (SSE) -- lightweight fire-and-forget
         if self._event_publisher:
-            task = asyncio.create_task(
-                self._write_events(transaction_id, event_type, safe_data, timestamp)
-            )
+            task = asyncio.create_task(self._write_events(transaction_id, event_type, safe_data, timestamp))
             task.add_done_callback(_log_task_exception)
 
         # DB -- enqueue for background batch drain
@@ -248,16 +309,13 @@ class EventEmitter:
             session_id = data.get("session_id") if isinstance(data, dict) else None
             user_hash = data.get("user_hash") if isinstance(data, dict) else None
             try:
-                self._db_queue.put_nowait(
-                    (transaction_id, event_type, safe_data, timestamp, session_id, user_hash)
-                )
+                self._db_queue.put_nowait((transaction_id, event_type, safe_data, timestamp, session_id, user_hash))
             except asyncio.QueueFull:
                 self.dropped_events += 1
                 now = time.monotonic()
                 if now - self._last_drop_log >= self._drop_log_interval_s:
                     logger.warning(
-                        f"DB write queue full ({self._max_queue_size}), "
-                        f"dropped {self.dropped_events} events total"
+                        f"DB write queue full ({self._max_queue_size}), dropped {self.dropped_events} events total"
                     )
                     self._last_drop_log = now
 
@@ -265,9 +323,7 @@ class EventEmitter:
     # Drain loop & batch DB writes
     # ------------------------------------------------------------------
 
-    def _collect_batch(
-        self, max_items: int | None = None
-    ) -> list[DbQueueItem]:
+    def _collect_batch(self, max_items: int | None = None) -> list[DbQueueItem]:
         """Collect a batch of events from the queue (non-blocking)."""
         if self._db_queue is None:
             return []
@@ -286,9 +342,7 @@ class EventEmitter:
         while True:
             try:
                 # Wait for the first event (with timeout to allow cancellation checks)
-                first = await asyncio.wait_for(
-                    self._db_queue.get(), timeout=self._drain_interval_s
-                )
+                first = await asyncio.wait_for(self._db_queue.get(), timeout=self._drain_interval_s)
             except TimeoutError:
                 continue
             except asyncio.CancelledError:
@@ -302,8 +356,7 @@ class EventEmitter:
             except Exception as e:
                 EventEmitter.dropped_db_writes += len(batch)
                 logger.warning(
-                    f"Batch DB write failed ({len(batch)} events dropped, "
-                    f"{EventEmitter.dropped_db_writes} total): {e}",
+                    f"Batch DB write failed ({len(batch)} events dropped, {EventEmitter.dropped_db_writes} total): {e}",
                     exc_info=True,
                 )
 
@@ -374,27 +427,37 @@ class EventEmitter:
             event_count = len(events)
             call_ids = {e[0] for e in events}  # unique transaction_ids
             policy_count = sum(
-                1 for e in events
-                if e[1].startswith("policy.") and not e[1].startswith("policy.judge.evaluation")
+                1 for e in events if e[1].startswith("policy.") and not e[1].startswith("policy.judge.evaluation")
             )
             min_ts = min(e[3] for e in events)
             max_ts = max(e[3] for e in events)
             user_hash = next((e[5] for e in events if e[5] is not None), None)
+
+            # Extract models and preview from request events in this batch
+            models, preview = _extract_session_metadata(events)
+            models_csv = ",".join(models) if models else None
 
             # Note: call_count may slightly overcount if a call_id spans
             # multiple batches. Acceptable for an observability summary.
             await conn.execute(
                 """
                 INSERT INTO session_summaries
-                    (session_id, first_seen, last_seen, event_count, call_count, policy_event_count, user_hash)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    (session_id, first_seen, last_seen, event_count, call_count,
+                     policy_event_count, user_hash, models_used, preview_message)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 ON CONFLICT (session_id) DO UPDATE SET
                     first_seen = LEAST(session_summaries.first_seen, EXCLUDED.first_seen),
                     last_seen = GREATEST(session_summaries.last_seen, EXCLUDED.last_seen),
                     event_count = session_summaries.event_count + EXCLUDED.event_count,
                     call_count = session_summaries.call_count + EXCLUDED.call_count,
                     policy_event_count = session_summaries.policy_event_count + EXCLUDED.policy_event_count,
-                    user_hash = COALESCE(session_summaries.user_hash, EXCLUDED.user_hash)
+                    user_hash = COALESCE(session_summaries.user_hash, EXCLUDED.user_hash),
+                    models_used = CASE
+                        WHEN EXCLUDED.models_used IS NOT NULL THEN
+                            COALESCE(session_summaries.models_used || ',' || EXCLUDED.models_used, EXCLUDED.models_used)
+                        ELSE session_summaries.models_used
+                    END,
+                    preview_message = COALESCE(session_summaries.preview_message, EXCLUDED.preview_message)
                 """,
                 sid,
                 min_ts,
@@ -403,6 +466,8 @@ class EventEmitter:
                 len(call_ids),
                 policy_count,
                 user_hash,
+                models_csv,
+                preview,
             )
 
     # ------------------------------------------------------------------

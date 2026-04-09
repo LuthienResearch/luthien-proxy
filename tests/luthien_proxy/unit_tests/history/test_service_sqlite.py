@@ -22,7 +22,8 @@ async def _refresh_session_summaries(pool: DatabasePool) -> None:
         await conn.execute(
             """
             INSERT INTO session_summaries
-                (session_id, first_seen, last_seen, event_count, call_count, policy_event_count, user_hash)
+                (session_id, first_seen, last_seen, event_count, call_count,
+                 policy_event_count, user_hash, models_used, preview_message)
             SELECT
                 ce.session_id,
                 MIN(ce.created_at),
@@ -35,7 +36,21 @@ async def _refresh_session_summaries(pool: DatabasePool) -> None:
                     THEN 1 ELSE 0
                 END),
                 (SELECT cc.user_hash FROM conversation_calls cc
-                 WHERE cc.session_id = ce.session_id AND cc.user_hash IS NOT NULL LIMIT 1)
+                 WHERE cc.session_id = ce.session_id AND cc.user_hash IS NOT NULL LIMIT 1),
+                (SELECT GROUP_CONCAT(DISTINCT json_extract(ce2.payload, '$.final_model'))
+                 FROM conversation_events ce2
+                 WHERE ce2.session_id = ce.session_id
+                 AND ce2.event_type = 'transaction.request_recorded'
+                 AND json_extract(ce2.payload, '$.final_model') IS NOT NULL),
+                (SELECT json_extract(ce3.payload, '$.final_request.messages[0].content')
+                 FROM conversation_events ce3
+                 WHERE ce3.session_id = ce.session_id
+                 AND ce3.event_type = 'transaction.request_recorded'
+                 AND COALESCE(
+                     CAST(json_extract(ce3.payload, '$.final_request.max_tokens') AS INTEGER), 2
+                 ) > 1
+                 ORDER BY ce3.created_at ASC
+                 LIMIT 1)
             FROM conversation_events ce
             WHERE ce.session_id IS NOT NULL
             GROUP BY ce.session_id
