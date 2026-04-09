@@ -491,6 +491,41 @@ class TestCreateApp:
             assert data["checks"]["db"]["status"] == "ok"
             assert data["checks"]["redis"]["status"] == "not_configured"
 
+    def test_create_app_health_endpoint_db_not_configured(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Health endpoint shows db not_configured when db_pool is None on deps at request time."""
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            app.state.dependencies.db_pool = None
+            data = client.get("/health").json()
+            assert data["status"] == "healthy"
+            assert data["checks"]["db"]["status"] == "not_configured"
+            assert data["checks"]["redis"]["status"] == "ok"
+
+    def test_create_app_health_endpoint_both_infra_error(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """DB error takes priority over Redis error — overall status is unhealthy not degraded."""
+        mock_db_pool._mock_conn.execute = AsyncMock(side_effect=Exception("db down"))
+        mock_redis_client.ping = AsyncMock(side_effect=Exception("redis down"))
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            data = client.get("/health").json()
+            assert data["status"] == "unhealthy"
+            assert data["checks"]["db"]["status"] == "error"
+            assert data["checks"]["redis"]["status"] == "error"
+
     def test_billing_status_returns_403_without_auth(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Billing status is gated by admin auth — unauthenticated callers get 403."""
         mock_redis_client.get = AsyncMock(return_value=None)
