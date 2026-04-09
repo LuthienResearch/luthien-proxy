@@ -165,6 +165,7 @@ class TestAutoProvisionDefaults:
         assert os.environ["ADMIN_API_KEY"] == result["ADMIN_API_KEY"]
 
     def test_does_not_override_existing_values(self, monkeypatch):
+        monkeypatch.delenv("RAILWAY_SERVICE_NAME", raising=False)
         monkeypatch.setenv("DATABASE_URL", "postgresql://existing")
         monkeypatch.setenv("PROXY_API_KEY", "sk-existing")
         monkeypatch.setenv("ADMIN_API_KEY", "admin-existing")
