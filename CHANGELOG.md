@@ -38,7 +38,6 @@
   - New `ConversationLinkPolicy` injects viewer URL into first response per session
   - JSONL export endpoint at `GET /api/history/sessions/{id}/export/jsonl` (#478)
 
-
 - **In-process Redis replacement** — activity monitor, credential cache, and all Redis features work without Redis in local single-process mode via `EventPublisherProtocol` and `CredentialCacheProtocol` abstractions
 - **Silence OTel errors** (silence-otel): Gracefully handle missing OTel/Tempo infrastructure
   - Default `OTEL_ENABLED` to `false` (opt-in instead of opt-out)
@@ -102,7 +101,6 @@
 - **Streaming pipeline leaked Python SDK synthetic events to wire-protocol clients**: The Anthropic Python SDK's high-level `MessageStream` injects synthetic helper events (`text`, `thinking`, `citation`, `signature`, `input_json`) that have no wire-protocol counterpart. These were forwarded to clients, breaking strict validators like `@ai-sdk/anthropic`. Fixed by switching from `messages.stream()` (high-level `MessageStream` with synthetic events) to `messages.create(stream=True)` (raw `AsyncStream[RawMessageStreamEvent]` yielding only wire-protocol events). This eliminates the problem structurally — no blocklist/allowlist maintenance required. (#499)
 - **Fix streaming protocol violation in SimpleLLMPolicy**: When tool_use blocks are blocked by the judge, emit an explanatory text block (e.g., `[Tool call `Bash` was blocked by policy]`) instead of an orphaned `content_block_stop` or empty response. This fixes the Anthropic streaming protocol violation and allows Claude Code to continue the conversation after a tool call is blocked. (#443)
 
-
 - Fix worktree dev instances sharing `COMPOSE_PROJECT_NAME` — auto-derive from directory name (#348)
 - Make gateway API key optional for `luthien claude` — OAuth passthrough by default (#346)
 - Fix onboard port conflicts and add API key warning (#341)
@@ -146,7 +144,6 @@
 - **Remove dead code from ToolCallJudgePolicy**: Delete unused `_call_judge_with_failsafe()` and `_create_judge_failure_message()` methods left over from a previous refactor. (#445)
 - **Reorganize tests by package**: Move tests into `tests/luthien_proxy/` and `tests/luthien_cli/` subdirectories. Add `luthien-cli` as an editable dev dependency so CLI tests run from the root venv. (#410)
 - **Type strictness pass**: Replace `Any` with concrete types (`AnthropicContentBlock`, `ToolCallDict`, `JSONObject`, `AnthropicRequest`) across 12 files; remove 208 lines of dead code (`transaction_recorder.py`). Also fixes a latent `AttributeError` in `PolicyContext.__deepcopy__` where `.model_copy()` was called on a non-Pydantic field. (#461)
-
 
 - Move luthien-cli into `src/` for consistent project layout (#321)
 - Encapsulate credential type tracking in CredentialManager (#325)

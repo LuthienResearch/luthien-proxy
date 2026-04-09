@@ -53,7 +53,8 @@ COPY config/ ./config/
 # hatch-vcs needs .git/ to resolve the version, but .git/ is excluded from
 # Docker context. SETUPTOOLS_SCM_PRETEND_VERSION is the official escape hatch.
 ARG BUILD_COMMIT=unknown
-ENV SETUPTOOLS_SCM_PRETEND_VERSION="0.0.0+${BUILD_COMMIT}"
+ARG BUILD_VERSION=""
+ENV SETUPTOOLS_SCM_PRETEND_VERSION="${BUILD_VERSION:-0.0.0+${BUILD_COMMIT}}"
 COPY migrations/ ./migrations/
 COPY docker/run-migrations.sh ./docker/
 COPY docker/standalone-entry.sh ./docker/
