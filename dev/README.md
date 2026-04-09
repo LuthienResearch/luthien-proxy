@@ -83,6 +83,55 @@ uv run pytest tests/luthien_proxy/unit_tests
 uv run pytest -m e2e
 ```
 
+## Releasing
+
+Proxy releases are **fully automated** on merge to main. The `auto-tag-proxy` workflow compiles changelog fragments, cuts a versioned section in `CHANGELOG.md`, and tags the release. The existing `release.yml` and `docker-publish.yml` workflows handle GitHub Releases and Docker image publishing.
+
+### What happens on every merge to main
+
+1. Workflow checks for proxy-relevant file changes since the last `v*` tag
+2. Runs unit tests as a gate
+3. Compiles any `changelog.d/` fragments into `CHANGELOG.md`
+4. Renames `## Unreleased` to `## X.Y.Z | YYYY-MM-DD`
+5. Commits changelog, tags `vX.Y.Z`, pushes both
+6. GitHub Release is created with changelog body + wheel artifacts
+7. Docker images are built and pushed to GHCR (`gateway:X.Y.Z`, `gateway:latest`)
+
+### Patch releases (automatic)
+
+Nothing to do. Every merge to main auto-increments the patch version (v3.0.0 → v3.0.1 → v3.0.2 ...).
+
+### Minor or major releases (manual tag)
+
+To bump the minor or major version, create the tag on main before the next merge:
+
+```bash
+git checkout main && git pull
+git tag v3.1.0          # or v4.0.0 for a major bump
+git push origin v3.1.0
+```
+
+The next PR merge will auto-increment from there (v3.1.1, v3.1.2, ...).
+
+### Changelog fragments
+
+Every PR should include a `changelog.d/<name>.md` fragment:
+
+```markdown
+---
+category: Features|Fixes|Refactors|Chores & Docs
+pr: 123
+---
+
+**Short title**: Description of the change
+```
+
+See `changelog.d/README.md` for full format details. The `changelog-check` workflow reminds you if a fragment is missing.
+
+### CLI releases (separate)
+
+`luthien-cli` has its own auto-release pipeline (`auto-tag-cli.yml` → `release-cli.yml`). CLI tags use the `cli-v*` prefix and publish to PyPI. These are independent of proxy releases.
+
 ## Architecture Overview
 
 The V2 gateway is a FastAPI application with integrated LiteLLM and a streaming pipeline for policy enforcement:
