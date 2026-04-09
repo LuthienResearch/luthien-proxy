@@ -14,11 +14,13 @@ import logging
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from opentelemetry import trace
+from opentelemetry import metrics, trace
 from opentelemetry.context import Context, attach, detach
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.prometheus import PrometheusMetricReader
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
+from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -140,6 +142,31 @@ def configure_tracing() -> trace.Tracer:
     return trace.get_tracer(__name__)
 
 
+def configure_metrics() -> None:
+    """Configure OpenTelemetry metrics with a Prometheus exporter.
+
+    Registers a PrometheusMetricReader into prometheus_client's global REGISTRY
+    so that generate_latest() in the /metrics endpoint includes all OTel metrics.
+    Safe to call multiple times — subsequent calls are no-ops.
+    """
+    otel_enabled, _, service_name, service_version, environment = _get_otel_config()
+
+    resource = Resource.create(
+        {
+            "service.name": service_name,
+            "service.version": service_version,
+            "deployment.environment": environment,
+        }
+    )
+
+    reader = PrometheusMetricReader()
+    provider = MeterProvider(resource=resource, metric_readers=[reader])
+    metrics.set_meter_provider(provider)
+
+    if otel_enabled:
+        logger.info("Prometheus metrics configured")
+
+
 def instrument_app(app) -> None:
     """Instrument FastAPI application with OpenTelemetry.
 
@@ -155,7 +182,7 @@ def instrument_app(app) -> None:
     if not get_settings().otel_enabled:
         return
 
-    FastAPIInstrumentor.instrument_app(app)
+    FastAPIInstrumentor.instrument_app(app, excluded_urls="/metrics")
     logger.info("FastAPI instrumented with OpenTelemetry")
 
 
@@ -249,6 +276,7 @@ __all__ = [
     "tracer",
     "configure_tracing",
     "configure_logging",
+    "configure_metrics",
     "instrument_app",
     "instrument_redis",
 ]
