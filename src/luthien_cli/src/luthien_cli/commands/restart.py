@@ -37,6 +37,7 @@ def restart():
                 cwd=config.repo_path,
                 capture_output=True,
                 text=True,
+                timeout=60,
             )
         if result.returncode != 0:
             console.print(f"[yellow]Warning: docker compose down failed:[/yellow]\n{result.stderr}")

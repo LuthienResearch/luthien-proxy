@@ -1,6 +1,6 @@
 """Tests for the restart CLI command."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from click.testing import CliRunner
 
@@ -58,3 +58,31 @@ def test_restart_unknown_mode(mock_load):
     result = CliRunner().invoke(restart)
     assert result.exit_code == 1
     assert "Unknown mode" in result.output
+
+
+@patch("luthien_cli.commands.up.ensure_gateway_up")
+@patch("subprocess.run")
+@patch("luthien_cli.commands.restart.load_config")
+def test_restart_docker_mode(mock_load, mock_subprocess, mock_up):
+    mock_load.return_value = _mock_config(mode="docker")
+    mock_subprocess.return_value.returncode = 0
+    result = CliRunner().invoke(restart)
+    assert result.exit_code == 0
+    mock_subprocess.assert_called_once()
+    call_args = mock_subprocess.call_args
+    assert call_args[0][0] == ["docker", "compose", "down"]
+    assert call_args[1]["cwd"] == "/fake/repo"
+    mock_up.assert_called_once()
+
+
+@patch("luthien_cli.commands.up.ensure_gateway_up")
+@patch("subprocess.run")
+@patch("luthien_cli.commands.restart.load_config")
+def test_restart_docker_warns_on_failure(mock_load, mock_subprocess, mock_up):
+    mock_load.return_value = _mock_config(mode="docker")
+    mock_subprocess.return_value.returncode = 1
+    mock_subprocess.return_value.stderr = "container not found"
+    result = CliRunner().invoke(restart)
+    assert result.exit_code == 0
+    assert "Warning" in result.output
+    mock_up.assert_called_once()
