@@ -352,7 +352,58 @@ class EventEmitter:
                         session_id,
                     )
 
+                # Update session_summaries incrementally
+                await self._update_session_summaries(conn, batch)
+
         logger.debug(f"Batch wrote {len(batch)} events to DB")
+
+    @staticmethod
+    async def _update_session_summaries(
+        conn: Any,
+        batch: list[DbQueueItem],
+    ) -> None:
+        """Incrementally update session_summaries from a batch of events."""
+        # Group events by session_id
+        session_events: dict[str, list[DbQueueItem]] = {}
+        for item in batch:
+            sid = item[4]  # session_id
+            if sid is not None:
+                session_events.setdefault(sid, []).append(item)
+
+        for sid, events in session_events.items():
+            event_count = len(events)
+            call_ids = {e[0] for e in events}  # unique transaction_ids
+            policy_count = sum(
+                1 for e in events
+                if e[1].startswith("policy.") and not e[1].startswith("policy.judge.evaluation")
+            )
+            min_ts = min(e[3] for e in events)
+            max_ts = max(e[3] for e in events)
+            user_hash = next((e[5] for e in events if e[5] is not None), None)
+
+            # Note: call_count may slightly overcount if a call_id spans
+            # multiple batches. Acceptable for an observability summary.
+            await conn.execute(
+                """
+                INSERT INTO session_summaries
+                    (session_id, first_seen, last_seen, event_count, call_count, policy_event_count, user_hash)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (session_id) DO UPDATE SET
+                    first_seen = LEAST(session_summaries.first_seen, EXCLUDED.first_seen),
+                    last_seen = GREATEST(session_summaries.last_seen, EXCLUDED.last_seen),
+                    event_count = session_summaries.event_count + EXCLUDED.event_count,
+                    call_count = session_summaries.call_count + EXCLUDED.call_count,
+                    policy_event_count = session_summaries.policy_event_count + EXCLUDED.policy_event_count,
+                    user_hash = COALESCE(session_summaries.user_hash, EXCLUDED.user_hash)
+                """,
+                sid,
+                min_ts,
+                max_ts,
+                event_count,
+                len(call_ids),
+                policy_count,
+                user_hash,
+            )
 
     # ------------------------------------------------------------------
     # Inline sink writers

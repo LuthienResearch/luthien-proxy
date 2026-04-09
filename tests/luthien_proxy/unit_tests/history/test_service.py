@@ -915,23 +915,31 @@ class TestFetchSessionList:
     @pytest.mark.asyncio
     async def test_successful_fetch(self):
         """Test successful session list fetching."""
-        mock_rows = [
+        summary_rows = [
             {
                 "session_id": "session-1",
-                "first_ts": datetime(2025, 1, 15, 10, 0, 0),
-                "last_ts": datetime(2025, 1, 15, 11, 0, 0),
-                "total_events": 10,
-                "turn_count": 3,
-                "policy_interventions": 1,
-                "models": ["gpt-4", "claude-3"],
-                "request_payload": {"final_request": {"messages": [{"role": "user", "content": "Hello world"}]}},
+                "first_seen": datetime(2025, 1, 15, 10, 0, 0),
+                "last_seen": datetime(2025, 1, 15, 11, 0, 0),
+                "event_count": 10,
+                "call_count": 3,
+                "policy_event_count": 1,
                 "user_hash": "abc123",
+            },
+        ]
+        model_rows = [
+            {"session_id": "session-1", "model": "gpt-4"},
+            {"session_id": "session-1", "model": "claude-3"},
+        ]
+        preview_rows = [
+            {
+                "session_id": "session-1",
+                "request_payload": {"final_request": {"messages": [{"role": "user", "content": "Hello world"}]}},
             },
         ]
 
         mock_conn = AsyncMock()
         mock_conn.fetchval.return_value = 1  # Total count
-        mock_conn.fetch.return_value = mock_rows
+        mock_conn.fetch.side_effect = [summary_rows, model_rows, preview_rows]
 
         mock_pool = MagicMock()
         mock_pool.is_sqlite = False
@@ -953,23 +961,23 @@ class TestFetchSessionList:
     @pytest.mark.asyncio
     async def test_fetch_with_offset(self):
         """Test fetching with offset for pagination."""
-        mock_rows = [
+        summary_rows = [
             {
                 "session_id": "session-2",
-                "first_ts": datetime(2025, 1, 15, 10, 0, 0),
-                "last_ts": datetime(2025, 1, 15, 11, 0, 0),
-                "total_events": 5,
-                "turn_count": 2,
-                "policy_interventions": 0,
-                "models": ["gpt-4"],
-                "request_payload": None,  # Test with no first message
+                "first_seen": datetime(2025, 1, 15, 10, 0, 0),
+                "last_seen": datetime(2025, 1, 15, 11, 0, 0),
+                "event_count": 5,
+                "call_count": 2,
+                "policy_event_count": 0,
                 "user_hash": None,
             },
         ]
+        model_rows = [{"session_id": "session-2", "model": "gpt-4"}]
+        preview_rows: list[dict] = []  # No first message
 
         mock_conn = AsyncMock()
         mock_conn.fetchval.return_value = 100  # Total count
-        mock_conn.fetch.return_value = mock_rows
+        mock_conn.fetch.side_effect = [summary_rows, model_rows, preview_rows]
 
         mock_pool = MagicMock()
         mock_pool.is_sqlite = False

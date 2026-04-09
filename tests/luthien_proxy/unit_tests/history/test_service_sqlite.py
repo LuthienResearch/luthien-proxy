@@ -15,6 +15,34 @@ from luthien_proxy.history.service import fetch_session_list
 from luthien_proxy.utils.db import DatabasePool
 
 
+async def _refresh_session_summaries(pool: DatabasePool) -> None:
+    """Rebuild session_summaries from conversation_events (test helper)."""
+    async with pool.connection() as conn:
+        await conn.execute("DELETE FROM session_summaries")
+        await conn.execute(
+            """
+            INSERT INTO session_summaries
+                (session_id, first_seen, last_seen, event_count, call_count, policy_event_count, user_hash)
+            SELECT
+                ce.session_id,
+                MIN(ce.created_at),
+                MAX(ce.created_at),
+                COUNT(*),
+                COUNT(DISTINCT ce.call_id),
+                SUM(CASE
+                    WHEN ce.event_type LIKE 'policy.%'
+                    AND ce.event_type NOT LIKE 'policy.judge.evaluation%'
+                    THEN 1 ELSE 0
+                END),
+                (SELECT cc.user_hash FROM conversation_calls cc
+                 WHERE cc.session_id = ce.session_id AND cc.user_hash IS NOT NULL LIMIT 1)
+            FROM conversation_events ce
+            WHERE ce.session_id IS NOT NULL
+            GROUP BY ce.session_id
+            """
+        )
+
+
 @pytest.fixture
 async def sqlite_pool() -> DatabasePool:
     """Create an in-memory SQLite pool with schema applied."""
@@ -131,6 +159,7 @@ async def populated_sqlite_pool(sqlite_pool: DatabasePool) -> DatabasePool:
             "2025-01-15T10:05:01",
         )
 
+    await _refresh_session_summaries(sqlite_pool)
     return sqlite_pool
 
 
@@ -210,6 +239,7 @@ async def populated_with_interventions_pool(sqlite_pool: DatabasePool) -> Databa
             "2025-01-16T14:00:02",
         )
 
+    await _refresh_session_summaries(sqlite_pool)
     return sqlite_pool
 
 
@@ -316,6 +346,7 @@ class TestFetchSessionListSqlite:
                     f"2025-01-15T{10 + i:02d}:00:00",
                 )
 
+        await _refresh_session_summaries(sqlite_pool)
         # Fetch first 2
         result = await fetch_session_list(limit=2, db_pool=sqlite_pool)
         assert len(result.sessions) == 2
@@ -377,6 +408,7 @@ class TestFetchSessionListSqlite:
                     f"2025-01-15T10:00:0{i}",
                 )
 
+        await _refresh_session_summaries(sqlite_pool)
         result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
         sessions = result.sessions
 
@@ -422,6 +454,7 @@ class TestFetchSessionListSqlite:
                 "2025-01-15T15:00:00",
             )
 
+        await _refresh_session_summaries(sqlite_pool)
         result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
         assert len(result.sessions) == 1
         assert result.sessions[0].preview_message is None
@@ -466,6 +499,7 @@ class TestFetchSessionListSqlite:
                     f"2025-01-15T10:{idx:02d}:00",
                 )
 
+        await _refresh_session_summaries(sqlite_pool)
         result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
         assert len(result.sessions) == 1
 
@@ -535,6 +569,7 @@ class TestFetchSessionListSqlite:
                 "2025-01-15T16:00:01",
             )
 
+        await _refresh_session_summaries(sqlite_pool)
         result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
         session = result.sessions[0]
 
@@ -615,6 +650,7 @@ class TestFetchSessionListSqlite:
                 "2025-01-17T10:00:04",
             )
 
+        await _refresh_session_summaries(sqlite_pool)
         result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
         session = result.sessions[0]
 
@@ -660,6 +696,7 @@ class TestFetchSessionListSqlite:
                     f"2025-01-15T10:{i:02d}:00",
                 )
 
+        await _refresh_session_summaries(sqlite_pool)
         result = await fetch_session_list(limit=3, db_pool=sqlite_pool)
 
         assert len(result.sessions) == 3
@@ -706,6 +743,7 @@ class TestFetchSessionListSqlite:
                 "2025-01-15T12:00:00",
             )
 
+        await _refresh_session_summaries(sqlite_pool)
         # Call fetch_session_list (which will dispatch to SQLite path)
         result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
 

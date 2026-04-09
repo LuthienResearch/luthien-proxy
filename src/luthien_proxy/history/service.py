@@ -366,134 +366,104 @@ async def fetch_session_list(
 async def _fetch_session_list_pg(
     limit: int, db_pool: DatabasePool, offset: int = 0, user_hash: str | None = None
 ) -> SessionListResponse:
-    """PostgreSQL version using PG-specific features (FILTER, DISTINCT ON, array_agg)."""
-    # Build optional user_hash filter clause and params
-    user_hash_join = ""
-    user_hash_where = ""
-    if user_hash is not None:
-        user_hash_join = "INNER JOIN session_user_hash uh ON s.session_id = uh.session_id"
-        user_hash_where = """
-            ,
-            session_user_hash AS (
-                SELECT DISTINCT session_id
-                FROM conversation_calls
-                WHERE session_id IS NOT NULL
-                AND user_hash = $3
-            )"""
-
-    count_query = """
-        SELECT COUNT(DISTINCT session_id)
-        FROM conversation_events
-        WHERE session_id IS NOT NULL
-    """
-    count_args: list[object] = []
-
-    if user_hash is not None:
-        count_query = """
-            SELECT COUNT(DISTINCT ce.session_id)
-            FROM conversation_events ce
-            INNER JOIN conversation_calls cc ON ce.session_id = cc.session_id
-            WHERE ce.session_id IS NOT NULL
-            AND cc.user_hash = $1
-        """
-        count_args = [user_hash]
-
+    """PostgreSQL version: reads pre-computed session_summaries, then fetches models/preview."""
     async with db_pool.connection() as conn:
-        total_count = await conn.fetchval(count_query, *count_args)
-
-        query = f"""
-            WITH session_stats AS (
-                SELECT
-                    session_id,
-                    MIN(created_at) as first_ts,
-                    MAX(created_at) as last_ts,
-                    COUNT(*) as total_events,
-                    COUNT(DISTINCT call_id) as turn_count,
-                    COUNT(*) FILTER (
-                        WHERE event_type LIKE 'policy.%'
-                        AND event_type NOT LIKE 'policy.judge.evaluation%'
-                    ) as policy_interventions
-                FROM conversation_events
-                WHERE session_id IS NOT NULL
-                GROUP BY session_id
-            ),
-            session_models AS (
-                SELECT DISTINCT
-                    session_id,
-                    payload->>'final_model' as model
-                FROM conversation_events
-                WHERE session_id IS NOT NULL
-                AND event_type = 'transaction.request_recorded'
-                AND payload->>'final_model' IS NOT NULL
-            ),
-            session_first_message AS (
-                SELECT DISTINCT ON (session_id)
-                    session_id,
-                    payload as request_payload
-                FROM conversation_events
-                WHERE session_id IS NOT NULL
-                AND event_type = 'transaction.request_recorded'
-                -- Skip probe requests: max_tokens=1 means internal probe (token counting, quota).
-                -- COALESCE to 2 so requests without max_tokens are not skipped.
-                AND COALESCE((payload->'final_request'->>'max_tokens')::int, 2) > 1
-                ORDER BY session_id, created_at ASC
-            ),
-            session_user_info AS (
-                SELECT DISTINCT ON (session_id)
-                    session_id,
-                    user_hash
-                FROM conversation_calls
-                WHERE session_id IS NOT NULL
-                AND user_hash IS NOT NULL
-                ORDER BY session_id, created_at ASC
-            ){user_hash_where}
-            SELECT
-                s.session_id,
-                s.first_ts,
-                s.last_ts,
-                s.total_events,
-                s.turn_count,
-                s.policy_interventions,
-                COALESCE(
-                    array_agg(DISTINCT m.model) FILTER (WHERE m.model IS NOT NULL),
-                    ARRAY[]::text[]
-                ) as models,
-                f.request_payload,
-                u.user_hash
-            FROM session_stats s
-            LEFT JOIN session_models m ON s.session_id = m.session_id
-            LEFT JOIN session_first_message f ON s.session_id = f.session_id
-            LEFT JOIN session_user_info u ON s.session_id = u.session_id
-            {user_hash_join}
-            GROUP BY s.session_id, s.first_ts, s.last_ts,
-                     s.total_events, s.turn_count, s.policy_interventions,
-                     f.request_payload, u.user_hash
-            ORDER BY s.last_ts DESC
-            LIMIT $1 OFFSET $2
-            """
-
-        query_args: list[object] = [limit, offset]
+        # Count and main stats from session_summaries (fast — no GROUP BY)
         if user_hash is not None:
-            query_args.append(user_hash)
+            total_count = await conn.fetchval(
+                "SELECT COUNT(*) FROM session_summaries WHERE user_hash = $1",
+                user_hash,
+            )
+            rows = await conn.fetch(
+                """
+                SELECT session_id, first_seen, last_seen, event_count,
+                       call_count, policy_event_count, user_hash
+                FROM session_summaries
+                WHERE user_hash = $1
+                ORDER BY last_seen DESC
+                LIMIT $2 OFFSET $3
+                """,
+                user_hash,
+                limit,
+                offset,
+            )
+        else:
+            total_count = await conn.fetchval("SELECT COUNT(*) FROM session_summaries")
+            rows = await conn.fetch(
+                """
+                SELECT session_id, first_seen, last_seen, event_count,
+                       call_count, policy_event_count, user_hash
+                FROM session_summaries
+                ORDER BY last_seen DESC
+                LIMIT $1 OFFSET $2
+                """,
+                limit,
+                offset,
+            )
 
-        rows = await conn.fetch(query, *query_args)
+        total = int(total_count) if total_count is not None else 0  # type: ignore[arg-type]
+
+        if not rows:
+            return SessionListResponse(sessions=[], total=total, offset=offset, has_more=False)
+
+        session_ids = [str(row["session_id"]) for row in rows]
+
+        # Fetch models for this page (indexed lookup)
+        model_rows = await conn.fetch(
+            """
+            SELECT DISTINCT session_id, payload->>'final_model' as model
+            FROM conversation_events
+            WHERE session_id = ANY($1)
+            AND event_type = 'transaction.request_recorded'
+            AND payload->>'final_model' IS NOT NULL
+            """,
+            session_ids,
+        )
+
+        # Fetch first message preview for this page
+        preview_rows = await conn.fetch(
+            """
+            SELECT DISTINCT ON (session_id)
+                session_id, payload as request_payload
+            FROM conversation_events
+            WHERE session_id = ANY($1)
+            AND event_type = 'transaction.request_recorded'
+            AND COALESCE((payload->'final_request'->>'max_tokens')::int, 2) > 1
+            ORDER BY session_id, created_at ASC
+            """,
+            session_ids,
+        )
+
+    # Build lookup maps
+    models_by_session: dict[str, list[str]] = {}
+    for r in model_rows:
+        sid = str(r["session_id"])
+        model = str(r["model"])
+        session_models = models_by_session.setdefault(sid, [])
+        if model not in session_models:
+            session_models.append(model)
+
+    preview_by_session: dict[str, str | None] = {}
+    for r in preview_rows:
+        sid = str(r["session_id"])
+        if sid not in preview_by_session:
+            preview_by_session[sid] = _extract_preview_message(cast(_PreviewPayload, r["request_payload"]))
 
     sessions = [
         SessionSummary(
             session_id=str(row["session_id"]),
-            first_timestamp=parse_db_ts(row["first_ts"]).isoformat(),
-            last_timestamp=parse_db_ts(row["last_ts"]).isoformat(),
-            turn_count=int(row["turn_count"]),  # type: ignore[arg-type]
-            total_events=int(row["total_events"]),  # type: ignore[arg-type]
-            policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
-            models_used=list(row["models"]) if row["models"] else [],  # type: ignore[arg-type]
-            preview_message=_extract_preview_message(cast(_PreviewPayload, row["request_payload"])),
+            first_timestamp=parse_db_ts(row["first_seen"]).isoformat(),
+            last_timestamp=parse_db_ts(row["last_seen"]).isoformat(),
+            turn_count=int(row["call_count"]),  # type: ignore[arg-type]
+            total_events=int(row["event_count"]),  # type: ignore[arg-type]
+            policy_interventions=int(row["policy_event_count"]),  # type: ignore[arg-type]
+            models_used=models_by_session.get(str(row["session_id"]), []),
+            preview_message=preview_by_session.get(str(row["session_id"])),
             user_hash=str(row["user_hash"]) if row["user_hash"] else None,
         )
         for row in rows
     ]
 
-    total = int(total_count) if total_count is not None else 0  # type: ignore[arg-type]
     has_more = offset + len(sessions) < total
 
     return SessionListResponse(sessions=sessions, total=total, offset=offset, has_more=has_more)
@@ -502,77 +472,35 @@ async def _fetch_session_list_pg(
 async def _fetch_session_list_sqlite(
     limit: int, db_pool: DatabasePool, offset: int = 0, user_hash: str | None = None
 ) -> SessionListResponse:
-    """SQLite version: batch queries to avoid N+1.
-
-    Avoids N+1 by batching models, previews, and user_hash for the whole page
-    in one query each, then merging in Python. PostgreSQL uses array_agg/DISTINCT ON
-    in a single CTE; SQLite lacks those, so we use IN (session_ids) instead.
-    """
+    """SQLite version: reads pre-computed session_summaries, then fetches models/preview."""
     async with db_pool.connection() as conn:
-        # Count and main query differ based on user_hash filter
+        # Count and main stats from session_summaries (fast — no GROUP BY)
         if user_hash is not None:
             total_count = await conn.fetchval(
-                """
-                SELECT COUNT(DISTINCT ce.session_id)
-                FROM conversation_events ce
-                INNER JOIN conversation_calls cc ON ce.session_id = cc.session_id
-                WHERE ce.session_id IS NOT NULL
-                AND cc.user_hash = $1
-                """,
+                "SELECT COUNT(*) FROM session_summaries WHERE user_hash = $1",
                 user_hash,
             )
-
             rows = await conn.fetch(
                 """
-                SELECT
-                    ce.session_id,
-                    MIN(ce.created_at) as first_ts,
-                    MAX(ce.created_at) as last_ts,
-                    COUNT(*) as total_events,
-                    COUNT(DISTINCT ce.call_id) as turn_count,
-                    SUM(CASE
-                        WHEN ce.event_type LIKE 'policy.%'
-                        AND ce.event_type NOT LIKE 'policy.judge.evaluation%'
-                        THEN 1 ELSE 0
-                    END) as policy_interventions
-                FROM conversation_events ce
-                INNER JOIN conversation_calls cc ON ce.session_id = cc.session_id
-                WHERE ce.session_id IS NOT NULL
-                AND cc.user_hash = $3
-                GROUP BY ce.session_id
-                ORDER BY last_ts DESC
-                LIMIT $1 OFFSET $2
+                SELECT session_id, first_seen, last_seen, event_count,
+                       call_count, policy_event_count, user_hash
+                FROM session_summaries
+                WHERE user_hash = $1
+                ORDER BY last_seen DESC
+                LIMIT $2 OFFSET $3
                 """,
+                user_hash,
                 limit,
                 offset,
-                user_hash,
             )
         else:
-            total_count = await conn.fetchval(
-                """
-                SELECT COUNT(DISTINCT session_id)
-                FROM conversation_events
-                WHERE session_id IS NOT NULL
-                """
-            )
-
+            total_count = await conn.fetchval("SELECT COUNT(*) FROM session_summaries")
             rows = await conn.fetch(
                 """
-                SELECT
-                    session_id,
-                    MIN(created_at) as first_ts,
-                    MAX(created_at) as last_ts,
-                    COUNT(*) as total_events,
-                    COUNT(DISTINCT call_id) as turn_count,
-                    SUM(CASE
-                        WHEN event_type LIKE 'policy.%'
-                        AND event_type NOT LIKE 'policy.judge.evaluation%'
-                        THEN 1 ELSE 0
-                    END) as policy_interventions
-                FROM conversation_events
-                WHERE session_id IS NOT NULL
-                GROUP BY session_id
-                ORDER BY last_ts DESC
+                SELECT session_id, first_seen, last_seen, event_count,
+                       call_count, policy_event_count, user_hash
+                FROM session_summaries
+                ORDER BY last_seen DESC
                 LIMIT $1 OFFSET $2
                 """,
                 limit,
@@ -651,11 +579,11 @@ async def _fetch_session_list_sqlite(
     sessions = [
         SessionSummary(
             session_id=str(row["session_id"]),
-            first_timestamp=parse_db_ts(row["first_ts"]).isoformat(),
-            last_timestamp=parse_db_ts(row["last_ts"]).isoformat(),
-            turn_count=int(row["turn_count"]),  # type: ignore[arg-type]
-            total_events=int(row["total_events"]),  # type: ignore[arg-type]
-            policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
+            first_timestamp=parse_db_ts(row["first_seen"]).isoformat(),
+            last_timestamp=parse_db_ts(row["last_seen"]).isoformat(),
+            turn_count=int(row["call_count"]),  # type: ignore[arg-type]
+            total_events=int(row["event_count"]),  # type: ignore[arg-type]
+            policy_interventions=int(row["policy_event_count"]),  # type: ignore[arg-type]
             models_used=models_by_session.get(str(row["session_id"]), []),
             preview_message=preview_by_session.get(str(row["session_id"])),
             user_hash=user_hash_by_session.get(str(row["session_id"])),
