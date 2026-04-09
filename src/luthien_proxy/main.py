@@ -366,7 +366,7 @@ def create_app(
                     await conn.execute("SELECT 1")
                 return {"status": "ok", "latency_ms": round((time.perf_counter() - t0) * 1000, 1)}
             except Exception:
-                logger.exception("Health check: DB probe failed")
+                logger.warning("Health check: DB probe failed", exc_info=True)
                 return {"status": "error", "error": "database check failed"}
 
         async def _check_redis() -> dict[str, object]:
@@ -378,7 +378,7 @@ def create_app(
                 await redis_client.ping()
                 return {"status": "ok", "latency_ms": round((time.perf_counter() - t0) * 1000, 1)}
             except Exception:
-                logger.exception("Health check: Redis probe failed")
+                logger.warning("Health check: Redis probe failed", exc_info=True)
                 return {"status": "error", "error": "redis check failed"}
 
         db_check, redis_check = await asyncio.gather(_check_db(), _check_redis())
