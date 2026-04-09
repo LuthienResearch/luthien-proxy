@@ -19,18 +19,29 @@ def restart():
     console = Console()
     config = load_config(DEFAULT_CONFIG_PATH)
 
-    if config.mode == "local" and config.repo_path:
+    if not config.repo_path:
+        console.print("[red]No repo_path configured. Run `luthien onboard` first.[/red]")
+        raise SystemExit(1)
+
+    if config.mode == "local":
         if is_gateway_running(config.repo_path):
             stop_gateway(config.repo_path, console=console)
-    elif config.mode == "docker" and config.repo_path:
+        else:
+            console.print("[dim]No running gateway found — starting fresh.[/dim]")
+    elif config.mode == "docker":
         import subprocess
 
         with console.status("Stopping containers..."):
-            subprocess.run(
+            result = subprocess.run(
                 ["docker", "compose", "down"],
                 cwd=config.repo_path,
                 capture_output=True,
                 text=True,
             )
+        if result.returncode != 0:
+            console.print(f"[yellow]Warning: docker compose down failed:[/yellow]\n{result.stderr}")
+    else:
+        console.print(f"[red]Unknown mode: {config.mode}[/red]")
+        raise SystemExit(1)
 
     ensure_gateway_up(console)
