@@ -18,6 +18,7 @@ from luthien_cli.commands.hackathon import hackathon
 from luthien_cli.commands.logs import logs
 from luthien_cli.commands.onboard import onboard
 from luthien_cli.commands.policy import policy
+from luthien_cli.commands.restart import restart
 from luthien_cli.commands.status import status
 from luthien_cli.commands.up import down, up
 
@@ -29,6 +30,7 @@ cli.add_command(hackathon)
 cli.add_command(logs)
 cli.add_command(onboard)
 cli.add_command(policy)
+cli.add_command(restart)
 cli.add_command(status)
 cli.add_command(up)
 

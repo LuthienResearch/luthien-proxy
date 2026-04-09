@@ -44,3 +44,15 @@ def test_agent_tutorial_contains_cli_commands():
     assert "luthien policy set" in output
     assert "luthien policy show" in output
     assert "luthien policy current" in output
+    assert "luthien restart" in output
+
+
+def test_agent_tutorial_explains_bang_prefix():
+    result = CliRunner().invoke(agent_tutorial)
+    assert "! cmd" in result.output
+
+
+def test_agent_tutorial_shows_policies_dir():
+    result = CliRunner().invoke(agent_tutorial)
+    # Should contain either the resolved path or the fallback placeholder
+    assert "luthien_proxy/policies" in result.output

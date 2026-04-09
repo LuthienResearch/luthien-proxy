@@ -1,13 +1,47 @@
 """luthien agent-tutorial -- print everything an LLM agent needs to work with the gateway."""
 
+from __future__ import annotations
+
+from pathlib import Path
+
 import click
 
+from luthien_cli.config import DEFAULT_CONFIG_PATH, load_config
 
-TUTORIAL = """\
+
+def _resolve_policies_dir() -> str:
+    """Resolve the policies directory from the gateway's configured repo path.
+
+    Checks two layouts:
+    - Dev checkout: <repo_path>/src/luthien_proxy/policies/
+    - Installed (venv): <repo_path>/../venv/lib/python*/site-packages/luthien_proxy/policies/
+    """
+    config = load_config(DEFAULT_CONFIG_PATH)
+    if config.repo_path:
+        repo = Path(config.repo_path)
+
+        # Dev checkout layout
+        candidate = repo / "src" / "luthien_proxy" / "policies"
+        if candidate.is_dir():
+            return str(candidate)
+
+        # Installed venv layout (~/.luthien/venv/lib/python*/site-packages/...)
+        venv_dir = repo.parent / "venv"
+        if venv_dir.is_dir():
+            matches = list(venv_dir.glob("lib/python*/site-packages/luthien_proxy/policies"))
+            if matches:
+                return str(matches[0])
+
+    return "<repo_path>/src/luthien_proxy/policies"
+
+
+TUTORIAL_TEMPLATE = """\
 # Luthien Proxy — Agent Tutorial
 
 You are interacting with a Luthien proxy gateway running on localhost.
 This tutorial tells you everything you need to manage and create policies.
+
+Note: `! cmd` in Claude Code runs `cmd` in the shell.
 
 ## Assumptions
 
@@ -30,7 +64,7 @@ luthien policy show NoOpPolicy
 luthien policy set NoOpPolicy
 
 # Activate with config
-luthien policy set MyPolicy --config '{"threshold": 0.8}'
+luthien policy set MyPolicy --config '{{"threshold": 0.8}}'
 
 # Show the currently active policy
 luthien policy current
@@ -38,9 +72,14 @@ luthien policy current
 
 ## 2. Writing a New Policy
 
-Policies live in `src/luthien_proxy/policies/`. A policy is a Python class that
-inherits from `BasePolicy` and `AnthropicHookPolicy`, then overrides async hooks
-to inspect or modify requests and responses.
+Policies live in:
+```
+{policies_dir}
+```
+
+A policy is a Python class that inherits from `BasePolicy` and
+`AnthropicHookPolicy`, then overrides async hooks to inspect or modify
+requests and responses.
 
 ### Minimal example (pass-through)
 
@@ -51,10 +90,7 @@ class MyPolicy(BasePolicy, AnthropicHookPolicy):
     pass
 ```
 
-This does nothing — all hooks default to pass-through. Activate it with:
-```bash
-luthien policy set MyPolicy
-```
+This does nothing — all hooks default to pass-through.
 
 ### Lifecycle hooks (all optional, all async)
 
@@ -129,7 +165,7 @@ class MyPolicy(BasePolicy, AnthropicHookPolicy):
 
 Activate with config:
 ```bash
-luthien policy set MyPolicy --config '{"threshold": 0.8, "keywords": ["foo"]}'
+luthien policy set MyPolicy --config '{{"threshold": 0.8, "keywords": ["foo"]}}'
 ```
 
 ## 3. Critical Constraints
@@ -157,12 +193,15 @@ luthien policy set MyPolicy --config '{"threshold": 0.8, "keywords": ["foo"]}'
 
 ## 4. Workflow: Create and Activate a Policy
 
-1. Create a new file in `src/luthien_proxy/policies/my_policy.py`
+1. Create a new file in the policies directory shown above
 2. Define your policy class (see examples above)
-3. Restart the gateway to discover the new policy: `luthien down && luthien up`
+3. Restart the gateway to discover the new policy: `luthien restart`
 4. Activate it: `luthien policy set MyPolicy`
 5. Test by sending a message through the proxy
-6. To iterate: edit the file, then restart and re-activate (`luthien down && luthien up`)
+6. To iterate: edit the file, then `luthien restart` and re-activate
+
+**Note:** if you are an agent running through this proxy, `luthien restart`
+will briefly interrupt your connection. Your client will retry automatically.
 """
 
 
@@ -173,4 +212,5 @@ def agent_tutorial():
     Outputs everything an AI coding agent needs to manage policies,
     write new ones, and interact with the admin API.
     """
-    click.echo(TUTORIAL)
+    policies_dir = _resolve_policies_dir()
+    click.echo(TUTORIAL_TEMPLATE.format(policies_dir=policies_dir))
