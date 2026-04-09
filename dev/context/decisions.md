@@ -9,7 +9,7 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 ## Auto-Release on Merge to Main (2026-04-09)
 
-**Decision**: Fully automated patch releases on every merge to main. Replaces the previous manual tag-based workflow (2026-03-18). See `dev/README.md` § Releasing for the full procedure.
+**Decision**: Fully automated patch releases on every merge to main. Replaces the previous manual tag-based workflow (2026-03-18). See `dev-README.md` § Releasing for the full procedure.
 
 **How it works**: `auto-tag-proxy.yml` fires on push to main, compiles `changelog.d/` fragments, cuts a versioned `CHANGELOG.md` section, commits it back (with `[skip auto-tag-proxy]` to prevent loops), and tags `vX.Y.Z`. Downstream workflows (`release.yml`, `docker-publish.yml`) handle GitHub Releases and Docker images. Minor/major bumps are manual (just create the tag).
 

@@ -97,6 +97,7 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 
 ## Project Structure & Module Organization
 
+- `dev-README.md`: **Development guide** — dev commands, releasing, architecture, endpoints, policy system
 - `dev/`: Tracking current development information
   - `OBJECTIVE.md`: Succinct statement of the active objective with acceptance check.
   - `NOTES.md`: Scratchpad for implementation details while the current objective is in progress.

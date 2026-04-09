@@ -337,7 +337,7 @@ uv sync  # Install uv first if needed: https://docs.astral.sh/uv/getting-started
 
 To use API key auth, edit `.env` (auto-created on first run) and add your `ANTHROPIC_API_KEY`.
 
-The gateway starts at `http://localhost:8000`. For full development setup, tooling, architecture, and API details, see **[dev-README.md](dev-README.md)**.
+The gateway starts at `http://localhost:8000`. For full development setup, tooling, architecture, releasing, and API details, see **[dev-README.md](dev-README.md)**.
 
 ## License
 
