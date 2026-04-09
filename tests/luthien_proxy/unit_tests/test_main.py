@@ -311,13 +311,24 @@ policy:
 @pytest.fixture
 def mock_db_pool():
     """Create a mock database pool for testing."""
+    from contextlib import asynccontextmanager
+
     mock = AsyncMock()
     mock_pool = AsyncMock()
-    # fetchrow returns None by default (no rows found)
     mock_pool.fetchrow = AsyncMock(return_value=None)
     mock.get_pool = AsyncMock(return_value=mock_pool)
     mock.close = AsyncMock()
     mock.is_sqlite = False
+
+    mock_conn = AsyncMock()
+    mock_conn.execute = AsyncMock(return_value=None)
+
+    @asynccontextmanager
+    async def _connection():
+        yield mock_conn
+
+    mock.connection = _connection
+    mock._mock_conn = mock_conn
     return mock
 
 
@@ -398,7 +409,7 @@ class TestCreateApp:
         assert "/v1/messages" in routes or any("/v1/messages" in str(r) for r in routes if r)
 
     def test_create_app_health_endpoint(self, policy_config_file, mock_db_pool, mock_redis_client):
-        """Test health endpoint returns the minimal liveness shape only.
+        """Health endpoint returns healthy with DB and Redis both ok.
 
         /health is unauthenticated, so it must not leak auth_mode or recent
         credential activity (those would let a probe attacker fingerprint
@@ -418,11 +429,67 @@ class TestCreateApp:
             response = client.get("/health")
             assert response.status_code == 200
             data = response.json()
-            assert data == {"status": "healthy", "version": data["version"]}
+            assert data["status"] == "healthy"
             assert data["version"] and data["version"] != "unknown"
+            assert data["checks"]["db"]["status"] == "ok"
+            assert data["checks"]["redis"]["status"] == "ok"
+            # Unauthenticated endpoint must not leak auth/credential signals.
             assert "auth_mode" not in data
             assert "last_credential_type" not in data
             assert "last_credential_at" not in data
+
+    def test_create_app_health_endpoint_db_error(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Health endpoint returns unhealthy when DB probe fails."""
+        mock_db_pool._mock_conn.execute = AsyncMock(side_effect=Exception("connection refused"))
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            data = client.get("/health").json()
+            assert data["status"] == "unhealthy"
+            assert data["checks"]["db"]["status"] == "error"
+            assert data["checks"]["db"]["error"] == "database check failed"
+            assert "connection refused" not in data["checks"]["db"]["error"]
+
+    def test_create_app_health_endpoint_redis_error(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Health endpoint returns degraded when Redis probe fails but DB is ok."""
+        mock_redis_client.ping = AsyncMock(side_effect=Exception("timeout"))
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            data = client.get("/health").json()
+            assert data["status"] == "degraded"
+            assert data["checks"]["db"]["status"] == "ok"
+            assert data["checks"]["redis"]["status"] == "error"
+            assert data["checks"]["redis"]["error"] == "redis check failed"
+            assert "timeout" not in data["checks"]["redis"]["error"]
+
+    def test_create_app_health_endpoint_redis_not_configured(self, policy_config_file, mock_db_pool):
+        """Health endpoint shows redis not_configured when no Redis client is available."""
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=None,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            data = client.get("/health").json()
+            assert data["status"] == "healthy"
+            assert data["checks"]["db"]["status"] == "ok"
+            assert data["checks"]["redis"]["status"] == "not_configured"
 
     def test_billing_status_returns_403_without_auth(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Billing status is gated by admin auth — unauthenticated callers get 403."""
