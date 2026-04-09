@@ -22,7 +22,6 @@ import time
 from datetime import UTC, datetime
 from typing import Any, Protocol, cast
 
-import asyncpg
 from opentelemetry import trace
 
 from luthien_proxy.observability.event_publisher import EventPublisherProtocol
@@ -318,23 +317,25 @@ class EventEmitter:
         async with db_pool.connection() as conn:
             async with conn.transaction():
                 # Deduplicate conversation_calls by call_id
-                seen_calls: dict[str, tuple[str, datetime, str | None]] = {}
-                for transaction_id, _, _, timestamp, session_id, _user_hash in batch:
+                seen_calls: dict[str, tuple[str, datetime, str | None, str | None]] = {}
+                for transaction_id, _, _, timestamp, session_id, user_hash in batch:
                     if transaction_id not in seen_calls:
-                        seen_calls[transaction_id] = (transaction_id, timestamp, session_id)
+                        seen_calls[transaction_id] = (transaction_id, timestamp, session_id, user_hash)
 
                 # Upsert conversation_calls
-                for call_id, ts, sid in seen_calls.values():
+                for call_id, ts, sid, uhash in seen_calls.values():
                     await conn.execute(
                         """
-                        INSERT INTO conversation_calls (call_id, created_at, session_id)
-                        VALUES ($1, $2, $3)
+                        INSERT INTO conversation_calls (call_id, created_at, session_id, user_hash)
+                        VALUES ($1, $2, $3, $4)
                         ON CONFLICT (call_id) DO UPDATE SET
-                            session_id = COALESCE(conversation_calls.session_id, EXCLUDED.session_id)
+                            session_id = COALESCE(conversation_calls.session_id, EXCLUDED.session_id),
+                            user_hash = COALESCE(conversation_calls.user_hash, EXCLUDED.user_hash)
                         """,
                         call_id,
                         ts,
                         sid,
+                        uhash,
                     )
 
                 # Insert events
@@ -387,75 +388,6 @@ class EventEmitter:
             print(json.dumps(log_entry), file=sys.stdout, flush=True)
         except Exception as e:
             logger.warning(f"Failed to write event to stdout: {repr(e)}", exc_info=True)
-
-    async def _write_stdout(
-        self,
-        transaction_id: str,
-        event_type: str,
-        data: dict[str, Any],
-        timestamp: datetime,
-    ) -> None:
-        """Write event to stdout as JSON (async, kept for backward compat)."""
-        self._write_stdout_sync(transaction_id, event_type, data, timestamp)
-
-    async def _write_db(
-        self,
-        transaction_id: str,
-        event_type: str,
-        data: dict[str, Any],
-        timestamp: datetime,
-    ) -> None:
-        """Write event to PostgreSQL (kept for backward compat).
-
-        Session ID Propagation Convention:
-            The session_id is extracted from the event data dict if present.
-            Callers (e.g., processor.py) should include {"session_id": value}
-            in their event data to persist the session_id to the database.
-            This convention allows session tracking without modifying the
-            EventEmitter interface.
-        """
-        db_pool = cast(DatabasePool, self._db_pool)
-        # Extract session_id and user_hash from data if present (set by processor via convention above)
-        session_id = data.get("session_id") if isinstance(data, dict) else None
-        user_hash = data.get("user_hash") if isinstance(data, dict) else None
-
-        try:
-            async with db_pool.connection() as conn:
-                # Ensure call row exists with session_id and user_hash
-                await conn.execute(
-                    """
-                    INSERT INTO conversation_calls (call_id, created_at, session_id, user_hash)
-                    VALUES ($1, $2, $3, $4)
-                    ON CONFLICT (call_id) DO UPDATE SET
-                        session_id = COALESCE(conversation_calls.session_id, EXCLUDED.session_id),
-                        user_hash = COALESCE(conversation_calls.user_hash, EXCLUDED.user_hash)
-                    """,
-                    transaction_id,
-                    timestamp,
-                    session_id,
-                    user_hash,
-                )
-
-                # Insert event with session_id, ordering by created_at
-                await conn.execute(
-                    """
-                    INSERT INTO conversation_events (call_id, event_type, payload, created_at, session_id)
-                    VALUES ($1, $2, $3, $4, $5)
-                    """,
-                    transaction_id,
-                    event_type,
-                    json.dumps(data),
-                    timestamp,
-                    session_id,
-                )
-
-            logger.debug(f"Wrote event to db: {event_type} (transaction_id={transaction_id})")
-        except (OSError, asyncpg.PostgresError, asyncpg.InternalClientError) as e:
-            EventEmitter.dropped_db_writes += 1
-            logger.warning(
-                f"Failed to write event to database ({EventEmitter.dropped_db_writes} total dropped): {repr(e)}",
-                exc_info=True,
-            )
 
     async def _write_events(
         self,

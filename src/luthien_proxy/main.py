@@ -184,7 +184,8 @@ def create_app(
             event_publisher=_event_publisher,
             stdout_enabled=True,
         )
-        logger.info("Event emitter created")
+        _emitter.start()
+        logger.info("Event emitter created (drain loop started)")
 
         # Initialize PolicyManager
         try:
@@ -283,6 +284,7 @@ def create_app(
         yield
 
         # Shutdown
+        await _emitter.shutdown()
         if _telemetry_sender is not None:
             await _telemetry_sender.stop()
         await _credential_manager.close()
