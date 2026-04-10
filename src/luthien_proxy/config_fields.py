@@ -94,7 +94,7 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
     ),
     ConfigFieldMeta(
         "localhost_auth_bypass", "LOCALHOST_AUTH_BYPASS", bool, True,
-        "Skip authentication for requests from localhost",
+        "Skip authentication for requests from localhost (covers proxy and admin routes)",
         category="auth", db_settable=True, restart_required=False,
     ),
 

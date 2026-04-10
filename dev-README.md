@@ -131,7 +131,13 @@ Luthien has three independent authentication layers. The full reference is [`dev
 
 ### Admin API
 
-Admin endpoints manage policies and configuration at runtime. Non-localhost admin requests require the `Authorization: Bearer <ADMIN_API_KEY>` header (or `x-api-key` header, or a valid session cookie). When `LOCALHOST_AUTH_BYPASS=true` (default), requests from `127.0.0.1` / `::1` skip auth entirely — this covers admin routes too. Set `LOCALHOST_AUTH_BYPASS=false` if you want admin routes to require the header even on localhost.
+Admin endpoints manage policies and configuration at runtime. Requests must either originate from localhost (bypassed by default — see `LOCALHOST_AUTH_BYPASS`) or authenticate with `ADMIN_API_KEY` via one of:
+
+- `Authorization: Bearer <ADMIN_API_KEY>` header
+- `x-api-key: <ADMIN_API_KEY>` header
+- Session cookie (set by `/auth/login` for browser access)
+
+Set `LOCALHOST_AUTH_BYPASS=false` to require the admin key even for loopback requests. Cloud deployments (e.g. Railway) disable the bypass automatically.
 
 **Config dashboard API:**
 

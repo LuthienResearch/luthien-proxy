@@ -152,7 +152,7 @@ if stream_state.finish_reason:
 - Only trusted users should have access to modify `policy_config.yaml` or set `POLICY_CONFIG` env var
 - Policy classes are instantiated with full Python capabilities
 - In production: ensure config files have proper filesystem permissions
-- The Admin API requires `ADMIN_API_KEY` authentication for runtime policy changes
+- The Admin API requires `ADMIN_API_KEY` authentication for runtime policy changes from non-localhost clients (localhost is bypassed by default via `LOCALHOST_AUTH_BYPASS=true`; set to `false` to enforce on loopback)
 
 **Related TODO item**: Add security documentation for dynamic policy loading.
 
