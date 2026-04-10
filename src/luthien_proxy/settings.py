@@ -102,6 +102,12 @@ class Settings(BaseSettings):
     sentry_traces_sample_rate: float = 0.0
     sentry_server_name: str = ""
 
+    # Fields previously read ad-hoc via os.environ.get()
+    log_level: str = "info"
+    anthropic_api_key: str | None = None
+    anthropic_client_cache_size: int = 16
+    migrations_dir: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

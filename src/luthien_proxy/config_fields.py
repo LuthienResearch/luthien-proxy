@@ -1,0 +1,264 @@
+"""Config field definitions — single source of truth for all gateway configuration.
+
+Every config value in the gateway is defined here exactly once. The ConfigFieldMeta
+entries drive: Settings model population, CLI arg generation, .env.example generation,
+the config dashboard API, and provenance tracking.
+
+To add a new config value: add a ConfigFieldMeta to CONFIG_FIELDS below.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+
+@dataclass(frozen=True)
+class ConfigFieldMeta:
+    """Metadata for a single configuration field.
+
+    Attributes:
+        name: Python attribute name on Settings (e.g. "gateway_port").
+        env_var: Environment variable name (e.g. "GATEWAY_PORT").
+        field_type: Python type (int, str, bool, or their Optional variants).
+        default: Default value when not set by any source.
+        description: Human-readable description (shown in dashboard and .env.example).
+        sensitive: If True, value is masked in dashboard/logs.
+        category: Grouping key for dashboard display.
+        db_settable: If True, can be stored in gateway_config table and edited via admin API.
+        restart_required: If True, changes only take effect after gateway restart.
+    """
+
+    name: str
+    env_var: str
+    field_type: type
+    default: Any
+    description: str
+    sensitive: bool = False
+    category: str = "general"
+    db_settable: bool = False
+    restart_required: bool = True
+
+
+# fmt: off
+CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
+
+    # ── server ────────────────────────────────────────────────────────────
+    ConfigFieldMeta(
+        "gateway_port", "GATEWAY_PORT", int, 8000,
+        "Port the gateway listens on",
+        category="server",
+    ),
+    ConfigFieldMeta(
+        "log_level", "LOG_LEVEL", str, "info",
+        "Logging level (critical, error, warning, info, debug, trace)",
+        category="server", db_settable=True, restart_required=False,
+    ),
+    ConfigFieldMeta(
+        "verbose_client_errors", "VERBOSE_CLIENT_ERRORS", bool, False,
+        "Include internal details in client-facing error responses",
+        category="server", db_settable=True, restart_required=False,
+    ),
+
+    # ── auth ──────────────────────────────────────────────────────────────
+    ConfigFieldMeta(
+        "proxy_api_key", "PROXY_API_KEY", str, None,
+        "API key clients must provide for proxy_key auth mode",
+        sensitive=True, category="auth",
+    ),
+    ConfigFieldMeta(
+        "admin_api_key", "ADMIN_API_KEY", str, None,
+        "API key for admin endpoints",
+        sensitive=True, category="auth",
+    ),
+    ConfigFieldMeta(
+        "auth_mode", "AUTH_MODE", str, "both",
+        "Authentication mode: proxy_key, passthrough, or both (managed via /api/admin/auth/config)",
+        category="auth",
+    ),
+    ConfigFieldMeta(
+        "localhost_auth_bypass", "LOCALHOST_AUTH_BYPASS", bool, True,
+        "Skip authentication for requests from localhost",
+        category="auth", db_settable=True, restart_required=False,
+    ),
+
+    # ── policy ────────────────────────────────────────────────────────────
+    ConfigFieldMeta(
+        "policy_source", "POLICY_SOURCE", str, "db-fallback-file",
+        "Policy loading strategy: db, file, db-fallback-file, file-fallback-db",
+        category="policy",
+    ),
+    ConfigFieldMeta(
+        "policy_config", "POLICY_CONFIG", str, "",
+        "Path to policy YAML file",
+        category="policy",
+    ),
+    ConfigFieldMeta(
+        "inject_policy_context", "INJECT_POLICY_CONTEXT", bool, True,
+        "Inject active policy names into the system message",
+        category="policy", db_settable=True, restart_required=False,
+    ),
+    ConfigFieldMeta(
+        "dogfood_mode", "DOGFOOD_MODE", bool, False,
+        "Auto-compose DogfoodSafetyPolicy to prevent agents from killing the proxy",
+        category="policy", db_settable=True, restart_required=False,
+    ),
+
+    # ── database ──────────────────────────────────────────────────────────
+    ConfigFieldMeta(
+        "database_url", "DATABASE_URL", str, "",
+        "Database connection URL (sqlite:/// or postgres://)",
+        sensitive=True, category="database",
+    ),
+    ConfigFieldMeta(
+        "redis_url", "REDIS_URL", str, "",
+        "Redis connection URL (optional; enables multi-instance pub/sub)",
+        category="database",
+    ),
+    ConfigFieldMeta(
+        "migrations_dir", "MIGRATIONS_DIR", str, None,
+        "Override path to migrations directory",
+        category="database",
+    ),
+
+    # ── llm ───────────────────────────────────────────────────────────────
+    ConfigFieldMeta(
+        "anthropic_api_key", "ANTHROPIC_API_KEY", str, None,
+        "Server-side Anthropic API key (optional; enables server-credential mode)",
+        sensitive=True, category="llm",
+    ),
+    ConfigFieldMeta(
+        "litellm_master_key", "LITELLM_MASTER_KEY", str, None,
+        "LiteLLM master key for multi-tenant deployments",
+        sensitive=True, category="llm",
+    ),
+    ConfigFieldMeta(
+        "llm_judge_model", "LLM_JUDGE_MODEL", str, None,
+        "Model ID for the LLM judge policy",
+        category="llm",
+    ),
+    ConfigFieldMeta(
+        "llm_judge_api_base", "LLM_JUDGE_API_BASE", str, None,
+        "Custom API base URL for the judge model",
+        category="llm",
+    ),
+    ConfigFieldMeta(
+        "llm_judge_api_key", "LLM_JUDGE_API_KEY", str, None,
+        "API key for the judge model",
+        sensitive=True, category="llm",
+    ),
+    ConfigFieldMeta(
+        "anthropic_client_cache_size", "ANTHROPIC_CLIENT_CACHE_SIZE", int, 16,
+        "Max number of cached Anthropic client instances for passthrough auth",
+        category="llm",
+    ),
+
+    # ── security ──────────────────────────────────────────────────────────
+    ConfigFieldMeta(
+        "credential_encryption_key", "CREDENTIAL_ENCRYPTION_KEY", str, None,
+        "Fernet key for encrypting server credentials at rest",
+        sensitive=True, category="security",
+    ),
+
+    # ── observability ─────────────────────────────────────────────────────
+    ConfigFieldMeta(
+        "otel_enabled", "OTEL_ENABLED", bool, False,
+        "Enable OpenTelemetry distributed tracing",
+        category="observability",
+    ),
+    ConfigFieldMeta(
+        "otel_exporter_otlp_endpoint", "OTEL_EXPORTER_OTLP_ENDPOINT", str, "http://tempo:4317",
+        "OTLP exporter endpoint for traces",
+        category="observability",
+    ),
+    ConfigFieldMeta(
+        "tempo_url", "TEMPO_URL", str, "http://localhost:3200",
+        "Tempo HTTP API URL for trace queries",
+        category="observability",
+    ),
+    ConfigFieldMeta(
+        "service_name", "SERVICE_NAME", str, "luthien-proxy",
+        "Service name for distributed tracing",
+        category="observability",
+    ),
+    ConfigFieldMeta(
+        "service_version", "SERVICE_VERSION", str, "2.0.0",
+        "Service version for distributed tracing",
+        category="observability",
+    ),
+    ConfigFieldMeta(
+        "environment", "ENVIRONMENT", str, "development",
+        "Environment name (development, staging, production)",
+        category="observability",
+    ),
+    ConfigFieldMeta(
+        "railway_service_name", "RAILWAY_SERVICE_NAME", str, "",
+        "Railway service name (auto-sets environment if present)",
+        category="observability",
+    ),
+    ConfigFieldMeta(
+        "enable_request_logging", "ENABLE_REQUEST_LOGGING", bool, False,
+        "Log full HTTP request and response bodies",
+        category="observability",
+    ),
+
+    # ── telemetry ─────────────────────────────────────────────────────────
+    ConfigFieldMeta(
+        "usage_telemetry", "USAGE_TELEMETRY", bool, None,
+        "Anonymous usage telemetry (None defers to DB config, True/False overrides)",
+        category="telemetry", db_settable=True, restart_required=False,
+    ),
+    ConfigFieldMeta(
+        "telemetry_endpoint", "TELEMETRY_ENDPOINT", str, "https://telemetry.luthien.cc/v1/events",
+        "Endpoint for anonymous usage metrics",
+        category="telemetry",
+    ),
+
+    # ── sentry ────────────────────────────────────────────────────────────
+    ConfigFieldMeta(
+        "sentry_enabled", "SENTRY_ENABLED", bool, False,
+        "Enable Sentry error tracking",
+        category="sentry",
+    ),
+    ConfigFieldMeta(
+        "sentry_dsn", "SENTRY_DSN", str, "",
+        "Sentry project DSN",
+        sensitive=True, category="sentry",
+    ),
+    ConfigFieldMeta(
+        "sentry_traces_sample_rate", "SENTRY_TRACES_SAMPLE_RATE", float, 0.0,
+        "Sentry traces sampling rate (0.0 to 1.0)",
+        category="sentry",
+    ),
+    ConfigFieldMeta(
+        "sentry_server_name", "SENTRY_SERVER_NAME", str, "",
+        "Sentry server identifier",
+        category="sentry",
+    ),
+)
+# fmt: on
+
+
+# Index for O(1) lookup by name
+CONFIG_FIELDS_BY_NAME: dict[str, ConfigFieldMeta] = {f.name: f for f in CONFIG_FIELDS}
+
+# Ordered list of categories for dashboard display
+CONFIG_CATEGORIES: tuple[str, ...] = (
+    "server",
+    "auth",
+    "policy",
+    "database",
+    "llm",
+    "security",
+    "observability",
+    "telemetry",
+    "sentry",
+)
+
+
+__all__ = [
+    "ConfigFieldMeta",
+    "CONFIG_FIELDS",
+    "CONFIG_FIELDS_BY_NAME",
+    "CONFIG_CATEGORIES",
+]

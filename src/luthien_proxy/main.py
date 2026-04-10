@@ -20,6 +20,8 @@ from redis.asyncio import Redis
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from luthien_proxy.admin import router as admin_router
+from luthien_proxy.config_fields import CONFIG_FIELDS
+from luthien_proxy.config_registry import ConfigRegistry
 from luthien_proxy.credential_manager import AuthMode, CredentialManager
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
@@ -141,6 +143,7 @@ def create_app(
     startup_policy_path: str | None = None,
     policy_source: str = "db-fallback-file",
     auth_mode: AuthMode = AuthMode.BOTH,
+    cli_overrides: dict[str, object] | None = None,
 ) -> FastAPI:
     """Create FastAPI application with dependency injection.
 
@@ -152,6 +155,7 @@ def create_app(
         startup_policy_path: Optional path to YAML policy config to load at startup
         policy_source: Strategy for loading policy at startup (db, file, db-fallback-file, file-fallback-db)
         auth_mode: Authentication mode ("proxy_key", "passthrough", or "both")
+        cli_overrides: CLI argument overrides for config values
 
     Returns:
         Configured FastAPI application with all routes and middleware
@@ -166,6 +170,16 @@ def create_app(
         # Validate migrations are up to date before proceeding
         await check_migrations(db_pool)
         logger.info("Migration check passed")
+
+        # Initialize config registry (CLI > env > DB > defaults)
+        settings = get_settings()
+        _config_registry = ConfigRegistry(
+            settings=settings,
+            db_pool=db_pool,
+            cli_overrides=cli_overrides,
+        )
+        await _config_registry.initialize()
+        logger.info("Config registry initialized")
 
         # Configure litellm globally (moved from policy file to prevent import side effects)
         litellm.drop_params = True
@@ -203,7 +217,7 @@ def create_app(
         # Create Anthropic client if API key is configured.
         # Used as the server-side credential in proxy_key and both modes.
         _anthropic_client: AnthropicClient | None = None
-        anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY")
+        anthropic_api_key = settings.anthropic_api_key
         if anthropic_api_key:
             _anthropic_client = AnthropicClient(api_key=anthropic_api_key)
 
@@ -274,6 +288,7 @@ def create_app(
             credential_manager=_credential_manager,
             enable_request_logging=_enable_request_logging,
             usage_collector=_usage_collector,
+            config_registry=_config_registry,
         )
 
         # Store dependencies container in app state
@@ -564,7 +579,28 @@ if __name__ == "__main__":
             action="store_true",
             help="Run with SQLite (no Redis required), no Docker needed",
         )
+        # Auto-generate CLI flags from config field definitions
+        for field_meta in CONFIG_FIELDS:
+            flag = f"--{field_meta.name.replace('_', '-')}"
+            if field_meta.field_type is bool:
+                parser.add_argument(flag, type=str, default=None, metavar="BOOL", help=field_meta.description)
+            elif field_meta.field_type is int:
+                parser.add_argument(flag, type=int, default=None, help=field_meta.description)
+            elif field_meta.field_type is float:
+                parser.add_argument(flag, type=float, default=None, help=field_meta.description)
+            else:
+                parser.add_argument(flag, type=str, default=None, help=field_meta.description)
         args = parser.parse_args()
+
+        # Collect CLI overrides (only non-None values)
+        cli_overrides: dict[str, object] = {}
+        for field_meta in CONFIG_FIELDS:
+            val = getattr(args, field_meta.name, None)
+            if val is not None:
+                if field_meta.field_type is bool and isinstance(val, str):
+                    cli_overrides[field_meta.name] = val.lower() in ("true", "1", "yes")
+                else:
+                    cli_overrides[field_meta.name] = val
 
         if args.local:
             configure_local_mode()
@@ -608,10 +644,11 @@ if __name__ == "__main__":
                 startup_policy_path=startup_path,
                 policy_source=config["policy_source"],
                 auth_mode=config.get("auth_mode", AuthMode.BOTH),
+                cli_overrides=cli_overrides if cli_overrides else None,
             )
 
             _valid_log_levels = {"critical", "error", "warning", "info", "debug", "trace"}
-            log_level = os.environ.get("LOG_LEVEL", "info").lower()
+            log_level = get_settings().log_level.lower()
             if log_level not in _valid_log_levels:
                 logger.warning(
                     f"Invalid LOG_LEVEL '{log_level}', falling back to 'info'. "

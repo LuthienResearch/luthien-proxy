@@ -13,9 +13,15 @@ from pydantic import BaseModel, Field, ValidationError
 from luthien_proxy.admin.policy_discovery import discover_policies, validate_policy_config
 from luthien_proxy.auth import verify_admin_token
 from luthien_proxy.config import _import_policy_class
+from luthien_proxy.config_registry import ConfigRegistry, ConfigSource
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CredentialManager
 from luthien_proxy.credentials import Credential, CredentialError, CredentialType
-from luthien_proxy.dependencies import get_db_pool, get_policy_manager, require_credential_manager
+from luthien_proxy.dependencies import (
+    get_db_pool,
+    get_policy_manager,
+    require_config_registry,
+    require_credential_manager,
+)
 from luthien_proxy.policy_manager import (
     PolicyEnableResult,
     PolicyInfo,
@@ -643,22 +649,92 @@ async def get_gateway_settings(
 async def update_gateway_settings(
     body: GatewaySettingsUpdateRequest,
     _: str = Depends(verify_admin_token),
+    registry: ConfigRegistry = Depends(require_config_registry),
 ):
     """Update gateway settings at runtime.
 
-    These settings take effect immediately for new requests.
-    Env var values serve as defaults; runtime updates override them
-    until the gateway restarts.
+    Persists to DB via the config registry so values survive restarts.
     """
-    settings = get_settings()
     if body.inject_policy_context is not None:
-        settings.inject_policy_context = body.inject_policy_context
+        await registry.set_db_value("inject_policy_context", body.inject_policy_context)
     if body.dogfood_mode is not None:
-        settings.dogfood_mode = body.dogfood_mode
+        await registry.set_db_value("dogfood_mode", body.dogfood_mode)
+    settings = get_settings()
     return GatewaySettingsResponse(
         inject_policy_context=settings.inject_policy_context,
         dogfood_mode=settings.dogfood_mode,
     )
+
+
+# === Unified Config Dashboard ===
+
+
+class ConfigSetRequest(BaseModel):
+    """Request to set a config value."""
+
+    value: Any = Field(..., description="The new value for the config field")
+
+
+@router.get("/config")
+async def get_config_dashboard(
+    _: str = Depends(verify_admin_token),
+    registry: ConfigRegistry = Depends(require_config_registry),
+):
+    """Full config dashboard: all fields with resolved values, sources, and metadata."""
+    return {"config": registry.dashboard_view()}
+
+
+@router.put("/config/{key}")
+async def set_config_value(
+    body: ConfigSetRequest,
+    key: str = Path(..., description="Config field name"),
+    _: str = Depends(verify_admin_token),
+    registry: ConfigRegistry = Depends(require_config_registry),
+):
+    """Set a DB-settable config value. Returns the new resolved state."""
+    meta = registry.get_field_meta(key)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"Unknown config key: {key}")
+    if not meta.db_settable:
+        raise HTTPException(status_code=400, detail=f"Config key '{key}' cannot be set via admin API")
+
+    resolved = registry.get_resolved(key)
+    if resolved.source in (ConfigSource.CLI, ConfigSource.ENV):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Config '{key}' is currently overridden by {resolved.source.value} "
+            f"(value from {resolved.source.value} takes precedence over DB)",
+        )
+
+    new_resolved = await registry.set_db_value(key, body.value)
+    return {
+        "success": True,
+        "name": key,
+        "value": "***" if meta.sensitive else new_resolved.value,
+        "source": new_resolved.source.value,
+    }
+
+
+@router.delete("/config/{key}")
+async def delete_config_value(
+    key: str = Path(..., description="Config field name"),
+    _: str = Depends(verify_admin_token),
+    registry: ConfigRegistry = Depends(require_config_registry),
+):
+    """Remove a DB override for a config value, falling back to env or default."""
+    meta = registry.get_field_meta(key)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"Unknown config key: {key}")
+    if not meta.db_settable:
+        raise HTTPException(status_code=400, detail=f"Config key '{key}' is not DB-settable")
+
+    new_resolved = await registry.delete_db_value(key)
+    return {
+        "success": True,
+        "name": key,
+        "value": "***" if meta.sensitive else new_resolved.value,
+        "source": new_resolved.source.value,
+    }
 
 
 __all__ = ["router"]

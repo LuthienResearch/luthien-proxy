@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import Depends, HTTPException, Request
 from redis.asyncio import Redis
 
+from luthien_proxy.config_registry import ConfigRegistry
 from luthien_proxy.credential_manager import CredentialManager
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.observability.emitter import EventEmitterProtocol
@@ -40,6 +41,7 @@ class Dependencies:
     credential_manager: CredentialManager | None = field(default=None)
     enable_request_logging: bool = field(default=False)
     usage_collector: UsageCollector | None = field(default=None)
+    config_registry: ConfigRegistry | None = field(default=None)
     last_credential_info: dict[str, Any] = field(default_factory=dict)
 
     def get_anthropic_policy(self) -> AnthropicExecutionInterface:
@@ -190,6 +192,20 @@ def get_usage_collector(request: Request) -> UsageCollector | None:
     return get_dependencies(request).usage_collector
 
 
+def get_config_registry(request: Request) -> ConfigRegistry | None:
+    """Get config registry from dependencies."""
+    return get_dependencies(request).config_registry
+
+
+async def require_config_registry(
+    config_registry: ConfigRegistry | None = Depends(get_config_registry),
+) -> ConfigRegistry:
+    """Get config registry, raising 503 if not available."""
+    if config_registry is None:
+        raise HTTPException(status_code=503, detail="Config registry not available")
+    return config_registry
+
+
 async def require_credential_manager(
     credential_manager: CredentialManager | None = Depends(get_credential_manager),
 ) -> CredentialManager:
@@ -214,4 +230,6 @@ __all__ = [
     "get_credential_manager",
     "require_credential_manager",
     "get_usage_collector",
+    "get_config_registry",
+    "require_config_registry",
 ]

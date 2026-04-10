@@ -99,6 +99,7 @@ The gateway integrates everything into a single FastAPI application:
 
 - `GET /history` - Conversation history view (HTML)
 - `GET /conversation/live/{id}` - Live conversation view with SSE streaming
+- `GET /config` - Config dashboard (all settings with provenance)
 - `GET /debug` - Debug information viewer
 
 **Authentication:**
@@ -107,18 +108,32 @@ All API requests require the `Authorization: Bearer <PROXY_API_KEY>` header.
 
 ### Admin API
 
-Admin endpoints manage policies at runtime without requiring a restart. All admin requests require the `Authorization: Bearer <ADMIN_API_KEY>` header.
+Admin endpoints manage policies and configuration at runtime. All admin requests require the `Authorization: Bearer <ADMIN_API_KEY>` header.
 
-**Get current policy:**
+**Config dashboard API:**
+
+```bash
+# View all config with provenance (CLI/env/DB/default)
+curl http://localhost:8000/api/admin/config \
+  -H "Authorization: Bearer admin-dev-key"
+
+# Set a DB-settable config value
+curl -X PUT http://localhost:8000/api/admin/config/dogfood_mode \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer admin-dev-key" \
+  -d '{"value": true}'
+
+# Reset a DB override (fall back to env or default)
+curl -X DELETE http://localhost:8000/api/admin/config/dogfood_mode \
+  -H "Authorization: Bearer admin-dev-key"
+```
+
+**Policy management:**
 
 ```bash
 curl http://localhost:8000/api/admin/policy/current \
   -H "Authorization: Bearer admin-dev-key"
-```
 
-**Set the active policy:**
-
-```bash
 curl -X POST http://localhost:8000/api/admin/policy/set \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer admin-dev-key" \
@@ -131,14 +146,30 @@ curl -X POST http://localhost:8000/api/admin/policy/set \
       "max_tokens": 256
     }
   }'
-```
 
-**List available policy classes:**
-
-```bash
 curl http://localhost:8000/api/admin/policy/list \
   -H "Authorization: Bearer admin-dev-key"
 ```
+
+## Configuration
+
+All config is defined in `src/luthien_proxy/config_fields.py` — single source of truth for every gateway setting.
+
+**Resolution priority:** CLI args > environment variables / `.env` file > database (`gateway_config` table) > defaults.
+
+**Adding a new config value:**
+1. Add a `ConfigFieldMeta` to `CONFIG_FIELDS` in `config_fields.py`
+2. Add a matching field to `settings.py`
+3. Run `uv run python scripts/generate_env_example.py > .env.example`
+
+**CLI overrides:** All settings accept CLI flags (auto-generated from field names):
+```bash
+python -m luthien_proxy.main --gateway-port 9000 --log-level debug --dogfood-mode true
+```
+
+**DB-settable fields** (marked `db_settable=True`) can be changed at runtime via the admin API or the `/config` dashboard. Changes persist across restarts.
+
+**Config dashboard:** Visit `/config` in the admin UI to see all active config with color-coded provenance badges (which source each value came from) and inline editing.
 
 ## Policy System
 
@@ -193,21 +224,14 @@ The observability stack is completely optional and does not affect core function
 - **Structured logging** with trace context (trace_id, span_id)
 - **Real-time conversation view** at `/conversation/live/{id}`
 
-### Configuration
+### Observability Configuration
 
-OpenTelemetry is enabled by default. To configure the endpoint in `.env`:
+OpenTelemetry is configured via the standard config system (see Configuration section above). Key env vars:
 
 ```bash
-# OpenTelemetry endpoint (enabled by default)
+OTEL_ENABLED=true                           # Enable tracing
 OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
-
-# Optional: customize service metadata
 SERVICE_NAME=luthien-proxy
-SERVICE_VERSION=2.0.0
-ENVIRONMENT=development
-
-# To disable tracing, set:
-# OTEL_ENABLED=false
 ```
 
 ### Documentation

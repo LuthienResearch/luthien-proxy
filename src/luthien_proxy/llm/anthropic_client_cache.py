@@ -12,30 +12,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from collections import OrderedDict
 from typing import Literal
 
 from luthien_proxy.credential_manager import hash_credential
 from luthien_proxy.llm.anthropic_client import AnthropicClient
+from luthien_proxy.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MAX_CACHE_SIZE = 16
-
 
 def _parse_cache_size() -> int:
-    raw = os.environ.get("ANTHROPIC_CLIENT_CACHE_SIZE")
-    if raw is None:
-        return _DEFAULT_MAX_CACHE_SIZE
-    try:
-        value = int(raw)
-    except ValueError:
-        logger.warning(
-            f"Invalid ANTHROPIC_CLIENT_CACHE_SIZE '{raw}', falling back to "
-            f"{_DEFAULT_MAX_CACHE_SIZE}. Must be a positive integer."
-        )
-        return _DEFAULT_MAX_CACHE_SIZE
+    value = get_settings().anthropic_client_cache_size
     if value < 1:
         logger.warning(f"ANTHROPIC_CLIENT_CACHE_SIZE={value} is less than 1, clamping to 1.")
         return 1

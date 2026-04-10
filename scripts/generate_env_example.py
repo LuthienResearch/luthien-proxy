@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""Generate .env.example from config field definitions.
+
+Usage:
+    uv run python scripts/generate_env_example.py > .env.example
+"""
+
+import sys
+from pathlib import Path
+
+# Add src to path so we can import config_fields
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from luthien_proxy.config_fields import CONFIG_CATEGORIES, CONFIG_FIELDS
+
+
+def main() -> None:
+    lines = [
+        "# Luthien Proxy — Environment Configuration",
+        "# Auto-generated from config field definitions (scripts/generate_env_example.py).",
+        "# Copy to .env and edit as needed.",
+        "",
+    ]
+    current_category: str | None = None
+
+    fields_by_cat: dict[str, list] = {}
+    for meta in CONFIG_FIELDS:
+        fields_by_cat.setdefault(meta.category, []).append(meta)
+
+    for cat in CONFIG_CATEGORIES:
+        cat_fields = fields_by_cat.get(cat, [])
+        if not cat_fields:
+            continue
+        if current_category is not None:
+            lines.append("")
+        current_category = cat
+
+        bar = "=" * (60 - len(cat))
+        lines.append(f"# === {cat.upper()} {bar}")
+        lines.append("")
+
+        for meta in cat_fields:
+            lines.append(f"# {meta.description}")
+            if meta.sensitive:
+                lines.append("# (sensitive)")
+            if meta.db_settable:
+                lines.append("# (can also be set at runtime via admin API)")
+
+            default_str = "" if meta.default is None else str(meta.default)
+            if isinstance(meta.default, bool):
+                default_str = str(meta.default).lower()
+            lines.append(f"# {meta.env_var}={default_str}")
+            lines.append("")
+
+    output = "\n".join(lines)
+    print(output, end="")
+
+
+if __name__ == "__main__":
+    main()

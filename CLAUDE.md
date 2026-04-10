@@ -218,14 +218,23 @@ Note: `sqlite_e2e` and `mock_e2e` must run in **separate pytest sessions** — `
 
 Migrations live in `migrations/postgres/` and `migrations/sqlite/`. Every Postgres migration needs a matching SQLite migration with the same number prefix. See `migrations/CLAUDE.md` for type translation rules and workflow.
 
-## Security & Configuration
+## Configuration System
 
-- Keep lint, test, and type-check settings consolidated in `pyproject.toml`; avoid extra config files unless necessary.
+All gateway configuration is defined in `src/luthien_proxy/config_fields.py` — single source of truth for field names, env vars, types, defaults, descriptions, and metadata.
+
+- **Config registry** (`config_registry.py`): resolves values through CLI args > env vars > DB (`gateway_config` table) > defaults, with provenance tracking.
+- **Adding a new config value**: add a `ConfigFieldMeta` to `CONFIG_FIELDS` in `config_fields.py`. Add a matching field to `settings.py`. Regenerate `.env.example` with `uv run python scripts/generate_env_example.py > .env.example`.
+- **Config dashboard**: `/config` in the admin UI shows all fields with active values, provenance, and inline editing for DB-settable fields.
+- **Admin API**: `GET /api/admin/config` returns all fields; `PUT /api/admin/config/{key}` sets DB-settable values.
+- `.env.example` is auto-generated from the config spec — don't edit it by hand.
+
+### Environment Setup
+
 - Copy `.env.example` to `.env`; never commit secrets.
 - Key env vars: `DATABASE_URL`, `POLICY_CONFIG`, `PROXY_API_KEY`. (`REDIS_URL` only needed for Docker Compose deployments.)
-- For dockerless dev, use `DATABASE_URL` unset, defaults to `~/.luthien/local.db` (no Postgres needed).
-- Update `config/policy_config.yaml` rather than hardcoding.
-- Validate setup with test requests to the gateway at `http://localhost:8000`.
+- For dockerless dev, leave `DATABASE_URL` unset — defaults to `~/.luthien/local.db` (no Postgres needed).
+- All config values can be overridden via CLI flags: `python -m luthien_proxy.main --gateway-port 9000`.
+- Keep lint, test, and type-check settings consolidated in `pyproject.toml`; avoid extra config files unless necessary.
 
 ## Policy Architecture
 

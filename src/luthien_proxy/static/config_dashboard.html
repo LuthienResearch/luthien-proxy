@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Config - Luthien Proxy</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/nav.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: #0a0a0a;
+            color: #e5e5e5;
+            line-height: 1.6;
+        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+        header { margin-bottom: 32px; }
+        h1 { font-size: 24px; font-weight: 600; color: #fff; margin-bottom: 8px; }
+        .subtitle { font-size: 14px; color: #888; }
+
+        .section {
+            background: #141414;
+            border: 1px solid #262626;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+        .section h2 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #e5e5e5;
+            margin-bottom: 16px;
+            text-transform: capitalize;
+        }
+
+        /* Config table */
+        .config-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .config-table th {
+            text-align: left;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #888;
+            padding: 8px 12px;
+            border-bottom: 1px solid #262626;
+        }
+        .config-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #1a1a1a;
+            font-size: 13px;
+            vertical-align: top;
+        }
+        .config-table tr:last-child td { border-bottom: none; }
+        .config-table tr:hover td { background: #1a1a1a; }
+
+        .field-name {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: #e5e5e5;
+        }
+        .field-env {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: #666;
+            display: block;
+            margin-top: 2px;
+        }
+        .field-desc {
+            font-size: 12px;
+            color: #999;
+            max-width: 300px;
+        }
+        .field-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: #e5e5e5;
+            word-break: break-all;
+        }
+        .field-value.sensitive { color: #666; font-style: italic; }
+
+        /* Source badges */
+        .source-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        .source-cli { background: #2d1b69; color: #b794f6; }
+        .source-env { background: #0c1929; color: #6b9fff; }
+        .source-db  { background: #0a3d0a; color: #4ade80; }
+        .source-default { background: #262626; color: #888; }
+
+        /* Restart indicator */
+        .restart-indicator {
+            font-size: 10px;
+            color: #f59e0b;
+            margin-left: 6px;
+        }
+        .live-indicator {
+            font-size: 10px;
+            color: #4ade80;
+            margin-left: 6px;
+        }
+
+        /* Override details */
+        .overrides {
+            font-size: 11px;
+            color: #666;
+            margin-top: 4px;
+        }
+        .overrides .override-source { color: #888; }
+
+        /* Inline edit */
+        .edit-btn {
+            background: none;
+            border: 1px solid #333;
+            color: #888;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .edit-btn:hover { border-color: #6b9fff; color: #6b9fff; }
+
+        .edit-form {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-top: 6px;
+        }
+        .edit-form input, .edit-form select {
+            background: #0a0a0a;
+            border: 1px solid #333;
+            color: #e5e5e5;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+        }
+        .edit-form input:focus, .edit-form select:focus {
+            outline: none;
+            border-color: #6b9fff;
+        }
+        .edit-form .save-btn {
+            background: #6b9fff;
+            color: #0a0a0a;
+            border: none;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .edit-form .save-btn:hover { background: #5a8fee; }
+        .edit-form .cancel-btn {
+            background: none;
+            border: 1px solid #333;
+            color: #888;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .edit-form .cancel-btn:hover { border-color: #f87171; color: #f87171; }
+        .edit-form .reset-btn {
+            background: none;
+            border: 1px solid #333;
+            color: #888;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .edit-form .reset-btn:hover { border-color: #f59e0b; color: #f59e0b; }
+
+        /* Status */
+        .status-msg {
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 13px;
+            margin-bottom: 16px;
+            display: none;
+        }
+        .status-msg.success { display: block; background: #0a3d0a; color: #4ade80; border: 1px solid #166534; }
+        .status-msg.error { display: block; background: #3d0a0a; color: #f87171; border: 1px solid #7f1d1d; }
+
+        /* Loading */
+        .loading { text-align: center; padding: 40px; color: #666; }
+
+        /* Active policy section */
+        .policy-section {
+            background: #0f1f0f;
+            border: 1px solid #166534;
+        }
+        .policy-section h2 { color: #4ade80; }
+        .policy-name {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            color: #4ade80;
+            margin-bottom: 8px;
+        }
+        .policy-config {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: #999;
+            background: #0a0a0a;
+            padding: 12px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <nav x-data="luthienNav"></nav>
+
+    <div class="container">
+        <header>
+            <div>
+                <h1>Gateway Configuration</h1>
+                <div class="subtitle">All config values with provenance. CLI args > env vars > database > defaults.</div>
+            </div>
+        </header>
+
+        <div id="status" class="status-msg"></div>
+        <div id="content"><div class="loading">Loading configuration...</div></div>
+    </div>
+
+    <script src="/static/vendor/alpine.min.js" defer></script>
+    <script src="/static/nav.js"></script>
+    <script>
+        const CATEGORY_LABELS = {
+            server: 'Server',
+            auth: 'Authentication',
+            policy: 'Policy',
+            database: 'Database',
+            llm: 'LLM',
+            security: 'Security',
+            observability: 'Observability',
+            telemetry: 'Telemetry',
+            sentry: 'Sentry',
+        };
+
+        let editingField = null;
+
+        async function fetchApi(endpoint, options = {}) {
+            const headers = { 'Content-Type': 'application/json', ...options.headers };
+            return fetch(endpoint, { ...options, headers, credentials: 'same-origin', cache: 'no-store' });
+        }
+
+        function showStatus(msg, type) {
+            const el = document.getElementById('status');
+            el.textContent = msg;
+            el.className = 'status-msg ' + type;
+            if (type === 'success') setTimeout(() => { el.className = 'status-msg'; }, 3000);
+        }
+
+        function formatValue(field) {
+            if (field.sensitive) return '***';
+            const v = field.value;
+            if (v === null || v === undefined) return 'null';
+            if (v === '') return '(empty)';
+            if (typeof v === 'boolean') return v ? 'true' : 'false';
+            return String(v);
+        }
+
+        function sourceBadgeClass(source) {
+            return 'source-badge source-' + source;
+        }
+
+        function renderOverrides(field) {
+            const overrides = field.overrides || {};
+            const keys = Object.keys(overrides);
+            if (keys.length === 0) return '';
+            const parts = keys.map(s => {
+                const val = field.sensitive ? '***' : overrides[s];
+                return `<span class="override-source">${s}</span>: ${val}`;
+            });
+            return `<div class="overrides">Also set by: ${parts.join(', ')}</div>`;
+        }
+
+        function renderEditControl(field) {
+            if (!field.db_settable) return '';
+            if (field.source === 'cli' || field.source === 'env') {
+                return `<span style="font-size:11px;color:#666" title="Overridden by ${field.source}">locked</span>`;
+            }
+            return `<button class="edit-btn" onclick="startEdit('${field.name}', ${JSON.stringify(field).replace(/"/g, '&quot;')})">edit</button>`;
+        }
+
+        function startEdit(name, field) {
+            editingField = name;
+            const cell = document.getElementById('edit-' + name);
+            if (!cell) return;
+
+            let input;
+            if (field.type === 'bool') {
+                const current = field.value === true || field.value === 'true';
+                input = `<select id="edit-input-${name}">
+                    <option value="true" ${current ? 'selected' : ''}>true</option>
+                    <option value="false" ${!current ? 'selected' : ''}>false</option>
+                </select>`;
+            } else {
+                const val = field.sensitive ? '' : (field.value ?? '');
+                input = `<input id="edit-input-${name}" type="text" value="${String(val).replace(/"/g, '&quot;')}" placeholder="${field.sensitive ? '(hidden)' : ''}">`;
+            }
+
+            cell.innerHTML = `<div class="edit-form">
+                ${input}
+                <button class="save-btn" onclick="saveEdit('${name}', '${field.type}')">Save</button>
+                <button class="cancel-btn" onclick="loadConfig()">Cancel</button>
+                ${field.source === 'db' ? `<button class="reset-btn" onclick="resetField('${name}')" title="Remove DB override">Reset</button>` : ''}
+            </div>`;
+        }
+
+        async function saveEdit(name, type) {
+            const input = document.getElementById('edit-input-' + name);
+            if (!input) return;
+            let value = input.value;
+            if (type === 'bool') value = value === 'true';
+            else if (type === 'int') value = parseInt(value, 10);
+            else if (type === 'float') value = parseFloat(value);
+
+            try {
+                const resp = await fetchApi(`/api/admin/config/${name}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ value }),
+                });
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    showStatus(err.detail || 'Failed to update', 'error');
+                    return;
+                }
+                showStatus(`Updated ${name}`, 'success');
+                editingField = null;
+                loadConfig();
+            } catch (e) {
+                showStatus('Error: ' + e.message, 'error');
+            }
+        }
+
+        async function resetField(name) {
+            try {
+                const resp = await fetchApi(`/api/admin/config/${name}`, { method: 'DELETE' });
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    showStatus(err.detail || 'Failed to reset', 'error');
+                    return;
+                }
+                showStatus(`Reset ${name} to default`, 'success');
+                editingField = null;
+                loadConfig();
+            } catch (e) {
+                showStatus('Error: ' + e.message, 'error');
+            }
+        }
+
+        async function loadConfig() {
+            try {
+                const [configResp, policyResp] = await Promise.all([
+                    fetchApi('/api/admin/config'),
+                    fetchApi('/api/admin/policy/current'),
+                ]);
+
+                if (!configResp.ok) {
+                    document.getElementById('content').innerHTML = '<div class="section" style="color:#f87171">Failed to load config. Are you authenticated?</div>';
+                    return;
+                }
+
+                const configData = await configResp.json();
+                const policyData = policyResp.ok ? await policyResp.json() : null;
+
+                renderDashboard(configData.config, policyData);
+            } catch (e) {
+                document.getElementById('content').innerHTML = `<div class="section" style="color:#f87171">Error: ${e.message}</div>`;
+            }
+        }
+
+        function renderDashboard(fields, policy) {
+            const grouped = {};
+            for (const f of fields) {
+                if (!grouped[f.category]) grouped[f.category] = [];
+                grouped[f.category].push(f);
+            }
+
+            const categoryOrder = ['server', 'auth', 'policy', 'database', 'llm', 'security', 'observability', 'telemetry', 'sentry'];
+            let html = '';
+
+            // Active policy section
+            if (policy) {
+                html += `<div class="section policy-section">
+                    <h2>Active Policy</h2>
+                    <div class="policy-name">${policy.policy || policy.class_ref || 'None'}</div>
+                    ${policy.config ? `<div class="policy-config">${JSON.stringify(policy.config, null, 2)}</div>` : ''}
+                </div>`;
+            }
+
+            for (const cat of categoryOrder) {
+                const catFields = grouped[cat];
+                if (!catFields || catFields.length === 0) continue;
+
+                html += `<div class="section"><h2>${CATEGORY_LABELS[cat] || cat}</h2>`;
+                html += `<table class="config-table">
+                    <thead><tr>
+                        <th>Field</th>
+                        <th>Description</th>
+                        <th>Value</th>
+                        <th>Source</th>
+                        <th></th>
+                    </tr></thead><tbody>`;
+
+                for (const f of catFields) {
+                    const indicator = f.restart_required
+                        ? '<span class="restart-indicator" title="Requires restart">restart</span>'
+                        : '<span class="live-indicator" title="Takes effect immediately">live</span>';
+
+                    html += `<tr>
+                        <td>
+                            <span class="field-name">${f.name}</span>${f.db_settable ? indicator : ''}
+                            <span class="field-env">${f.env_var}</span>
+                        </td>
+                        <td><span class="field-desc">${f.description}</span></td>
+                        <td>
+                            <span class="field-value ${f.sensitive ? 'sensitive' : ''}">${formatValue(f)}</span>
+                            ${renderOverrides(f)}
+                        </td>
+                        <td><span class="${sourceBadgeClass(f.source)}">${f.source}</span></td>
+                        <td id="edit-${f.name}">${renderEditControl(f)}</td>
+                    </tr>`;
+                }
+
+                html += '</tbody></table></div>';
+            }
+
+            document.getElementById('content').innerHTML = html;
+        }
+
+        document.addEventListener('DOMContentLoaded', loadConfig);
+    </script>
+</body>
+</html>
