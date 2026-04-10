@@ -22,9 +22,9 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 ---
 
-## V2 Architecture: Integrated Gateway (2025-10-24)
+## Integrated Gateway (2025-10-24)
 
-**Decision**: Replace separate litellm-proxy + control-plane services with single integrated V2 gateway.
+**Decision**: Replace the previous two-process architecture (a separate LiteLLM proxy plus a control-plane service) with a single integrated gateway.
 
 **Rationale**:
 - **Simpler deployment**: One service instead of two, easier to reason about
@@ -107,34 +107,9 @@ The V2 architecture supports this range:
 
 This is infrastructure-first: AI Control is an important use case, not the defining architecture.
 
-## Streaming Pipeline: Queue-Based Architecture (2025-11-05)
+## Streaming Pipeline: Queue-Based Architecture (2025-11-05, superseded 2026-04-10)
 
-**Decision**: Refactor streaming pipeline from implicit callback-based to explicit queue-based architecture with dependency injection.
-
-**Rationale**:
-- **Explicit data flow**: Clear pipeline stages with typed queues make architecture obvious from code
-- **Testability**: Each stage (PolicyExecutor, ClientFormatter) can be tested in isolation
-- **Type safety**: Explicit `Queue[ModelResponse]` and `Queue[str]` types catch errors early
-- **Separation of concerns**: Policy logic separate from streaming mechanics
-- **Debuggability**: Can inspect queue states, add recording at boundaries
-
-**Key insight**: LiteLLM already provides ModelResponse format from backends, so no ingress formatting needed. This simplified original 3-stage plan to 2 stages.
-
-**Architecture**:
-```
-PolicyExecutor: AsyncIterator[ModelResponse] → Queue[ModelResponse]
-ClientFormatter: Queue[ModelResponse] → Queue[str]
-```
-
-**Trade-offs accepted**:
-- More verbose setup (dependency injection) vs. simpler implicit flow
-- Queue memory overhead vs. backpressure control (bounded queues mitigate this)
-
-**Benefits realized**:
-- Removed ~200 lines of unnecessary CommonFormatter code
-- PolicyOrchestrator simplified to ~30 lines
-- 67 new unit tests added (pipeline is well-tested)
-- All 309 existing tests continue passing
+**Historical only.** This entry described a short-lived two-stage queue pipeline (`PolicyExecutor` → `Queue[ModelResponse]` → `ClientFormatter` → `Queue[str]`) built around LiteLLM's `ModelResponse` type. That design was removed when the gateway moved to direct Anthropic SDK usage. The current Anthropic streaming path lives in `src/luthien_proxy/pipeline/anthropic_processor.py` and uses `AnthropicClient` + `AnthropicExecutionInterface`; there is no `orchestration/` or `streaming/` package. Read the processor module for the up-to-date flow.
 
 ## Context Threading Pattern (2025-11-05)
 
@@ -236,13 +211,8 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 **Rationale**:
 - **Signal-to-noise**: Public repo should help contributors understand the codebase, not internal planning
-- **Industry norm**: LiteLLM uses GitHub Issues/Projects for planning, not in-repo docs
+- **Industry norm**: Many OSS projects (e.g., LiteLLM) keep planning in GitHub Issues/Projects rather than in-repo docs
 - **Focus**: Developers cloning the repo need implementation context, not product strategy
-
-**How LiteLLM handles this** (for reference):
-- Planning in GitHub Issues and Projects
-- README + docs/ for public technical docs
-- No in-repo planning docs or user stories
 
 ---
 
@@ -334,7 +304,7 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 **Decision**: Use an explicit allowlist (`_REQUEST_PARAM_ALLOWLIST`) when passing request parameters to the conversation viewer frontend, rather than excluding known-sensitive fields.
 
 **Rationale**:
-- A blocklist (`if k not in ("messages", "system")`) forwards every unknown field — any new field added to the request pipeline (by policies, LiteLLM, or the Anthropic API) is automatically leaked to the browser.
+- A blocklist (`if k not in ("messages", "system")`) forwards every unknown field — any new field added to the request pipeline (by policies or the Anthropic API) is automatically leaked to the browser.
 - An allowlist (`model`, `max_tokens`, `stream`, `temperature`, `top_p`, `top_k`, `stop_sequences`, `output_config`) only passes explicitly approved fields.
 - `output_config` is further sanitized to only include `format.type` (not the full JSON schema body, which may contain proprietary structure).
 

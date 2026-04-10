@@ -1,377 +1,107 @@
 # Request Processing & Streaming Pipeline Architecture
 
-**Last Updated**: 2026-02-27
+**Last Updated**: 2026-04-10
 
-This document provides an overview of request flow through the current gateway (`src/luthien_proxy/`), focusing on Anthropic endpoints.
+This document describes how Anthropic `/v1/messages` requests flow through the gateway in the current code (`src/luthien_proxy/`). The authoritative source is `src/luthien_proxy/pipeline/anthropic_processor.py` — read that file if anything here disagrees.
 
----
-
-## Conceptual Overview
-
-The gateway processes requests via the Anthropic path:
-
-**Anthropic path** (`/v1/messages`): native Anthropic processing via `process_anthropic_request()` and `AnthropicExecutionInterface.run_anthropic()`.
-
-The path supports streaming and non-streaming responses using an execution-oriented runtime where policies emit final responses/events and may make zero or more backend calls.
+> **Historical note**: Earlier revisions of this document described a short-lived queue-based pipeline (`PolicyOrchestrator` + `PolicyExecutor` + `ClientFormatter` + `Queue[ModelResponse]`) built around LiteLLM's `ModelResponse` type. Those modules no longer exist. The gateway now talks to Anthropic through the Anthropic SDK directly and runs policies via a hook-based execution interface.
 
 ---
 
-## Non-Streaming Pipeline
+## Endpoint Scope
 
-**The Journey of a Simple Chat Completion (OpenAI path)**:
+The gateway exposes the Anthropic Messages API at `/v1/messages`. Requests are handled natively, so features like extended thinking, tool use, and prompt caching pass through without format conversion. Non-Anthropic clients are out of scope in this document.
 
-### 1. Client sends request
+## Request Lifecycle
 
-Request arrives at `/v1/messages` (Anthropic format)
+Every request passes through four phases, wrapped in an OpenTelemetry span hierarchy rooted at `anthropic_transaction_processing`:
 
-### 2. Gateway receives request
-
-([gateway_routes.py](../src/luthien_proxy/gateway_routes.py))
-
-- Creates request-scoped context (`PolicyContext`, tracing span data)
-- Validates authentication (API key check)
-
-### 3. Request processing
-
-Via `PolicyOrchestrator.process_request()`
-
-- Policy can modify request, add metadata, or reject
-
-### 4. Backend call
-
-- Request sent to configured backend via LiteLLM client
-- Backend returns complete response
-
-### 5. Response processing
-
-- Policy processes complete response
-- Policy can inspect, modify, or reject response
-
-### 6. Response returned to client
-
-- Format converted to client's expected format (OpenAI or Anthropic)
-- Events recorded to database (`conversation_calls`, `conversation_events`)
-- Published to Redis for activity monitoring
-
-**Total time**: ~1-5 seconds depending on LLM latency
-
-### Anthropic non-streaming note
-
-Anthropic non-streaming requests are handled separately by `process_anthropic_request()` in
-`src/luthien_proxy/pipeline/anthropic_processor.py`, where policies implement `run_anthropic()` and emit response objects.
-
----
-
-## Streaming Pipeline
-
-The streaming pipeline handles requests where the backend returns response chunks incrementally. The request phase is identical to non-streaming; the response handling differs.
-
-### How Streaming Differs from Non-Streaming
-
-Instead of receiving a complete response at once, the backend returns an `AsyncIterator[ModelResponse]`. This requires a two-stage processing pipeline:
-
-1. **Stage 1 (PolicyExecutor)**: Consume raw chunks from backend, assemble complete blocks, invoke policy hooks, put processed chunks in `policy_out_queue`
-2. **Stage 2 (ClientFormatter)**: Consume processed chunks from `policy_out_queue`, convert to client format (SSE), put strings in `sse_queue`
-3. **Stage 3 (Gateway)**: Drain `sse_queue` and yield to client
-
-This approach gives policies visibility into complete blocks (not just raw chunks) while maintaining streaming semantics to the client.
-
-### Quick Reference Diagram
-
-```mermaid
-graph TD
-    A["Backend LLM via LiteLLM"] -->|"AsyncIter[ModelResponse]"| B["PolicyExecutor - Stage 1"]
-    B -->|"Block assembly + hooks"| C["policy_out_queue<br/>Queue[ModelResponse]"]
-    C --> D["ClientFormatter - Stage 2"]
-    D -->|"SSE conversion"| E["sse_queue<br/>Queue[str]"]
-    E --> F["Gateway yields to client"]
+```
+anthropic_transaction_processing
+  +-- process_request
+  +-- process_response
+  |   +-- policy_execute
+  |   +-- send_upstream  (zero or more backend calls)
+  +-- send_to_client     (non-streaming only)
 ```
 
-**Key Components**:
+### 1. Ingest & Authenticate
 
-- **PolicyExecutor**: Assembles blocks from chunks, invokes policy hooks (55 unit tests)
-- **ClientFormatter**: Converts ModelResponse → SSE strings (12 unit tests)
-- **Queues**: Bounded (maxsize=10000) with 30s timeout on put operations
+`gateway_routes.py` validates the credential via `CredentialManager`, resolves the backend `AnthropicClient` (proxy-key vs passthrough vs explicit `x-anthropic-api-key`), and dispatches to `process_anthropic_request()`.
 
-### Detailed Flow
+### 2. Build PolicyContext
 
-**The Journey of a Streaming Chat Completion**:
+`process_anthropic_request()` (in `pipeline/anthropic_processor.py`) creates a `PolicyContext` for the call:
 
-### 1. Client sends streaming request
+- `transaction_id` (a new `call_id`)
+- `raw_http_request` snapshot (headers, body)
+- `session_id` (extracted from the request body / headers)
+- `user_credential` and `credential_manager` for auth-provider resolution
+- `emitter` for observability events
 
-Request includes `"stream": true`
+If `inject_policy_context` is enabled and the policy derives from `BasePolicy`, a small system-prompt addition listing the active policy names is injected into the request.
 
-### 2. Gateway receives request
+### 3. Run the Execution Policy
 
-(Same as non-streaming)
+Policies implement `AnthropicExecutionInterface` (in `policy_core/anthropic_execution_interface.py`) — a hook-based protocol. The processor's `_run_policy_hooks()` function owns the backend call and stream iteration, invoking four hooks in sequence:
 
-- Creates contexts (`ObservabilityContext`, `PolicyContext`)
-- Validates authentication
-- Processes request through policy hooks
+- `on_anthropic_request(request, context) -> AnthropicRequest` — transform the request before it is sent to the backend.
+- `on_anthropic_response(response, context) -> AnthropicResponse` — transform a non-streaming backend response.
+- `on_anthropic_stream_event(event, context) -> list[MessageStreamEvent]` — transform or replace each backend stream event (each call may emit zero or many events).
+- `on_anthropic_stream_complete(context) -> list[MessageStreamEvent]` — emit any tail events after the backend stream finishes (e.g. injected blocks).
 
-### 3. LiteLLM streams from backend
+Policies never see the IO layer directly. The executor wraps the backend in an `_AnthropicPolicyIO` helper (implementing `AnthropicPolicyIOProtocol`) that holds the current request and exposes `io.stream(...)` / `io.complete(...)`. The executor calls `io.stream(request)` or `io.complete(request)` exactly once per request — based on the incoming `stream: true/false` flag — and runs each hook around that call. Each backend call executes under a `send_upstream` child span.
 
-- Returns `AsyncIterator[ModelResponse]` - chunks arrive incrementally
-- LiteLLM already normalized chunks to common format
-- **Key insight**: No ingress formatting needed!
+`_execute_anthropic_policy()` dispatches the resulting emissions to either `_handle_execution_non_streaming` (single `AnthropicResponse` → `JSONResponse`) or `_handle_execution_streaming` (sequence of `MessageStreamEvent` → SSE).
 
-### 4. Streaming Pipeline - Stage 1: PolicyExecutor
+### 4. Emit to Client and Record
 
-- Consumes `AsyncIterator[ModelResponse]` from backend
-- **Block Assembly**: Uses `StreamingChunkAssembler` to build complete blocks
-  - Detects when content blocks complete
-  - Detects when tool calls complete
-  - Tracks finish_reason
-- **Policy Hooks**: Invokes policy at key moments
-  - `on_content_delta(delta, ...)` - each content chunk
-  - `on_tool_call_delta(delta, ...)` - each tool call chunk
-  - `on_block_complete(block, ...)` - when block finishes
-  - `on_stream_complete(...)` - when stream ends
-- **Timeout Monitoring**: Calls `keepalive()` on each chunk to prevent hangs
-- **Outputs**: Puts processed `ModelResponse` chunks into `policy_out_queue`
+**Non-streaming** (`_handle_execution_non_streaming`): the processor captures the original backend response (before policy mutation) and the final emitted response, records a `transaction.response_recorded` event, and returns a `JSONResponse`.
 
-### 5. Queue Handoff: policy_out_queue
+**Streaming** (`_handle_execution_streaming`): the processor iterates the policy emissions, serializes each event with `_format_sse_event`, and yields them to the client as `text/event-stream`. In the `finally` block it:
 
-- Typed as `Queue[ModelResponse]`
-- Bounded queue (maxsize=10000)
-- 30s timeout on put() to prevent deadlock
+- Validates the accumulated event sequence against `validate_anthropic_event_ordering` (log-and-warn only — violations are recorded as `streaming.protocol_violation` events).
+- Reconstructs an `AnthropicResponse` from the accumulated stream events.
+- Records `transaction.streaming_response_recorded` with both the raw and final responses.
+- Flushes request-log records and records usage telemetry (input/output tokens) when the stream completed normally.
 
-### 6. Streaming Pipeline - Stage 2: ClientFormatter
+Mid-stream errors after headers have been sent produce an in-stream Anthropic error event (`_build_error_event`) so the client sees a structured failure instead of a silent truncation.
 
-- Consumes `ModelResponse` chunks from `policy_out_queue`
-- **OpenAI Client**: Converts to OpenAI SSE format
-  - `data: {"id": "...", "choices": [{"delta": {...}}]}\n\n`
-- **Anthropic Client**: Converts to Anthropic SSE format with event lifecycle
-  - `event: message_start\ndata: {...}\n\n`
-  - `event: content_block_delta\ndata: {...}\n\n`
-  - `event: message_stop\ndata: {...}\n\n`
-- **Outputs**: Puts SSE strings into `sse_queue`
+## Key Abstractions
 
-### 7. Queue Handoff: sse_queue
+| Abstraction | Location | Role |
+|-------------|----------|------|
+| `process_anthropic_request` | `pipeline/anthropic_processor.py` | Top-level phase 1–4 orchestration for Anthropic requests |
+| `AnthropicExecutionInterface` | `policy_core/anthropic_execution_interface.py` | Hook-based contract for Anthropic policies (`on_anthropic_request`, `on_anthropic_response`, `on_anthropic_stream_event`, `on_anthropic_stream_complete`) |
+| `AnthropicPolicyIOProtocol` | `policy_core/anthropic_execution_interface.py` | Executor-only I/O surface (`complete`, `stream`, current request) — policies do not see this directly |
+| `AnthropicClient` | `llm/anthropic_client.py` | Async Anthropic SDK wrapper (api_key vs bearer-token auth) |
+| `PolicyContext` | `policy_core/policy_context.py` | Per-request state — transaction id, emitter, typed request-state slots |
+| `EventEmitterProtocol` | `observability/emitter.py` | Records transaction + policy events to storage and Redis |
+| `validate_anthropic_event_ordering` | `pipeline/stream_protocol_validator.py` | Post-stream protocol-ordering check |
 
-- Typed as `Queue[str]`
-- Bounded queue (maxsize=10000)
-- 30s timeout on put()
+## LiteLLM Scope
 
-### 8. Gateway yields to client
+LiteLLM is **not** on the main `/v1/messages` path. Backend calls are always `AnthropicClient` -> Anthropic SDK. `pipeline/anthropic_processor.py` does not import `litellm` at all.
 
-- Drains `sse_queue` with `async for sse_string in ...: yield sse_string`
-- Client receives Server-Sent Events incrementally
-- Events recorded and published (same as non-streaming)
+LiteLLM only appears in:
 
-**Total time**: Streaming duration + policy overhead (typically milliseconds per chunk)
+- **Judge-LLM calls** — `llm/judge_client.py`, `policies/simple_llm_utils.py`, `policies/tool_call_judge_utils.py` call `litellm.acompletion` to ask a judge model for a decision. `judge_client.judge_completion` is the common wrapper.
+- **Startup config** — `main.py` sets `litellm.drop_params = True` once so judge calls tolerate unknown kwargs.
+- **Admin model listing** — `admin/routes.py` reads `litellm.anthropic_models` for the admin UI model dropdown.
+- **Error mapping** — `exceptions.map_litellm_error_type()` translates litellm error classes to `BackendAPIError` codes on the judge path.
 
----
-
-## Key Design Principles
-
-### 1. Dependency Injection
-
-Gateway creates pipeline components and injects them:
-
-```python
-# In gateway_routes.py
-policy_executor = DefaultPolicyExecutor(timeout_seconds=30.0)
-client_formatter = AnthropicClientFormatter(model_name=request.model)
-
-orchestrator = PolicyOrchestrator(
-    policy=policy,
-    policy_executor=policy_executor,
-    client_formatter=client_formatter,
-
-)
-```
-
-**Why**: Clear dependencies, easy to test, explicit over implicit.
-
-### 2. Context Threading
-
-`ObservabilityContext` and `PolicyContext` created at gateway, passed through entire lifecycle:
-
-```python
-# Created once
-obs_ctx = ObservabilityContext(trace_id=..., span=...)
-policy_ctx = PolicyContext(transaction_id=call_id)
-
-# Threaded through all operations
-orchestrator.process_request(request, obs_ctx, policy_ctx)
-orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
-```
-
-**Why**: Consistent tracing, no globals, clear lifecycle ownership.
-
-### 3. Typed Queues
-
-Explicit types at queue boundaries catch errors early:
-
-```python
-policy_out_queue: asyncio.Queue[ModelResponse] = asyncio.Queue(maxsize=10000)
-sse_queue: asyncio.Queue[str] = asyncio.Queue(maxsize=10000)
-```
-
-**Why**: Type safety, clear contracts, self-documenting code.
-
-### 4. Bounded Queues with Circuit Breaker
-
-Large but bounded queues prevent memory exhaustion:
-
-- maxsize=10000 (handles bursts)
-- 30s timeout on put() (prevents deadlock)
-- Raises `QueueFullError` if overwhelmed
-
-**Why**: Fail fast under load rather than OOM.
-
-### 5. Separation of Concerns
-
-- **PolicyExecutor**: Stream mechanics (chunking, timeout, assembly)
-- **Policy**: Business logic (allow/block decisions, transformations)
-- **ClientFormatter**: Output format conversion
-- **PolicyOrchestrator**: Coordinates pipeline, doesn't implement logic
-
-**Why**: Each component has single responsibility, easy to test and maintain.
-
----
-
-## Policy Hook Points
-
-Policies can intercept at these points:
-
-### Request Lifecycle
-
-- `on_request_started(request, policy_ctx, obs_ctx)` - Before LLM call
-- `on_request_completed(request, policy_ctx, obs_ctx)` - After modification
-
-### Streaming Response Lifecycle
-
-- `on_response_started(policy_ctx, obs_ctx)` - Stream begins
-- `on_content_delta(delta, policy_ctx, obs_ctx)` - Each content chunk
-- `on_tool_call_delta(delta, policy_ctx, obs_ctx)` - Each tool call chunk
-- `on_block_complete(block, policy_ctx, obs_ctx)` - Block finished
-- `on_stream_complete(policy_ctx, obs_ctx)` - Stream finished
-
-### Non-Streaming Response Lifecycle
-
-**Status**: Not yet fully integrated with orchestrator
-
-- `process_full_response(response, policy_ctx)` - Process complete response (currently the only hook)
-
-**Example Policy**: ToolCallJudgePolicy buffers tool calls, sends them to judge LLM, blocks if unsafe.
-
----
-
-## Component Locations
-
-### Core Pipeline
-
-- **Gateway Routes**: `src/luthien_proxy/gateway_routes.py`
-- **PolicyOrchestrator**: `src/luthien_proxy/orchestration/policy_orchestrator.py`
-- **PolicyExecutor**: `src/luthien_proxy/streaming/policy_executor/executor.py`
-- **ClientFormatter**: `src/luthien_proxy/streaming/client_formatter/openai.py`
-
-### Supporting Components
-
-- **StreamingChunkAssembler**: `src/luthien_proxy/streaming/streaming_chunk_assembler.py`
-- **PolicyContext**: `src/luthien_proxy/policy_core/policy_context.py`
-
-
-### Policies
-
-- **Policy Protocol**: `src/luthien_proxy/policy_core/policy_protocol.py`
-- **Example Policies**: `src/luthien_proxy/policies/{noop,simple,debug_logging,tool_call_judge}_policy.py`
-
-### Tests
-
-- **PolicyExecutor tests**: `tests/luthien_proxy/unit_tests/streaming/policy_executor/` (55 tests)
-- **ClientFormatter tests**: `tests/luthien_proxy/unit_tests/streaming/client_formatter/` (12 tests)
-- **E2E tests**: `tests/luthien_proxy/e2e_tests/test_api_compatibility.py`
-
----
-
-## Common Questions
-
-### Q: Why not just use callbacks like before?
-
-**A**: Explicit queues make data flow visible, enable recording at boundaries, and make testing easier. Can inspect queue states during debugging.
-
-### Q: Why remove CommonFormatter?
-
-**A**: Discovered LiteLLM already normalizes backend responses to ModelResponse. Having a formatter that did `ModelResponse → ModelResponse` was unnecessary complexity (~200 lines removed).
-
-### Q: What if a policy is slow?
-
-**A**: Bounded queues prevent unbounded memory growth. If `policy_out_queue` fills up, the system fails fast with `QueueFullError` rather than consuming all memory.
-
-### Q: How does timeout monitoring work?
-
-**A**: PolicyExecutor calls `self.keepalive()` on each chunk. If no chunks arrive for 30s, timeout triggers. This prevents hanging on slow/stuck LLM connections.
-
-### Q: Can policies modify streaming chunks?
-
-**A**: Yes! Policies can inject new chunks, block chunks, or transform them. For example, ToolCallJudgePolicy blocks tool calls by injecting error content chunks.
-
-### Q: How do I add a new policy?
-
-**A**: Implement `PolicyProtocol` with your hook logic. See `dev/event_driven_policy_guide.md` for examples. NoOpPolicy is the simplest reference implementation.
-
----
-
-## Performance Characteristics
-
-### Latency Overhead
-
-- **Non-streaming**: ~1-5ms (policy hook invocations)
-- **Streaming**: ~1-2ms per chunk (assembly + policy hooks)
-- **Queue operations**: Sub-millisecond (asyncio queues are fast)
-
-### Memory Usage
-
-- **Bounded queues**: Max 10000 items per queue
-- **ModelResponse size**: ~1-5KB per chunk typically
-- **Worst case**: ~50MB per active stream (policy_out_queue + sse_queue full)
-
-### Throughput
-
-- **Concurrent streams**: Limited by asyncio TaskGroup overhead (minimal)
-- **Bottleneck**: Usually backend LLM latency, not proxy
-- **Queue saturation**: Needs sustained 300+ chunks/sec to fill queues
-
----
+See `dev/context/codebase_learnings.md` (LiteLLM Usage Boundaries) for the complete list of supported import sites.
 
 ## Troubleshooting
 
-### Streaming hangs
-
-- Check PolicyExecutor timeout (default 30s)
-- Look for policy hooks that don't complete
-- Verify backend LLM is actually streaming
-
-### Queue full errors
-
-- Policy is too slow (buffering/judging taking too long)
-- Backend producing chunks faster than client consuming
-- Consider increasing queue size or optimizing policy
-
-### Missing chunks in output
-
-- Policy may not be forwarding chunks (check `on_content_delta` implementation)
-- ClientFormatter may have bug (check unit tests)
-- Verify chunks in `policy_out_queue` before formatter
-
-### Type errors
-
-- Ensure using proper LiteLLM types (`StreamingChoices`, `Delta`, not dicts)
-- Check queue type annotations match what's being put/get
-- Use test fixtures as reference for proper types
-
----
+- **Stream hangs or truncates**: inspect `pipeline/anthropic_processor.py` `_handle_execution_streaming` and the policy's `run_anthropic` implementation — the SSE iterator pulls directly from whatever the policy yields.
+- **Protocol-ordering violations in logs**: `streaming.protocol_violation` events indicate the policy emitted events out of Anthropic's required order (all `content_block_*` must precede `message_delta`). See `gotchas.md` under "Anthropic Streaming: All Content Blocks Must Precede message_delta".
+- **Empty stream 500**: the policy returned without yielding any events; `_handle_execution_streaming` converts that into an explicit Anthropic error event and logs `policy.execution.empty_stream`.
+- **Judge LLM call failures**: these come from `judge_client.judge_completion`, not the main request path; check `LLM_JUDGE_API_KEY`, per-policy `api_key`, and the upstream LiteLLM configuration.
 
 ## Related Documentation
 
-- **Context Files**:
-  - [codebase_learnings.md](context/codebase_learnings.md#streaming-pipeline-architecture-2025-11-05) - Architecture patterns
-  - [decisions.md](context/decisions.md#streaming-pipeline-queue-based-architecture-2025-11-05) - Why this approach
-  - [gotchas.md](context/gotchas.md#queue-shutdown-for-stream-termination-2025-01-20-updated-2025-10-20) - Queue patterns
-
-- **Observability**:
-  - [observability.md](observability.md) - Tracing and monitoring
-  - [VIEWING_TRACES_GUIDE.md](VIEWING_TRACES_GUIDE.md) - Using Tempo
+- `ARCHITECTURE.md` — broader module map (note: known staleness tracked separately on Trello; prefer the source code when in doubt).
+- `dev/context/codebase_learnings.md` — architectural patterns.
+- `dev/context/gotchas.md` — streaming protocol invariants and common debugging pitfalls.
+- `dev/observability.md` — tracing, event recording, and Tempo integration.

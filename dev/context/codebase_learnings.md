@@ -7,28 +7,30 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 ---
 
-## V2 Architecture Overview (2025-10-24, updated 2025-12-04)
+## Architecture Overview (2025-10-24, updated 2026-04-10)
 
-- **Gateway** (`src/luthien_proxy/`): Integrated FastAPI + LiteLLM application with built-in policy enforcement
-- **Orchestration** (`src/luthien_proxy/orchestration/`): PolicyOrchestrator coordinates streaming pipeline
-- **Policies** (`src/luthien_proxy/policies/`): Event-driven policy implementations
-- **Policy Core** (`src/luthien_proxy/policy_core/`): Policy protocol, contexts, and chunk builders
-- **Storage** (`src/luthien_proxy/storage/`): Conversation event persistence with background queue
-- **Streaming** (`src/luthien_proxy/streaming/`): Policy executor and client formatters
-- **Observability** (`src/luthien_proxy/observability/`): OpenTelemetry integration, transaction recording
-- **Admin** (`src/luthien_proxy/admin/`): Runtime policy management API
-- **Debug** (`src/luthien_proxy/debug/`): Debug endpoints for inspecting conversation events
-- **UI** (`src/luthien_proxy/ui/`): Activity monitoring and diff viewer interfaces
-- **LLM** (`src/luthien_proxy/llm/`): LiteLLM client wrapper and format converters
+Integrated single-process gateway. Authoritative module map and request lifecycle live in `ARCHITECTURE.md`. Summary of directories referenced from these context notes:
 
-Integrated architecture - everything runs in single gateway process.
+- **Gateway** (`src/luthien_proxy/`): FastAPI app with built-in policy enforcement; Anthropic requests flow through `pipeline/anthropic_processor.py` and use `AnthropicClient` (wraps the Anthropic SDK) to talk to the backend.
+- **Pipeline** (`src/luthien_proxy/pipeline/`): Request processors for the Anthropic path, including streaming execution.
+- **Policies** (`src/luthien_proxy/policies/`): Concrete policy implementations (noop, simple, tool-call judge, etc.).
+- **Policy Core** (`src/luthien_proxy/policy_core/`): Policy base classes, protocols, per-request `PolicyContext`, Anthropic execution interface.
+- **Storage** (`src/luthien_proxy/storage/`): Conversation event persistence with a background queue.
+- **Observability** (`src/luthien_proxy/observability/`): OpenTelemetry integration and structured transaction recording.
+- **Admin** (`src/luthien_proxy/admin/`): Runtime policy management API.
+- **Debug** (`src/luthien_proxy/debug/`): Endpoints for inspecting conversation events.
+- **UI** (`src/luthien_proxy/ui/`): Activity monitoring and diff viewer interfaces.
+- **LLM** (`src/luthien_proxy/llm/`): `AnthropicClient` (Anthropic SDK wrapper) plus a LiteLLM-backed `judge_client` used by judge-driven policies. The main request path does not go through LiteLLM.
 
-## Anthropic Runtime Model (2026-02-27)
+## Anthropic Runtime Model (2026-02-27, updated 2026-04-10)
 
-- Anthropic request handling is execution-oriented, not hook-oriented.
-- Policies on `/v1/messages` implement `AnthropicExecutionInterface.run_anthropic(io, context)` and emit responses/events.
-- Policy runtime is backend-call agnostic: policies may make zero, one, or many backend calls via `io.complete()` / `io.stream()`.
-- Legacy Anthropic compatibility helpers (`_handle_streaming`, `_handle_non_streaming` in `anthropic_processor.py`) were removed from production code.
+- Anthropic request handling is hook-based. The executor (`_run_policy_hooks` in `pipeline/anthropic_processor.py`) owns the backend call and stream iteration.
+- Policies implement `AnthropicExecutionInterface` (`policy_core/anthropic_execution_interface.py`) with four hooks:
+  - `on_anthropic_request(request, context) -> AnthropicRequest`
+  - `on_anthropic_response(response, context) -> AnthropicResponse`
+  - `on_anthropic_stream_event(event, context) -> list[MessageStreamEvent]`
+  - `on_anthropic_stream_complete(context) -> list[MessageStreamEvent]`
+- Policies never see the IO layer directly. The executor wraps the backend in `_AnthropicPolicyIO` (implementing `AnthropicPolicyIOProtocol`) and calls `io.stream(request)` or `io.complete(request)` exactly once per request based on the incoming `stream` flag.
 
 ## Key Patterns (2025-10-24)
 
@@ -37,22 +39,20 @@ Integrated architecture - everything runs in single gateway process.
 - **Background persistence**: `SequentialTaskQueue` ensures non-blocking event emission to database
 - **OpenTelemetry**: Distributed tracing with automatic span creation and log correlation
 
-## LiteLLM Role in V2 Architecture (2025-10-17)
+## LiteLLM Usage Boundaries (2025-10-17, updated 2026-04-10)
 
-**Key insight**: LiteLLM should ONLY be used for API format conversion, not parameter validation.
+LiteLLM is NOT on the main request path. Anthropic `/v1/messages` traffic is handled by `AnthropicClient` (Anthropic SDK) in `pipeline/anthropic_processor.py`, and the processor never imports `litellm`.
 
-**Problem**: When passing model-specific parameters (e.g., provider-specific options), litellm's `acompletion()` rejects them with "Unknown parameter" errors.
+Current imports of `litellm` in `src/luthien_proxy/`:
 
-**Solution**: Use litellm's `allowed_openai_params` mechanism:
-```python
-# Identify model-specific parameters to forward
-known_params = {"verbosity"}  # Add more as needed
-model_specific_params = [p for p in data.keys() if p in known_params]
-if model_specific_params:
-    data["allowed_openai_params"] = model_specific_params
-```
+- `llm/judge_client.py` — wraps `litellm.acompletion` for judge-LLM calls.
+- `policies/simple_llm_utils.py` and `policies/tool_call_judge_utils.py` — call `acompletion` directly for judge decisions (these are the underlying utilities for `SimpleLLMPolicy` and `ToolCallJudgePolicy`).
+- `main.py` — sets `litellm.drop_params = True` once at startup so judge calls tolerate unknown kwargs.
+- `admin/routes.py` — reads `litellm.anthropic_models` to list available Claude models in the admin UI.
+- `exceptions.py` — `map_litellm_error_type()` maps litellm exception classes onto `BackendAPIError` codes for judge-path errors.
+- `config_fields.py` / `settings.py` — retain `litellm_master_key` as a legacy fallback when resolving judge API keys.
 
-**Key principle**: We want litellm to do format conversion (OpenAI ↔ Anthropic) but NOT validate parameters. Each provider knows what it supports.
+**Key rule**: Do not introduce new LiteLLM imports from gateway request processing, streaming, or the `pipeline/` package. Judge-LLM calls (and the startup/admin touches listed above) are the only supported entry points today.
 
 ## E2E Test Infrastructure (2025-10-17, updated 2026-03-25)
 
@@ -80,57 +80,11 @@ Three test tiers with increasing infrastructure requirements:
 - `set_policy()` / `get_current_policy()` — admin API wrappers
 - `gateway_healthy` — fixture that skips if gateway unreachable
 
-## Streaming Pipeline Architecture (2025-11-05)
+## Streaming Pipeline (2026-04-10)
 
-**Two-stage queue-based pipeline** with dependency injection and explicit data flow.
+Anthropic streaming lives inside `src/luthien_proxy/pipeline/anthropic_processor.py`. The gateway calls `AnthropicClient.stream(...)` (Anthropic SDK), hands the async iterator to an execution-interface policy, and the policy emits `RawMessageStreamEvent`s that the processor forwards as SSE to the client. Policies implement `AnthropicExecutionInterface.run_anthropic(io, context)` and use the `io` surface to call `io.stream()` / `io.complete()` zero or more times.
 
-### Architecture
-
-```
-Backend LLM (via LiteLLM)
-         ↓
-AsyncIterator[ModelResponse] ← LiteLLM provides common format
-         ↓
-    PolicyExecutor (stage 1)
-    - Block assembly (StreamingChunkAssembler)
-    - Policy hook invocation
-    - Timeout + keepalive monitoring
-         ↓
-policy_out_queue: Queue[ModelResponse]
-         ↓
-   ClientFormatter (stage 2)
-    - OpenAI or Anthropic SSE conversion
-         ↓
-sse_queue: Queue[str]
-         ↓
-    Gateway yields to client
-```
-
-### Key Design Principles
-
-1. **No Ingress Formatting**: LiteLLM already normalizes backend responses to ModelResponse format
-2. **Dependency Injection**: Gateway instantiates PolicyExecutor and ClientFormatter, injects into PolicyOrchestrator
-3. **Explicit Queues**: Typed queues (`Queue[ModelResponse]`, `Queue[str]`) define clear data contracts
-4. **Context Threading**: `ObservabilityContext` and `PolicyContext` created at gateway, passed through entire lifecycle
-5. **Bounded Queues**: maxsize=10000 with 30s timeout on put() operations (circuit breaker)
-6. **Separation of Concerns**: Keepalive in PolicyExecutor (not PolicyContext), policies are stateless hooks
-
-### Why This Architecture
-
-**Simplified from original 3-stage plan**: Discovered LiteLLM provides ModelResponse, eliminating need for CommonFormatter stage.
-
-**Benefits**:
-- Clear data flow visible in code structure
-- Type safety at queue boundaries
-- Easy to test each stage in isolation
-
-- ~200 lines of unnecessary code eliminated
-
-**Files**:
-- `orchestration/policy_orchestrator.py` - orchestration (~30 lines)
-- `streaming/policy_executor/` - block assembly + policy hooks (55 tests)
-- `streaming/client_formatter/` - SSE conversion (12 tests)
-- `policy_core/policy_context.py` - per-request state (transaction_id + scratchpad)
+Do not trust older notes that describe a `PolicyOrchestrator` + `PolicyExecutor` + `ClientFormatter` + `Queue[ModelResponse]` pipeline or a separate `orchestration/` / `streaming/` package — those modules do not exist in the current codebase. When in doubt, read `src/luthien_proxy/pipeline/anthropic_processor.py` directly; `ARCHITECTURE.md` also describes the flow but has known staleness (tracked separately on Trello).
 
 ---
 
