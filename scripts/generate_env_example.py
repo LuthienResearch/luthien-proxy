@@ -8,13 +8,19 @@ Usage:
 import sys
 from pathlib import Path
 
-# Add src to path so we can import config_fields
+# Add src to path so we can import config_fields when run as a script.
+# When imported as a module (from tests), the package is already installed.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from luthien_proxy.config_fields import CONFIG_CATEGORIES, CONFIG_FIELDS
 
 
-def main() -> None:
+def build_env_example_text() -> str:
+    """Return the full generated .env.example text.
+
+    Exposed separately from `main()` so tests and other tooling can compare
+    against the canonical output without spawning a subprocess.
+    """
     lines = [
         "# Luthien Proxy — Environment Configuration",
         "# Auto-generated from config field definitions (scripts/generate_env_example.py).",
@@ -61,8 +67,11 @@ def main() -> None:
                 lines.append(f"# {meta.env_var}={default_str}")
             lines.append("")
 
-    output = "\n".join(lines)
-    print(output, end="")
+    return "\n".join(lines)
+
+
+def main() -> None:
+    print(build_env_example_text(), end="")
 
 
 if __name__ == "__main__":

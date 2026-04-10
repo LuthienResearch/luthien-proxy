@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import subprocess
-import sys
+import importlib.util
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -462,20 +461,20 @@ class TestConfigFieldsCompleteness:
         across build environments.
         """
         repo_root = Path(__file__).resolve().parents[3]
-        generator = repo_root / "scripts" / "generate_env_example.py"
+        generator_path = repo_root / "scripts" / "generate_env_example.py"
         env_example = repo_root / ".env.example"
 
-        assert generator.exists(), f"Generator missing at {generator}"
+        assert generator_path.exists(), f"Generator missing at {generator_path}"
         assert env_example.exists(), f".env.example missing at {env_example}"
 
-        result = subprocess.run(
-            [sys.executable, str(generator)],
-            capture_output=True,
-            text=True,
-            cwd=repo_root,
-            check=True,
-        )
-        expected = result.stdout
+        # Load the script as a module without running it as a subprocess —
+        # faster and produces real tracebacks on failure.
+        spec = importlib.util.spec_from_file_location("_generate_env_example", generator_path)
+        assert spec is not None and spec.loader is not None
+        generator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(generator)
+
+        expected = generator.build_env_example_text()
         actual = env_example.read_text()
 
         assert actual == expected, (
