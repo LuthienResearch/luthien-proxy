@@ -481,15 +481,37 @@ def _parse_go_packages(tokens: list[str]) -> list[PackageRef]:
         # Go modules are paths like github.com/foo/bar[@version]
         if "@" in raw:
             name, _, version = raw.partition("@")
-            # Go tags like "latest" / "upgrade" don't round-trip through OSV's
-            # exact-version query; treat as unknown version.
-            clean_version: str | None = version.strip() or None
-            if clean_version in {"latest", "upgrade", "patch", "none"}:
-                clean_version = None
-            refs.append(PackageRef(ecosystem="Go", name=name, version=clean_version))
+            refs.append(PackageRef(ecosystem="Go", name=name, version=_normalise_go_version(version)))
         else:
             refs.append(PackageRef(ecosystem="Go", name=raw))
     return refs
+
+
+# Go semver: v1.2.3, v1.2.3-alpha, v1.2.3+build
+_GO_SEMVER_RE: Final[re.Pattern[str]] = re.compile(r"^v\d+\.\d+\.\d+")
+# Go pseudo-versions: v0.0.0-20240101120000-abcdef123456 (any hex suffix ≥12 chars)
+_GO_PSEUDO_VERSION_RE: Final[re.Pattern[str]] = re.compile(r"^v\d+\.\d+\.\d+-(?:[0-9a-z.]*?-)?\d{14}-[0-9a-f]{12,}$")
+
+
+def _normalise_go_version(version: str) -> str | None:
+    """Drop Go version strings OSV's exact-match lookup can't use.
+
+    OSV indexes Go advisories against semver tags. Branch names
+    (``main``, ``master``, ``evil-branch``), commit SHAs, or the
+    tags ``latest``/``upgrade``/``patch``/``none`` all fail an
+    exact-version query — OSV returns no matches and the install
+    silently passes the guard. Treat anything non-semver as
+    "unknown version" so the fallback unversioned query runs.
+    """
+    version = version.strip()
+    if not version:
+        return None
+    if version in {"latest", "upgrade", "patch", "none", "master", "main"}:
+        return None
+    if _GO_SEMVER_RE.match(version) or _GO_PSEUDO_VERSION_RE.match(version):
+        return version
+    # Branch names, SHAs, anything else — OSV can't verify, so don't send it.
+    return None
 
 
 def _parse_gem_packages(tokens: list[str]) -> list[PackageRef]:
@@ -1043,9 +1065,45 @@ def _detect_unverifiable_install_form(command: str) -> str | None:
     return None
 
 
+# Alternative-source flags per ecosystem. When present, the install is
+# routed to a non-canonical registry/path/VCS that OSV's data does not
+# cover. OSV only knows about the canonical PyPI / npm / crates.io /
+# RubyGems / Packagist indices, so a lookup of the package name under
+# those ecosystems is meaningless for the actual install. Hard-block.
+_PIP_ALT_SOURCE_FLAGS: Final[frozenset[str]] = frozenset(
+    {"--index-url", "-i", "--extra-index-url", "--find-links", "-f"}
+)
+_NPM_ALT_SOURCE_FLAGS: Final[frozenset[str]] = frozenset({"--registry"})
+_CARGO_ALT_SOURCE_FLAGS: Final[frozenset[str]] = frozenset(
+    {"--git", "--path", "--branch", "--tag", "--rev", "--registry", "--index"}
+)
+_GEM_ALT_SOURCE_FLAGS: Final[frozenset[str]] = frozenset({"-s", "--source", "--clear-sources"})
+_COMPOSER_ALT_SOURCE_FLAGS: Final[frozenset[str]] = frozenset({"--repository", "--repository-url"})
+
+
+def _has_alt_source_flag(tokens: list[str], flags: frozenset[str]) -> bool:
+    """Return True if any token is an alt-source flag or `--flag=value` form."""
+    for tok in tokens:
+        if tok in flags:
+            return True
+        # `--flag=value` form
+        if "=" in tok:
+            flag, _, _ = tok.partition("=")
+            if flag in flags:
+                return True
+    return False
+
+
 def _check_unverifiable_args(marker: str, tokens: list[str]) -> str | None:
     """Return a reason if any token is an unverifiable install argument."""
     if marker == "__pip__":
+        if _has_alt_source_flag(tokens, _PIP_ALT_SOURCE_FLAGS):
+            return (
+                "pip install routes through a non-default index (`--index-url` / "
+                "`--extra-index-url` / `--find-links`); OSV only covers the "
+                "canonical PyPI index. Remove the alt-source flag or "
+                "allowlist the packages explicitly."
+            )
         for tok in tokens:
             if tok in _PIP_UNVERIFIABLE_FLAGS:
                 return (
@@ -1075,6 +1133,12 @@ def _check_unverifiable_args(marker: str, tokens: list[str]) -> str | None:
                     "packages, or allowlist the file explicitly."
                 )
     elif marker == "__npm__":
+        if _has_alt_source_flag(tokens, _NPM_ALT_SOURCE_FLAGS):
+            return (
+                "npm install routes through a non-default registry "
+                "(`--registry`); OSV only covers the canonical npm registry. "
+                "Remove the flag or allowlist the packages explicitly."
+            )
         for tok in tokens:
             if tok.startswith(("git+", "github:", "gitlab:", "bitbucket:", "file:")):
                 return (
@@ -1088,6 +1152,28 @@ def _check_unverifiable_args(marker: str, tokens: list[str]) -> str | None:
                 return "npm install from a local path — OSV can only verify named packages from the npm registry."
             if tok.endswith(".tgz"):
                 return "npm install from a tarball file — OSV can only verify named packages from the npm registry."
+    elif marker == "__cargo__":
+        if _has_alt_source_flag(tokens, _CARGO_ALT_SOURCE_FLAGS):
+            return (
+                "cargo install routes through a non-default source "
+                "(`--git` / `--path` / `--registry` / `--index` / branch / tag / rev); "
+                "OSV only covers crates.io releases. Remove the alt-source "
+                "flag or allowlist the packages explicitly."
+            )
+    elif marker == "__gem__":
+        if _has_alt_source_flag(tokens, _GEM_ALT_SOURCE_FLAGS):
+            return (
+                "gem install routes through a non-default source "
+                "(`-s` / `--source`); OSV only covers the canonical "
+                "RubyGems index. Remove the flag or allowlist explicitly."
+            )
+    elif marker == "__composer__":
+        if _has_alt_source_flag(tokens, _COMPOSER_ALT_SOURCE_FLAGS):
+            return (
+                "composer require routes through a non-default repository "
+                "(`--repository`); OSV only covers Packagist. Remove the "
+                "flag or allowlist the packages explicitly."
+            )
     return None
 
 

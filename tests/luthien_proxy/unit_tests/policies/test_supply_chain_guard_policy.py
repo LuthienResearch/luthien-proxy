@@ -701,6 +701,26 @@ class TestMisc:
         assert start.content_block.type == "tool_use"
         assert osv.calls == []
 
+    @pytest.mark.asyncio
+    async def test_non_input_json_delta_at_buffered_index_suppressed(self):
+        """Defensive: unexpected delta types at a buffered Bash index must
+        be suppressed, not leaked to the client. Regression for sixth-pass
+        review §3."""
+        from anthropic.types import TextDelta
+
+        policy, _ = _make_policy()
+        ctx = _make_context()
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0, name="Bash")), ctx)
+        # Unexpected TextDelta at the buffered Bash index (protocol oddity).
+        unexpected = RawContentBlockDeltaEvent(
+            type="content_block_delta",
+            index=0,
+            delta=TextDelta(type="text_delta", text="this should not leak"),
+        )
+        out = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, unexpected), ctx)
+        # Suppressed — no events emitted to the client.
+        assert out == []
+
     def test_short_policy_name(self):
         policy, _ = _make_policy()
         assert policy.short_policy_name == "SupplyChainGuard"

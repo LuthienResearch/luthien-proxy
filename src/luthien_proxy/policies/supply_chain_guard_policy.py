@@ -396,10 +396,24 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
         self, event: RawContentBlockDeltaEvent, context: "PolicyContext"
     ) -> list[MessageStreamEvent]:
         buffered = self._buffered(context)
-        if event.index in buffered and isinstance(event.delta, InputJSONDelta):
+        if event.index not in buffered:
+            return [event]
+        if isinstance(event.delta, InputJSONDelta):
             buffered[event.index].input_json += event.delta.partial_json
             return []  # continue buffering
-        return [event]
+        # Defensive: any non-InputJSONDelta at a buffered index is either a
+        # protocol oddity or an adversarial upstream. Anthropic's protocol
+        # should not legitimately emit other delta types inside a tool_use
+        # block, but the rest of the policy is paranoid about upstream
+        # shape — suppress it here rather than letting it leak past the
+        # buffer. The eventual _handle_content_block_stop decides what
+        # (if anything) to emit for this block.
+        logger.warning(
+            "Suppressing unexpected delta type %s at buffered index %d",
+            type(event.delta).__name__,
+            event.index,
+        )
+        return []
 
     async def _handle_content_block_stop(
         self, event: RawContentBlockStopEvent, context: "PolicyContext"
@@ -634,7 +648,14 @@ def _commands_for_tool_results(
     pass over assistant messages builds a ``{tool_use_id → command}`` dict,
     then we look up each requested id — O(M+N) instead of O(M·N).
     """
-    wanted_ids = {tr.get("tool_use_id") for tr in tool_results if tr.get("tool_use_id")}
+    # Use dict.fromkeys to preserve insertion order and dedup in one pass —
+    # set ordering is non-deterministic across runs, which would make any
+    # future test that asserts OSV call order flaky.
+    wanted_ids: dict[str, None] = {}
+    for tr in tool_results:
+        tid = tr.get("tool_use_id")
+        if isinstance(tid, str):
+            wanted_ids[tid] = None
     if not wanted_ids:
         return []
 
