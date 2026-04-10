@@ -6,7 +6,18 @@ Supports three authentication methods:
 3. x-api-key header (for API access)
 
 Localhost bypass: when LOCALHOST_AUTH_BYPASS=true (default), requests from
-127.0.0.1 or ::1 skip auth for all routes including admin API.
+127.0.0.1 or ::1 skip auth for the routes that go through this module —
+i.e. admin API, debug, history, request_log, and the UI login redirect.
+The proxy route `/v1/messages` uses its own verify_token() in
+gateway_routes.py, which does NOT consult this module and is therefore
+unaffected by the bypass.
+
+WARNING: is_localhost_request() inspects request.client.host (TCP source
+IP) only; it does not parse X-Forwarded-For. A reverse proxy on the same
+host (Caddy, nginx, Traefik) forwards every external request as
+127.0.0.1 and silently unauths the admin API. Set
+LOCALHOST_AUTH_BYPASS=false for any such deployment. Railway disables
+the bypass automatically at startup.
 """
 
 from __future__ import annotations
