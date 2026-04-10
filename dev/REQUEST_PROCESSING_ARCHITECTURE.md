@@ -48,7 +48,7 @@ Policies implement `AnthropicExecutionInterface` (in `policy_core/anthropic_exec
 - `on_anthropic_request(request, context) -> AnthropicRequest` — transform the request before it is sent to the backend.
 - `on_anthropic_response(response, context) -> AnthropicResponse` — transform a non-streaming backend response.
 - `on_anthropic_stream_event(event, context) -> list[MessageStreamEvent]` — transform or replace each backend stream event (each call may emit zero or many events).
-- `on_anthropic_stream_complete(context) -> list[AnthropicPolicyEmission]` — emit any tail emissions after the backend stream finishes (e.g. injected blocks). `AnthropicPolicyEmission = AnthropicResponse | MessageStreamEvent`, so a tail emission can in principle be a full non-streaming response as well as a stream event.
+- `on_anthropic_stream_complete(context) -> list[AnthropicPolicyEmission]` — emit any tail emissions after the backend stream finishes (e.g. injected blocks). `AnthropicPolicyEmission = AnthropicResponse | MessageStreamEvent`, but `_handle_execution_streaming` enforces a single shape per request: on the streaming path it raises `TypeError` if a policy tries to emit an `AnthropicResponse`, and `_handle_execution_non_streaming` symmetrically rejects `MessageStreamEvent`s on the non-streaming path. In practice, `on_anthropic_stream_complete` should only yield `MessageStreamEvent`s.
 
 Policies never see the IO layer directly. The executor wraps the backend in an `_AnthropicPolicyIO` helper (implementing `AnthropicPolicyIOProtocol`) that holds the current request and exposes `io.stream(...)` / `io.complete(...)`. The executor calls `io.stream(request)` or `io.complete(request)` exactly once per request — based on the incoming `stream: true/false` flag — and runs each hook around that call. Each backend call executes under a `send_upstream` child span.
 
@@ -56,7 +56,7 @@ Policies never see the IO layer directly. The executor wraps the backend in an `
 
 ### 4. Emit to Client and Record
 
-**Non-streaming** (`_handle_execution_non_streaming`): the processor captures the original backend response (before policy mutation) and the final emitted response, records a `transaction.response_recorded` event, and returns a `JSONResponse`.
+**Non-streaming** (`_handle_execution_non_streaming`): the processor captures the original backend response (before policy mutation) and the final emitted response, records a `transaction.non_streaming_response_recorded` event, and returns a `JSONResponse`.
 
 **Streaming** (`_handle_execution_streaming`): the processor iterates the policy emissions, serializes each event with `_format_sse_event`, and yields them to the client as `text/event-stream`. In the `finally` block it:
 

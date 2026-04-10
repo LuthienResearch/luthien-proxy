@@ -29,7 +29,7 @@ Integrated single-process gateway. Authoritative module map and request lifecycl
   - `on_anthropic_request(request, context) -> AnthropicRequest`
   - `on_anthropic_response(response, context) -> AnthropicResponse`
   - `on_anthropic_stream_event(event, context) -> list[MessageStreamEvent]`
-  - `on_anthropic_stream_complete(context) -> list[AnthropicPolicyEmission]` — where `AnthropicPolicyEmission = AnthropicResponse | MessageStreamEvent`, so tail emissions can include a non-streaming response object, not only stream events.
+  - `on_anthropic_stream_complete(context) -> list[AnthropicPolicyEmission]` — where `AnthropicPolicyEmission = AnthropicResponse | MessageStreamEvent`. The type union is wide, but `_handle_execution_streaming` raises `TypeError` if a policy tries to emit an `AnthropicResponse` on the streaming path (and `_handle_execution_non_streaming` rejects stream events symmetrically), so in practice this hook should only yield `MessageStreamEvent`s.
 - Policies never see the IO layer directly. The executor wraps the backend in `_AnthropicPolicyIO` (implementing `AnthropicPolicyIOProtocol`) and calls `io.stream(request)` or `io.complete(request)` exactly once per request based on the incoming `stream` flag.
 
 ## Key Patterns (2025-10-24)
