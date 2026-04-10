@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
 from unittest.mock import AsyncMock, MagicMock
 
@@ -185,6 +186,11 @@ class TestPolicyCacheRoundTrip:
 
     @pytest.mark.asyncio
     async def test_unicode_basic_multilingual(self, cache: PolicyCache):
+        # WHY: json.dumps defaults to ensure_ascii=True, so the stored
+        # TEXT is actually pure ASCII escape sequences (\uXXXX). The
+        # contract we care about is that the Python object round-trips
+        # identically — this verifies the full encode → store → decode
+        # → reconstruct path without mojibake on either backend.
         value = {
             "greek": "αβγδε",
             "cyrillic": "Привет мир",
@@ -358,12 +364,13 @@ class TestPolicyCacheRoundTrip:
         assert math.isclose(result["pi"], math.pi)
 
     @pytest.mark.asyncio
-    async def test_non_finite_floats_rejected(self, cache: PolicyCache):
-        # json.dumps with default settings allows NaN/Infinity (emitting
-        # non-standard `NaN` / `Infinity` tokens), so we don't assert a
-        # raise here — we only check they don't corrupt the row. This
-        # test pins current behavior: if the policy cache later adds
-        # strict=True to json.dumps, update this test.
+    async def test_non_finite_floats_current_behavior(self, cache: PolicyCache):
+        # json.dumps with default settings accepts NaN/Infinity (emitting
+        # the non-standard `NaN`/`Infinity` tokens). This test pins the
+        # current round-trip behavior so any future switch to
+        # json.dumps(..., allow_nan=False) is a visible change: the test
+        # will start raising ValueError inside put(), which is what
+        # callers would then need to handle.
         await cache.put("nan", float("nan"), ttl_seconds=3600)
         nan_result = await cache.get("nan")
         assert isinstance(nan_result, float)
@@ -371,6 +378,9 @@ class TestPolicyCacheRoundTrip:
 
         await cache.put("inf", float("inf"), ttl_seconds=3600)
         assert await cache.get("inf") == float("inf")
+
+        await cache.put("ninf", float("-inf"), ttl_seconds=3600)
+        assert await cache.get("ninf") == float("-inf")
 
     @pytest.mark.asyncio
     async def test_empty_containers(self, cache: PolicyCache):
@@ -437,6 +447,51 @@ class TestPolicyCacheRoundTrip:
             assert result == {"idx": i, "key": key}, f"failed for key {key!r}"
 
     @pytest.mark.asyncio
+    async def test_empty_string_cache_key(self, cache: PolicyCache):
+        # Empty string is a legal SQL parameter value. The cache should
+        # treat it as a normal key, not conflate it with "no key".
+        await cache.put("", {"marker": "empty_key"}, ttl_seconds=3600)
+        assert await cache.get("") == {"marker": "empty_key"}
+        # And it must not collide with other keys.
+        await cache.put("other", {"marker": "other"}, ttl_seconds=3600)
+        assert await cache.get("") == {"marker": "empty_key"}
+
+    @pytest.mark.asyncio
+    async def test_ttl_zero_is_immediately_expired(self, cache: PolicyCache):
+        # policy_cache uses strict > in the expires_at comparison, so
+        # ttl=0 stores an entry whose expires_at equals NOW() and is
+        # therefore already expired on read. This test pins that
+        # behavior — a future change to >= would flip it.
+        await cache.put("zero_ttl", {"v": 1}, ttl_seconds=0)
+        assert await cache.get("zero_ttl") is None
+
+    @pytest.mark.asyncio
+    async def test_dict_with_non_string_keys_coerces_to_string(self, cache: PolicyCache):
+        # JSON only supports string keys — json.dumps silently coerces
+        # int/float/bool keys to strings. This documents the behavior
+        # so callers who assume dict keys round-trip unchanged get a
+        # heads-up from the test suite.
+        await cache.put("coerced", {1: "one", 2: "two"}, ttl_seconds=3600)
+        result = await cache.get("coerced")
+        assert result == {"1": "one", "2": "two"}
+        assert all(isinstance(k, str) for k in result)
+
+    @pytest.mark.asyncio
+    async def test_nested_bool_and_none_in_lists(self, cache: PolicyCache):
+        # Top-level heterogeneous lists are covered above, but nested
+        # positions are a separate code path in some JSON codecs.
+        value = [[True, False], [None, None], [[True, None, False]]]
+        await cache.put("nested_typed", value, ttl_seconds=3600)
+        result = await cache.get("nested_typed")
+        assert result == value
+        assert result[0][0] is True
+        assert result[0][1] is False
+        assert result[1][0] is None
+        assert result[2][0][0] is True
+        assert result[2][0][1] is None
+        assert result[2][0][2] is False
+
+    @pytest.mark.asyncio
     async def test_policy_name_isolation_with_unicode(self, db_pool: SqlitePool):
         # Namespacing must hold even when policy names share a key and
         # contain non-ASCII characters.
@@ -447,6 +502,25 @@ class TestPolicyCacheRoundTrip:
         await cache_b.put("k", {"ns": "b"}, ttl_seconds=3600)
         assert await cache_a.get("k") == {"ns": "a"}
         assert await cache_b.get("k") == {"ns": "b"}
+
+    @pytest.mark.asyncio
+    async def test_concurrent_puts_leave_consistent_state(self, cache: PolicyCache):
+        # The put() docstring claims atomicity via ON CONFLICT, so
+        # concurrent puts on the same key must leave the row in one of
+        # the two valid states (not a mix). SQLite serializes writes
+        # via SqlitePool's lock, so this mainly verifies the fixture
+        # doesn't corrupt under interleaved awaits — but it would
+        # catch a future regression where put() splits into a
+        # non-atomic SELECT+INSERT sequence.
+        await asyncio.gather(
+            cache.put("race", {"writer": "a", "payload": list(range(100))}, ttl_seconds=3600),
+            cache.put("race", {"writer": "b", "payload": list(range(100))}, ttl_seconds=3600),
+            cache.put("race", {"writer": "c", "payload": list(range(100))}, ttl_seconds=3600),
+        )
+        result = await cache.get("race")
+        assert isinstance(result, dict)
+        assert result["writer"] in {"a", "b", "c"}
+        assert result["payload"] == list(range(100))
 
 
 class TestPolicyCacheIsolation:
