@@ -61,6 +61,15 @@ class TestSettingsDefaults:
         settings = Settings(_env_file=None)
         assert settings.service_name == "luthien-proxy"
 
+    def test_default_service_version_from_package(self, monkeypatch):
+        """Default service_version derives from package metadata, not a hardcoded string."""
+        from luthien_proxy.version import PROXY_VERSION
+
+        monkeypatch.delenv("SERVICE_VERSION", raising=False)
+        settings = Settings(_env_file=None)
+        assert settings.service_version == PROXY_VERSION
+        assert settings.service_version != "2.0.0"
+
     def test_default_gateway_port(self, monkeypatch):
         """Test default gateway port is 8000."""
         monkeypatch.delenv("GATEWAY_PORT", raising=False)
