@@ -89,7 +89,24 @@ class DatabasePool:
         factory: PoolFactory | None = None,
         **pool_kwargs: object,
     ) -> None:
-        """Initialize the database connection pool."""
+        """Initialize the database connection pool.
+
+        Tests that need an in-memory SQLite DatabasePool with schema set up
+        ahead of time should construct it directly and prime the cached pool
+        via the public API:
+
+            db = DatabasePool("sqlite://:memory:")
+            pool = await db.get_pool()
+            await pool.execute("CREATE TABLE ...")
+
+        The returned `db` can then be passed anywhere a `DatabasePool` is
+        expected — subsequent `get_pool()` calls return the same cached pool,
+        so schema set up above is visible to later callers. This avoids the
+        temptation to `DatabasePool.__new__(...)` and poke private attributes,
+        which silently breaks when the initializer grows new required fields.
+        See `tests/luthien_proxy/unit_tests/utils/test_db.py::
+        test_database_pool_in_memory_sqlite_fixture_pattern` for the idiom.
+        """
         if not url:
             raise RuntimeError("Database URL must be provided")
         self._url = url
