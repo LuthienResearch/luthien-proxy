@@ -85,6 +85,15 @@ class TestPolicyCacheGetPut:
         await cache.delete("nope")  # should not raise
 
 
+class TestPolicyCacheJsonValues:
+    @pytest.mark.asyncio
+    async def test_put_and_get_list(self, cache: PolicyCache):
+        """Cache accepts lists (not just dicts) and round-trips them."""
+        await cache.put("items", [1, 2, {"nested": True}], ttl_seconds=3600)
+        result = await cache.get("items")
+        assert result == [1, 2, {"nested": True}]
+
+
 class TestPolicyCacheIsolation:
     @pytest.mark.asyncio
     async def test_different_policies_isolated(self, db_pool: SqlitePool):

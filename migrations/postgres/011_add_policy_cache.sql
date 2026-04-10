@@ -10,4 +10,4 @@ CREATE TABLE IF NOT EXISTS policy_cache (
     PRIMARY KEY (policy_name, cache_key)
 );
 
-CREATE INDEX IF NOT EXISTS idx_policy_cache_expires ON policy_cache(expires_at);
+CREATE INDEX IF NOT EXISTS idx_policy_cache_expires ON policy_cache(policy_name, expires_at);

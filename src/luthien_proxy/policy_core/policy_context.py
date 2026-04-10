@@ -122,6 +122,12 @@ class PolicyContext:
     def policy_cache(self, policy_name: str) -> "PolicyCache":
         """Get a DB-backed cache scoped to the given policy name.
 
+        Policies should pass a stable class-level identifier like
+        ``type(self).__name__`` (or an explicit module-qualified name) so two
+        different policies do not accidentally share a namespace and read each
+        other's entries. Using ``self.__class__.__name__`` at call time from
+        within the policy is the simplest correct choice.
+
         Raises RuntimeError if no database is configured.
         """
         if self._policy_cache_factory is None:
