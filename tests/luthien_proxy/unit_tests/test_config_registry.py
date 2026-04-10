@@ -449,41 +449,20 @@ class TestConfigFieldsCompleteness:
     def test_env_example_matches_generator(self):
         """The .env.example about to land in a commit must match the generator.
 
-        Regression guard for PR #519: commit 1b28e4d5 accidentally wiped
-        .env.example (150 lines -> 0), which broke CI clean-tree checks on main
-        until it was spotted. The dev_checks.sh clean-tree check catches drift
-        at pipeline end; this test adds a fast pytest-level guard and also
-        catches the original "hardcoded SERVICE_VERSION=2.0.0" class of bug:
-        any config field whose default drifts from config_fields.py fails here.
+        Regression guard for PR #519 (commit 1b28e4d5 accidentally wiped
+        .env.example from 150 lines to 0, turning main CI red). Also catches
+        the original "hardcoded SERVICE_VERSION=2.0.0" class of bug: any
+        ConfigFieldMeta default that drifts from the committed .env.example
+        fails this test.
 
-        Reads from the git index (`git show :.env.example`), NOT the working
-        tree, for several reasons:
-
-        - In CI and on a clean checkout, the index mirrors HEAD — the
-          committed state we want to validate.
-        - In dev_checks.sh, the pipeline regenerates .env.example into the
-          working tree BEFORE the auto-stage step (which only stages files
-          dirtied by `ruff format`/`ruff check --fix`). So the index is not
-          updated and still reflects the committed state — a stale committed
-          copy fails this test earlier than the end-of-pipeline clean-tree
-          gate, giving the developer faster feedback.
-        - In a pre-commit TDD workflow (dev edits config_fields.py,
-          regenerates, stages, runs pytest), the index shows the staged
-          version, avoiding a false-positive from comparing against stale HEAD.
-        - Reading the raw working tree would miss the dev_checks.sh case
-          because `dev_checks.sh` rewrites the working tree before pytest
-          runs, making the comparison tautological.
-
-        Note: reading the index isolates unstaged edits to `.env.example`
-        itself, but NOT unstaged edits to `config_fields.py` — the generator
-        imports the live module, so an unstaged config edit will still
-        propagate through and the test will compare generator(working-tree
-        config) vs index(.env.example). That's intentional: `config_fields.py`
-        is the input under test.
-
-        The generator intentionally omits dynamic_default values (like
-        SERVICE_VERSION resolved from PROXY_VERSION) so its output is stable
-        across build environments.
+        Reads from the git index (`git show :.env.example`), not the working
+        tree, so that (a) dev_checks.sh regenerating the working tree before
+        pytest doesn't make the comparison tautological, (b) pre-commit TDD
+        workflows don't false-positive against a stale HEAD, and (c) unstaged
+        .env.example edits don't pollute the check. Unstaged config_fields.py
+        edits DO propagate (intentionally — that module is the input under
+        test). The generator skips dynamic_default fields like SERVICE_VERSION
+        so its output is stable across build environments.
         """
         repo_root = Path(__file__).resolve().parents[3]
         generator_path = repo_root / "scripts" / "generate_env_example.py"
@@ -498,23 +477,19 @@ class TestConfigFieldsCompleteness:
         spec.loader.exec_module(generator)
         expected = generator.build_env_example_text()
 
-        # Read from the git index (`git show :path`), NOT the working tree.
-        # For tracked unmodified files the index mirrors HEAD, so in CI and
-        # clean checkouts this equals the committed state — the thing we want
-        # to validate. For a dev mid-commit who has staged a regenerated copy,
-        # it equals what's about to land. For a dev with unstaged working-tree
-        # edits to .env.example, the index still reflects the last staged
-        # state, so uncommitted WIP doesn't false-positive or false-negative
-        # the test. This sidesteps the dev_checks.sh trap: dev_checks
-        # regenerates the working tree then auto-stages it before pytest runs,
-        # so the index is exactly the state that will be committed.
-        result = subprocess.run(
-            ["git", "show", ":.env.example"],
-            capture_output=True,
-            text=True,
-            cwd=repo_root,
-            check=True,
-        )
+        # See docstring for why we read the index instead of the working tree.
+        try:
+            result = subprocess.run(
+                ["git", "show", ":.env.example"],
+                capture_output=True,
+                text=True,
+                cwd=repo_root,
+                check=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            pytest.fail(
+                f".env.example is not in the git index (cwd={repo_root}). git stderr: {exc.stderr.strip() or '<empty>'}"
+            )
         actual = result.stdout
 
         if actual != expected:
