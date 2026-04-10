@@ -80,7 +80,7 @@ class TestLRUEviction:
     """Cache respects max size and evicts least-recently-used entries."""
 
     async def test_evicts_oldest_when_full(self):
-        max_size = anthropic_client_cache.MAX_CACHE_SIZE
+        max_size = anthropic_client_cache._max_cache_size()
         clients = []
         for i in range(max_size):
             c = await anthropic_client_cache.get_client(f"key-{i}", auth_type="api_key")
@@ -101,7 +101,7 @@ class TestLRUEviction:
             closed.append(id(self))
 
         with patch.object(AnthropicClient, "close", fake_close):
-            max_size = anthropic_client_cache.MAX_CACHE_SIZE
+            max_size = anthropic_client_cache._max_cache_size()
             for i in range(max_size):
                 await anthropic_client_cache.get_client(f"key-{i}", auth_type="api_key")
 
@@ -114,7 +114,7 @@ class TestLRUEviction:
         assert len(closed) == 1
 
     async def test_cache_hit_refreshes_lru_position(self):
-        max_size = anthropic_client_cache.MAX_CACHE_SIZE
+        max_size = anthropic_client_cache._max_cache_size()
         for i in range(max_size):
             await anthropic_client_cache.get_client(f"key-{i}", auth_type="api_key")
 
@@ -177,60 +177,47 @@ class TestCacheManagement:
 
 
 class TestMaxCacheSizeConfigurable:
-    """MAX_CACHE_SIZE can be overridden via ANTHROPIC_CLIENT_CACHE_SIZE env var."""
+    """_max_cache_size() reads ANTHROPIC_CLIENT_CACHE_SIZE lazily via Settings."""
 
     def test_default_cache_size(self):
-        assert anthropic_client_cache._DEFAULT_MAX_CACHE_SIZE == 16
+        """Default cache size is 16 (from Settings)."""
+        from luthien_proxy.settings import clear_settings_cache
+
+        clear_settings_cache()
+        assert anthropic_client_cache._max_cache_size() == 16
 
     def test_env_var_overrides_cache_size(self, monkeypatch):
-        """Reloading the module with the env var set changes MAX_CACHE_SIZE."""
-        import importlib
+        """Env var changes the lazily-read cache size on next call."""
+        from luthien_proxy.settings import clear_settings_cache
 
-        # importlib.reload is needed because MAX_CACHE_SIZE is computed once at
-        # import time from os.environ. Reload re-executes the module-level code
-        # with the patched env var. This is safe here because MAX_CACHE_SIZE is
-        # only referenced within this module (by get_client); no other module
-        # imports it directly, so stale references aren't a concern.
         monkeypatch.setenv("ANTHROPIC_CLIENT_CACHE_SIZE", "64")
-        importlib.reload(anthropic_client_cache)
+        clear_settings_cache()
         try:
-            assert anthropic_client_cache.MAX_CACHE_SIZE == 64
+            assert anthropic_client_cache._max_cache_size() == 64
         finally:
             monkeypatch.delenv("ANTHROPIC_CLIENT_CACHE_SIZE", raising=False)
-            importlib.reload(anthropic_client_cache)
-
-    def test_non_integer_env_var_falls_back_to_default(self, monkeypatch):
-        """Non-integer values fall back to the default with a warning."""
-        import importlib
-
-        monkeypatch.setenv("ANTHROPIC_CLIENT_CACHE_SIZE", "abc")
-        importlib.reload(anthropic_client_cache)
-        try:
-            assert anthropic_client_cache.MAX_CACHE_SIZE == anthropic_client_cache._DEFAULT_MAX_CACHE_SIZE
-        finally:
-            monkeypatch.delenv("ANTHROPIC_CLIENT_CACHE_SIZE", raising=False)
-            importlib.reload(anthropic_client_cache)
+            clear_settings_cache()
 
     def test_zero_env_var_clamped_to_one(self, monkeypatch):
         """Zero is clamped to 1 so the cache always holds at least one client."""
-        import importlib
+        from luthien_proxy.settings import clear_settings_cache
 
         monkeypatch.setenv("ANTHROPIC_CLIENT_CACHE_SIZE", "0")
-        importlib.reload(anthropic_client_cache)
+        clear_settings_cache()
         try:
-            assert anthropic_client_cache.MAX_CACHE_SIZE == 1
+            assert anthropic_client_cache._max_cache_size() == 1
         finally:
             monkeypatch.delenv("ANTHROPIC_CLIENT_CACHE_SIZE", raising=False)
-            importlib.reload(anthropic_client_cache)
+            clear_settings_cache()
 
     def test_negative_env_var_clamped_to_one(self, monkeypatch):
         """Negative values are clamped to 1."""
-        import importlib
+        from luthien_proxy.settings import clear_settings_cache
 
         monkeypatch.setenv("ANTHROPIC_CLIENT_CACHE_SIZE", "-5")
-        importlib.reload(anthropic_client_cache)
+        clear_settings_cache()
         try:
-            assert anthropic_client_cache.MAX_CACHE_SIZE == 1
+            assert anthropic_client_cache._max_cache_size() == 1
         finally:
             monkeypatch.delenv("ANTHROPIC_CLIENT_CACHE_SIZE", raising=False)
-            importlib.reload(anthropic_client_cache)
+            clear_settings_cache()

@@ -1046,3 +1046,178 @@ class TestDeleteServerCredential:
 
         assert exc_info.value.status_code == 503
         assert exc_info.value.detail == "Server credential operation failed"
+
+
+class TestConfigRoutes:
+    """Admin config dashboard routes: GET/PUT/DELETE /api/admin/config."""
+
+    @pytest.mark.asyncio
+    async def test_get_config_dashboard_returns_view(self):
+        from luthien_proxy.admin.routes import ConfigSetRequest, get_config_dashboard  # noqa: F401
+
+        mock_registry = MagicMock()
+        mock_registry.dashboard_view.return_value = [{"name": "gateway_port", "value": 8000, "sensitive": False}]
+        result = await get_config_dashboard(_=AUTH_TOKEN, registry=mock_registry)
+        assert result == {"config": [{"name": "gateway_port", "value": 8000, "sensitive": False}]}
+
+    @pytest.mark.asyncio
+    async def test_put_config_unknown_field_404(self):
+        from luthien_proxy.admin.routes import ConfigSetRequest, set_config_value
+
+        mock_registry = MagicMock()
+        mock_registry.get_field_meta.return_value = None
+        with pytest.raises(HTTPException) as exc_info:
+            await set_config_value(
+                body=ConfigSetRequest(value=True),
+                key="nonexistent",
+                subject=AUTH_TOKEN,
+                registry=mock_registry,
+            )
+        assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_put_config_not_db_settable_400(self):
+        from luthien_proxy.admin.routes import ConfigSetRequest, set_config_value
+
+        mock_meta = MagicMock()
+        mock_meta.db_settable = False
+        mock_meta.sensitive = False
+        mock_registry = MagicMock()
+        mock_registry.get_field_meta.return_value = mock_meta
+        with pytest.raises(HTTPException) as exc_info:
+            await set_config_value(
+                body=ConfigSetRequest(value=8000),
+                key="gateway_port",
+                subject=AUTH_TOKEN,
+                registry=mock_registry,
+            )
+        assert exc_info.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_put_config_cli_override_409(self):
+        from luthien_proxy.admin.routes import ConfigSetRequest, set_config_value
+        from luthien_proxy.config_registry import ConfigOverriddenError, ConfigSource
+
+        mock_meta = MagicMock()
+        mock_meta.db_settable = True
+        mock_meta.sensitive = False
+        mock_registry = MagicMock()
+        mock_registry.get_field_meta.return_value = mock_meta
+        mock_registry.set_db_value = AsyncMock(side_effect=ConfigOverriddenError("dogfood_mode", ConfigSource.CLI))
+        with pytest.raises(HTTPException) as exc_info:
+            await set_config_value(
+                body=ConfigSetRequest(value=True),
+                key="dogfood_mode",
+                subject=AUTH_TOKEN,
+                registry=mock_registry,
+            )
+        assert exc_info.value.status_code == 409
+        assert "cli" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_put_config_coerce_failure_422(self):
+        from luthien_proxy.admin.routes import ConfigSetRequest, set_config_value
+
+        mock_meta = MagicMock()
+        mock_meta.db_settable = True
+        mock_meta.sensitive = False
+        mock_registry = MagicMock()
+        mock_registry.get_field_meta.return_value = mock_meta
+        mock_registry.set_db_value = AsyncMock(
+            side_effect=ValueError("Invalid boolean value for 'dogfood_mode': 'ture'")
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await set_config_value(
+                body=ConfigSetRequest(value="ture"),
+                key="dogfood_mode",
+                subject=AUTH_TOKEN,
+                registry=mock_registry,
+            )
+        assert exc_info.value.status_code == 422
+        assert "Invalid boolean" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_put_config_sensitive_response_masked(self):
+        from luthien_proxy.admin.routes import ConfigSetRequest, set_config_value
+        from luthien_proxy.config_registry import ConfigSource, ResolvedValue
+
+        mock_meta = MagicMock()
+        mock_meta.db_settable = True
+        mock_meta.sensitive = True
+        mock_registry = MagicMock()
+        mock_registry.get_field_meta.return_value = mock_meta
+        mock_registry.set_db_value = AsyncMock(return_value=ResolvedValue(value="secret123", source=ConfigSource.DB))
+        result = await set_config_value(
+            body=ConfigSetRequest(value="secret123"),
+            key="sentry_dsn",
+            subject=AUTH_TOKEN,
+            registry=mock_registry,
+        )
+        assert result["value"] == "***"
+        assert "secret123" not in str(result)
+
+    @pytest.mark.asyncio
+    async def test_put_config_success_passes_subject_fingerprint(self):
+        from luthien_proxy.admin.routes import ConfigSetRequest, set_config_value
+        from luthien_proxy.config_registry import ConfigSource, ResolvedValue
+
+        mock_meta = MagicMock()
+        mock_meta.db_settable = True
+        mock_meta.sensitive = False
+        mock_registry = MagicMock()
+        mock_registry.get_field_meta.return_value = mock_meta
+        mock_registry.set_db_value = AsyncMock(return_value=ResolvedValue(value=True, source=ConfigSource.DB))
+        await set_config_value(
+            body=ConfigSetRequest(value=True),
+            key="dogfood_mode",
+            subject="some-raw-admin-key",
+            registry=mock_registry,
+        )
+        passed_subject = mock_registry.set_db_value.call_args.kwargs["updated_by"]
+        # Never the raw token, always a fingerprint.
+        assert passed_subject != "some-raw-admin-key"
+        assert passed_subject.startswith("admin:")
+
+    @pytest.mark.asyncio
+    async def test_put_config_localhost_bypass_subject(self):
+        from luthien_proxy.admin.routes import ConfigSetRequest, set_config_value
+        from luthien_proxy.config_registry import ConfigSource, ResolvedValue
+
+        mock_meta = MagicMock()
+        mock_meta.db_settable = True
+        mock_meta.sensitive = False
+        mock_registry = MagicMock()
+        mock_registry.get_field_meta.return_value = mock_meta
+        mock_registry.set_db_value = AsyncMock(return_value=ResolvedValue(value=True, source=ConfigSource.DB))
+        await set_config_value(
+            body=ConfigSetRequest(value=True),
+            key="dogfood_mode",
+            subject="localhost-bypass",
+            registry=mock_registry,
+        )
+        assert mock_registry.set_db_value.call_args.kwargs["updated_by"] == "admin-localhost"
+
+    @pytest.mark.asyncio
+    async def test_delete_config_cli_override_409(self):
+        from luthien_proxy.admin.routes import delete_config_value
+        from luthien_proxy.config_registry import ConfigOverriddenError, ConfigSource
+
+        mock_meta = MagicMock()
+        mock_meta.db_settable = True
+        mock_meta.sensitive = False
+        mock_registry = MagicMock()
+        mock_registry.get_field_meta.return_value = mock_meta
+        mock_registry.delete_db_value = AsyncMock(side_effect=ConfigOverriddenError("dogfood_mode", ConfigSource.ENV))
+        with pytest.raises(HTTPException) as exc_info:
+            await delete_config_value(key="dogfood_mode", _=AUTH_TOKEN, registry=mock_registry)
+        assert exc_info.value.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_delete_config_unknown_field_404(self):
+        from luthien_proxy.admin.routes import delete_config_value
+
+        mock_registry = MagicMock()
+        mock_registry.get_field_meta.return_value = None
+        with pytest.raises(HTTPException) as exc_info:
+            await delete_config_value(key="nonexistent", _=AUTH_TOKEN, registry=mock_registry)
+        assert exc_info.value.status_code == 404

@@ -2,12 +2,12 @@
 
 import hashlib
 import logging
-import os
 import uuid
 from pathlib import Path
 
 import asyncpg
 
+from luthien_proxy.settings import get_settings
 from luthien_proxy.utils.db import DatabasePool
 
 logger = logging.getLogger(__name__)
@@ -42,9 +42,9 @@ def _find_sqlite_migrations_dir() -> Path | None:
         Path("migrations/sqlite"),
     ]
 
-    migrations_dir = os.environ.get("MIGRATIONS_DIR")
-    if migrations_dir:
-        candidates.insert(0, Path(migrations_dir) / "sqlite")
+    migrations_override = get_settings().migrations_dir
+    if migrations_override:
+        candidates.insert(0, Path(migrations_override) / "sqlite")
 
     for candidate in candidates:
         if candidate.is_dir():
@@ -184,7 +184,7 @@ async def check_migrations(
         return
 
     if migrations_dir is None:
-        migrations_dir = os.environ.get("MIGRATIONS_DIR", DEFAULT_MIGRATIONS_DIR)
+        migrations_dir = get_settings().migrations_dir or DEFAULT_MIGRATIONS_DIR
 
     migrations_path = Path(migrations_dir)
 
