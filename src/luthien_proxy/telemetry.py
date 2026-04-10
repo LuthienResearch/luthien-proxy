@@ -147,7 +147,11 @@ def configure_metrics() -> None:
 
     Registers a PrometheusMetricReader into prometheus_client's global REGISTRY
     so that generate_latest() in the /metrics endpoint includes all OTel metrics.
-    Safe to call multiple times — subsequent calls are no-ops.
+    The OTel SDK silently ignores duplicate set_meter_provider calls, so calling
+    this more than once is safe but redundant.
+
+    Intentionally does not gate on otel_enabled: Prometheus scraping is useful
+    even when OTLP trace export is disabled (e.g. local dev without Tempo).
     """
     otel_enabled, _, service_name, service_version, environment = _get_otel_config()
 

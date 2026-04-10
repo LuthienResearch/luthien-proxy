@@ -7,7 +7,7 @@ telemetry.py before the first request to wire them to the Prometheus exporter.
 Exposed metrics:
   luthien_requests_total{streaming}          — cumulative request counter
   luthien_tokens_total{type}                 — cumulative token counter (input/output)
-  luthien_request_duration_seconds{status}   — request latency histogram
+  luthien_request_ttfb_seconds{status}       — time-to-first-byte histogram (BaseHTTPMiddleware limitation)
   luthien_active_requests                    — in-flight request gauge
 """
 
@@ -34,8 +34,8 @@ token_counter = _meter.create_counter(
 )
 
 request_duration = _meter.create_histogram(
-    "luthien_request_duration_seconds",
-    description="LLM request latency in seconds",
+    "luthien_request_ttfb_seconds",
+    description="Time-to-first-byte for LLM requests in seconds (BaseHTTPMiddleware measures TTFB, not full streaming duration)",
     unit="s",
 )
 

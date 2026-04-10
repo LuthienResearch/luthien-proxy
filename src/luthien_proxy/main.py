@@ -332,7 +332,7 @@ def create_app(
     class StaticCacheMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
             response = await call_next(request)
-            if request.url.path.startswith("/api/") or request.url.path == "/health":
+            if request.url.path.startswith("/api/") or request.url.path in ("/health", "/metrics"):
                 # Prevent CDN/edge caching of API and health responses (Railway, Cloudflare, etc.)
                 response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
             elif request.url.path.startswith("/static/"):
@@ -385,6 +385,7 @@ def create_app(
 
     @app.get("/metrics", include_in_schema=False)
     async def prometheus_metrics() -> Response:
+        # No auth required; standard for Prometheus scraping
         return Response(generate_latest(REGISTRY), media_type=CONTENT_TYPE_LATEST)
 
     class _LatencyMiddleware(BaseHTTPMiddleware):
@@ -393,14 +394,13 @@ def create_app(
                 return await call_next(request)
             active_requests.add(1)
             t0 = time.perf_counter()
+            response = None
             try:
                 response = await call_next(request)
                 return response
             finally:
-                request_duration.record(
-                    time.perf_counter() - t0,
-                    {"status": str(getattr(response, "status_code", 0))},
-                )
+                status = str(response.status_code) if response is not None else "error"
+                request_duration.record(time.perf_counter() - t0, {"status": status})
                 active_requests.add(-1)
 
     app.add_middleware(_LatencyMiddleware)
