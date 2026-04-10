@@ -13,7 +13,7 @@ from luthien_proxy.config_registry import (
     ConfigRegistry,
     ConfigSource,
     ResolvedValue,
-    _coerce,
+    coerce_value,
 )
 from luthien_proxy.settings import Settings
 
@@ -245,7 +245,7 @@ class TestSetDbValue:
         assert settings.dogfood_mode is True
 
     @pytest.mark.asyncio
-    async def test_serializes_coerced_value_not_raw(self):
+    async def test_serializescoerce_valued_value_not_raw(self):
         """DB should store the canonical coerced value so raw strings like
         'true' become the JSON boolean true, not '"true"'."""
         mock_pool = MagicMock()
@@ -321,70 +321,87 @@ class TestSetDbValue:
 class TestCoerce:
     def test_bool_from_string_true(self):
         meta = CONFIG_FIELDS_BY_NAME["dogfood_mode"]
-        assert _coerce(meta, "true") is True
-        assert _coerce(meta, "1") is True
-        assert _coerce(meta, "yes") is True
+        assert coerce_value(meta, "true") is True
+        assert coerce_value(meta, "1") is True
+        assert coerce_value(meta, "yes") is True
 
     def test_bool_from_string_false(self):
         meta = CONFIG_FIELDS_BY_NAME["dogfood_mode"]
-        assert _coerce(meta, "false") is False
-        assert _coerce(meta, "0") is False
-        assert _coerce(meta, "no") is False
+        assert coerce_value(meta, "false") is False
+        assert coerce_value(meta, "0") is False
+        assert coerce_value(meta, "no") is False
 
-    def test_bool_from_json_string(self):
+    def test_bool_from_json_string_db_path(self):
+        """DB values arrive as JSON-encoded strings (json.dumps(True) == 'true')."""
         meta = CONFIG_FIELDS_BY_NAME["dogfood_mode"]
-        assert _coerce(meta, '"true"') is True
+        assert coerce_value(meta, "true", from_db=True) is True
 
     def test_int_from_string(self):
         meta = CONFIG_FIELDS_BY_NAME["gateway_port"]
-        assert _coerce(meta, "9000") == 9000
+        assert coerce_value(meta, "9000") == 9000
 
-    def test_int_from_json_string(self):
+    def test_int_from_json_string_db_path(self):
         # JSON-encoded form as stored in gateway_config.value (json.dumps(9000) = '9000').
         meta = CONFIG_FIELDS_BY_NAME["gateway_port"]
         import json as _json
 
-        assert _coerce(meta, _json.dumps(9000)) == 9000
+        assert coerce_value(meta, _json.dumps(9000), from_db=True) == 9000
 
     def test_float_from_string(self):
         meta = CONFIG_FIELDS_BY_NAME["sentry_traces_sample_rate"]
-        assert _coerce(meta, "0.5") == 0.5
+        assert coerce_value(meta, "0.5") == 0.5
 
     def test_invalid_bool_raises(self):
         meta = CONFIG_FIELDS_BY_NAME["dogfood_mode"]
         with pytest.raises(ValueError, match="Invalid boolean"):
-            _coerce(meta, "tru")
+            coerce_value(meta, "tru")
         with pytest.raises(ValueError, match="Invalid boolean"):
-            _coerce(meta, "flase")
+            coerce_value(meta, "flase")
 
     def test_str_passthrough(self):
         meta = CONFIG_FIELDS_BY_NAME["log_level"]
-        assert _coerce(meta, "debug") == "debug"
+        assert coerce_value(meta, "debug") == "debug"
+
+    def test_user_string_not_json_decoded(self):
+        """User/API input 'true' for a string field must not be JSON-decoded
+        to bool and re-stringified to 'True'. Regression test for the bug where
+        coerce_value('true') would produce 'True'."""
+        meta = CONFIG_FIELDS_BY_NAME["log_level"]
+        # Without from_db=True, a literal string stays literal.
+        assert coerce_value(meta, "true") == "true"
+        assert coerce_value(meta, "null") == "null"
+        assert coerce_value(meta, "123") == "123"
+
+    def test_db_value_is_json_decoded(self):
+        """DB rows store JSON, so from_db=True must decode before typing."""
+        meta = CONFIG_FIELDS_BY_NAME["dogfood_mode"]
+        # json.dumps(True) == "true", round-trip must yield True.
+        assert coerce_value(meta, "true", from_db=True) is True
 
     def test_none_allowed_for_nullable_field(self):
         # llm_judge_model has default=None, so None is valid.
         meta = CONFIG_FIELDS_BY_NAME["llm_judge_model"]
-        assert _coerce(meta, None) is None
+        assert coerce_value(meta, None) is None
 
     def test_none_rejected_for_non_nullable_field(self):
         # log_level has default="info", so None violates the contract.
         meta = CONFIG_FIELDS_BY_NAME["log_level"]
         with pytest.raises(TypeError, match="cannot be None"):
-            _coerce(meta, None)
+            coerce_value(meta, None)
 
     def test_enum_from_string(self):
         # auth_mode is typed as the AuthMode enum.
         from luthien_proxy.credential_manager import AuthMode
 
         meta = CONFIG_FIELDS_BY_NAME["auth_mode"]
-        assert _coerce(meta, "passthrough") is AuthMode.PASSTHROUGH
-        assert _coerce(meta, "both") is AuthMode.BOTH
-        assert _coerce(meta, AuthMode.PROXY_KEY) is AuthMode.PROXY_KEY
+        assert coerce_value(meta, "passthrough") is AuthMode.PASSTHROUGH
+        assert coerce_value(meta, "both") is AuthMode.BOTH
+        assert coerce_value(meta, AuthMode.PROXY_KEY) is AuthMode.PROXY_KEY
 
     def test_enum_invalid_value_raises(self):
         meta = CONFIG_FIELDS_BY_NAME["auth_mode"]
         with pytest.raises(ValueError, match="expected one of"):
-            _coerce(meta, "not_a_mode")
+            coerce_value(meta, "not_a_mode")
 
 
 class TestConfigFieldsCompleteness:

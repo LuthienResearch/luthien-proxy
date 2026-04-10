@@ -32,6 +32,10 @@ def _type_annotation(meta):
 
 def _default_repr(meta):
     """Get the default value as source code."""
+    # Dynamic defaults: emit the symbol name so the generated file re-evaluates
+    # at import time (e.g. PROXY_VERSION from package metadata).
+    if meta.default_from is not None:
+        return meta.default_from[1]
     d = meta.default
     if d is None:
         return "None"
@@ -41,12 +45,19 @@ def _default_repr(meta):
 
 
 def _collect_imports(fields):
-    """Collect non-builtin type imports needed by field definitions."""
+    """Collect non-builtin type imports needed by field definitions.
+
+    Covers both field_type imports (e.g. AuthMode) and default_from imports
+    (e.g. PROXY_VERSION from luthien_proxy.version).
+    """
     imports: dict[str, set[str]] = {}
     for meta in fields:
         mod = meta.field_type.__module__
         if mod != "builtins":
             imports.setdefault(mod, set()).add(meta.field_type.__name__)
+        if meta.default_from is not None:
+            mod_name, sym = meta.default_from
+            imports.setdefault(mod_name, set()).add(sym)
     return imports
 
 

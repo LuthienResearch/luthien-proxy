@@ -15,6 +15,8 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from luthien_proxy.credential_manager import AuthMode
+from luthien_proxy.utils.constants import DEFAULT_GATEWAY_PORT
+from luthien_proxy.version import PROXY_VERSION
 
 
 class _SettingsBase(BaseSettings):
@@ -40,7 +42,7 @@ class Settings(_SettingsBase):
     """Application settings — all fields generated from config_fields.py."""
 
     # ── server ──────────────────────────────────────────────────────
-    gateway_port: int = 8000
+    gateway_port: int = DEFAULT_GATEWAY_PORT
     log_level: str = "info"
     verbose_client_errors: bool = False
 
@@ -77,7 +79,7 @@ class Settings(_SettingsBase):
     otel_exporter_otlp_endpoint: str = "http://tempo:4317"
     tempo_url: str = "http://localhost:3200"
     service_name: str = "luthien-proxy"
-    service_version: str = "2.0.0"
+    service_version: str = PROXY_VERSION
     environment: str = "development"
     railway_service_name: str = ""
     enable_request_logging: bool = False

@@ -21,7 +21,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from luthien_proxy.admin import router as admin_router
 from luthien_proxy.config_fields import CONFIG_FIELDS
-from luthien_proxy.config_registry import ConfigRegistry, _coerce
+from luthien_proxy.config_registry import ConfigRegistry, coerce_value
 from luthien_proxy.credential_manager import AuthMode, CredentialManager
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
@@ -520,6 +520,11 @@ def configure_local_mode() -> None:
     os.environ["POLICY_SOURCE"] = "file"
 
 
+def _is_railway() -> bool:
+    """Detect if running on Railway (RAILWAY_SERVICE_NAME is auto-injected)."""
+    return bool(os.environ.get("RAILWAY_SERVICE_NAME"))
+
+
 def auto_provision_defaults() -> dict[str, str]:
     """Auto-provision sensible defaults for missing environment variables.
 
@@ -527,10 +532,16 @@ def auto_provision_defaults() -> dict[str, str]:
     without any pre-configured environment variables. Only sets values that are
     not already present — never overrides explicit configuration.
 
+    On Railway, additional defaults are applied:
+      - AUTH_MODE=passthrough (OAuth pass-through, no server API key needed)
+      - POLICY_CONFIG=config/railway_policy_config.yaml (logging + English rules)
+      - LOCALHOST_AUTH_BYPASS=false (not applicable on cloud)
+
     Returns:
         Dict of variable names to auto-provisioned values (empty if nothing was provisioned).
     """
     provisioned: dict[str, str] = {}
+    on_railway = _is_railway()
 
     if not os.environ.get("DATABASE_URL"):
         data_dir = os.path.join(os.path.expanduser("~"), ".luthien")
@@ -546,7 +557,7 @@ def auto_provision_defaults() -> dict[str, str]:
         provisioned["ADMIN_API_KEY"] = value
 
     if not os.environ.get("POLICY_CONFIG"):
-        value = "config/policy_config.yaml"
+        value = "config/railway_policy_config.yaml" if on_railway else "config/policy_config.yaml"
         os.environ["POLICY_CONFIG"] = value
         provisioned["POLICY_CONFIG"] = value
 
@@ -554,6 +565,17 @@ def auto_provision_defaults() -> dict[str, str]:
         value = "file"
         os.environ["POLICY_SOURCE"] = value
         provisioned["POLICY_SOURCE"] = value
+
+    # Railway-specific defaults: passthrough auth and no localhost bypass
+    if on_railway:
+        if not os.environ.get("AUTH_MODE"):
+            value = "passthrough"
+            os.environ["AUTH_MODE"] = value
+            provisioned["AUTH_MODE"] = value
+
+        if not os.environ.get("LOCALHOST_AUTH_BYPASS"):
+            os.environ["LOCALHOST_AUTH_BYPASS"] = "false"
+            provisioned["LOCALHOST_AUTH_BYPASS"] = "false"
 
     return provisioned
 
@@ -601,7 +623,7 @@ if __name__ == "__main__":
             if val is None:
                 continue
             try:
-                cli_overrides[field_meta.name] = _coerce(field_meta, val)
+                cli_overrides[field_meta.name] = coerce_value(field_meta, val)
             except (ValueError, TypeError) as exc:
                 parser.error(f"Invalid value for --{field_meta.name.replace('_', '-')}: {exc}")
 

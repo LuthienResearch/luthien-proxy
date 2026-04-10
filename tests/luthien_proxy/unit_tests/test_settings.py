@@ -61,6 +61,22 @@ class TestSettingsDefaults:
         settings = Settings(_env_file=None)
         assert settings.service_name == "luthien-proxy"
 
+    def test_default_service_version_resolves_from_package(self, monkeypatch):
+        """Default service_version must resolve from real package metadata.
+
+        In CI the package is installed, so `importlib.metadata.version()` should
+        return a real PEP 440 string. If this test ever sees the "unknown" fallback
+        from version.py, something is wrong with the install state — catch it here
+        rather than discovering it in Sentry release tags or OTel dashboards.
+        """
+        monkeypatch.delenv("SERVICE_VERSION", raising=False)
+        settings = Settings(_env_file=None)
+        # Not the PackageNotFoundError sentinel
+        assert settings.service_version != "unknown"
+        # Looks like a version (non-empty, contains a digit)
+        assert settings.service_version
+        assert any(c.isdigit() for c in settings.service_version)
+
     def test_default_gateway_port(self, monkeypatch):
         """Test default gateway port is 8000."""
         monkeypatch.delenv("GATEWAY_PORT", raising=False)

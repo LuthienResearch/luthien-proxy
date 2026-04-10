@@ -95,7 +95,7 @@ These settings are reused from the general config for Sentry tags:
 |---------|---------|---------|-------------|
 | `environment` | `ENVIRONMENT` (or `RAILWAY_SERVICE_NAME` on Railway) | `development` | `environment` tag |
 | `service_name` | `SERVICE_NAME` | `luthien-proxy` | Part of `release` tag |
-| `service_version` | `SERVICE_VERSION` | `2.0.0` | Part of `release` tag |
+| `service_version` | `SERVICE_VERSION` | package version via `importlib.metadata` (see `version.py`) | Part of `release` tag |
 
 ### Per-Environment Setup
 

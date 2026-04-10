@@ -3,7 +3,7 @@
 ## Purpose & Scope
 
 - Core goal: implement AI Control for LLMs with integrated gateway architecture.
-- Architecture: FastAPI gateway with integrated control plane and LiteLLM, using event-driven policies.
+- Architecture: FastAPI gateway with integrated control plane, using event-driven policies. LiteLLM handles judge/LLM policy calls.
 - **Read `ARCHITECTURE.md` first** when you need to understand how modules connect, how requests flow, or where to make changes. It covers the request lifecycle, module map, key abstractions, and data model.
 - Select a policy via `POLICY_CONFIG` that points to a YAML file (defaults to `config/policy_config.yaml`).
   - Example: `export POLICY_CONFIG=./config/policy_config.yaml`
@@ -97,6 +97,7 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 
 ## Project Structure & Module Organization
 
+- `dev-README.md`: **Development guide** — dev commands, releasing, architecture, endpoints, policy system
 - `dev/`: Tracking current development information
   - `OBJECTIVE.md`: Succinct statement of the active objective with acceptance check.
   - `NOTES.md`: Scratchpad for implementation details while the current objective is in progress.
@@ -116,7 +117,7 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
   - `admin/`: Runtime policy management API
   - `debug/`: Debug endpoints for inspecting conversation events
   - `ui/`: Activity monitoring and diff viewer interfaces
-  - `llm/`: LiteLLM client wrapper and format converters
+  - `llm/`: Anthropic client wrapper and LiteLLM-based judge client
   - `utils/`: Shared utilities (db, redis, validation)
 - `src/luthien_cli/`: Standalone CLI (`uv tool install luthien-cli`); `luthien onboard` auto-downloads proxy artifacts
   - `commands/`: Click commands — `onboard`, `claude`, `status`, `up`/`down`, `logs`, `config`
@@ -134,35 +135,14 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 
 ## Build, Test, and Development Commands
 
-- Install dev deps: `uv sync --dev`
-- Start gateway (dockerless): `./scripts/start_gateway.sh` — runs the gateway as a local Python process with SQLite, no Docker/Postgres/Redis needed
-- Run tests: `uv run pytest` (coverage: `uv run pytest --cov=src -q`)
-- Lint/format: `uv run ruff format` then `uv run ruff check --fix`. The `scripts/dev_checks.sh` script applies formatting automatically, and VS Code formats on save via Ruff. See `scripts/format_all.sh` for a quick all-in-one solution.
-- Type check: `uv run pyright`
+See **[dev-README.md](dev-README.md)** for the canonical reference: dev commands, architecture, endpoints, deployment modes, releasing, and observability.
 
-### Deployment Modes
+Quick reference for frequent commands:
 
-**Dockerless (default for development and single-user local use)**:
-- Run the gateway directly: `./scripts/start_gateway.sh` or `uv run python -m luthien_proxy.main`
-- Uses SQLite (`DATABASE_URL` unset, defaults to `~/.luthien/local.db`) — no Postgres or Redis needed
-- Code changes take effect immediately on restart (no image rebuilds)
-- The `luthien` CLI defaults to this mode (`luthien onboard` → `luthien up`)
-
-**Single Docker container (self-contained local testing)**:
-- `./scripts/quick_start_standalone.sh` — builds one container with everything bundled
-- Good for testing the deployment artifact without multi-container orchestration
-- Still uses SQLite internally, no Postgres/Redis containers
-
-**Docker Compose with Postgres + Redis (multi-user production)**:
-- `./scripts/quick_start.sh` — spins up db, redis, and gateway containers
-- Use this for shared/multi-user deployments that need durable storage and pub/sub
-- The `docker-compose.yaml` mounts source code as read-only volumes (`./src:/app/src:ro`), so Python changes require `docker compose restart gateway`
-
-Most near-term development work is dockerless. Prefer `start_gateway.sh` for day-to-day work.
-
-## Tooling
-
-- Inspect the dev database with `uv run python scripts/query_debug_logs.py`. The helper loads `.env`, connects to `DATABASE_URL` (works with both SQLite and Postgres), and prints recent conversation events and debug logs.
+- `./scripts/dev_checks.sh` — format + lint + tests + type check (run before pushing)
+- `uv run pytest tests/luthien_proxy/unit_tests` — quick unit pass
+- `./scripts/run_e2e.sh` — all e2e tiers
+- `./scripts/start_gateway.sh` — start gateway locally (dockerless, SQLite)
 
 ## Coding Style & Naming Conventions
 

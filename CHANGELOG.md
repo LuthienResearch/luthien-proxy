@@ -2,7 +2,41 @@
 
 ## Unreleased | TBA
 
+## 3.0.0 | 2026-04-09
+
 ### Features
+
+- **Remove OpenAI gateway and Codex support**: The proxy now exclusively supports the Anthropic `/v1/messages` endpoint. Removed `/v1/chat/completions`, LiteLLM request routing, and Codex CLI support. LiteLLM is retained only for policy-internal judge LLM calls. (#351)
+- **Diff viewer auto-loads recent calls**: The `/diffs` page now automatically shows the recent calls list on load, instead of requiring a manual "Browse Recent" click.
+- **Auto-release for luthien-proxy**: on merge to main, automatically compile changelog fragments, cut a versioned section in CHANGELOG.md, tag the release, and trigger GitHub Release + Docker image publishing. Starts at v3.0.0, auto-increments patch. Also fixes Docker images reporting `0.0.0+sha` instead of the actual version when built from a tag.
+- **Chain-first policy config UX**: Overhaul policy configuration page with a unified chain-building experience. Click policies to preview details, press + to add to chain. Visible move/remove controls, blue/green color tinting for proposed/active chains, sticky Proposed and Active columns, proper Alpine.js config forms for chain items, and hidden internal policies by default. (#389)
+- **CLI auto-versioning & publishing**: luthien-cli version is now derived from git tags (`cli-v*`) via hatch-vcs. Merging CLI changes to main auto-tags and publishes to PyPI. (#390)
+- **`luthien policy` CLI command**: View, list, inspect, and switch gateway policies from the command line with interactive picker support. (#479)
+- **Conversation viewer improvements**: Deduplicates cumulative API history, collapses preflight turns (quota probes, title generation), renders XML-tagged sections as collapsible blocks, and pairs tool calls with their results. Backend now extracts Anthropic-style tool_result content blocks with error state.
+- **Credential management standardization**: Introduce `Credential` value object and `AuthProvider` config system for typed credential handling across gateway, policies, and judge calls. Add server credential store with optional encryption, admin API for credential CRUD, and `auth_provider` config field for judge policies.
+- **`luthien hackathon` command**: One-command hackathon onboarding — forks/clones repo, installs deps, starts gateway from source, interactive policy picker, and prints comprehensive getting-started guide with cheatsheet, UI tour, key files, and project ideas.
+  - New `HackathonOnboardingPolicy`: first-turn welcome with hackathon context
+  - New `hackathon_policy_template.py`: SimplePolicy skeleton for participants to customize (#397)
+- **Docker-free local mode**: `luthien onboard` now defaults to local mode — SQLite database, in-process event publisher, no Docker required. Use `--docker` for the previous PostgreSQL + Redis setup. (#370)
+- **Onboarding policy**: New `OnboardingPolicy` appends a welcome message with config links to the first response in a conversation, then becomes inert on subsequent turns.
+  - `luthien onboard` now uses the onboarding policy by default (no more policy selection step)
+  - `luthien onboard` pre-seeds the onboarding prompt and opens the config page after gateway setup
+- **`--proxy-ref` CLI option**: Run `onboard`, `up`, and `hackathon` against a specific branch, commit, or PR (`--proxy-ref '#123'`) instead of defaulting to main (#407)
+- **Streaming protocol compliance validator**: Added a pipeline-level validator that checks Anthropic streaming event ordering after each stream completes. Logs warnings on violations (content blocks after message_delta, unclosed blocks, etc.) and records them as policy events and OTel span attributes. This is the architectural prevention for the class of streaming ordering bugs seen in PRs #134 and #356.
+- **Synthesized policy configuration UI**: Three-column Available|Proposed|Active layout with PBC-aligned nav
+  - Simple/Advanced policy grouping with inline In/Out examples
+  - Pydantic/Alpine.js schema-driven config forms
+  - Credential source dropdown and dual test panels
+  - Single/Chain mode toggle, settings popover in nav
+  - Redesigned landing page with progressive disclosure
+  - PBC design tokens across all pages (Inter font, frosted glass nav)
+  - Supersedes: #372, #376 (#379)
+- **Global telemetry dashboard**: Added a Cloudflare Worker at `telemetry.luthien.cc` that relays anonymous usage metrics to Grafana Cloud for worldwide adoption tracking. Updated default telemetry endpoint from `telemetry.luthien.io` to `telemetry.luthien.cc`. (#460)
+- **History page clarity**: The `/history` page is now titled "Sessions" with the subtitle "Each session is one conversation — click to view". Session cards show a `→` arrow that highlights green on hover, making clickability explicit. Sessions without a message preview are dimmed and italicised instead of showing "No preview available".
+- **Version display**: Show proxy version (git commit hash) in CLI onboard output and as a shared footer on all web UI pages. Replaces hardcoded version strings with real build identifiers across all deployment modes. (#507)
+- **Conversation viewer rewrite**: SSE-powered live updates (replacing polling), per-turn event timeline with raw JSON, and JSONL export
+  - New `ConversationLinkPolicy` injects viewer URL into first response per session
+  - JSONL export endpoint at `GET /api/history/sessions/{id}/export/jsonl` (#478)
 
 - **In-process Redis replacement** — activity monitor, credential cache, and all Redis features work without Redis in local single-process mode via `EventPublisherProtocol` and `CredentialCacheProtocol` abstractions
 - **Silence OTel errors** (silence-otel): Gracefully handle missing OTel/Tempo infrastructure
@@ -22,6 +56,50 @@
 - **Surface upstream billing mode** to prevent unexpected API charges (#311)
 
 ### Fixes
+
+- **Batch env var validation**: Report all missing required environment variables at once instead of failing on the first one. (#416)
+- **Auto-start gateway from `luthien claude`**: `luthien claude` now automatically starts the gateway if it isn't running, instead of letting Claude Code fail with ConnectionRefused. (#403)
+- **Docker entrypoint SQLite fix**: Skip Postgres migrations when DATABASE_URL is a SQLite URL, and filter `sqlite_schema.sql` from the Postgres migration glob. (#415)
+- **Docker local build fallback**: When `docker compose pull` fails (e.g. GHCR 403), onboarding now offers to clone the repo and build images locally instead of exiting. (#455)
+- **Docker onboard error messaging**: Narrow GHCR auth-failure detection from bare "denied" to "access denied" to avoid false positives on Docker socket permission errors, and strengthen test coverage for `_download_files` error paths. (#454)
+- **Fix hackathon command crash**: Remove `import yaml` re-introduced by the hackathon command after pyyaml was dropped as a dependency. (#402)
+- **Sanitize client-facing error detail leakage**: Replace raw `str(e)` exception messages in HTTP responses with generic messages across pipeline, admin, and history routes. Internal details (Pydantic traces, DB errors, module paths) are now logged server-side with `repr(e)` only and never forwarded to clients. Set `VERBOSE_CLIENT_ERRORS=true` to restore verbose error details for local debugging. (#313)
+- **Persist ADMIN_API_KEY to .env during local onboard**: `luthien onboard` now writes `ADMIN_API_KEY` to the gateway `.env` file, preventing auth failures after gateway restart caused by the gateway generating a new random key on each startup.
+- **Onboarding QA fixes**: Multiple fixes from first-round QA testing
+  - Install script now checks for working `git` before proceeding (macOS Xcode CLI tools)
+  - Fixed wrong Claude Code package name in error message (`claude-cli` → `claude-code`)
+  - Added transparent `/v1/*` API passthrough so Claude Code endpoints beyond `/v1/messages` don't 404
+  - Fixed Sentry crash on invalid DSN by validating URL format before `sentry_sdk.init()`
+  - Fixed gateway port instability by stopping old gateway before selecting a new port
+  - Fixed Claude Code TUI freeze when launched via `curl | bash` by reopening stdin from the real pty device
+  - Fixed 500 errors on non-streaming requests for Opus models by using streaming internally in `complete()` (#490)
+- **Fix CLI install and CI publish pipeline**: CI workflows (`auto-tag-cli`, `release-cli`) were failing because `uv run pytest` didn't install dev extras. Install scripts now pull from GitHub source instead of stale PyPI package. (#404)
+- **ConversationLinkPolicy**: Link now appears in the actual conversation response instead of being silently consumed by Claude Code's invisible preflight call
+- **Policy diff viewer**: Fix "str object has no attribute isoformat" error when loading recent calls on SQLite
+- **Fix broken e2e tests and add single-command test runner**: Replace fragile module-level monkey-patching with pytest fixture overrides for e2e test config (gateway_url, api_key, auth_headers). Fixes 40 sqlite_e2e tests broken since PR #410, plus 5 mock_e2e test failures from hardcoded ports, stale Docker fallbacks, and import-time settings caching. Adds `scripts/run_e2e.sh` to orchestrate all e2e tiers (sqlite, mock, real) with automatic setup/teardown — no Docker needed for sqlite or mock tiers. All 210 tests (42 sqlite + 168 mock) now pass from a single `./scripts/run_e2e.sh sqlite mock` invocation. (#494)
+- **launch_claude_code.sh starts wrong service**: The script called `observability.sh up -d` instead of `start_gateway.sh` when the gateway health check failed, so the gateway never actually started. (#452)
+- **OnboardingPolicy in MultiSerialPolicy chains**: Fixed two bugs preventing proper composition.
+  - OnboardingPolicy hook methods silently failed because `context.request` is always `None` in the Anthropic path. Now stashes the request via `get_request_state()`.
+  - `MultiSerialPolicy.on_anthropic_stream_complete` now chains each policy's emissions through remaining policies' `on_anthropic_stream_event`, so downstream transforms (e.g. AllCapsPolicy) apply to all content including welcome messages. (#409)
+- **Sanitize Redis URL in logs**: Strip credentials from Redis connection URL before logging to prevent credential exposure. (#482)
+- **Prevent Sentry initialization during test runs**: litellm's `load_dotenv()` was picking up `SENTRY_ENABLED=true` from the repo's `.env` before the test guard could run, causing test exceptions to be sent to production Sentry. Moved the guard to module-level in `tests/conftest.py` with force-set instead of `setdefault`. (#486)
+- **Anthropic prompt cache tokens now forwarded**: `cache_creation_input_tokens` and `cache_read_input_tokens` are included in the response usage object when present, both for non-streaming and streaming responses. Previously these were silently dropped, preventing users from tracking prompt caching effectiveness.
+- **Reduce gateway memory footprint to fit 1G Docker limit**: Skip duplicate raw-event buffering during streaming, make client cache size configurable via `ANTHROPIC_CLIENT_CACHE_SIZE`, and validate `LOG_LEVEL` at startup. (#453)
+- **Fix local onboarding and Docker port conflicts**: Install `luthien-proxy` from GitHub instead of PyPI (not yet published). `luthien up` in Docker mode now auto-selects free ports for conflicting services and saves the resolved gateway URL to config so `luthien claude` routes correctly. (#385)
+- **Onboarding discoverability improvements**: Add "next step" nudge in README after setup, detect Docker Compose v1 with a specific upgrade message in quick_start.sh (#456)
+- **Fix onboarding crashes**: Bundle `sqlite_schema.sql` with the Python package so the gateway can create database tables in pip-installed environments. Remove `pyyaml` dependency from CLI by writing config YAML directly.
+  - Gateway no longer crashes with "no such table: current_policy" on fresh `luthien onboard`
+  - `_write_policy` no longer fails with `ModuleNotFoundError: No module named 'yaml'`
+  - README now explains dashboard API key requirements and localhost auth bypass (#399)
+- **Optional ADMIN_API_KEY**: Gateway no longer crashes on startup when `ADMIN_API_KEY` is unset — admin endpoints handle the missing key gracefully at request time instead. (#405)
+- **PROXY_API_KEY no longer required**: The proxy no longer requires `PROXY_API_KEY` to be set — `AUTH_MODE=both` degrades gracefully to passthrough-only. Neither `luthien onboard` nor `luthien hackathon` generate a proxy key. `AUTH_MODE=proxy_key` without a key is now a hard startup error. (#476)
+- **Reject missing max_tokens**: Requests without `max_tokens` now return 400 instead of silently defaulting to 4096. Removed hallucinated `max_output_tokens` alias. Matches real Anthropic API behavior.
+- **Fix session ID not recorded in OAuth passthrough mode**: Fall back to `x-session-id` header when `metadata.user_id` is absent or doesn't match the API key session format. Conversation history is now recorded for OAuth users. (#386)
+- **Inject error message when judge failure silently strips all content**: When `on_error: block` is configured and the safety judge fails (auth error, network, rate limit), all content blocks were previously dropped with no explanation — the gateway returned an empty response with `stop_reason: end_turn` and Claude Code showed "Cogitated for Xs" then nothing. The gateway now injects an error text block in both the non-streaming and streaming paths explaining that the response was blocked due to a judge failure. (#451)
+- **Single-pass dev_checks.sh**: Removed the pre-clean-tree check and auto-stages formatting fixes instead of failing. No more two-pass commit dance.
+  - Script paths now use `git rev-parse --show-toplevel` for worktree compatibility (#422)
+- **Streaming pipeline leaked Python SDK synthetic events to wire-protocol clients**: The Anthropic Python SDK's high-level `MessageStream` injects synthetic helper events (`text`, `thinking`, `citation`, `signature`, `input_json`) that have no wire-protocol counterpart. These were forwarded to clients, breaking strict validators like `@ai-sdk/anthropic`. Fixed by switching from `messages.stream()` (high-level `MessageStream` with synthetic events) to `messages.create(stream=True)` (raw `AsyncStream[RawMessageStreamEvent]` yielding only wire-protocol events). This eliminates the problem structurally — no blocklist/allowlist maintenance required. (#499)
+- **Fix streaming protocol violation in SimpleLLMPolicy**: When tool_use blocks are blocked by the judge, emit an explanatory text block (e.g., `[Tool call `Bash` was blocked by policy]`) instead of an orphaned `content_block_stop` or empty response. This fixes the Anthropic streaming protocol violation and allows Claude Code to continue the conversation after a tool call is blocked. (#443)
 
 - Fix worktree dev instances sharing `COMPOSE_PROJECT_NAME` — auto-derive from directory name (#348)
 - Make gateway API key optional for `luthien claude` — OAuth passthrough by default (#346)
@@ -49,10 +127,45 @@
 
 ### Refactors
 
+- **Billing badge accessibility & polish**: Remove duplicate tab stop on badge, skip tooltip repositioning when hidden, replace Unicode escapes with literal characters, and add spatial-separation comment for the body-appended tooltip. (#477)
+- **Consolidate conversation views**: Merged `/activity/monitor`, `/history/session/{id}`, and `/conversation/live/{id}` into a single live conversation viewer at `/conversation/live/{id}`
+  - Session list at `/history` now links directly to the live view
+  - Live view renders turns incrementally (new turns slide in without re-rendering existing ones)
+  - Raw event stream viewer preserved at `/debug/activity` for low-level debugging
+  - Old URLs (`/activity/monitor`, `/history/session/{id}`) 301-redirect to their replacements (#501)
+- **Unify policy interface to hooks-only**: Replace dual `run_anthropic`/hooks execution model with hooks as the sole interface. Eliminates ~660 lines of duplicate logic and the bug class from PR #409.
+  - Remove unused `MultiParallelPolicy`
+  - `AnthropicExecutionInterface` protocol now defines 4 hook methods instead of `run_anthropic`
+  - Executor owns backend I/O; policies only implement hooks (#421)
+- **Dual SQLite/Postgres migration sync**: Replace the hand-maintained SQLite schema snapshot with incremental per-dialect migration files. SQLite migrations now run incrementally (matching Postgres behavior), with automatic bootstrap for existing databases. A CI schema comparison test catches drift between the two dialects. (#442)
+- **Remove dead match entry in parse_judge_response**: Remove unreachable `"```json"` from the prefix match set — `lstrip("`")` already strips all backticks before the check. (#483)
+- **Switch pytest to --import-mode=importlib**: Eliminate test filename collision workarounds and sys.path hacks by using fully-qualified module paths for test imports. Shared constants moved to `tests/constants.py`.
+- **Remove prefix-based credential type heuristic**: The gateway now relies solely on the transport header (`Authorization: Bearer` vs `x-api-key`) to determine credential type. Removed `is_anthropic_api_key()` and the `oauth_via_api_key` credential type that second-guessed the transport header using token prefix inspection.
+- **Remove dead code from ToolCallJudgePolicy**: Delete unused `_call_judge_with_failsafe()` and `_create_judge_failure_message()` methods left over from a previous refactor. (#445)
+- **Reorganize tests by package**: Move tests into `tests/luthien_proxy/` and `tests/luthien_cli/` subdirectories. Add `luthien-cli` as an editable dev dependency so CLI tests run from the root venv. (#410)
+- **Type strictness pass**: Replace `Any` with concrete types (`AnthropicContentBlock`, `ToolCallDict`, `JSONObject`, `AnthropicRequest`) across 12 files; remove 208 lines of dead code (`transaction_recorder.py`). Also fixes a latent `AttributeError` in `PolicyContext.__deepcopy__` where `.model_copy()` was called on a non-Pydantic field. (#461)
+
 - Move luthien-cli into `src/` for consistent project layout (#321)
 - Encapsulate credential type tracking in CredentialManager (#325)
 
 ### Chores & Docs
+
+- **CLI install: pipx → uv tool**: All references to `pipx` replaced with `uv tool install`. Install scripts now auto-detect and migrate existing pipx installations.
+- **COE follow-up for PR #356**: Added streaming event ordering invariant to `dev/context/gotchas.md` — all content blocks must precede `message_delta` in Anthropic streaming protocol
+- **Dockerless default**: Documentation and `.env.example` now default to dockerless mode (SQLite, no Postgres/Redis) for development and single-user local use. Docker Compose with Postgres+Redis is positioned for multi-user production deployments. `quick_start.sh` now validates that DATABASE_URL isn't SQLite before starting Docker services. (#391)
+- **OWASP threat scenario e2e tests**: 48 new mock_e2e tests covering LLM01 (Prompt Injection), LLM06 (Sensitive Disclosure), LLM08 (Excessive Agency), gateway robustness, and audit trail (8+8+16+11+5 across 5 files).
+  - OWASP LLM markers (llm01/02/04/06/07/08) added to pytest config for selective test runs
+  - Fixed 4 pre-existing test failures: passthrough auth tests now use `MOCK_ANTHROPIC_HOST` env var (defaults to `host.docker.internal`, overridable to `localhost` for dockerless/CI runs); `_enable_request_logging` fixture is a no-op when `ENABLE_REQUEST_LOGGING` is already set in the environment (#458)
+- **Move dev tools to dev dependencies**: Moved `pyright`, `vulture`, and `pytest-timeout` from production `[project.dependencies]` to the `[dependency-groups] dev` group so they aren't pulled in by `pip install luthien-proxy`. (#444)
+- **OAuth passthrough docs**: Restructured README Configuration section to lead with OAuth passthrough as the default auth mode. Added prominent billing warning for API key mode. (#468)
+- **Policy reference guide**: Add comprehensive `docs/policies.md` with full examples for all policies, presets, composition patterns, admin API usage, and custom policy authoring guide. Update README available policies section.
+- **Docs & UI polish**: Switched judge model examples from gpt-4o-mini to Haiku, clarified probability_threshold comment, explained YAML `class:` field, renamed "Dogfood mode" to "Safety mode" on policy-config page (#491)
+- **README preset policies**: Added all 7 built-in preset policies to the README's available policies section, organized into "Built-in Presets" and "Core Policies" subsections
+- **Remove OpenAI/GPT references**: Cleaned up config files, deploy docs, startup scripts, and .env.example to remove OPENAI_API_KEY references and replace GPT model examples with Claude/Anthropic equivalents. Functional code (OpenAI format pipeline, GPT model detection in judge utils) left intact. (#503)
+- **Synchronize local and CI dev checks**: Pin pyright version, enforce locked dependency sync, require shellcheck, and fail on uncommitted formatting changes — eliminating common sources of local/CI divergence.
+- **ToolCallJudgePolicy unit tests**: Add comprehensive unit tests for ToolCallJudgePolicy covering streaming tool pass/block, non-streaming responses, state cleanup, and blocked message formatting. Extract shared Anthropic streaming event builders into reusable test helper module. (#448)
+- **Trivial local startup from source**: `scripts/start_gateway.sh` now auto-creates `.env` from `.env.local.example` when no `.env` exists, eliminating the manual copy step for first-time dev setup. README `## Development` section now includes a "Quick Start (from source, no Docker)" subsection with the full clone-to-running sequence. (#471)
+- **Add uninstall instructions to README**: New `## Uninstall` section covers stopping the gateway, removing the CLI (`uv tool uninstall luthien-cli`), and cleaning up the data directory (`~/.luthien`), for both local and Docker modes. (#473)
 
 - Add shellcheck to `dev_checks.sh` and fix all 22 warnings across 9 scripts (#332)
 - Update README to match landing page v10.7 (#319)

@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from luthien_proxy.credential_manager import AuthMode
+from luthien_proxy.utils.constants import DEFAULT_GATEWAY_PORT
+from luthien_proxy.version import PROXY_VERSION
 
 
 @dataclass(frozen=True)
@@ -30,6 +32,10 @@ class ConfigFieldMeta:
         category: Grouping key for dashboard display.
         db_settable: If True, can be stored in gateway_config table and edited via admin API.
         restart_required: If True, changes only take effect after gateway restart.
+        default_from: Optional (module, symbol) tuple. When set, the generator emits
+            `from {module} import {symbol}` in settings.py and uses {symbol} as the
+            default expression. Use for defaults that must be re-evaluated at import
+            time (e.g. PROXY_VERSION read from package metadata).
     """
 
     name: str
@@ -41,6 +47,7 @@ class ConfigFieldMeta:
     category: str = "general"
     db_settable: bool = False
     restart_required: bool = True
+    default_from: tuple[str, str] | None = None
 
 
 # fmt: off
@@ -48,9 +55,10 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
 
     # ── server ────────────────────────────────────────────────────────────
     ConfigFieldMeta(
-        "gateway_port", "GATEWAY_PORT", int, 8000,
+        "gateway_port", "GATEWAY_PORT", int, DEFAULT_GATEWAY_PORT,
         "Port the gateway listens on",
         category="server",
+        default_from=("luthien_proxy.utils.constants", "DEFAULT_GATEWAY_PORT"),
     ),
     ConfigFieldMeta(
         "log_level", "LOG_LEVEL", str, "info",
@@ -185,9 +193,10 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         category="observability",
     ),
     ConfigFieldMeta(
-        "service_version", "SERVICE_VERSION", str, "2.0.0",
-        "Service version for distributed tracing",
+        "service_version", "SERVICE_VERSION", str, PROXY_VERSION,
+        "Service version for distributed tracing (derived from package metadata)",
         category="observability",
+        default_from=("luthien_proxy.version", "PROXY_VERSION"),
     ),
     ConfigFieldMeta(
         "environment", "ENVIRONMENT", str, "development",

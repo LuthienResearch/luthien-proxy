@@ -18,6 +18,9 @@ env:
 
 jobs:
   build-and-push:
+    # Skip redundant builds for auto-tag changelog commits (tag-triggered build handles versioned images)
+    if: >-
+      !contains(github.event.head_commit.message, '[skip auto-tag-proxy]')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -61,6 +64,11 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
+      - name: Strip v prefix from tag
+        id: strip-v
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -70,7 +78,10 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # BUILD_VERSION is only used by Dockerfile.gateway and
+          # Dockerfile.standalone; other Dockerfiles silently ignore it.
           build-args: |
             BUILD_COMMIT=${{ github.sha }}
+            BUILD_VERSION=${{ steps.strip-v.outputs.version || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

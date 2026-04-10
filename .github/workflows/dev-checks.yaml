@@ -9,6 +9,9 @@ on:
 
 jobs:
   dev-checks:
+    # Skip for auto-tag changelog commits (already validated before tagging)
+    if: >-
+      !contains(github.event.head_commit.message, '[skip auto-tag-proxy]')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:

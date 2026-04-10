@@ -142,7 +142,8 @@ class ConfigRegistry:
 
         # DB layer — only for db_settable fields
         if meta.db_settable and meta.name in self._db_values:
-            layers[ConfigSource.DB] = _coerce(meta, self._db_values[meta.name])
+            # from_db=True so the JSON-encoded row value is decoded before typing.
+            layers[ConfigSource.DB] = coerce_value(meta, self._db_values[meta.name], from_db=True)
 
         # Resolve by priority
         for source in (ConfigSource.CLI, ConfigSource.ENV, ConfigSource.DB):
@@ -207,9 +208,10 @@ class ConfigRegistry:
             raise ValueError("No database connection available")
 
         # Serialize the coerced (canonical) value so what's stored matches what
-        # will be read back — avoids double-parsing fragile round-trips like
-        # json.dumps("true") → "\"true\"" → json.loads → str → bool coercion.
-        coerced = _coerce(meta, value)
+        # will be read back. Value comes from user/API so from_db=False (default)
+        # — we must not JSON-decode the input, otherwise literal strings "true",
+        # "null", "123" for str-typed fields would be corrupted.
+        coerced = coerce_value(meta, value)
         serialized = json.dumps(coerced)
 
         async with self._lock:
@@ -301,13 +303,22 @@ class ConfigRegistry:
 # ── Helpers ───────────────────────────────────────────────────────────────
 
 
-def _coerce(meta: ConfigFieldMeta, raw: Any) -> Any:
-    """Coerce a raw value (possibly JSON string from DB) to the field's type.
+def coerce_value(meta: ConfigFieldMeta, raw: Any, *, from_db: bool = False) -> Any:
+    """Coerce a raw value to the field's type.
+
+    Args:
+        meta: Field definition.
+        raw: Raw value from any source (CLI, env, DB row, admin API).
+        from_db: True only when called with a value freshly read from the
+            gateway_config row — that path unconditionally stores JSON, so
+            we decode first. User/CLI input MUST NOT set this flag, otherwise
+            the literal string "true" would be silently coerced through a
+            JSON decode → bool True → str(True) → "True", corrupting strings.
 
     Passing raw=None returns None only when the field has default=None (nullable);
     otherwise it raises TypeError since the field type contract demands a value.
     """
-    if isinstance(raw, str):
+    if from_db and isinstance(raw, str):
         try:
             raw = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
@@ -356,4 +367,10 @@ def _display_value(meta: ConfigFieldMeta, value: Any) -> str:
     return repr(value)
 
 
-__all__ = ["ConfigOverriddenError", "ConfigRegistry", "ConfigSource", "ResolvedValue"]
+__all__ = [
+    "ConfigOverriddenError",
+    "ConfigRegistry",
+    "ConfigSource",
+    "ResolvedValue",
+    "coerce_value",
+]

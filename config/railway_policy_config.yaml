@@ -1,0 +1,48 @@
+# Railway Default Policy Configuration
+#
+# Used automatically on Railway deployments. Combines two policies:
+#   1. Debug logging — records all requests/responses for the activity monitor UI
+#   2. English language rules — applies plain-English safety/style rules via a judge LLM
+#
+# The judge uses the same Anthropic credentials as the proxied request (OAuth
+# passthrough), so no extra API key is needed — but it does make an additional
+# LLM call per response block, which counts against your Claude usage.
+#
+# The safety policy is best-effort: if the judge LLM errors (rate limit,
+# timeout), content passes through unreviewed with a warning appended.
+#
+# To customize: edit the instructions below, or replace this file entirely by
+# setting POLICY_CONFIG to a different path in your Railway service variables.
+
+policy:
+  class: "luthien_proxy.policies.multi_serial_policy:MultiSerialPolicy"
+  config:
+    policies:
+      # Policy 1: Debug logging — powers the /activity and /diffs UIs
+      - class: "luthien_proxy.policies.debug_logging_policy:DebugLoggingPolicy"
+        config: {}
+
+      # Policy 2: English language rules — edit instructions to taste
+      # Note: outer 'config' is MultiSerialPolicy's sub-policy config,
+      #        inner 'config' is SimpleLLMPolicy's own settings.
+      - class: "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
+        config:
+          config:
+            model: "anthropic/claude-haiku-4-5-20251001"
+            temperature: 0.0
+            max_tokens: 4096
+            on_error: "pass"
+            instructions: |
+              You are a safety and quality reviewer for AI assistant responses.
+              Review each content block and apply these rules:
+
+              1. No secrets or credentials: redact any API keys, passwords, tokens,
+                 or private keys that appear in the response.
+              2. No harmful instructions: block content that provides instructions
+                 for causing harm, creating weapons, or illegal activity.
+              3. Professional tone: responses should be helpful, clear, and
+                 professional. Remove gratuitous profanity or hostile language.
+
+              If a block passes all rules, return it unchanged.
+              If a block violates a rule, replace it with a brief explanation
+              of what was removed and why.
