@@ -30,6 +30,7 @@ import uuid
 
 from aiohttp import web
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import (
+    AnyMockResponse,
     MockErrorResponse,
     MockParallelToolResponse,
     MockResponse,
@@ -40,9 +41,6 @@ from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_MOCK_PORT = 18888
-
-# Union of all response types the queue can hold.
-AnyMockResponse = MockResponse | MockErrorResponse | MockToolResponse | MockParallelToolResponse
 
 
 class MockAnthropicServer:

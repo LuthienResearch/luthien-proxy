@@ -144,3 +144,7 @@ def parallel_tool_response(tools: list[tuple[str, dict]], **kwargs) -> MockParal
         **kwargs: Additional MockParallelToolResponse fields.
     """
     return MockParallelToolResponse(tools=tools, **kwargs)
+
+
+# Union of all response types the queue can hold.
+AnyMockResponse = MockResponse | MockErrorResponse | MockToolResponse | MockParallelToolResponse

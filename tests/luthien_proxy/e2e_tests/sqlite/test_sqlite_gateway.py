@@ -10,19 +10,19 @@ Run:  uv run pytest -m sqlite_e2e tests/luthien_proxy/e2e_tests/sqlite/ -v --tim
 import pytest
 
 # --- Admin API ---
-from tests.luthien_proxy.e2e_tests.test_mock_admin_api import (
+from tests.luthien_proxy.e2e_tests.mock.test_mock_admin_api import (
     test_policy_list_includes_known_policies,
 )
 
 # --- Basic passthrough ---
-from tests.luthien_proxy.e2e_tests.test_mock_basic import (
+from tests.luthien_proxy.e2e_tests.mock.test_mock_basic import (
     test_default_response_when_queue_empty,
     test_non_streaming_passthrough,
     test_streaming_passthrough,
 )
 
 # --- Error handling ---
-from tests.luthien_proxy.e2e_tests.test_mock_error_handling import (
+from tests.luthien_proxy.e2e_tests.mock.test_mock_error_handling import (
     test_backend_400_propagates_error_response,
     test_backend_429_propagates_error_response,
     test_backend_500_propagates_error_response,
@@ -31,7 +31,7 @@ from tests.luthien_proxy.e2e_tests.test_mock_error_handling import (
 )
 
 # --- Onboarding policy ---
-from tests.luthien_proxy.e2e_tests.test_mock_onboarding_policy import (
+from tests.luthien_proxy.e2e_tests.mock.test_mock_onboarding_policy import (
     test_first_turn_appends_welcome,
     test_first_turn_streaming_appends_welcome,
     test_first_turn_streaming_tool_use_no_crash,
@@ -40,7 +40,7 @@ from tests.luthien_proxy.e2e_tests.test_mock_onboarding_policy import (
 )
 
 # --- Policies ---
-from tests.luthien_proxy.e2e_tests.test_mock_policies import (
+from tests.luthien_proxy.e2e_tests.mock.test_mock_policies import (
     test_all_caps_non_streaming,
     test_all_caps_streaming,
     test_policy_non_streaming_smoke,
@@ -50,7 +50,7 @@ from tests.luthien_proxy.e2e_tests.test_mock_policies import (
 )
 
 # --- Policy management ---
-from tests.luthien_proxy.e2e_tests.test_mock_policy_management import (
+from tests.luthien_proxy.e2e_tests.mock.test_mock_policy_management import (
     test_get_current_policy_returns_policy_info,
     test_policy_takes_effect_on_next_request,
     test_set_invalid_policy_returns_error,
@@ -58,7 +58,7 @@ from tests.luthien_proxy.e2e_tests.test_mock_policy_management import (
 )
 
 # --- Request forwarding ---
-from tests.luthien_proxy.e2e_tests.test_mock_request_forwarding import (
+from tests.luthien_proxy.e2e_tests.mock.test_mock_request_forwarding import (
     test_metadata_forwarded,
     test_model_forwarded,
     test_system_prompt_forwarded,
@@ -66,19 +66,19 @@ from tests.luthien_proxy.e2e_tests.test_mock_request_forwarding import (
 )
 
 # --- Session history ---
-from tests.luthien_proxy.e2e_tests.test_mock_session_history import (
+from tests.luthien_proxy.e2e_tests.mock.test_mock_session_history import (
     test_session_list_includes_recent_session,
     test_session_stored_after_request,
 )
 
 # --- Special characters ---
-from tests.luthien_proxy.e2e_tests.test_mock_special_chars import (
+from tests.luthien_proxy.e2e_tests.mock.test_mock_special_chars import (
     test_allcaps_passes_through_emoji,
     test_noop_policy_preserves_unicode,
 )
 
 # --- Streaming structure ---
-from tests.luthien_proxy.e2e_tests.test_mock_streaming_structure import (
+from tests.luthien_proxy.e2e_tests.mock.test_mock_streaming_structure import (
     test_anthropic_streaming_event_lifecycle,
     test_anthropic_streaming_message_start_structure,
 )

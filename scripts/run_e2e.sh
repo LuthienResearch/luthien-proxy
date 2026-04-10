@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2317 # Functions called indirectly via "run_$tier" and trap
+# shellcheck disable=SC2317,SC2329 # Functions called indirectly via "run_$tier" and trap
 # ABOUTME: Orchestrates e2e test tiers with automatic setup and teardown.
-# ABOUTME: Handles sqlite_e2e (no infra), mock_e2e (in-process), and real e2e (Docker + API key).
+# ABOUTME: Handles sqlite_e2e (no infra), mock_e2e (in-process + MockAnthropicClient), and real e2e (Docker + API key).
 #
 # Usage:
 #   ./scripts/run_e2e.sh              # Run all available tiers
@@ -260,72 +260,21 @@ run_sqlite() {
 # --- Tier: mock ---
 
 run_mock() {
-    header "Mock E2E Tests (in-process gateway + mock Anthropic server)"
+    header "Mock E2E Tests (in-process gateway + MockAnthropicClient)"
 
-    # Start an in-process gateway + mock server (no Docker needed)
-    info "Starting in-process gateway..."
-    local config_json gateway_pid
-    config_json="$(mktemp /tmp/mock-gateway-XXXXXX.json)"
-
-    uv run python scripts/start_mock_gateway.py > "$config_json" &
-    gateway_pid=$!
-    MOCK_GATEWAY_PID=$gateway_pid
-
-    # Wait for the helper to print its config (up to 15s)
-    local attempts=0
-    while [[ ! -s "$config_json" ]]; do
-        if ! kill -0 "$gateway_pid" 2>/dev/null; then
-            fail "Gateway process died during startup"
-            rm -f "$config_json"
-            return 1
-        fi
-        attempts=$((attempts + 1))
-        if [[ $attempts -ge 15 ]]; then
-            fail "Gateway did not start within 15s"
-            kill "$gateway_pid" 2>/dev/null
-            rm -f "$config_json"
-            return 1
-        fi
-        sleep 1
-    done
-
-    # Read and validate config from the helper (single process, validates JSON)
-    local config_vals
-    config_vals="$(uv run python -c "
-import json, sys
-try:
-    d = json.load(open('$config_json'))
-    print(d['gateway_url'], d['mock_port'], d['api_key'], d['admin_api_key'])
-except (json.JSONDecodeError, KeyError) as e:
-    print(f'Invalid config JSON: {e}', file=sys.stderr)
-    sys.exit(1)
-")" || { fail "Failed to parse gateway config"; rm -f "$config_json"; return 1; }
-    read -r gw_url mock_port gw_api_key gw_admin_key <<< "$config_vals"
-    rm -f "$config_json"
-
-    ok "Gateway ready at $gw_url (mock on port $mock_port)"
-
-    export E2E_GATEWAY_URL="$gw_url"
-    export E2E_API_KEY="$gw_api_key"
-    export E2E_ADMIN_API_KEY="$gw_admin_key"
-    export MOCK_ANTHROPIC_PORT="$mock_port"
-    export MOCK_ANTHROPIC_HOST="localhost"
     export ENABLE_REQUEST_LOGGING="true"
+    export MOCK_ANTHROPIC_HOST="localhost"
 
     info "Running tests..."
     local exit_code=0
     uv run pytest \
         -m mock_e2e \
-        tests/luthien_proxy/e2e_tests/ \
+        tests/luthien_proxy/e2e_tests/mock/ \
         -v --timeout=30 --no-cov \
         "${STEPWISE_ARGS[@]}" \
         ${PYTEST_EXTRA[@]+"${PYTEST_EXTRA[@]}"} \
     || exit_code=$?
 
-    # Shut down the in-process gateway (also cleaned up by trap EXIT)
-    kill "$gateway_pid" 2>/dev/null
-    wait "$gateway_pid" 2>/dev/null
-    MOCK_GATEWAY_PID=""
     return "$exit_code"
 }
 
