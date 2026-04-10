@@ -162,7 +162,7 @@ After `luthien onboard`, the gateway runs with `AUTH_MODE=both`, `ADMIN_API_KEY`
 
 You only need `PROXY_API_KEY` / `ANTHROPIC_API_KEY` if you want a shared server-managed Anthropic credential for multiple clients. For a single Claude Pro/Max user on localhost, neither is required.
 
-> **Source-clone note**: `./scripts/start_gateway.sh` populates `.env` from `.env.local.example`, which seeds a dev `PROXY_API_KEY` for convenience. If you want pure passthrough via the source-clone path, remove the `PROXY_API_KEY` line from your `.env`.
+> **Source-clone note**: `./scripts/start_gateway.sh` populates `.env` from `.env.local.example`, which seeds a dev `PROXY_API_KEY=sk-local-dev` for convenience, and the script itself defaults `PROXY_API_KEY` to `sk-luthien-dev-key` if unset in the environment. The source-clone path is meant for gateway development, not for users who want pure passthrough — use `luthien onboard` for that.
 
 #### Configuring keys manually
 

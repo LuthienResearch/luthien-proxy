@@ -211,7 +211,8 @@ All gateway configuration is defined in `src/luthien_proxy/config_fields.py` —
 ### Environment Setup
 
 - Copy `.env.example` to `.env`; never commit secrets.
-- Key env vars: `DATABASE_URL`, `POLICY_CONFIG`, `ADMIN_API_KEY`. (`REDIS_URL` only needed for Docker Compose deployments.) See [`dev/context/authentication.md`](dev/context/authentication.md) for the full auth picture — `PROXY_API_KEY` and `ANTHROPIC_API_KEY` are both optional and only apply in specific auth modes.
+- Key env vars: `DATABASE_URL`, `POLICY_CONFIG`, `ADMIN_API_KEY`. (`REDIS_URL` only needed for Docker Compose deployments.)
+  - `PROXY_API_KEY` and `ANTHROPIC_API_KEY` are optional and only apply in specific auth modes — see [`dev/context/authentication.md`](dev/context/authentication.md).
 - For dockerless dev, leave `DATABASE_URL` unset — defaults to `~/.luthien/local.db` (no Postgres needed).
 - All config values can be overridden via CLI flags: `python -m luthien_proxy.main --gateway-port 9000`.
 - Keep lint, test, and type-check settings consolidated in `pyproject.toml`; avoid extra config files unless necessary.
