@@ -31,7 +31,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
-import httpx
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
     InputJSONDelta,
@@ -57,6 +56,7 @@ from luthien_proxy.policies.supply_chain_guard_utils import (
     format_incoming_warning,
     is_allowlisted,
     parse_install_commands,
+    redact_credentials,
 )
 from luthien_proxy.policy_core import AnthropicHookPolicy, BasePolicy
 from luthien_proxy.policy_core.anthropic_execution_interface import AnthropicPolicyEmission
@@ -113,19 +113,15 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
         self.config = self._init_config(config, SupplyChainGuardConfig)
         self._allowlist: frozenset[str] = frozenset(self.config.allowlist)
         self._threshold: Severity = self.config.severity_threshold_enum
-        if osv_client is not None:
-            self._osv = osv_client
-        else:
-            # Share a single httpx client across all OSV lookups so every query
-            # reuses the existing TLS connection instead of paying a handshake
-            # per-package. The policy is a singleton living for the process
-            # lifetime, so the client does too — no cleanup hook needed.
-            self._http_client = httpx.AsyncClient(timeout=self.config.osv_timeout_seconds)
-            self._osv = OSVClient(
-                api_url=self.config.osv_api_url,
-                timeout_seconds=self.config.osv_timeout_seconds,
-                http_client=self._http_client,
-            )
+        # OSVClient defaults to using the module-level shared httpx.AsyncClient,
+        # so every query reuses the existing connection pool without the policy
+        # instance needing to own (and clean up) a client. This is the safer
+        # sharing boundary given that policies may be hot-swapped by the admin
+        # API without a cleanup hook being invoked.
+        self._osv = osv_client or OSVClient(
+            api_url=self.config.osv_api_url,
+            timeout_seconds=self.config.osv_timeout_seconds,
+        )
         logger.info(
             "SupplyChainGuardPolicy initialized: threshold=%s, allowlist_size=%d, fail_closed=%s",
             self._threshold.label,
@@ -444,6 +440,7 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
                 {
                     "summary": "Blocked unparseable install command",
                     "reason": analysis.hard_block_reason,
+                    "command": redact_credentials(command),
                 },
             )
             return format_hard_block_message(analysis.hard_block_reason, command=command)
@@ -461,6 +458,7 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
             "policy.supply_chain_guard.blocked",
             {
                 "summary": f"Blocked install of {len(blocking)} vulnerable package(s)",
+                "command": redact_credentials(command),
                 "packages": [
                     {
                         "ecosystem": r.package.ecosystem,

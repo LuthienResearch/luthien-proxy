@@ -463,16 +463,50 @@ def _parse_gem_packages(tokens: list[str]) -> list[PackageRef]:
 
 
 def _parse_composer_packages(tokens: list[str]) -> list[PackageRef]:
-    """Parse ``composer require`` args into Packagist PackageRefs."""
+    """Parse ``composer require`` args into Packagist PackageRefs.
+
+    Composer accepts both ``vendor/name:^1.0`` (single token) and ``vendor/name
+    "^1.0"`` (two tokens). The two-token form previously produced a phantom
+    ``^1.0`` PackageRef. Packagist package names always contain ``/``, so any
+    following token without ``/`` that looks like a version specifier is
+    attached to the preceding package.
+    """
     positional = _strip_flags(tokens, _COMPOSER_VALUE_FLAGS)
     refs: list[PackageRef] = []
-    for raw in positional:
+    i = 0
+    while i < len(positional):
+        raw = positional[i]
         if ":" in raw:
             name, _, version = raw.partition(":")
             refs.append(PackageRef(ecosystem="Packagist", name=name, version=version or None))
-        else:
-            refs.append(PackageRef(ecosystem="Packagist", name=raw))
+            i += 1
+            continue
+        if "/" in raw:
+            name = raw
+            version: str | None = None
+            # Next token is a candidate version if it's a specifier shape
+            # and isn't itself a package name.
+            if i + 1 < len(positional):
+                next_tok = positional[i + 1]
+                if "/" not in next_tok and _looks_like_version_specifier(next_tok):
+                    version = _normalise_npm_version(next_tok)
+                    i += 2
+                    refs.append(PackageRef(ecosystem="Packagist", name=name, version=version))
+                    continue
+            refs.append(PackageRef(ecosystem="Packagist", name=name, version=version))
+            i += 1
+            continue
+        # Token without `/` and not preceded by a package — skip rather than
+        # emit a phantom ref.
+        i += 1
     return refs
+
+
+def _looks_like_version_specifier(tok: str) -> bool:
+    """Heuristic: does ``tok`` look like a package version / range specifier?"""
+    if not tok:
+        return False
+    return tok[0] in "0123456789^~<>=*!" or tok in {"latest", "next", "beta", "alpha"}
 
 
 def _extract_install_segment(tokens: list[str]) -> list[list[str]] | None:
@@ -715,29 +749,10 @@ def parse_install_commands(command: str, _depth: int = 0) -> list[PackageRef]:
 # =============================================================================
 
 
-# Keywords that indicate the user is (probably) trying to install something.
-# Used to decide whether a suspicious-but-unparseable command should be
-# hard-blocked or quietly ignored. This list is intentionally broader than
-# the set of installer heads we parse — a command naming `poetry` or `conda`
-# is suspicious enough to block even though we don't parse those.
-_INSTALL_KEYWORD_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"\b("
-    r"pip|pip3|pipx|uv|"
-    r"npm|yarn|pnpm|bun|"
-    r"cargo|"
-    r"go|"
-    r"gem|"
-    r"composer|"
-    r"poetry|pipenv|rye|pdm|"
-    r"conda|mamba|micromamba|"
-    r"apt|apt-get|aptitude|dpkg|"
-    r"brew|snap|"
-    r"easy_install"
-    r")\b"
-)
-
-# Things we can't safely parse: command substitution and pipe-to-interpreter.
-_COMMAND_SUB_CHARS: Final[re.Pattern[str]] = re.compile(r"\$\(|`|\$\{")
+# Things we can't safely parse: command substitution, variable expansion,
+# and process substitution — all forms where the shell executes or
+# interpolates content that we can't see at parse time.
+_COMMAND_SUB_CHARS: Final[re.Pattern[str]] = re.compile(r"\$\(|`|\$\{|<\(|>\(")
 _PIPE_TO_INTERP: Final[re.Pattern[str]] = re.compile(
     r"\|\s*(?:sh|bash|zsh|dash|ksh|fish|python|python3|py|node|ruby|perl|tclsh|lua)\b"
 )
@@ -777,20 +792,49 @@ def _scan_unquoted(command: str, pattern: re.Pattern[str]) -> bool:
 def _detect_dangerous_construct(command: str) -> str | None:
     """Return a reason string if ``command`` has an unparseable construct.
 
-    Detects shell command substitution and pipe-to-interpreter at the
-    current shell layer only; for wrapped ``sh -c "…"`` arguments, callers
-    should use :func:`_find_hard_block_reason_recursive`.
+    Detects shell command substitution (``$(…)``, backticks, ``${…}``),
+    process substitution (``<(…)``, ``>(…)``), and pipe-to-interpreter at
+    the current shell layer only; for wrapped ``sh -c "…"`` arguments,
+    callers should use :func:`_find_hard_block_reason_recursive`.
     """
     if _scan_unquoted(command, _COMMAND_SUB_CHARS):
-        return "shell command substitution ($(...), backticks, or ${...})"
+        return "shell command/process substitution ($(...), backticks, ${...}, <(...), >(...))"
     if _scan_unquoted(command, _PIPE_TO_INTERP):
         return "pipe to shell/interpreter (e.g. '| sh', '| bash', '| python')"
     return None
 
 
-def _looks_like_install(command: str) -> bool:
-    """Heuristic: does this command mention any installer keyword?"""
-    return _INSTALL_KEYWORD_PATTERN.search(command) is not None
+def _structural_looks_like_install(command: str) -> bool:
+    """Structural check: does any pipeline segment of ``command`` look like an install?
+
+    Uses the same tokenising/wrapper-stripping logic as the main parser
+    and asks "is the head token (after wrappers) a package manager we
+    recognise, followed by an install verb?". That's stricter than a
+    regex-anywhere check — ``go run $(date)`` won't match because ``run``
+    is not an install verb, but ``go install foo`` will.
+    """
+    try:
+        tokens = shlex.split(_normalise_chain_operators(command), posix=True)
+    except ValueError:
+        return False
+    for segment in _split_on_chaining(tokens):
+        stripped = _strip_wrapper_prefix(segment)
+        if not stripped:
+            continue
+        # A recognised-and-parsed install form (pip/uv/npm/cargo/go/gem/composer/
+        # python -m pip, etc.) — _extract_install_segment returns non-None.
+        if _extract_install_segment(stripped) is not None:
+            return True
+        # An install form we don't parse but do recognise (poetry/conda/apt/etc.)
+        if len(stripped) < 2:
+            continue
+        head = stripped[0]
+        verb = stripped[1]
+        if head not in _UNSUPPORTED_MANAGER_MESSAGES and head not in _SYSTEM_MANAGER_MESSAGES:
+            continue
+        if verb in _INSTALL_VERBS or verb in _HEAD_SPECIFIC_VERBS.get(head, frozenset()):
+            return True
+    return False
 
 
 @dataclass(frozen=True)
@@ -812,11 +856,13 @@ class CommandAnalysis:
 def analyze_command(command: str) -> CommandAnalysis:
     """Analyse a shell command for supply-chain safety.
 
-    Runs dangerous-construct detection before package extraction: if the
-    command mixes an installer keyword with command substitution or a pipe
-    to an interpreter, the command can't be cleared by OSV lookup alone and
-    is marked for hard-block. The scan also descends into ``sh -c "…"`` and
-    ``bash -c "…"`` arguments so a wrapper can't hide an unsafe inner form.
+    Runs dangerous-construct detection and unverifiable-form detection
+    before package extraction: if the command mixes a structural install
+    shape with command substitution, pipe-to-interpreter, a requirements
+    file, a URL/VCS install, or a local path, the command can't be
+    cleared by OSV lookup alone and is marked for hard-block. The scan
+    also descends into ``sh -c "…"`` and ``bash -c "…"`` arguments so a
+    wrapper can't hide an unsafe inner form.
     """
     if not command:
         return CommandAnalysis(packages=(), hard_block_reason=None)
@@ -824,6 +870,13 @@ def analyze_command(command: str) -> CommandAnalysis:
     reason = _find_hard_block_reason_recursive(command, depth=0)
     if reason is not None:
         return CommandAnalysis(packages=(), hard_block_reason=reason)
+
+    # Unverifiable install forms (pip -r, pip -e, git+URL, local path, wheel
+    # file, etc.) are structurally pip/npm/etc commands but have arguments
+    # that OSV can't verify. Without this check they silently pass through.
+    unverifiable = _detect_unverifiable_install_form(command)
+    if unverifiable is not None:
+        return CommandAnalysis(packages=(), hard_block_reason=unverifiable)
 
     packages = tuple(parse_install_commands(command))
 
@@ -905,6 +958,103 @@ def _detect_unsupported_install_form(command: str) -> str | None:
     return None
 
 
+# Pip flags whose presence means OSV can't verify the install at all.
+_PIP_UNVERIFIABLE_FLAGS: Final[dict[str, str]] = {
+    "-r": "`pip install -r` reads packages from a requirements file",
+    "--requirement": "`pip install --requirement` reads packages from a requirements file",
+    "-c": "`pip install -c` reads constraints from a file",
+    "--constraint": "`pip install --constraint` reads constraints from a file",
+    "-e": "`pip install -e` is an editable / local-path install",
+    "--editable": "`pip install --editable` is an editable / local-path install",
+}
+
+
+def _detect_unverifiable_install_form(command: str) -> str | None:
+    """Return a hard-block reason for supported install forms OSV can't verify.
+
+    The previous parser silently accepted these forms as "no parsed packages"
+    which then passed the guard. Examples that were bypasses:
+
+    - ``pip install -r requirements.txt`` — reads packages from a file
+    - ``pip install -e ./local`` — editable local path install
+    - ``pip install git+https://…`` — VCS install
+    - ``pip install ./wheel.whl`` — local wheel install
+    - ``pip install https://…/pkg.whl`` — URL install
+    - ``npm install git+https://…`` / ``npm install github:foo/bar`` — VCS
+    - ``npm install ./local-pkg`` — local-path install
+
+    The policy's threat model is "block installs of vulnerable packages
+    by name"; all the above forms install something that isn't a named
+    PyPI/npm package, so OSV can't verify them. Hard-block with a
+    specific message.
+    """
+    try:
+        tokens = shlex.split(_normalise_chain_operators(command), posix=True)
+    except ValueError:
+        return None
+
+    for segment in _split_on_chaining(tokens):
+        stripped = _strip_wrapper_prefix(segment)
+        parsed = _extract_install_segment(stripped)
+        if parsed is None:
+            continue
+        for parser_input in parsed:
+            marker = parser_input[0]
+            rest = parser_input[1:]
+            reason = _check_unverifiable_args(marker, rest)
+            if reason is not None:
+                return reason
+    return None
+
+
+def _check_unverifiable_args(marker: str, tokens: list[str]) -> str | None:
+    """Return a reason if any token is an unverifiable install argument."""
+    if marker == "__pip__":
+        for tok in tokens:
+            if tok in _PIP_UNVERIFIABLE_FLAGS:
+                return (
+                    f"{_PIP_UNVERIFIABLE_FLAGS[tok]} — OSV can only verify "
+                    "named packages, not the contents of a file or a local "
+                    "path. List packages explicitly, or allowlist the source."
+                )
+            # URL / VCS install
+            if "://" in tok or tok.startswith(("git+", "hg+", "svn+", "bzr+")):
+                return (
+                    "pip install from URL / VCS — OSV can only verify named "
+                    "packages from PyPI. Use named packages, or allowlist "
+                    "the source explicitly."
+                )
+            # Local path install
+            if tok.startswith(("./", "/", "../")) or tok == ".":
+                return (
+                    "pip install from a local path — OSV can only verify "
+                    "named packages from PyPI. List packages explicitly, "
+                    "or allowlist the path."
+                )
+            # Wheel / tarball file install
+            if tok.endswith((".whl", ".tar.gz", ".zip")):
+                return (
+                    "pip install from a wheel or tarball file — OSV can "
+                    "only verify named packages from PyPI. Use named "
+                    "packages, or allowlist the file explicitly."
+                )
+    elif marker == "__npm__":
+        for tok in tokens:
+            if tok.startswith(("git+", "github:", "gitlab:", "bitbucket:", "file:")):
+                return (
+                    "npm install from URL / VCS — OSV can only verify named "
+                    "packages from the npm registry. Use named packages, "
+                    "or allowlist the source explicitly."
+                )
+            if "://" in tok:
+                return "npm install from URL — OSV can only verify named packages from the npm registry."
+            if tok.startswith(("./", "/", "../")) or tok == ".":
+                return "npm install from a local path — OSV can only verify named packages from the npm registry."
+            if tok.endswith(".tgz"):
+                return "npm install from a tarball file — OSV can only verify named packages from the npm registry."
+    return None
+
+
 def _find_hard_block_reason_recursive(command: str, depth: int) -> str | None:
     """Find a hard-block reason at any shell level (bounded by ``depth``).
 
@@ -917,7 +1067,7 @@ def _find_hard_block_reason_recursive(command: str, depth: int) -> str | None:
 
     # Detect at this layer.
     reason = _detect_dangerous_construct(command)
-    if reason is not None and _looks_like_install(command):
+    if reason is not None and _structural_looks_like_install(command):
         return reason
 
     # Look for wrapped inner commands and recurse on their argument strings.
@@ -938,6 +1088,32 @@ def _find_hard_block_reason_recursive(command: str, depth: int) -> str | None:
 # =============================================================================
 
 
+# Module-level lazily-created httpx client shared across all OSVClient
+# instances. A module singleton is the right sharing boundary here because:
+# - policies are singletons and may be hot-swapped by the admin API; making
+#   the client owned by the policy instance leaks connection pools on swap
+#   (no `on_unload` hook exists today);
+# - httpx clients are safe to share across coroutines and tasks;
+# - module-level lifetime == process lifetime, which matches the implicit
+#   cleanup of any long-lived connection pool.
+_SHARED_HTTP_CLIENT: httpx.AsyncClient | None = None
+
+
+def _get_shared_http_client() -> httpx.AsyncClient:
+    """Return (creating if needed) the module-level httpx.AsyncClient.
+
+    Constructed lazily on first use so importing the module doesn't open
+    any sockets. Reused for the lifetime of the process.
+    """
+    global _SHARED_HTTP_CLIENT
+    if _SHARED_HTTP_CLIENT is None:
+        _SHARED_HTTP_CLIENT = httpx.AsyncClient(
+            timeout=httpx.Timeout(10.0, connect=5.0),
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        )
+    return _SHARED_HTTP_CLIENT
+
+
 class OSVClient:
     """Minimal async client for the OSV.dev v1 query endpoint."""
 
@@ -947,10 +1123,15 @@ class OSVClient:
         timeout_seconds: float = 5.0,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
-        """Initialize with endpoint URL, timeout, and optional shared client."""
+        """Initialize with endpoint URL, timeout, and optional injected client.
+
+        When ``http_client`` is None (the normal case), the module-level
+        shared client is used on first query so every OSVClient instance
+        reuses the same connection pool. Tests can still inject a mock.
+        """
         self._api_url = api_url
         self._timeout = timeout_seconds
-        self._client = http_client  # when None, a new client is created per request
+        self._client = http_client  # None → lazily resolved to shared client
 
     async def query(self, package: PackageRef) -> list[VulnInfo]:
         """Look up vulnerabilities for a single package.
@@ -963,16 +1144,10 @@ class OSVClient:
         if package.version:
             body["version"] = package.version
 
-        if self._client is not None:
-            response = await self._client.post(self._api_url, json=body, timeout=self._timeout)
-            response.raise_for_status()
-            payload = response.json()
-        else:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.post(self._api_url, json=body)
-                response.raise_for_status()
-                payload = response.json()
-
+        client = self._client if self._client is not None else _get_shared_http_client()
+        response = await client.post(self._api_url, json=body, timeout=self._timeout)
+        response.raise_for_status()
+        payload = response.json()
         return _parse_osv_response(payload)
 
 
@@ -1148,6 +1323,38 @@ def filter_blocking(
 
 
 # =============================================================================
+# Redaction
+# =============================================================================
+
+
+# Match URL-embedded credentials (scheme://user:pass@host). The credential
+# portion is whatever precedes the ``@`` after the ``://``. This is deliberately
+# broad so we catch any scheme (https, http, git+https, ftp, …) and anything
+# the shell would pass through.
+_URL_CREDENTIAL_RE: Final[re.Pattern[str]] = re.compile(r"([a-zA-Z][a-zA-Z0-9+.\-]*://)[^/@\s]+:[^/@\s]+@")
+
+# Long hex/base64 sequences that look like API keys, especially when attached
+# to flags like ``--token`` or ``--password``. We only redact when attached to
+# a known sensitive flag; redacting bare hex strings would mangle git SHAs.
+_SENSITIVE_FLAG_VALUE_RE: Final[re.Pattern[str]] = re.compile(
+    r"(--(?:token|password|api[-_]key|auth|secret|header)[=\s])(\S+)",
+    re.IGNORECASE,
+)
+
+
+def redact_credentials(text: str) -> str:
+    """Strip embedded credentials from a command or URL.
+
+    Used before putting a command into a blocked-message (visible to the LLM)
+    or an event payload (stored in conversation_events). The policy should
+    not be the vector that leaks credentials to its own telemetry pipeline.
+    """
+    text = _URL_CREDENTIAL_RE.sub(r"\1<redacted>@", text)
+    text = _SENSITIVE_FLAG_VALUE_RE.sub(r"\1<redacted>", text)
+    return text
+
+
+# =============================================================================
 # Formatters
 # =============================================================================
 
@@ -1168,7 +1375,7 @@ def format_blocked_message(
     """
     lines: list[str] = ["⛔ Supply chain guard blocked this install.", ""]
     if command:
-        lines.append(f"Command: {command}")
+        lines.append(f"Command: {redact_credentials(command)}")
         lines.append("")
 
     vulnerable = [r for r in results if r.blocking_vulns(threshold)]
@@ -1224,7 +1431,7 @@ def format_hard_block_message(reason: str, command: str | None = None) -> str:
     ]
     if command:
         lines.append("")
-        lines.append(f"Command: {command}")
+        lines.append(f"Command: {redact_credentials(command)}")
     lines.append("")
     lines.append(
         "This command form cannot be verified against the OSV vulnerability "
@@ -1288,4 +1495,5 @@ __all__ = [
     "format_blocked_message",
     "format_hard_block_message",
     "format_incoming_warning",
+    "redact_credentials",
 ]
