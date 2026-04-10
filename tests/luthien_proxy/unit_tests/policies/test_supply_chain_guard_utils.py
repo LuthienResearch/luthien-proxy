@@ -575,6 +575,127 @@ class TestUnverifiableInstallForms:
         assert len(result.packages) == 2
 
 
+class TestChainedUnsupportedBypass:
+    """Chained commands with a parsable installer in front of an unsupported
+    one must all hard-block. Regression for seventh-pass review blocker."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "pip install requests==2.31.0 && poetry add evil",
+            "pip install safe && conda install evil",
+            "pip install good && apt-get install bad",
+            "npm install react && pipenv install evil",
+            "cargo install ripgrep && brew install openssl",
+            "pip install foo ; poetry add evil",
+            "pip install foo | conda install evil",
+            'sh -c "pip install foo && conda install evil"',
+            "poetry add evil && pip install requests==2.31.0",
+        ],
+    )
+    def test_chained_unsupported_is_blocked(self, command: str):
+        result = analyze_command(command)
+        assert result.hard_block_reason is not None, f"{command!r} not blocked"
+
+    def test_clean_chain_still_parses(self):
+        result = analyze_command("pip install requests==2.31.0 && npm install react")
+        assert result.hard_block_reason is None
+        assert len(result.packages) == 2
+        names = {p.name for p in result.packages}
+        assert names == {"requests", "react"}
+
+
+class TestBackgroundOperatorSplit:
+    """`pip install foo & curl …` must split on `&` so curl/`&` don't end up
+    as phantom PyPI packages."""
+
+    def test_background_operator_splits_segments(self):
+        refs = parse_install_commands("pip install foo & echo done")
+        assert len(refs) == 1
+        assert refs[0].name == "foo"
+
+    def test_background_does_not_emit_phantoms(self):
+        refs = parse_install_commands("pip install foo & curl http://evil")
+        names = [r.name for r in refs]
+        assert names == ["foo"]
+
+    def test_and_and_still_works(self):
+        refs = parse_install_commands("pip install foo && npm install bar")
+        names = sorted(r.name for r in refs)
+        assert names == ["bar", "foo"]
+
+
+class TestCacheKeyNormalisation:
+    """PEP 503 name canonicalisation so `Pillow`/`pillow`/`re_quests`/`re-quests`
+    all share a single cache entry on PyPI."""
+
+    @pytest.mark.parametrize(
+        ("name1", "name2"),
+        [
+            ("Pillow", "pillow"),
+            ("Requests", "requests"),
+            ("django_rest_framework", "django-rest-framework"),
+            ("Django.REST.framework", "django-rest-framework"),
+            ("foo_bar.baz", "foo-bar-baz"),
+        ],
+    )
+    def test_pypi_names_canonicalised(self, name1: str, name2: str):
+        assert PackageRef("PyPI", name1, "1.0").cache_key() == PackageRef("PyPI", name2, "1.0").cache_key()
+
+    def test_version_part_preserved(self):
+        k = PackageRef("PyPI", "Foo", "1.0").cache_key()
+        assert k.endswith(":1.0")
+
+    def test_unversioned_uses_wildcard(self):
+        k = PackageRef("PyPI", "Foo").cache_key()
+        assert k.endswith(":*")
+
+    def test_npm_unscoped_is_lowercased(self):
+        assert PackageRef("npm", "LeftPad").cache_key() == PackageRef("npm", "leftpad").cache_key()
+
+    def test_npm_scoped_preserves_case(self):
+        a = PackageRef("npm", "@MyScope/Pkg").cache_key()
+        b = PackageRef("npm", "@myscope/pkg").cache_key()
+        assert a != b
+
+    def test_other_ecosystems_lowercased(self):
+        assert PackageRef("crates.io", "Ripgrep").cache_key() == PackageRef("crates.io", "ripgrep").cache_key()
+
+
+class TestCvssV4DefensiveFallback:
+    """Unparseable CVSS vectors (most commonly CVSS v4) must not degrade
+    to UNKNOWN — the policy assumes HIGH instead so they fail safe."""
+
+    def test_v4_vector_without_label_is_high(self):
+        entry = {
+            "id": "CVE-2025-TEST",
+            "severity": [
+                {
+                    "type": "CVSS_V4",
+                    "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H",
+                }
+            ],
+        }
+        assert _extract_max_severity(entry) is Severity.HIGH
+
+    def test_v4_vector_with_db_specific_label_uses_label(self):
+        entry = {
+            "severity": [{"type": "CVSS_V4", "score": "CVSS:4.0/UNPARSEABLE"}],
+            "database_specific": {"severity": "CRITICAL"},
+        }
+        assert _extract_max_severity(entry) is Severity.CRITICAL
+
+    def test_v3_vector_still_parses_correctly(self):
+        entry = {"severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:L/I:N/A:N"}]}
+        # 1.8 → LOW
+        assert _extract_max_severity(entry) is Severity.LOW
+
+    def test_no_vector_no_label_stays_unknown(self):
+        # Regression: empty entries must still produce UNKNOWN, not HIGH.
+        entry = {"id": "CVE-X"}
+        assert _extract_max_severity(entry) is Severity.UNKNOWN
+
+
 class TestAlternativeSourceBypass:
     """Alt-source flags redirect installs to non-default registries that
     OSV's data does not cover — a significant bypass if not hard-blocked.

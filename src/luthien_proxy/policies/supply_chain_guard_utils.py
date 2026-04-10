@@ -74,16 +74,25 @@ class Severity(IntEnum):
         return self.name
 
 
-# OSV uses ecosystem identifiers that differ from the CLI name. This map
-# converts a CLI install command to the OSV ecosystem string.
-ECOSYSTEM_LABELS: Final[dict[str, str]] = {
-    "pip": "PyPI",
-    "npm": "npm",
-    "cargo": "crates.io",
-    "go": "Go",
-    "gem": "RubyGems",
-    "composer": "Packagist",
-}
+_PYPI_NAME_NORM: Final[re.Pattern[str]] = re.compile(r"[-_.]+")
+
+
+def _canonicalise_name(ecosystem: str, name: str) -> str:
+    """Return the canonical package name for cache-key purposes.
+
+    PyPI follows PEP 503: lowercase, collapse any run of ``-``/``_``/``.``
+    into a single ``-``. npm is case-sensitive for scoped packages but
+    lowercase for unscoped. Other ecosystems: lowercase only.
+    """
+    if ecosystem == "PyPI":
+        return _PYPI_NAME_NORM.sub("-", name).lower()
+    if ecosystem == "npm":
+        if name.startswith("@"):
+            return name  # scoped packages retain case
+        return name.lower()
+    # crates.io, Go, RubyGems, Packagist, etc. — case-insensitive in
+    # practice but we lowercase to stabilise cache keys.
+    return name.lower()
 
 
 @dataclass(frozen=True)
@@ -99,10 +108,13 @@ class PackageRef:
 
         OSV returns version-specific results when a version is supplied in
         the query body, so the cache key must also be version-specific to
-        avoid cross-version contamination.
+        avoid cross-version contamination. The name is canonicalised per
+        ecosystem so ``Requests`` / ``requests`` / ``re_quests`` / ``re-quests``
+        all share a single PyPI cache entry.
         """
         version_part = self.version or "*"
-        return f"osv:{self.ecosystem}:{self.name}:{version_part}"
+        canonical = _canonicalise_name(self.ecosystem, self.name)
+        return f"osv:{self.ecosystem}:{canonical}:{version_part}"
 
 
 @dataclass(frozen=True)
@@ -188,6 +200,17 @@ class SupplyChainGuardConfig(BaseModel):
             "fail_closed. Set to 0 to disable negative caching entirely."
         ),
         ge=0,
+    )
+    max_concurrent_lookups: int = Field(
+        default=10,
+        description=(
+            "Upper bound on concurrent OSV lookups per request. Bounds "
+            "fan-out on commands that install many packages at once (e.g. "
+            "`pip install pkg1 pkg2 pkg3 ... pkgN`) so a single request "
+            "can't exhaust the shared HTTP pool or be used as an OSV DoS "
+            "vector via the incoming-request scanner. Must be >= 1."
+        ),
+        ge=1,
     )
     severity_threshold: str = Field(
         default="HIGH",
@@ -645,7 +668,12 @@ _PARSERS: Final[dict[str, Any]] = {
 }
 
 
-_CHAIN_PATTERN: Final[re.Pattern[str]] = re.compile(r"(\|\||&&|;|\|)")
+# Shell chaining operators we split on. Order matters: `&&` must come
+# before `&`, `||` before `|`, otherwise the alternation will match the
+# shorter operator first and leave a stray character. `&` alone is bash
+# "run in background"; a command with `&` separates two independent
+# commands the same way `;` does.
+_CHAIN_PATTERN: Final[re.Pattern[str]] = re.compile(r"(\|\||&&|;|\||&)")
 
 
 def _normalise_chain_operators(command: str) -> str:
@@ -688,11 +716,17 @@ def _normalise_chain_operators(command: str) -> str:
 
 
 def _split_on_chaining(tokens: list[str]) -> list[list[str]]:
-    """Split a token list on shell chaining operators (``&&``, ``||``, ``;``, ``|``)."""
+    """Split a token list on shell chaining operators.
+
+    Handles ``&&``, ``||``, ``;``, ``|`` (pipe), and ``&`` (background).
+    The background form means "run this part and continue" — for our
+    purposes, semantically identical to ``;`` in that it separates two
+    independent commands that must both be inspected.
+    """
     segments: list[list[str]] = []
     current: list[str] = []
     for tok in tokens:
-        if tok in {"&&", "||", ";", "|"}:
+        if tok in {"&&", "||", ";", "|", "&"}:
             if current:
                 segments.append(current)
                 current = []
@@ -936,13 +970,16 @@ def analyze_command(command: str) -> CommandAnalysis:
     if unverifiable is not None:
         return CommandAnalysis(packages=(), hard_block_reason=unverifiable)
 
+    # Unsupported install forms (`poetry add`, `conda install`, `apt-get
+    # install`, etc.) must be checked regardless of whether other segments
+    # parsed successfully. Otherwise `pip install safe && poetry add evil`
+    # lets the poetry install through because the pip segment populated
+    # `packages` and skipped the unsupported check. Seventh-pass review bypass.
+    unsupported_reason = _detect_unsupported_install_form(command)
+    if unsupported_reason is not None:
+        return CommandAnalysis(packages=(), hard_block_reason=unsupported_reason)
+
     packages = tuple(parse_install_commands(command))
-
-    if not packages:
-        unsupported_reason = _detect_unsupported_install_form(command)
-        if unsupported_reason is not None:
-            return CommandAnalysis(packages=(), hard_block_reason=unsupported_reason)
-
     return CommandAnalysis(packages=packages, hard_block_reason=None)
 
 
@@ -985,7 +1022,7 @@ _HEAD_SPECIFIC_VERBS: Final[dict[str, frozenset[str]]] = {
 }
 
 
-def _detect_unsupported_install_form(command: str) -> str | None:
+def _detect_unsupported_install_form(command: str, _depth: int = 0) -> str | None:
     """Return a hard-block reason if ``command`` is an install form we can't parse.
 
     Unlike the broad keyword-anywhere check, this requires the package
@@ -994,7 +1031,12 @@ def _detect_unsupported_install_form(command: str) -> str | None:
     prefixes). That avoids false positives like ``pip help install`` or
     ``npm view react``, where ``install`` appears as an argument and not
     a subcommand.
+
+    Recurses into ``sh -c "…"``/``bash -c "…"`` arguments (bounded by
+    ``_depth``) so wrappers can't hide an unsupported install form.
     """
+    if _depth > 3:
+        return None
     try:
         tokens = shlex.split(_normalise_chain_operators(command), posix=True)
     except ValueError:
@@ -1005,6 +1047,14 @@ def _detect_unsupported_install_form(command: str) -> str | None:
         if len(stripped) < 2:
             continue
         head = stripped[0]
+
+        # Recurse through `sh -c "…"` / `bash -c "…"` wrappers.
+        if head in {"sh", "bash", "zsh", "dash"} and len(stripped) >= 3 and stripped[1] == "-c":
+            inner = _detect_unsupported_install_form(stripped[2], _depth + 1)
+            if inner is not None:
+                return inner
+            continue
+
         verb = stripped[1]
         head_verbs = _HEAD_SPECIFIC_VERBS.get(head, frozenset())
         if verb not in _INSTALL_VERBS and verb not in head_verbs:
@@ -1302,16 +1352,23 @@ def _parse_osv_response(payload: Any) -> list[VulnInfo]:
 def _extract_max_severity(entry: dict[str, Any]) -> Severity:
     """Pull the highest severity we can find in a single OSV vuln entry."""
     max_sev = Severity.UNKNOWN
+    saw_unparseable_vector = False
 
     # Top-level severity list (CVSS vectors + scores).
     for sev in entry.get("severity") or []:
         if not isinstance(sev, dict):
             continue
-        score = _parse_cvss_score(sev.get("score"))
+        raw_score = sev.get("score")
+        score = _parse_cvss_score(raw_score)
         if score is not None:
             candidate = Severity.from_cvss_score(score)
             if candidate > max_sev:
                 max_sev = candidate
+        elif isinstance(raw_score, str) and raw_score.strip().upper().startswith("CVSS:"):
+            # Vector string we don't know how to parse (most commonly CVSS
+            # v4, which we don't implement yet). Flag it so we can fall
+            # back to "assume HIGH" rather than letting it become UNKNOWN.
+            saw_unparseable_vector = True
 
     # database_specific.severity is usually a label like "HIGH".
     db_specific = entry.get("database_specific")
@@ -1329,6 +1386,15 @@ def _extract_max_severity(entry: dict[str, Any]) -> Severity:
             label_sev = Severity.from_label(aff_db.get("severity"))
             if label_sev > max_sev:
                 max_sev = label_sev
+
+    # Defensive: if the entry had a CVSS vector we couldn't parse (e.g.
+    # CVSS v4, which isn't implemented yet) and no other signal pinned it
+    # down, assume HIGH rather than letting it slip through as UNKNOWN.
+    # OSV only lists entries that are actual advisories, so "we can't read
+    # the score" should fail safe, not fail open.
+    if saw_unparseable_vector and max_sev is Severity.UNKNOWN:
+        logger.info("OSV advisory %s has unparseable CVSS vector; treating as HIGH", entry.get("id"))
+        max_sev = Severity.HIGH
 
     return max_sev
 
@@ -1620,7 +1686,6 @@ def _remediation_for(package: PackageRef) -> str:
 
 __all__ = [
     "Severity",
-    "ECOSYSTEM_LABELS",
     "PackageRef",
     "VulnInfo",
     "PackageCheckResult",

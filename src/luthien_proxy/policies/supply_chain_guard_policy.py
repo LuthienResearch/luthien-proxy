@@ -164,8 +164,7 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
         emit a text block explaining that evaluation was truncated so the caller
         sees that the install was not approved.
         """
-        state = context.get_request_state(self, _SupplyChainGuardState, _SupplyChainGuardState)
-        buffered_map = state.buffered_tool_uses
+        buffered_map = self._buffered(context)
         if not buffered_map:
             return []
 
@@ -294,16 +293,26 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
 
         Serial lookups against OSV would stall the streaming response by up
         to ``osv_timeout_seconds * N`` on a multi-package install. We gather
-        them instead; each lookup already has its own timeout.
+        them instead; each lookup already has its own timeout. Concurrency
+        is capped via a semaphore so an honest monorepo install (or an
+        adversarial incoming-request scan) can't exhaust the shared HTTP
+        pool or be used as an OSV-side DoS vector.
         """
         to_check = [p for p in packages if not is_allowlisted(p, self._allowlist)]
         if not to_check:
             return []
+
+        semaphore = asyncio.Semaphore(self.config.max_concurrent_lookups)
+
+        async def bounded_lookup(pkg: PackageRef) -> tuple[list[VulnInfo], str | None]:
+            async with semaphore:
+                return await self._lookup_vulns(pkg, context)
+
         # _lookup_vulns swallows its own exceptions and returns them in the
         # `error` field, so gather() can safely omit return_exceptions=True.
         # Keep that invariant — any exception escaping _lookup_vulns would
         # poison the whole response via gather's fail-fast semantics.
-        lookups = await asyncio.gather(*(self._lookup_vulns(p, context) for p in to_check))
+        lookups = await asyncio.gather(*(bounded_lookup(p) for p in to_check))
         return [
             PackageCheckResult(package=package, vulns=vulns, error=error)
             for package, (vulns, error) in zip(to_check, lookups)
