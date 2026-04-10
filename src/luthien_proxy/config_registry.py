@@ -161,9 +161,12 @@ class ConfigRegistry:
         """Assign one resolved value back to Settings, logging assignment failures."""
         if not hasattr(self._settings, name):
             return
+        # Broad except so pydantic.ValidationError (not a subclass of the
+        # built-in errors in pydantic v2) doesn't slip past if validate_assignment
+        # is ever enabled on Settings.
         try:
             setattr(self._settings, name, value)
-        except (AttributeError, TypeError, ValueError) as exc:
+        except Exception as exc:
             logger.warning(
                 "Failed to sync config '%s' to Settings: %s. get_settings().%s and registry.get('%s') will diverge.",
                 name,

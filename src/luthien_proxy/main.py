@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import enum
 import logging
 import os
 import secrets
+from collections.abc import MutableMapping
 from contextlib import asynccontextmanager
 
 import litellm
@@ -20,7 +22,7 @@ from redis.asyncio import Redis
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from luthien_proxy.admin import router as admin_router
-from luthien_proxy.config_fields import CONFIG_FIELDS
+from luthien_proxy.config_fields import CONFIG_FIELDS, CONFIG_FIELDS_BY_NAME
 from luthien_proxy.config_registry import ConfigRegistry, coerce_value
 from luthien_proxy.credential_manager import AuthMode, CredentialManager
 from luthien_proxy.debug import router as debug_router
@@ -525,6 +527,35 @@ def _is_railway() -> bool:
     return bool(os.environ.get("RAILWAY_SERVICE_NAME"))
 
 
+def propagate_cli_overrides_to_env(
+    cli_overrides: dict[str, object],
+    environ: MutableMapping[str, str] | None = None,
+) -> None:
+    """Write coerced CLI override values into an environment mapping.
+
+    Startup-critical reads (uvicorn port binding, connect_db, policy loading,
+    auth mode) all happen BEFORE the ConfigRegistry is constructed inside the
+    lifespan. Without this propagation, CLI flags for those fields are silently
+    ignored at boot. By injecting into os.environ, load_config_from_env() sees
+    the CLI values via get_settings() on the startup path.
+
+    Args:
+        cli_overrides: {field_name: coerced_value} from argparse.
+        environ: Mapping to write into. Defaults to os.environ; tests pass an
+            isolated dict to avoid polluting process state.
+    """
+    target = environ if environ is not None else os.environ
+    for name, value in cli_overrides.items():
+        meta = CONFIG_FIELDS_BY_NAME[name]
+        if isinstance(value, bool):
+            env_val = "true" if value else "false"
+        elif isinstance(value, enum.Enum):
+            env_val = str(value.value)
+        else:
+            env_val = str(value)
+        target[meta.env_var] = env_val
+
+
 def auto_provision_defaults() -> dict[str, str]:
     """Auto-provision sensible defaults for missing environment variables.
 
@@ -614,9 +645,9 @@ if __name__ == "__main__":
                 parser.add_argument(flag, type=str, default=None, help=field_meta.description)
         args = parser.parse_args()
 
-        # Collect CLI overrides (only non-None values) through _coerce so invalid
-        # input (e.g. --dogfood-mode ture, --auth-mode bogus) fails loudly with
-        # a clear error instead of silently landing as False / raw string.
+        # Collect CLI overrides (only non-None values) through coerce_value so
+        # invalid input (e.g. --dogfood-mode ture, --auth-mode bogus) fails loudly
+        # with a clear error instead of silently landing as False / raw string.
         cli_overrides: dict[str, object] = {}
         for field_meta in CONFIG_FIELDS:
             val = getattr(args, field_meta.name, None)
@@ -626,6 +657,13 @@ if __name__ == "__main__":
                 cli_overrides[field_meta.name] = coerce_value(field_meta, val)
             except (ValueError, TypeError) as exc:
                 parser.error(f"Invalid value for --{field_meta.name.replace('_', '-')}: {exc}")
+
+        # Propagate CLI overrides into os.environ so startup-critical reads (port
+        # binding, DB pool, policy loading — all executed BEFORE ConfigRegistry is
+        # constructed inside the lifespan) actually honor the flags.
+        if cli_overrides:
+            propagate_cli_overrides_to_env(cli_overrides)
+            clear_settings_cache()
 
         if args.local:
             configure_local_mode()

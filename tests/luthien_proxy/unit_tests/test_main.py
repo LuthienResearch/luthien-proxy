@@ -12,7 +12,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from luthien_proxy.credential_manager import AuthMode
-from luthien_proxy.main import auto_provision_defaults, connect_db, connect_redis, create_app, load_config_from_env
+from luthien_proxy.main import (
+    auto_provision_defaults,
+    connect_db,
+    connect_redis,
+    create_app,
+    load_config_from_env,
+    propagate_cli_overrides_to_env,
+)
 
 
 class TestLoadConfigFromEnv:
@@ -571,3 +578,47 @@ class TestConnectRedis:
 
             with pytest.raises(RuntimeError, match="Failed to connect to Redis"):
                 await connect_redis("redis://invalid:6379")
+
+
+class TestPropagateCliOverridesToEnv:
+    """CLI flags for startup-critical fields must land in the env mapping.
+
+    Otherwise the flow at startup — load_config_from_env → uvicorn.Config →
+    connect_db — reads from get_settings() which only consults env, bypassing
+    any cli_overrides dict that hasn't been synced back yet.
+    """
+
+    def test_int_field_propagated_as_decimal_string(self):
+        env: dict[str, str] = {}
+        propagate_cli_overrides_to_env({"gateway_port": 9999}, environ=env)
+        assert env["GATEWAY_PORT"] == "9999"
+
+    def test_bool_field_propagated_lowercase(self):
+        env: dict[str, str] = {}
+        propagate_cli_overrides_to_env({"dogfood_mode": True}, environ=env)
+        assert env["DOGFOOD_MODE"] == "true"
+        propagate_cli_overrides_to_env({"dogfood_mode": False}, environ=env)
+        assert env["DOGFOOD_MODE"] == "false"
+
+    def test_enum_field_propagated_as_value(self):
+        env: dict[str, str] = {}
+        propagate_cli_overrides_to_env({"auth_mode": AuthMode.PASSTHROUGH}, environ=env)
+        assert env["AUTH_MODE"] == "passthrough"
+
+    def test_str_field_propagated_verbatim(self):
+        env: dict[str, str] = {}
+        propagate_cli_overrides_to_env({"database_url": "postgresql://localhost/test"}, environ=env)
+        assert env["DATABASE_URL"] == "postgresql://localhost/test"
+
+    def test_cli_value_is_visible_via_get_settings_after_cache_clear(self, monkeypatch):
+        """Regression test for the startup flag bug: CLI override for gateway_port
+        must be visible to load_config_from_env() which reads via get_settings()."""
+        from luthien_proxy.settings import clear_settings_cache, get_settings
+
+        # monkeypatch.setenv tracks the var for automatic teardown cleanup.
+        monkeypatch.setenv("GATEWAY_PORT", "9999")
+        clear_settings_cache()
+        try:
+            assert get_settings().gateway_port == 9999
+        finally:
+            clear_settings_cache()

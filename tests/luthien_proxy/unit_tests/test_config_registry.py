@@ -245,7 +245,7 @@ class TestSetDbValue:
         assert settings.dogfood_mode is True
 
     @pytest.mark.asyncio
-    async def test_serializescoerce_valued_value_not_raw(self):
+    async def test_serializes_coerced_value_not_raw(self):
         """DB should store the canonical coerced value so raw strings like
         'true' become the JSON boolean true, not '"true"'."""
         mock_pool = MagicMock()
@@ -414,6 +414,23 @@ class TestConfigFieldsCompleteness:
             f"Only in Settings: {settings_fields - registry_fields}, "
             f"Only in CONFIG_FIELDS: {registry_fields - settings_fields}"
         )
+
+    def test_settings_defaults_match_config_fields(self):
+        """Settings field defaults must match CONFIG_FIELDS — regenerate drift guard.
+
+        Catches the case where config_fields.py changes a default but
+        generate_settings.py hasn't been re-run. dynamic_default fields are
+        skipped because their resolved value depends on the build environment.
+        """
+        for meta in CONFIG_FIELDS:
+            if meta.dynamic_default:
+                continue
+            field_info = Settings.model_fields[meta.name]
+            assert field_info.default == meta.default, (
+                f"Settings.{meta.name}.default={field_info.default!r} "
+                f"but CONFIG_FIELDS entry has default={meta.default!r}. "
+                f"Run: uv run python scripts/generate_settings.py"
+            )
 
     def test_no_duplicate_names(self):
         names = [f.name for f in CONFIG_FIELDS]
