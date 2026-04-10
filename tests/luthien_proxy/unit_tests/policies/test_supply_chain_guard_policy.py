@@ -683,6 +683,55 @@ class TestMisc:
         policy, _ = _make_policy()
         assert policy.short_policy_name == "SupplyChainGuard"
 
+    @pytest.mark.asyncio
+    async def test_multi_package_lookups_are_concurrent(self):
+        """Multi-package installs must not serialize their OSV lookups.
+
+        Regression for the reviewer's "25s streaming stall" concern: a
+        5-package install with a 5s per-call timeout would be 25s serial.
+        We verify concurrency by making the fake OSV client record the
+        order of entry into `query` and artificially yielding on each call —
+        if they run concurrently, all entries happen before any exit.
+        """
+        import asyncio as _asyncio
+
+        order: list[str] = []
+
+        class SlowFakeOSVClient:
+            def __init__(self):
+                self.calls: list[PackageRef] = []
+
+            async def query(self, package: PackageRef) -> list[VulnInfo]:
+                self.calls.append(package)
+                order.append(f"enter:{package.name}")
+                await _asyncio.sleep(0.01)  # yield to event loop
+                order.append(f"exit:{package.name}")
+                return []
+
+        osv = SlowFakeOSVClient()
+        policy = SupplyChainGuardPolicy(config=SupplyChainGuardConfig(), osv_client=cast(Any, osv))
+        ctx = _make_context()
+
+        results = await policy._check_packages(
+            [
+                PackageRef("PyPI", "a"),
+                PackageRef("PyPI", "b"),
+                PackageRef("PyPI", "c"),
+                PackageRef("PyPI", "d"),
+                PackageRef("PyPI", "e"),
+            ],
+            ctx,
+        )
+        assert len(results) == 5
+        # All 5 enter before any exit — this is only possible under concurrency.
+        enter_count = 0
+        for event in order:
+            if event.startswith("enter:"):
+                enter_count += 1
+            if event.startswith("exit:"):
+                break
+        assert enter_count == 5, f"Expected all 5 enters before first exit (concurrent); order was: {order}"
+
     def test_freeze_configured_state_passes(self):
         policy, _ = _make_policy()
         policy.freeze_configured_state()

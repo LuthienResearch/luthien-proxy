@@ -25,11 +25,13 @@ environments without a DB (tests, dockerless dev).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
+import httpx
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
     InputJSONDelta,
@@ -81,8 +83,9 @@ BASH_TOOL_NAME = "Bash"
 
 @dataclass
 class _BufferedBashToolUse:
+    # The tool name is always BASH_TOOL_NAME (we only buffer Bash blocks),
+    # so we don't store it.
     id: str
-    name: str
     input_json: str = ""
 
 
@@ -110,10 +113,19 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
         self.config = self._init_config(config, SupplyChainGuardConfig)
         self._allowlist: frozenset[str] = frozenset(self.config.allowlist)
         self._threshold: Severity = self.config.severity_threshold_enum
-        self._osv = osv_client or OSVClient(
-            api_url=self.config.osv_api_url,
-            timeout_seconds=self.config.osv_timeout_seconds,
-        )
+        if osv_client is not None:
+            self._osv = osv_client
+        else:
+            # Share a single httpx client across all OSV lookups so every query
+            # reuses the existing TLS connection instead of paying a handshake
+            # per-package. The policy is a singleton living for the process
+            # lifetime, so the client does too — no cleanup hook needed.
+            self._http_client = httpx.AsyncClient(timeout=self.config.osv_timeout_seconds)
+            self._osv = OSVClient(
+                api_url=self.config.osv_api_url,
+                timeout_seconds=self.config.osv_timeout_seconds,
+                http_client=self._http_client,
+            )
         logger.info(
             "SupplyChainGuardPolicy initialized: threshold=%s, allowlist_size=%d, fail_closed=%s",
             self._threshold.label,
@@ -253,14 +265,20 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
         packages: list[PackageRef],
         context: "PolicyContext",
     ) -> list[PackageCheckResult]:
-        """Look up every package, honouring the allowlist."""
-        results: list[PackageCheckResult] = []
-        for package in packages:
-            if is_allowlisted(package, self._allowlist):
-                continue
-            vulns, error = await self._lookup_vulns(package, context)
-            results.append(PackageCheckResult(package=package, vulns=vulns, error=error))
-        return results
+        """Look up every (non-allowlisted) package, concurrently.
+
+        Serial lookups against OSV would stall the streaming response by up
+        to ``osv_timeout_seconds * N`` on a multi-package install. We gather
+        them instead; each lookup already has its own timeout.
+        """
+        to_check = [p for p in packages if not is_allowlisted(p, self._allowlist)]
+        if not to_check:
+            return []
+        lookups = await asyncio.gather(*(self._lookup_vulns(p, context) for p in to_check))
+        return [
+            PackageCheckResult(package=package, vulns=vulns, error=error)
+            for package, (vulns, error) in zip(to_check, lookups)
+        ]
 
     def _should_block(self, results: list[PackageCheckResult]) -> bool:
         """Decide whether the overall command should be blocked.
@@ -341,7 +359,7 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
     ) -> list[MessageStreamEvent]:
         block = event.content_block
         if isinstance(block, ToolUseBlock) and block.name == BASH_TOOL_NAME:
-            self._buffered(context)[event.index] = _BufferedBashToolUse(id=block.id, name=block.name)
+            self._buffered(context)[event.index] = _BufferedBashToolUse(id=block.id)
             return []  # suppress until we decide
         return [event]
 
@@ -383,7 +401,7 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
             ]
 
         # Allowed: re-emit the original tool_use events.
-        tool_use_block = ToolUseBlock(type="tool_use", id=buffered.id, name=buffered.name, input={})
+        tool_use_block = ToolUseBlock(type="tool_use", id=buffered.id, name=BASH_TOOL_NAME, input={})
         start_event = RawContentBlockStartEvent(
             type="content_block_start", index=event.index, content_block=tool_use_block
         )
@@ -554,7 +572,9 @@ def _commands_for_tool_results(
     """For each tool_result, find the matching Bash tool_use by id and return its command.
 
     tool_results in the last user message are correlated with tool_use blocks
-    in the preceding assistant messages by ``tool_use_id``.
+    in the preceding assistant messages by ``tool_use_id``. The tool name is
+    hardcoded to ``"Bash"`` — this is correct for Claude Code but would miss
+    MCP-provided shell tools or clients with a different naming convention.
     """
     wanted_ids = {tr.get("tool_use_id") for tr in tool_results if tr.get("tool_use_id")}
     if not wanted_ids:

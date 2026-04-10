@@ -787,18 +787,74 @@ def analyze_command(command: str) -> CommandAnalysis:
 
     packages = tuple(parse_install_commands(command))
 
-    # A command that mentions an installer but yields no parsed packages is
-    # either (a) a benign `pip --version` or (b) an install form we don't
-    # understand (`poetry add foo`, `conda install bar`). Distinguish by
-    # looking for a bare `install`/`add`/`require` subcommand near the
-    # keyword. Err on the side of blocking when unsure.
-    if not packages and _looks_like_install(command) and _mentions_install_verb(command):
-        return CommandAnalysis(
-            packages=(),
-            hard_block_reason="install command uses a package manager or install form this guard cannot verify",
-        )
+    if not packages:
+        unsupported_reason = _detect_unsupported_install_form(command)
+        if unsupported_reason is not None:
+            return CommandAnalysis(packages=(), hard_block_reason=unsupported_reason)
 
     return CommandAnalysis(packages=packages, hard_block_reason=None)
+
+
+# Heads that look like package managers but whose install forms we don't parse.
+# When one of these appears as the first token of a segment followed by an
+# install verb, the command is hard-blocked with a specific message.
+_UNSUPPORTED_MANAGER_MESSAGES: Final[dict[str, str]] = {
+    # Python package managers other than pip/uv/pipx.
+    "poetry": "`poetry add` is not supported by this guard; use pip/uv directly or allowlist the package",
+    "pipenv": "`pipenv install` is not supported by this guard; use pip/uv directly or allowlist the package",
+    "rye": "`rye add` is not supported by this guard; use pip/uv directly or allowlist the package",
+    "pdm": "`pdm add` is not supported by this guard; use pip/uv directly or allowlist the package",
+    # Conda family.
+    "conda": "`conda install` is not supported by this guard; allowlist the package explicitly if you trust it",
+    "mamba": "`mamba install` is not supported by this guard; allowlist the package explicitly if you trust it",
+    "micromamba": "`micromamba install` is not supported by this guard; allowlist the package explicitly if you trust it",
+    # Bun (npm alternative).
+    "bun": "`bun add` is not supported by this guard; use npm/yarn/pnpm or allowlist the package",
+}
+
+# System package managers — not OSV-backed, dedicated message so the
+# remediation hint doesn't confusingly suggest `pip install …`.
+_SYSTEM_MANAGER_MESSAGES: Final[dict[str, str]] = {
+    "apt": "system package managers (`apt install …`) are not covered by this guard; allowlist explicitly if needed",
+    "apt-get": "system package managers (`apt-get install …`) are not covered by this guard; allowlist explicitly if needed",
+    "aptitude": "system package managers (`aptitude install …`) are not covered by this guard; allowlist explicitly if needed",
+    "dpkg": "system package managers (`dpkg -i …`) are not covered by this guard; allowlist explicitly if needed",
+    "brew": "system package managers (`brew install …`) are not covered by this guard; allowlist explicitly if needed",
+    "snap": "system package managers (`snap install …`) are not covered by this guard; allowlist explicitly if needed",
+    "easy_install": "`easy_install` is deprecated and not supported by this guard; use pip instead",
+}
+
+_INSTALL_VERBS: Final[frozenset[str]] = frozenset({"install", "add", "require", "get", "-i"})
+
+
+def _detect_unsupported_install_form(command: str) -> str | None:
+    """Return a hard-block reason if ``command`` is an install form we can't parse.
+
+    Unlike the broad keyword-anywhere check, this requires the package
+    manager to appear as the *first* token of a pipeline segment followed
+    by an install verb in the subcommand slot (accounting for wrapper
+    prefixes). That avoids false positives like ``pip help install`` or
+    ``npm view react``, where ``install`` appears as an argument and not
+    a subcommand.
+    """
+    try:
+        tokens = shlex.split(_normalise_chain_operators(command), posix=True)
+    except ValueError:
+        return None
+
+    for segment in _split_on_chaining(tokens):
+        stripped = _strip_wrapper_prefix(segment)
+        if len(stripped) < 2:
+            continue
+        head = stripped[0]
+        verb = stripped[1]
+        if verb not in _INSTALL_VERBS:
+            continue
+        if head in _SYSTEM_MANAGER_MESSAGES:
+            return _SYSTEM_MANAGER_MESSAGES[head]
+        if head in _UNSUPPORTED_MANAGER_MESSAGES:
+            return _UNSUPPORTED_MANAGER_MESSAGES[head]
+    return None
 
 
 def _find_hard_block_reason_recursive(command: str, depth: int) -> str | None:
@@ -827,14 +883,6 @@ def _find_hard_block_reason_recursive(command: str, depth: int) -> str | None:
             if inner_reason is not None:
                 return inner_reason
     return None
-
-
-_INSTALL_VERB_PATTERN: Final[re.Pattern[str]] = re.compile(r"\b(install|add|require|get)\b")
-
-
-def _mentions_install_verb(command: str) -> bool:
-    """Rough check for install-style subcommands after stripping quotes."""
-    return _INSTALL_VERB_PATTERN.search(command) is not None
 
 
 # =============================================================================

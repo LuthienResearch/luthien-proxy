@@ -350,6 +350,53 @@ class TestAnalyzeCommandHardBlock:
         result = analyze_command(command)
         assert result.hard_block_reason is not None
 
+    def test_system_package_manager_has_dedicated_message(self):
+        # apt/brew messages must not confusingly suggest `pip install …`.
+        result = analyze_command("apt-get install python3-dev")
+        assert result.hard_block_reason is not None
+        assert "system package managers" in result.hard_block_reason
+
+        brew = analyze_command("brew install openssl")
+        assert brew.hard_block_reason is not None
+        assert "system package managers" in brew.hard_block_reason
+
+    def test_python_package_manager_has_specific_message(self):
+        result = analyze_command("poetry add flask")
+        assert result.hard_block_reason is not None
+        assert "poetry" in result.hard_block_reason
+
+        conda = analyze_command("conda install numpy")
+        assert conda.hard_block_reason is not None
+        assert "conda" in conda.hard_block_reason
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "pip help install",
+            "pip show requests",
+            "pip list",
+            "pip --version",
+            "pip config list",
+            "npm view react",
+            "npm list",
+            "npm help install",
+            "cargo --version",
+            "cargo search serde",
+            "go version",
+            "gem list",
+            "composer --version",
+        ],
+    )
+    def test_info_commands_are_not_hard_blocked(self, command: str):
+        """Benign info/query commands must not hard-block even though they
+        mention a package manager and contain the word 'install' as an
+        argument (not a subcommand)."""
+        result = analyze_command(command)
+        assert result.hard_block_reason is None, (
+            f"{command!r} was unexpectedly hard-blocked: {result.hard_block_reason}"
+        )
+        assert result.packages == ()
+
     def test_clean_command_is_not_hard_blocked(self):
         result = analyze_command("pip install requests==2.5.0")
         assert result.hard_block_reason is None
