@@ -3,7 +3,7 @@
 ## Purpose & Scope
 
 - Core goal: implement AI Control for LLMs with integrated gateway architecture.
-- Architecture: FastAPI gateway with integrated control plane, using event-driven policies.
+- Architecture: FastAPI gateway with integrated control plane, using event-driven policies. LiteLLM handles judge/LLM policy calls.
 - **Read `ARCHITECTURE.md` first** when you need to understand how modules connect, how requests flow, or where to make changes. It covers the request lifecycle, module map, key abstractions, and data model.
 - Select a policy via `POLICY_CONFIG` that points to a YAML file (defaults to `config/policy_config.yaml`).
   - Example: `export POLICY_CONFIG=./config/policy_config.yaml`
@@ -117,7 +117,7 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
   - `admin/`: Runtime policy management API
   - `debug/`: Debug endpoints for inspecting conversation events
   - `ui/`: Activity monitoring and diff viewer interfaces
-  - `llm/`: Anthropic client wrapper and judge client
+  - `llm/`: Anthropic client wrapper and LiteLLM-based judge client
   - `utils/`: Shared utilities (db, redis, validation)
 - `src/luthien_cli/`: Standalone CLI (`uv tool install luthien-cli`); `luthien onboard` auto-downloads proxy artifacts
   - `commands/`: Click commands — `onboard`, `claude`, `status`, `up`/`down`, `logs`, `config`
