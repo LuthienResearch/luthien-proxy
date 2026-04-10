@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import difflib
+import importlib.util
+import subprocess
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -441,3 +445,67 @@ class TestConfigFieldsCompleteness:
         assert len(env_vars) == len(set(env_vars)), (
             f"Duplicate env vars: {[v for v in env_vars if env_vars.count(v) > 1]}"
         )
+
+    def test_env_example_matches_generator(self):
+        """The .env.example about to land in a commit must match the generator.
+
+        Regression guard for PR #519 (commit 1b28e4d5 accidentally wiped
+        .env.example from 150 lines to 0, turning main CI red). Also catches
+        the original "hardcoded SERVICE_VERSION=2.0.0" class of bug: any
+        ConfigFieldMeta default that drifts from the committed .env.example
+        fails this test.
+
+        Reads from the git index (`git show :.env.example`), not the working
+        tree, so that (a) dev_checks.sh regenerating the working tree before
+        pytest doesn't make the comparison tautological, (b) pre-commit TDD
+        workflows don't false-positive against a stale HEAD, and (c) unstaged
+        .env.example edits don't pollute the check. Unstaged config_fields.py
+        edits DO propagate (intentionally — that module is the input under
+        test). The generator skips dynamic_default fields like SERVICE_VERSION
+        so its output is stable across build environments.
+        """
+        repo_root = Path(__file__).resolve().parents[3]
+        generator_path = repo_root / "scripts" / "generate_env_example.py"
+
+        assert generator_path.exists(), f"Generator missing at {generator_path}"
+
+        # Load the script as a module to call build_env_example_text() in-process.
+        # Faster than shelling out and produces real tracebacks on generator errors.
+        spec = importlib.util.spec_from_file_location("_generate_env_example", generator_path)
+        assert spec is not None and spec.loader is not None
+        generator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(generator)
+        expected = generator.build_env_example_text()
+
+        # See docstring for why we read the index instead of the working tree.
+        try:
+            result = subprocess.run(
+                ["git", "show", ":.env.example"],
+                capture_output=True,
+                text=True,
+                cwd=repo_root,
+                check=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            pytest.fail(
+                f".env.example is not in the git index (cwd={repo_root}). git stderr: {exc.stderr.strip() or '<empty>'}"
+            )
+        actual = result.stdout
+
+        if actual != expected:
+            diff = "\n".join(
+                difflib.unified_diff(
+                    expected.splitlines(),
+                    actual.splitlines(),
+                    fromfile="expected (generator output)",
+                    tofile="actual (git index)",
+                    lineterm="",
+                )
+            )
+            pytest.fail(
+                "Staged/committed .env.example is out of sync with "
+                "scripts/generate_env_example.py.\n"
+                "Run: uv run python scripts/generate_env_example.py > .env.example "
+                "&& git add .env.example\n\n"
+                f"{diff}"
+            )
