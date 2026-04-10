@@ -1,7 +1,7 @@
 # Streaming Response Structures
 
-**Date**: 2025-10-23
-**Testing**: Live responses from Claude Sonnet 4 and GPT-4o-mini via LiteLLM
+**Date**: 2025-10-23 (historical capture)
+**Testing**: Live responses from Claude Sonnet 4 and GPT-4o-mini, captured when the gateway still routed backend calls through LiteLLM. The observed chunk shapes and ordering invariants are still useful as reference, but note that the current Anthropic path uses the Anthropic SDK directly and produces `MessageStreamEvent` values (from `anthropic.lib.streaming`) rather than the OpenAI-style `ModelResponse` chunks shown below.
 **Data**: See `/tmp/*_chunks.json` from `scripts/test_response_structures.py`
 
 ## Executive Summary
