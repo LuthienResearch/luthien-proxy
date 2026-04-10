@@ -175,6 +175,8 @@ The gateway uses an event-driven policy architecture with streaming support.
 
 Subclass `SimplePolicy` for basic request/response transformations. See `src/luthien_proxy/policies/` for examples.
 
+For a comprehensive authoring guide — choosing the right base class, lifecycle hooks, streaming gotchas, request-scoped state, and working examples — see the **[Policy Authoring skill](.claude/skills/policy-authoring/SKILL.md)**.
+
 ## Troubleshooting
 
 ### Tests failing

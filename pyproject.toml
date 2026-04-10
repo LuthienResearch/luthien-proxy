@@ -55,6 +55,7 @@ packages = ["src/luthien_proxy"]
 target-version = "py313"
 src = ["src", "tests", "saas_infra"]
 line-length = 120
+extend-exclude = [".claude/skills"]  # Documentation fragments, not source code
 
 [tool.ruff.lint]
 select = [
