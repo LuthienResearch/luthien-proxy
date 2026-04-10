@@ -447,22 +447,30 @@ class TestConfigFieldsCompleteness:
         )
 
     def test_env_example_matches_generator(self):
-        """Committed .env.example must match scripts/generate_env_example.py output.
+        """The .env.example about to land in a commit must match the generator.
 
         Regression guard for PR #519: commit 1b28e4d5 accidentally wiped
         .env.example (150 lines -> 0), which broke CI clean-tree checks on main
         until it was spotted. The dev_checks.sh clean-tree check catches drift
-        at pipeline end. This test adds a fast pytest-level guard and also
+        at pipeline end; this test adds a fast pytest-level guard and also
         catches the original "hardcoded SERVICE_VERSION=2.0.0" class of bug:
-        any config field whose committed default drifts from config_fields.py
-        fails this test.
+        any config field whose default drifts from config_fields.py fails here.
 
-        Critical detail: we read the committed copy via `git show HEAD:.env.example`
-        rather than the on-disk file. dev_checks.sh regenerates the on-disk
-        .env.example *before* running pytest, so reading the working tree would
-        always see the generator's current output and the test would trivially
-        pass in CI. Reading from git HEAD catches drift even when dev_checks
-        has already rewritten the working file.
+        Reads from the git index (`git show :.env.example`), NOT the working
+        tree, for several reasons:
+
+        - In CI and on a clean checkout, the index mirrors HEAD — the
+          committed state we want to validate.
+        - In dev_checks.sh, the pipeline regenerates .env.example into the
+          working tree and auto-stages it before pytest runs, so the index
+          reflects exactly what's about to be committed.
+        - In a pre-commit TDD workflow (dev edits config_fields.py,
+          regenerates, stages, runs pytest), the index shows the staged
+          version, avoiding a false-positive from comparing against stale HEAD.
+        - Reading the raw working tree would miss the dev_checks.sh case
+          (working tree gets rewritten before pytest runs, so the comparison
+          becomes tautological) and would false-positive on WIP edits the
+          developer hasn't staged yet.
 
         The generator intentionally omits dynamic_default values (like
         SERVICE_VERSION resolved from PROXY_VERSION) so its output is stable
@@ -481,11 +489,18 @@ class TestConfigFieldsCompleteness:
         spec.loader.exec_module(generator)
         expected = generator.build_env_example_text()
 
-        # Read the committed copy from git HEAD — NOT from the working tree —
-        # so the test catches drift even after dev_checks.sh has regenerated
-        # the on-disk file. See class docstring for why.
+        # Read from the git index (`git show :path`), NOT the working tree.
+        # For tracked unmodified files the index mirrors HEAD, so in CI and
+        # clean checkouts this equals the committed state — the thing we want
+        # to validate. For a dev mid-commit who has staged a regenerated copy,
+        # it equals what's about to land. For a dev with unstaged working-tree
+        # edits to .env.example, the index still reflects the last staged
+        # state, so uncommitted WIP doesn't false-positive or false-negative
+        # the test. This sidesteps the dev_checks.sh trap: dev_checks
+        # regenerates the working tree then auto-stages it before pytest runs,
+        # so the index is exactly the state that will be committed.
         result = subprocess.run(
-            ["git", "show", "HEAD:.env.example"],
+            ["git", "show", ":.env.example"],
             capture_output=True,
             text=True,
             cwd=repo_root,
@@ -499,12 +514,14 @@ class TestConfigFieldsCompleteness:
                     expected.splitlines(),
                     actual.splitlines(),
                     fromfile="expected (generator output)",
-                    tofile="actual (committed .env.example)",
+                    tofile="actual (git index)",
                     lineterm="",
                 )
             )
             pytest.fail(
-                "Committed .env.example is out of sync with scripts/generate_env_example.py.\n"
-                "Run: uv run python scripts/generate_env_example.py > .env.example && git add .env.example\n\n"
+                "Staged/committed .env.example is out of sync with "
+                "scripts/generate_env_example.py.\n"
+                "Run: uv run python scripts/generate_env_example.py > .env.example "
+                "&& git add .env.example\n\n"
                 f"{diff}"
             )
