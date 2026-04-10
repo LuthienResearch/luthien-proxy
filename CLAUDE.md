@@ -223,7 +223,7 @@ Migrations live in `migrations/postgres/` and `migrations/sqlite/`. Every Postgr
 All gateway configuration is defined in `src/luthien_proxy/config_fields.py` — single source of truth for field names, env vars, types, defaults, descriptions, and metadata.
 
 - **Config registry** (`config_registry.py`): resolves values through CLI args > env vars > DB (`gateway_config` table) > defaults, with provenance tracking.
-- **Adding a new config value**: add a `ConfigFieldMeta` to `CONFIG_FIELDS` in `config_fields.py`. Add a matching field to `settings.py`. Regenerate `.env.example` with `uv run python scripts/generate_env_example.py > .env.example`.
+- **Adding a new config value**: add a `ConfigFieldMeta` to `CONFIG_FIELDS` in `config_fields.py`, then run `uv run python scripts/generate_settings.py` (or let `dev_checks.sh` do it). `settings.py` is auto-generated — don't edit it by hand. Regenerate `.env.example` with `uv run python scripts/generate_env_example.py > .env.example`.
 - **Config dashboard**: `/config` in the admin UI shows all fields with active values, provenance, and inline editing for DB-settable fields.
 - **Admin API**: `GET /api/admin/config` returns all fields; `PUT /api/admin/config/{key}` sets DB-settable values.
 - `.env.example` is auto-generated from the config spec — don't edit it by hand.

@@ -34,6 +34,9 @@ else
     exit 1
 fi
 
+echo "== Generate settings.py from config_fields =="
+uv run python scripts/generate_settings.py
+
 DIRTY_BEFORE=$(git diff --name-only 2>/dev/null)
 
 echo "== Ruff format (apply) =="
