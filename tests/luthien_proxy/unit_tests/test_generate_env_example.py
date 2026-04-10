@@ -18,7 +18,7 @@ from types import ModuleType
 
 import pytest
 
-from luthien_proxy.config_fields import CONFIG_FIELDS
+from luthien_proxy.config_fields import CONFIG_FIELDS, ConfigFieldMeta
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "generate_env_example.py"
@@ -98,20 +98,24 @@ class TestGenerateEnvExample:
         """The generated file must be recognizable as auto-generated."""
         assert "Auto-generated from config field definitions" in generated_output
 
-    def test_all_enum_defaults_round_trip(self, generated_output: str) -> None:
-        """Every enum-valued config field must render as its .value.
 
-        This is the real contract: the string we write must be something
-        Settings's env parser would accept back. A parametrized scan over
-        CONFIG_FIELDS catches future enum additions that re-introduce the
-        same bug.
-        """
-        enum_fields = [
-            meta
-            for meta in CONFIG_FIELDS
-            if meta.default is not None and isinstance(meta.default, Enum) and not meta.dynamic_default
-        ]
-        assert enum_fields, "test harness expected at least one enum field; update if none remain"
-        for meta in enum_fields:
-            expected = f"# {meta.env_var}={meta.default.value}"
-            assert expected in generated_output, f"enum field {meta.env_var} rendered wrong; expected {expected!r}"
+_ENUM_FIELDS = [
+    meta
+    for meta in CONFIG_FIELDS
+    if meta.default is not None and isinstance(meta.default, Enum) and not meta.dynamic_default
+]
+
+
+@pytest.mark.parametrize("meta", _ENUM_FIELDS, ids=lambda m: m.env_var)
+def test_enum_default_round_trips_to_value(meta: ConfigFieldMeta, generated_output: str) -> None:
+    """Every enum-valued config field must render as its .value.
+
+    This is the real contract: the string we write must be something
+    Settings's env parser would accept back. Parametrizing over CONFIG_FIELDS
+    catches future enum additions that re-introduce the same AuthMode.BOTH
+    bug, and gives per-field failure messages.
+    """
+    assert _ENUM_FIELDS, "test harness expected at least one enum field; update if none remain"
+    assert isinstance(meta.default, Enum)  # narrowed by _ENUM_FIELDS filter
+    expected = f"# {meta.env_var}={meta.default.value}"
+    assert expected in generated_output, f"enum field {meta.env_var} rendered wrong; expected {expected!r}"
