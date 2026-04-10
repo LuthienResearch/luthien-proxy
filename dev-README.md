@@ -5,11 +5,11 @@ Development reference for contributing to Luthien. For user-facing docs, see **[
 ## Development Commands
 
 ```bash
+# Install dev dependencies
+uv sync --dev
+
 # Start the gateway locally (default — no Docker needed)
 ./scripts/start_gateway.sh
-
-# Or with Docker Compose (multi-user/production):
-# docker compose restart gateway
 
 # Run unit tests
 uv run pytest tests/luthien_proxy/unit_tests
@@ -17,8 +17,8 @@ uv run pytest tests/luthien_proxy/unit_tests
 # Run integration tests
 uv run pytest tests/luthien_proxy/integration_tests
 
-# Run e2e tests (slow, use sparingly)
-uv run pytest -m e2e
+# Run all e2e test tiers (sqlite, mock, real — stops on first failure)
+./scripts/run_e2e.sh
 
 # Test the gateway
 ./scripts/test_gateway.sh
@@ -31,7 +31,24 @@ uv run pytest -m e2e
 
 # Type check only
 uv run pyright
+
+# Inspect the dev database (conversation events, debug logs)
+uv run python scripts/query_debug_logs.py
 ```
+
+### Deployment Modes
+
+**Dockerless (default for development and single-user local use)**:
+- `./scripts/start_gateway.sh` or `uv run python -m luthien_proxy.main`
+- Uses SQLite (`~/.luthien/local.db`) — no Postgres or Redis needed
+- The `luthien` CLI defaults to this mode (`luthien onboard` → `luthien up`)
+
+**Docker Compose with Postgres + Redis (multi-user production)**:
+- `./scripts/quick_start.sh` — bootstraps db, redis, and gateway containers
+- Source is mounted read-only (`./src:/app/src:ro`), so Python changes require `docker compose restart gateway`
+
+**Single Docker container (self-contained local testing)**:
+- `./scripts/quick_start_standalone.sh` — one container with SQLite, no external deps
 
 ## Dev Tooling
 
@@ -46,10 +63,10 @@ Editor setup (VS Code)
 
 ## Architecture
 
-The gateway integrates everything into a single FastAPI application:
+The gateway is a single FastAPI application:
 
-- **Gateway** (`src/luthien_proxy/`): Unified FastAPI + LiteLLM integration
-  - Anthropic Messages API compatibility
+- **Gateway** (`src/luthien_proxy/`): Anthropic Messages API proxy
+  - Anthropic `/v1/messages` endpoint (streaming and non-streaming)
   - Event-driven policy system with streaming support
   - OpenTelemetry instrumentation for observability
 
@@ -79,7 +96,6 @@ The gateway integrates everything into a single FastAPI application:
 **Documentation**:
 
 - **Architecture overview**: [ARCHITECTURE.md](ARCHITECTURE.md) - How the codebase is structured, how requests flow, where to find things
-- **Start here**: [Development docs index](dev/README.md) - Guide to all documentation
 - Request processing architecture: [dev/REQUEST_PROCESSING_ARCHITECTURE.md](dev/REQUEST_PROCESSING_ARCHITECTURE.md) - How requests flow through the system
 - Live policy updates: [dev/LIVE_POLICY_DEMO.md](dev/LIVE_POLICY_DEMO.md) - Switching policies without restart in Claude Code
 - Observability: [dev/observability.md](dev/observability.md) - Tracing and monitoring
@@ -99,11 +115,14 @@ The gateway integrates everything into a single FastAPI application:
 
 - `GET /history` - Conversation history view (HTML)
 - `GET /conversation/live/{id}` - Live conversation view with SSE streaming
-- `GET /debug` - Debug information viewer
+- `GET /policy-config` - Policy configuration UI
+- `GET /credentials` - Credential management UI
+- `GET /request-logs/viewer` - Request log viewer
 
-**Authentication:**
+**Authentication (two layers):**
 
-All API requests require the `Authorization: Bearer <PROXY_API_KEY>` header.
+- **Upstream (Anthropic)**: By default, the gateway passes through client credentials (OAuth tokens or API keys) to Anthropic. Optionally set `ANTHROPIC_API_KEY` in `.env` to use a single API key for all requests — note this bills per-token at [Anthropic's rates](https://docs.anthropic.com/en/docs/about-claude/models).
+- **Gateway**: Optionally set `PROXY_API_KEY` in `.env` to require clients to authenticate with the gateway itself.
 
 ### Admin API
 
@@ -195,15 +214,14 @@ The observability stack is completely optional and does not affect core function
 
 ### Configuration
 
-OpenTelemetry is enabled by default. To configure the endpoint in `.env`:
+OpenTelemetry is disabled by default (`OTEL_ENABLED=false`). To enable and configure:
 
 ```bash
-# OpenTelemetry endpoint (enabled by default)
+OTEL_ENABLED=true
 OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
 
 # Optional: customize service metadata
 SERVICE_NAME=luthien-proxy
-SERVICE_VERSION=2.0.0
 ENVIRONMENT=development
 
 # To disable tracing, set:
@@ -223,12 +241,44 @@ When observability is enabled:
 
 ## Releasing
 
-Releases are automated via GitHub Actions. The workflow:
+Tagging, publishing, and changelog compilation are fully automated on merge to main. The only manual step is adding a changelog fragment to each PR.
 
-1. **During development**: Add entries under `## Unreleased` in `CHANGELOG.md` as features land. A CI check posts a one-time reminder on PRs that don't update the changelog (skip with the `skip-changelog` or `chore` label).
-2. **To release**: Rename `## Unreleased` to `## vX.Y.Z` in `CHANGELOG.md`, commit, then push a tag:
-   ```bash
-   git tag v0.1.0
-   git push origin v0.1.0
-   ```
-3. **Automated**: The release workflow builds the package with `uv build` and creates a GitHub Release with the changelog notes and dist artifacts.
+### Every PR: add a changelog fragment
+
+Create `changelog.d/<branch-name>.md`:
+
+```markdown
+---
+category: Features|Fixes|Refactors|Chores & Docs
+pr: 123
+---
+
+**Short title**: Description of the change
+```
+
+CI reminds you if you forget. See `changelog.d/README.md` for details.
+
+### Bumping minor or major version
+
+The auto-tag workflow always increments the patch of the latest `v*` tag. To bump minor or major, create the tag yourself — the next merge increments from there:
+
+```bash
+git checkout main && git pull
+git tag v<MAJOR>.<MINOR>.0
+git push origin v<MAJOR>.<MINOR>.0
+```
+
+### What the automation does
+
+On every merge to main, `auto-tag-proxy.yml`:
+1. Skips if only CLI files changed
+2. Runs unit tests
+3. Compiles `changelog.d/` fragments into `CHANGELOG.md`
+4. Cuts `## Unreleased` → `## X.Y.Z | date`, commits with `[skip auto-tag-proxy]`
+5. Tags `vX.Y.Z`, pushes — triggers GitHub Release + Docker image publish to GHCR
+
+Key files: `.github/workflows/auto-tag-proxy.yml`, `scripts/compile_changelog.py --cut-release`.
+
+### CLI releases are separate
+
+`luthien-cli` auto-tags on `cli-v*` and publishes to PyPI via `auto-tag-cli.yml` → `release-cli.yml`. Independent of proxy releases.
