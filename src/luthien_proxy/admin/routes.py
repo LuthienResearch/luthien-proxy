@@ -633,11 +633,14 @@ class GatewaySettingsUpdateRequest(BaseModel):
     dogfood_mode: bool | None = None
 
 
-@router.get("/gateway/settings", response_model=GatewaySettingsResponse)
+@router.get("/gateway/settings", response_model=GatewaySettingsResponse, deprecated=True)
 async def get_gateway_settings(
     _: str = Depends(verify_admin_token),
 ):
-    """Get current gateway settings."""
+    """Get current gateway settings.
+
+    Deprecated: use GET /api/admin/config instead for all config with provenance.
+    """
     settings = get_settings()
     return GatewaySettingsResponse(
         inject_policy_context=settings.inject_policy_context,
@@ -645,7 +648,7 @@ async def get_gateway_settings(
     )
 
 
-@router.put("/gateway/settings", response_model=GatewaySettingsResponse)
+@router.put("/gateway/settings", response_model=GatewaySettingsResponse, deprecated=True)
 async def update_gateway_settings(
     body: GatewaySettingsUpdateRequest,
     _: str = Depends(verify_admin_token),
@@ -653,6 +656,7 @@ async def update_gateway_settings(
 ):
     """Update gateway settings at runtime.
 
+    Deprecated: use PUT /api/admin/config/{key} instead.
     Persists to DB via the config registry so values survive restarts.
     """
     if body.inject_policy_context is not None:

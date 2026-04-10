@@ -9,6 +9,7 @@ lower-priority sources were overridden — powering the config dashboard.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -61,6 +62,7 @@ class ConfigRegistry:
         self._cli_overrides = cli_overrides or {}
         self._db_values: dict[str, str] = {}
         self._resolved: dict[str, ResolvedValue] = {}
+        self._lock = asyncio.Lock()
 
     async def initialize(self) -> None:
         """Load DB values and resolve all fields."""
@@ -154,31 +156,30 @@ class ConfigRegistry:
         coerced = _coerce(meta, value)
         serialized = json.dumps(value)
 
-        pool = await self._db_pool.get_pool()
-        await pool.execute(
-            """
-            INSERT INTO gateway_config (key, value, updated_at, updated_by)
-            VALUES ($1, $2, NOW(), $3)
-            ON CONFLICT (key) DO UPDATE SET
-                value = EXCLUDED.value,
-                updated_at = EXCLUDED.updated_at,
-                updated_by = EXCLUDED.updated_by
-            """,
-            name,
-            serialized,
-            updated_by,
-        )
+        async with self._lock:
+            pool = await self._db_pool.get_pool()
+            await pool.execute(
+                """
+                INSERT INTO gateway_config (key, value, updated_at, updated_by)
+                VALUES ($1, $2, NOW(), $3)
+                ON CONFLICT (key) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    updated_at = EXCLUDED.updated_at,
+                    updated_by = EXCLUDED.updated_by
+                """,
+                name,
+                serialized,
+                updated_by,
+            )
 
-        self._db_values[name] = serialized
-
-        # Re-resolve and sync
-        resolved = self._resolve_field(meta)
-        self._resolved[name] = resolved
-        if hasattr(self._settings, name):
-            try:
-                setattr(self._settings, name, resolved.value)
-            except (AttributeError, TypeError):
-                pass
+            self._db_values[name] = serialized
+            resolved = self._resolve_field(meta)
+            self._resolved[name] = resolved
+            if hasattr(self._settings, name):
+                try:
+                    setattr(self._settings, name, resolved.value)
+                except (AttributeError, TypeError):
+                    pass
 
         logger.info(f"Config '{name}' set to {_display_value(meta, coerced)} via DB by {updated_by}")
         return resolved
@@ -188,21 +189,22 @@ class ConfigRegistry:
         if self._db_pool is None:
             raise ValueError("No database connection available")
 
-        pool = await self._db_pool.get_pool()
-        await pool.execute("DELETE FROM gateway_config WHERE key = $1", name)
-        self._db_values.pop(name, None)
-
         meta = CONFIG_FIELDS_BY_NAME.get(name)
         if meta is None:
             raise ValueError(f"Unknown config field: {name}")
 
-        resolved = self._resolve_field(meta)
-        self._resolved[name] = resolved
-        if hasattr(self._settings, name):
-            try:
-                setattr(self._settings, name, resolved.value)
-            except (AttributeError, TypeError):
-                pass
+        async with self._lock:
+            pool = await self._db_pool.get_pool()
+            await pool.execute("DELETE FROM gateway_config WHERE key = $1", name)
+            self._db_values.pop(name, None)
+
+            resolved = self._resolve_field(meta)
+            self._resolved[name] = resolved
+            if hasattr(self._settings, name):
+                try:
+                    setattr(self._settings, name, resolved.value)
+                except (AttributeError, TypeError):
+                    pass
 
         return resolved
 
