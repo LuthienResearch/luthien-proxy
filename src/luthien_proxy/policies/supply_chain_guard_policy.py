@@ -48,8 +48,10 @@ from luthien_proxy.policies.supply_chain_guard_utils import (
     Severity,
     SupplyChainGuardConfig,
     VulnInfo,
+    analyze_command,
     filter_blocking,
     format_blocked_message,
+    format_hard_block_message,
     format_incoming_warning,
     is_allowlisted,
     parse_install_commands,
@@ -400,7 +402,27 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
         """Check a single Bash command and return the blocked message if it should be blocked."""
         if not command:
             return None
-        packages = parse_install_commands(command)
+
+        analysis = analyze_command(command)
+
+        # Hard-block: command contains a construct we can't safely parse
+        # (e.g. `$(...)`, `| sh`, unknown package manager). OSV can't clear
+        # this — refuse unconditionally.
+        if analysis.hard_block_reason is not None:
+            logger.info(
+                "Supply chain guard hard-block: %s",
+                analysis.hard_block_reason,
+            )
+            context.record_event(
+                "policy.supply_chain_guard.hard_blocked",
+                {
+                    "summary": "Blocked unparseable install command",
+                    "reason": analysis.hard_block_reason,
+                },
+            )
+            return format_hard_block_message(analysis.hard_block_reason, command=command)
+
+        packages = list(analysis.packages)
         if not packages:
             return None
 
@@ -408,10 +430,11 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
         if not self._should_block(results):
             return None
 
+        blocking = self._blocking_subset(results)
         context.record_event(
             "policy.supply_chain_guard.blocked",
             {
-                "summary": f"Blocked install of {len(self._blocking_subset(results))} vulnerable package(s)",
+                "summary": f"Blocked install of {len(blocking)} vulnerable package(s)",
                 "packages": [
                     {
                         "ecosystem": r.package.ecosystem,
@@ -419,15 +442,11 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
                         "max_severity": r.max_severity.label,
                         "error": r.error,
                     }
-                    for r in self._blocking_subset(results)
+                    for r in blocking
                 ],
             },
         )
-        return format_blocked_message(
-            self._blocking_subset(results),
-            self._threshold,
-            command=command,
-        )
+        return format_blocked_message(blocking, self._threshold, command=command)
 
     # ========================================================================
     # Incoming request hook: scan tool_results from prior installs

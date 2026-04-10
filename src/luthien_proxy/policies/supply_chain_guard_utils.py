@@ -182,7 +182,7 @@ class SupplyChainGuardConfig(BaseModel):
         description="Packages to always allow, in the form 'ecosystem:name' (e.g. 'PyPI:requests').",
     )
     fail_closed: bool = Field(
-        default=False,
+        default=True,
         description="If true, block installs when the OSV lookup fails. If false, allow on lookup failure.",
     )
 
@@ -448,6 +448,16 @@ def _extract_install_segment(tokens: list[str]) -> list[list[str]] | None:
     head = tokens[0]
     tail = tokens[1:]
 
+    # python -m pip install X  (the PEP-recommended form)
+    if (
+        head in {"python", "python3", "py"}
+        and len(tail) >= 3
+        and tail[0] == "-m"
+        and tail[1] == "pip"
+        and tail[2] == "install"
+    ):
+        return [["__pip__", *tail[3:]]]
+
     # uv pip install X  (uv is a pip frontend)
     if head == "uv" and len(tail) >= 2 and tail[0] == "pip" and tail[1] == "install":
         return [["__pip__", *tail[2:]]]
@@ -561,14 +571,88 @@ def _split_on_chaining(tokens: list[str]) -> list[list[str]]:
     return segments
 
 
-def parse_install_commands(command: str) -> list[PackageRef]:
+# Prefixes like `sudo pip install foo` or `env FOO=bar pip install foo` wrap a
+# real install command. We strip them before trying to match an installer head.
+_WRAPPER_WORDS: Final[frozenset[str]] = frozenset({"sudo", "exec", "time", "command", "nice", "ionice"})
+_ENV_ASSIGNMENT: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def _strip_wrapper_prefix(segment: list[str]) -> list[str]:
+    """Strip shell wrappers that precede a real command.
+
+    Handles ``sudo pip install``, ``env FOO=bar pip install``, and bare
+    ``FOO=bar pip install`` — each of which would otherwise hide the install
+    from the installer-head match in ``_extract_install_segment``.
+    """
+    i = 0
+    while i < len(segment):
+        tok = segment[i]
+        if tok in _WRAPPER_WORDS:
+            i += 1
+            continue
+        if tok == "env":
+            i += 1
+            # env may be followed by any number of VAR=value tokens and flags.
+            while i < len(segment):
+                nxt = segment[i]
+                if nxt in {"-i", "-u", "--"}:
+                    i += 1
+                    continue
+                if _ENV_ASSIGNMENT.match(nxt):
+                    i += 1
+                    continue
+                break
+            continue
+        if _ENV_ASSIGNMENT.match(tok):
+            # Bare ``FOO=bar pip install …`` (no env keyword).
+            i += 1
+            continue
+        break
+    return segment[i:]
+
+
+def _process_segment(segment: list[str], depth: int = 0) -> list[PackageRef]:
+    """Extract packages from a single pipeline segment.
+
+    Handles wrapper stripping, ``sh -c "…"``/``bash -c "…"`` recursion, and
+    dispatch to the ecosystem-specific parsers. ``depth`` bounds recursion
+    into ``-c`` strings so a nested-shell bomb can't hang the parser.
+    """
+    segment = _strip_wrapper_prefix(segment)
+    if not segment:
+        return []
+
+    head = segment[0]
+
+    # sh -c "pip install foo && npm install bar" — recurse on the inner
+    # command string. Same for bash/zsh/dash -c.
+    if depth < 3 and head in {"sh", "bash", "zsh", "dash"} and len(segment) >= 3 and segment[1] == "-c":
+        return parse_install_commands(segment[2], _depth=depth + 1)
+
+    parsed = _extract_install_segment(segment)
+    if parsed is None:
+        return []
+    refs: list[PackageRef] = []
+    for parser_input in parsed:
+        marker = parser_input[0]
+        rest = parser_input[1:]
+        parser = _PARSERS.get(marker)
+        if parser is None:
+            continue
+        refs.extend(parser(rest))
+    return refs
+
+
+def parse_install_commands(command: str, _depth: int = 0) -> list[PackageRef]:
     """Extract every package that the given shell command would install.
 
     Supports chained commands (``&&``, ``||``, ``;``, ``|``), so
     ``pip install foo && npm install bar`` yields refs for both foo and bar.
 
     Unknown or non-install commands are silently skipped — the caller gets
-    an empty list when nothing relevant is found.
+    an empty list when nothing relevant is found. Callers concerned with
+    adversarial input should use :func:`analyze_command` instead, which also
+    detects install-shaped commands that we can't safely parse.
     """
     # shlex keeps chaining operators attached to adjacent tokens (e.g. ``hi;``);
     # insert whitespace around them so _split_on_chaining can see them as their
@@ -582,17 +666,175 @@ def parse_install_commands(command: str) -> list[PackageRef]:
 
     refs: list[PackageRef] = []
     for segment in _split_on_chaining(tokens):
-        parsed = _extract_install_segment(segment)
-        if parsed is None:
-            continue
-        for parser_input in parsed:
-            marker = parser_input[0]
-            rest = parser_input[1:]
-            parser = _PARSERS.get(marker)
-            if parser is None:
-                continue
-            refs.extend(parser(rest))
+        refs.extend(_process_segment(segment, depth=_depth))
     return refs
+
+
+# =============================================================================
+# Dangerous-construct detection
+# =============================================================================
+
+
+# Keywords that indicate the user is (probably) trying to install something.
+# Used to decide whether a suspicious-but-unparseable command should be
+# hard-blocked or quietly ignored. This list is intentionally broader than
+# the set of installer heads we parse — a command naming `poetry` or `conda`
+# is suspicious enough to block even though we don't parse those.
+_INSTALL_KEYWORD_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"\b("
+    r"pip|pip3|pipx|uv|"
+    r"npm|yarn|pnpm|bun|"
+    r"cargo|"
+    r"go|"
+    r"gem|"
+    r"composer|"
+    r"poetry|pipenv|rye|pdm|"
+    r"conda|mamba|micromamba|"
+    r"apt|apt-get|aptitude|dpkg|"
+    r"brew|snap|"
+    r"easy_install"
+    r")\b"
+)
+
+# Things we can't safely parse: command substitution and pipe-to-interpreter.
+_COMMAND_SUB_CHARS: Final[re.Pattern[str]] = re.compile(r"\$\(|`|\$\{")
+_PIPE_TO_INTERP: Final[re.Pattern[str]] = re.compile(
+    r"\|\s*(?:sh|bash|zsh|dash|ksh|fish|python|python3|py|node|ruby|perl|tclsh|lua)\b"
+)
+
+
+def _scan_unquoted(command: str, pattern: re.Pattern[str]) -> bool:
+    """Return True if ``pattern`` matches in a region where bash would expand it.
+
+    Tracks single quotes (which fully escape their contents) and backslashes,
+    but does NOT treat double quotes as safe — bash still performs command
+    substitution (``$(…)``, backticks) and variable expansion (``${…}``)
+    inside double-quoted strings.
+    """
+    in_single = False
+    i = 0
+    n = len(command)
+    while i < n:
+        ch = command[i]
+        if in_single:
+            if ch == "'":
+                in_single = False
+            i += 1
+            continue
+        if ch == "\\" and i + 1 < n:
+            i += 2
+            continue
+        if ch == "'":
+            in_single = True
+            i += 1
+            continue
+        if pattern.match(command, i) is not None:
+            return True
+        i += 1
+    return False
+
+
+def _detect_dangerous_construct(command: str) -> str | None:
+    """Return a reason string if ``command`` has an unparseable construct.
+
+    Detects shell command substitution and pipe-to-interpreter at the
+    current shell layer only; for wrapped ``sh -c "…"`` arguments, callers
+    should use :func:`_find_hard_block_reason_recursive`.
+    """
+    if _scan_unquoted(command, _COMMAND_SUB_CHARS):
+        return "shell command substitution ($(...), backticks, or ${...})"
+    if _scan_unquoted(command, _PIPE_TO_INTERP):
+        return "pipe to shell/interpreter (e.g. '| sh', '| bash', '| python')"
+    return None
+
+
+def _looks_like_install(command: str) -> bool:
+    """Heuristic: does this command mention any installer keyword?"""
+    return _INSTALL_KEYWORD_PATTERN.search(command) is not None
+
+
+@dataclass(frozen=True)
+class CommandAnalysis:
+    """Result of analysing a shell command for install safety.
+
+    - ``packages`` is the list of packages we were able to extract and should
+      look up via OSV.
+    - ``hard_block_reason`` is set when the command contains a construct we
+      can't safely parse (command substitution, pipe-to-interpreter) AND the
+      command mentions an installer keyword. When set, callers should block
+      unconditionally — no OSV lookup can meaningfully clear the command.
+    """
+
+    packages: tuple[PackageRef, ...]
+    hard_block_reason: str | None
+
+
+def analyze_command(command: str) -> CommandAnalysis:
+    """Analyse a shell command for supply-chain safety.
+
+    Runs dangerous-construct detection before package extraction: if the
+    command mixes an installer keyword with command substitution or a pipe
+    to an interpreter, the command can't be cleared by OSV lookup alone and
+    is marked for hard-block. The scan also descends into ``sh -c "…"`` and
+    ``bash -c "…"`` arguments so a wrapper can't hide an unsafe inner form.
+    """
+    if not command:
+        return CommandAnalysis(packages=(), hard_block_reason=None)
+
+    reason = _find_hard_block_reason_recursive(command, depth=0)
+    if reason is not None:
+        return CommandAnalysis(packages=(), hard_block_reason=reason)
+
+    packages = tuple(parse_install_commands(command))
+
+    # A command that mentions an installer but yields no parsed packages is
+    # either (a) a benign `pip --version` or (b) an install form we don't
+    # understand (`poetry add foo`, `conda install bar`). Distinguish by
+    # looking for a bare `install`/`add`/`require` subcommand near the
+    # keyword. Err on the side of blocking when unsure.
+    if not packages and _looks_like_install(command) and _mentions_install_verb(command):
+        return CommandAnalysis(
+            packages=(),
+            hard_block_reason="install command uses a package manager or install form this guard cannot verify",
+        )
+
+    return CommandAnalysis(packages=packages, hard_block_reason=None)
+
+
+def _find_hard_block_reason_recursive(command: str, depth: int) -> str | None:
+    """Find a hard-block reason at any shell level (bounded by ``depth``).
+
+    Scans the current layer for dangerous constructs and then descends into
+    any ``sh -c``/``bash -c`` wrapper arguments so a wrapper can't hide an
+    unsafe inner form.
+    """
+    if depth > 3:
+        return None
+
+    # Detect at this layer.
+    reason = _detect_dangerous_construct(command)
+    if reason is not None and _looks_like_install(command):
+        return reason
+
+    # Look for wrapped inner commands and recurse on their argument strings.
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return None
+    for i in range(len(tokens) - 2):
+        if tokens[i] in {"sh", "bash", "zsh", "dash"} and tokens[i + 1] == "-c":
+            inner_reason = _find_hard_block_reason_recursive(tokens[i + 2], depth + 1)
+            if inner_reason is not None:
+                return inner_reason
+    return None
+
+
+_INSTALL_VERB_PATTERN: Final[re.Pattern[str]] = re.compile(r"\b(install|add|require|get)\b")
+
+
+def _mentions_install_verb(command: str) -> bool:
+    """Rough check for install-style subcommands after stripping quotes."""
+    return _INSTALL_VERB_PATTERN.search(command) is not None
 
 
 # =============================================================================
@@ -847,6 +1089,32 @@ def format_blocked_message(
     return "\n".join(lines)
 
 
+def format_hard_block_message(reason: str, command: str | None = None) -> str:
+    """Render the message shown when a command is blocked without an OSV lookup.
+
+    Used when the command contains a construct we can't safely parse
+    (command substitution, pipe-to-interpreter) or names a package manager
+    we don't understand. In either case there is no way to clear the command
+    via OSV, so the guard refuses it with an explanation.
+    """
+    lines: list[str] = [
+        "⛔ Supply chain guard blocked this command.",
+        "",
+        f"Reason: {reason}.",
+    ]
+    if command:
+        lines.append("")
+        lines.append(f"Command: {command}")
+    lines.append("")
+    lines.append(
+        "This command form cannot be verified against the OSV vulnerability "
+        "database. Rewrite it as a direct install with explicit package names "
+        "(e.g. `pip install requests==2.31.0`) so the guard can check each "
+        "package, or explicitly allowlist it if it is known safe."
+    )
+    return "\n".join(lines)
+
+
 def format_incoming_warning(results: list[PackageCheckResult], threshold: Severity) -> str:
     """Render the system-prompt warning prepended to incoming requests.
 
@@ -891,10 +1159,13 @@ __all__ = [
     "VulnInfo",
     "PackageCheckResult",
     "SupplyChainGuardConfig",
+    "CommandAnalysis",
+    "analyze_command",
     "parse_install_commands",
     "OSVClient",
     "is_allowlisted",
     "filter_blocking",
     "format_blocked_message",
+    "format_hard_block_message",
     "format_incoming_warning",
 ]
