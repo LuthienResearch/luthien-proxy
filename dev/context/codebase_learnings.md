@@ -43,14 +43,16 @@ Integrated single-process gateway. Authoritative module map and request lifecycl
 
 LiteLLM is NOT on the main request path. Anthropic `/v1/messages` traffic is handled by `AnthropicClient` (Anthropic SDK) in `pipeline/anthropic_processor.py`, and the processor never imports `litellm`.
 
-Current imports of `litellm` in `src/luthien_proxy/`:
+Current references to LiteLLM in `src/luthien_proxy/`:
 
-- `llm/judge_client.py` — wraps `litellm.acompletion` for judge-LLM calls.
-- `policies/simple_llm_utils.py` and `policies/tool_call_judge_utils.py` — call `acompletion` directly for judge decisions (these are the underlying utilities for `SimpleLLMPolicy` and `ToolCallJudgePolicy`).
-- `main.py` — sets `litellm.drop_params = True` once at startup so judge calls tolerate unknown kwargs.
-- `admin/routes.py` — reads `litellm.anthropic_models` to list available Claude models in the admin UI.
-- `exceptions.py` — `map_litellm_error_type()` maps litellm exception classes onto `BackendAPIError` codes for judge-path errors.
-- `config_fields.py` / `settings.py` — retain `litellm_master_key` as a legacy fallback when resolving judge API keys.
+- **Direct imports** (`import litellm` / `from litellm import ...`):
+  - `llm/judge_client.py` — wraps `litellm.acompletion` for judge-LLM calls.
+  - `policies/simple_llm_utils.py` and `policies/tool_call_judge_utils.py` — call `acompletion` directly for judge decisions (these are the underlying utilities for `SimpleLLMPolicy` and `ToolCallJudgePolicy`).
+  - `main.py` — sets `litellm.drop_params = True` once at startup so judge calls tolerate unknown kwargs.
+  - `admin/routes.py` — reads `litellm.anthropic_models` to list available Claude models in the admin UI.
+- **Indirect references** (no `import litellm`, but tied to the judge path):
+  - `exceptions.py` — `map_litellm_error_type()` maps LiteLLM exception **class names** onto `BackendAPIError` codes via string lookup (`type(exception).__name__`).
+  - `config_fields.py` / `settings.py` — retain `litellm_master_key` as a legacy fallback when resolving judge API keys (env var name only; no module import).
 
 **Key rule**: Do not introduce new LiteLLM imports from gateway request processing, streaming, or the `pipeline/` package. Judge-LLM calls (and the startup/admin touches listed above) are the only supported entry points today.
 

@@ -83,14 +83,15 @@ Mid-stream errors after headers have been sent produce an in-stream Anthropic er
 
 LiteLLM is **not** on the main `/v1/messages` path. Backend calls are always `AnthropicClient` -> Anthropic SDK. `pipeline/anthropic_processor.py` does not import `litellm` at all.
 
-LiteLLM only appears in:
+Direct `litellm` imports in `src/luthien_proxy/` are limited to:
 
 - **Judge-LLM calls** — `llm/judge_client.py`, `policies/simple_llm_utils.py`, `policies/tool_call_judge_utils.py` call `litellm.acompletion` to ask a judge model for a decision. `judge_client.judge_completion` is the common wrapper.
 - **Startup config** — `main.py` sets `litellm.drop_params = True` once so judge calls tolerate unknown kwargs.
 - **Admin model listing** — `admin/routes.py` reads `litellm.anthropic_models` for the admin UI model dropdown.
-- **Error mapping** — `exceptions.map_litellm_error_type()` translates litellm error classes to `BackendAPIError` codes on the judge path.
 
-See `dev/context/codebase_learnings.md` (LiteLLM Usage Boundaries) for the complete list of supported import sites.
+Indirect references (no import, still tied to the judge path): `exceptions.map_litellm_error_type()` maps LiteLLM exception class names to `BackendAPIError` codes via string lookup, and `settings.litellm_master_key` is retained as a legacy judge-key fallback.
+
+See `dev/context/codebase_learnings.md` (LiteLLM Usage Boundaries) for the complete list.
 
 ## Troubleshooting
 
