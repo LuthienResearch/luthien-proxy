@@ -140,6 +140,9 @@ class TestDashboardView:
         for entry in view:
             if entry["sensitive"]:
                 assert entry["value"] == "***"
+                # Defaults must also be masked so a stored default credential
+                # (latent today but plausible later) never leaks to the UI.
+                assert entry["default"] == "***"
 
     def test_dashboard_entry_structure(self):
         registry = _make_registry()
@@ -286,6 +289,20 @@ class TestCoerce:
         meta = CONFIG_FIELDS_BY_NAME["log_level"]
         with pytest.raises(TypeError, match="cannot be None"):
             _coerce(meta, None)
+
+    def test_enum_from_string(self):
+        # auth_mode is typed as the AuthMode enum.
+        from luthien_proxy.credential_manager import AuthMode
+
+        meta = CONFIG_FIELDS_BY_NAME["auth_mode"]
+        assert _coerce(meta, "passthrough") is AuthMode.PASSTHROUGH
+        assert _coerce(meta, "both") is AuthMode.BOTH
+        assert _coerce(meta, AuthMode.PROXY_KEY) is AuthMode.PROXY_KEY
+
+    def test_enum_invalid_value_raises(self):
+        meta = CONFIG_FIELDS_BY_NAME["auth_mode"]
+        with pytest.raises(ValueError, match="expected one of"):
+            _coerce(meta, "not_a_mode")
 
 
 class TestConfigFieldsCompleteness:

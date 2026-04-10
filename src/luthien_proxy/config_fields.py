@@ -55,7 +55,7 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
     ConfigFieldMeta(
         "log_level", "LOG_LEVEL", str, "info",
         "Logging level (critical, error, warning, info, debug, trace)",
-        category="server", db_settable=True, restart_required=False,
+        category="server", db_settable=True, restart_required=True,
     ),
     ConfigFieldMeta(
         "verbose_client_errors", "VERBOSE_CLIENT_ERRORS", bool, False,
@@ -115,8 +115,8 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
     ),
     ConfigFieldMeta(
         "redis_url", "REDIS_URL", str, "",
-        "Redis connection URL (optional; enables multi-instance pub/sub)",
-        category="database",
+        "Redis connection URL (optional; enables multi-instance pub/sub) — may contain credentials",
+        sensitive=True, category="database",
     ),
     ConfigFieldMeta(
         "migrations_dir", "MIGRATIONS_DIR", str, None,

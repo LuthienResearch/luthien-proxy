@@ -37,6 +37,9 @@ fi
 echo "== Generate settings.py from config_fields =="
 uv run python scripts/generate_settings.py
 
+echo "== Generate .env.example from config_fields =="
+uv run python scripts/generate_env_example.py > .env.example
+
 DIRTY_BEFORE=$(git diff --name-only 2>/dev/null)
 
 echo "== Ruff format (apply) =="

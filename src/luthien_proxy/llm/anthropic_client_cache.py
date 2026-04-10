@@ -22,15 +22,18 @@ from luthien_proxy.settings import get_settings
 logger = logging.getLogger(__name__)
 
 
-def _parse_cache_size() -> int:
+def _max_cache_size() -> int:
+    """Read cache size lazily so CLI/env/DB overrides resolved after import take effect.
+
+    Previously this was captured at module import, which happens before
+    ConfigRegistry.initialize(), silently dropping --anthropic-client-cache-size.
+    """
     value = get_settings().anthropic_client_cache_size
     if value < 1:
-        logger.warning(f"ANTHROPIC_CLIENT_CACHE_SIZE={value} is less than 1, clamping to 1.")
+        logger.warning("ANTHROPIC_CLIENT_CACHE_SIZE=%s is less than 1, clamping to 1.", value)
         return 1
     return value
 
-
-MAX_CACHE_SIZE = _parse_cache_size()
 
 _cache: OrderedDict[str, AnthropicClient] = OrderedDict()
 _lock = asyncio.Lock()
@@ -71,7 +74,7 @@ async def get_client(
         else:
             client = AnthropicClient(auth_token=credential, base_url=base_url)
 
-        if len(_cache) >= MAX_CACHE_SIZE:
+        if len(_cache) >= _max_cache_size():
             evicted_key, evicted_client = _cache.popitem(last=False)
             task = asyncio.create_task(_safe_close(evicted_client, evicted_key))
             _background_tasks.add(task)

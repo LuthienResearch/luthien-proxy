@@ -21,7 +21,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from luthien_proxy.admin import router as admin_router
 from luthien_proxy.config_fields import CONFIG_FIELDS
-from luthien_proxy.config_registry import ConfigRegistry
+from luthien_proxy.config_registry import ConfigRegistry, _coerce
 from luthien_proxy.credential_manager import AuthMode, CredentialManager
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
@@ -592,15 +592,18 @@ if __name__ == "__main__":
                 parser.add_argument(flag, type=str, default=None, help=field_meta.description)
         args = parser.parse_args()
 
-        # Collect CLI overrides (only non-None values)
+        # Collect CLI overrides (only non-None values) through _coerce so invalid
+        # input (e.g. --dogfood-mode ture, --auth-mode bogus) fails loudly with
+        # a clear error instead of silently landing as False / raw string.
         cli_overrides: dict[str, object] = {}
         for field_meta in CONFIG_FIELDS:
             val = getattr(args, field_meta.name, None)
-            if val is not None:
-                if field_meta.field_type is bool and isinstance(val, str):
-                    cli_overrides[field_meta.name] = val.lower() in ("true", "1", "yes")
-                else:
-                    cli_overrides[field_meta.name] = val
+            if val is None:
+                continue
+            try:
+                cli_overrides[field_meta.name] = _coerce(field_meta, val)
+            except (ValueError, TypeError) as exc:
+                parser.error(f"Invalid value for --{field_meta.name.replace('_', '-')}: {exc}")
 
         if args.local:
             configure_local_mode()

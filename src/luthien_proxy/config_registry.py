@@ -108,23 +108,34 @@ class ConfigRegistry:
         # Resolve by priority
         for source in (ConfigSource.CLI, ConfigSource.ENV, ConfigSource.DB):
             if source in layers:
-                overrides = {_source_key(s): v for s, v in layers.items() if s != source}
+                overrides = {s.value: v for s, v in layers.items() if s != source}
                 return ResolvedValue(value=layers[source], source=source, overrides=overrides)
 
         return ResolvedValue(
             value=meta.default,
             source=ConfigSource.DEFAULT,
-            overrides={_source_key(s): v for s, v in layers.items()},
+            overrides={s.value: v for s, v in layers.items()},
         )
+
+    def _sync_one(self, name: str, value: Any) -> None:
+        """Assign one resolved value back to Settings, logging assignment failures."""
+        if not hasattr(self._settings, name):
+            return
+        try:
+            setattr(self._settings, name, value)
+        except (AttributeError, TypeError, ValueError) as exc:
+            logger.warning(
+                "Failed to sync config '%s' to Settings: %s. get_settings().%s and registry.get('%s') will diverge.",
+                name,
+                exc,
+                name,
+                name,
+            )
 
     def _sync_to_settings(self) -> None:
         """Push resolved values back to Settings singleton for backward compat."""
         for name, resolved in self._resolved.items():
-            if hasattr(self._settings, name):
-                try:
-                    setattr(self._settings, name, resolved.value)
-                except (AttributeError, TypeError):
-                    pass
+            self._sync_one(name, resolved.value)
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -179,13 +190,9 @@ class ConfigRegistry:
             self._db_values[name] = serialized
             resolved = self._resolve_field(meta)
             self._resolved[name] = resolved
-            if hasattr(self._settings, name):
-                try:
-                    setattr(self._settings, name, resolved.value)
-                except (AttributeError, TypeError):
-                    pass
+            self._sync_one(name, resolved.value)
 
-        logger.info(f"Config '{name}' set to {_display_value(meta, coerced)} via DB by {updated_by}")
+        logger.info("Config '%s' set to %s via DB by %s", name, _display_value(meta, coerced), updated_by)
         return resolved
 
     async def delete_db_value(self, name: str) -> ResolvedValue:
@@ -204,11 +211,7 @@ class ConfigRegistry:
 
             resolved = self._resolve_field(meta)
             self._resolved[name] = resolved
-            if hasattr(self._settings, name):
-                try:
-                    setattr(self._settings, name, resolved.value)
-                except (AttributeError, TypeError):
-                    pass
+            self._sync_one(name, resolved.value)
 
         return resolved
 
@@ -222,10 +225,10 @@ class ConfigRegistry:
                 "env_var": meta.env_var,
                 "category": meta.category,
                 "description": meta.description,
-                "type": meta.field_type.__name__ if meta.field_type is not type(None) else "NoneType",
+                "type": meta.field_type.__name__,
                 "value": "***" if meta.sensitive else resolved.value,
                 "source": resolved.source.value,
-                "default": meta.default,
+                "default": "***" if meta.sensitive else meta.default,
                 "db_settable": meta.db_settable,
                 "restart_required": meta.restart_required,
                 "sensitive": meta.sensitive,
@@ -236,11 +239,6 @@ class ConfigRegistry:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
-
-
-def _source_key(source: ConfigSource) -> str:
-    """Get the string key for a ConfigSource (its enum value, e.g. 'cli', 'env')."""
-    return source.value  # type: ignore[return-value]
 
 
 def _coerce(meta: ConfigFieldMeta, raw: Any) -> Any:
@@ -277,6 +275,17 @@ def _coerce(meta: ConfigFieldMeta, raw: Any) -> Any:
         return float(raw)
     if meta.field_type is str:
         return str(raw)
+    if isinstance(meta.field_type, type) and issubclass(meta.field_type, Enum):
+        # Construct the enum by value (e.g. "passthrough" → AuthMode.PASSTHROUGH).
+        if isinstance(raw, meta.field_type):
+            return raw
+        try:
+            return meta.field_type(raw)
+        except ValueError as exc:
+            valid = ", ".join(repr(m.value) for m in meta.field_type)
+            raise ValueError(
+                f"Invalid value for '{meta.name}' ({meta.field_type.__name__}): {raw!r} (expected one of: {valid})"
+            ) from exc
     return raw
 
 

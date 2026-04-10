@@ -159,8 +159,9 @@ All config is defined in `src/luthien_proxy/config_fields.py` — single source 
 
 **Adding a new config value:**
 1. Add a `ConfigFieldMeta` to `CONFIG_FIELDS` in `config_fields.py`
-2. Add a matching field to `settings.py`
-3. Run `uv run python scripts/generate_env_example.py > .env.example`
+2. Run `scripts/dev_checks.sh` (or manually: `uv run python scripts/generate_settings.py` and `uv run python scripts/generate_env_example.py > .env.example`)
+
+Both `settings.py` and `.env.example` are auto-generated — don't edit them by hand.
 
 **CLI overrides:** All settings accept CLI flags (auto-generated from field names):
 ```bash
