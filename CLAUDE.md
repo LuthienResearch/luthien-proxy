@@ -110,18 +110,21 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 - `src/luthien_proxy/`: core gateway package
   - `main.py`: FastAPI app factory, lifespan wiring, CLI entry point
   - `gateway_routes.py`: `/v1/messages` and related Anthropic-shaped proxy endpoints
-  - `auth.py`: admin/session authentication helpers
+  - `auth.py`: bearer/API-key/session auth helpers for admin and debug endpoints
+  - `session.py`: cookie-based browser login flow for the admin UI (companion to `auth.py`)
   - `dependencies.py`: FastAPI dependency providers (policy, emitter, credential store, etc.)
-  - `config_fields.py`, `config_registry.py`, `settings.py`: config system (see "Configuration System" below). `settings.py` is auto-generated — do not edit by hand.
+  - `config.py`: policy YAML loading (`load_policy_from_yaml`) and policy class import (separate from the gateway config system below)
+  - `config_fields.py`, `config_registry.py`, `settings.py`: gateway config system (see "Configuration System" below). `settings.py` is auto-generated — do not edit by hand.
   - `policy_manager.py`: loads the active policy from YAML or DB and hot-swaps at runtime
   - `policy_composition.py`: `compose_policy()` helper for wrapping policies in a `MultiSerialPolicy` chain
   - `credential_manager.py`: validates client credentials (proxy_key / passthrough / both) and caches results
+  - `telemetry.py`: OpenTelemetry tracing setup (distinct from `observability/`, which handles event emission)
   - `pipeline/`: request processing pipeline — request entry point, client format detection, policy-context injection, stream protocol validation
   - `policies/`: concrete policy implementations; `policies/presets/` holds reusable rule presets (e.g. `block_dangerous_commands`, `no_yapping`)
   - `policy_core/`: policy contract layer — `BasePolicy`, `AnthropicExecutionInterface`, `AnthropicHookPolicy`, `PolicyContext`, `TextModifierPolicy`
   - `credentials/`: typed credential models (`Credential`, `CredentialType`) and per-policy `AuthProvider` strategies (`UserCredentials`, `ServerKey`, `UserThenServer`), plus the DB-backed credential store
   - `llm/`: Anthropic HTTP client wrapper, per-credential client cache, LiteLLM-based judge client, and shared Anthropic type definitions
-  - `observability/`: event emitter, Redis/in-process event publishers, Sentry integration, SSE streaming for the activity monitor
+  - `observability/`: event emitter, Redis/in-process event publishers, Sentry integration, and the SSE generator (`stream_activity_events`) wired into the activity monitor UI
   - `storage/`: helpers for persisting and reconstructing conversation events
   - `request_log/`: HTTP-level request/response recording for `/v1/` traffic (gated by `ENABLE_REQUEST_LOGGING`)
   - `usage_telemetry/`: anonymous aggregate usage metrics sent to the central telemetry endpoint
