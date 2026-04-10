@@ -119,7 +119,7 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
   - `pipeline/`: request processing pipeline — request entry point, client format detection, policy-context injection, stream protocol validation
   - `policies/`: concrete policy implementations; `policies/presets/` holds reusable rule presets (e.g. `block_dangerous_commands`, `no_yapping`)
   - `policy_core/`: policy contract layer — `BasePolicy`, `AnthropicExecutionInterface`, `AnthropicHookPolicy`, `PolicyContext`, `TextModifierPolicy`
-  - `credentials/`: typed credential models and `AuthProvider` strategies (server-key, passthrough, user-then-server) with a DB-backed store
+  - `credentials/`: typed credential models (`Credential`, `CredentialType`) and per-policy `AuthProvider` strategies (`UserCredentials`, `ServerKey`, `UserThenServer`), plus the DB-backed credential store
   - `llm/`: Anthropic HTTP client wrapper, per-credential client cache, LiteLLM-based judge client, and shared Anthropic type definitions
   - `observability/`: event emitter, Redis/in-process event publishers, Sentry integration, SSE streaming for the activity monitor
   - `storage/`: helpers for persisting and reconstructing conversation events
