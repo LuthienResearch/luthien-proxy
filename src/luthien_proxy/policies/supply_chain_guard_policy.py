@@ -55,6 +55,7 @@ from luthien_proxy.policies.supply_chain_guard_utils import (
     parse_install_commands,
 )
 from luthien_proxy.policy_core import AnthropicHookPolicy, BasePolicy
+from luthien_proxy.policy_core.anthropic_execution_interface import AnthropicPolicyEmission
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import (
@@ -111,23 +112,12 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
             api_url=self.config.osv_api_url,
             timeout_seconds=self.config.osv_timeout_seconds,
         )
-        # Process-local fallback cache when no DB is configured.
-        self._memory_cache: dict[str, list[VulnInfo]] = {}
         logger.info(
             "SupplyChainGuardPolicy initialized: threshold=%s, allowlist_size=%d, fail_closed=%s",
             self._threshold.label,
             len(self._allowlist),
             self.config.fail_closed,
         )
-
-    def freeze_configured_state(self) -> None:
-        """Override the default guard to tolerate the process-local fallback cache."""
-        # Allow the process-local fallback cache without tripping the
-        # "no mutable state on policy" guard — it is a bounded, best-effort
-        # optimisation used only when a DB cache is unavailable.
-        self._memory_cache = {}  # reset intentionally
-        # Skip the usual mutable-attribute validation entirely.
-        return None
 
     # ========================================================================
     # State helpers
@@ -142,6 +132,68 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
         """Drop per-request state when streaming finishes."""
         context.pop_request_state(self, _SupplyChainGuardState)
+
+    async def on_anthropic_stream_complete(self, context: "PolicyContext") -> list[AnthropicPolicyEmission]:
+        """Flush any tool_use blocks still buffered when the upstream stream ends.
+
+        Normally ``_handle_content_block_stop`` drains the buffer for each block,
+        but if the upstream stream aborts mid tool_use (client disconnect, upstream
+        error) those blocks would otherwise be silently dropped. Fail-safe: we
+        emit a text block explaining that evaluation was truncated so the caller
+        sees that the install was not approved.
+        """
+        state = context.get_request_state(self, _SupplyChainGuardState, _SupplyChainGuardState)
+        buffered_map = state.buffered_tool_uses
+        if not buffered_map:
+            return []
+
+        emissions: list[AnthropicPolicyEmission] = []
+        for index, buffered in sorted(buffered_map.items()):
+            logger.warning(
+                "Stream ended with tool_use still buffered (index=%d, id=%s); emitting fallback block",
+                index,
+                buffered.id,
+            )
+            context.record_event(
+                "policy.supply_chain_guard.stream_truncated",
+                {
+                    "summary": "Supply chain guard dropped an unevaluated Bash tool_use on stream abort",
+                    "tool_use_id": buffered.id,
+                    "index": index,
+                },
+            )
+            fallback_text = (
+                "⛔ Supply chain guard could not finish evaluating this Bash tool call "
+                "before the stream ended. The install was NOT executed — please retry."
+            )
+            emissions.append(
+                cast(
+                    MessageStreamEvent,
+                    RawContentBlockStartEvent(
+                        type="content_block_start",
+                        index=index,
+                        content_block=TextBlock(type="text", text=""),
+                    ),
+                )
+            )
+            emissions.append(
+                cast(
+                    MessageStreamEvent,
+                    RawContentBlockDeltaEvent(
+                        type="content_block_delta",
+                        index=index,
+                        delta=TextDelta(type="text_delta", text=fallback_text),
+                    ),
+                )
+            )
+            emissions.append(
+                cast(
+                    MessageStreamEvent,
+                    RawContentBlockStopEvent(type="content_block_stop", index=index),
+                )
+            )
+        buffered_map.clear()
+        return emissions
 
     # ========================================================================
     # Cache helpers
@@ -160,18 +212,13 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
         package: PackageRef,
         context: "PolicyContext",
     ) -> tuple[list[VulnInfo], str | None]:
-        """Get vulns for ``package``, using cache when possible.
+        """Get vulns for ``package``, using the policy cache when available.
 
         Returns ``(vulns, error)`` — ``error`` is set when the OSV query failed.
         """
         cache = self._cache(context)
         key = package.cache_key()
 
-        # In-memory fast path
-        if key in self._memory_cache:
-            return list(self._memory_cache[key]), None
-
-        # DB cache
         if cache is not None:
             try:
                 cached = await cache.get(key)
@@ -179,19 +226,14 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
                 logger.warning("policy_cache get failed for %s: %s", key, exc)
                 cached = None
             if cached is not None:
-                vulns = [VulnInfo.from_dict(v) for v in cached.get("vulns", [])]
-                self._memory_cache[key] = vulns
-                return list(vulns), None
+                return [VulnInfo.from_dict(v) for v in cached.get("vulns", [])], None
 
-        # Cache miss — query OSV
         try:
             vulns = await self._osv.query(package)
         except Exception as exc:
             logger.warning("OSV query failed for %s: %s", key, exc)
             return [], str(exc)
 
-        # Write back to both caches
-        self._memory_cache[key] = vulns
         if cache is not None:
             try:
                 await cache.put(
@@ -202,7 +244,7 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
             except Exception as exc:
                 logger.warning("policy_cache put failed for %s: %s", key, exc)
 
-        return list(vulns), None
+        return vulns, None
 
     async def _check_packages(
         self,

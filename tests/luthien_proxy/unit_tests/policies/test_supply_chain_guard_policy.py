@@ -491,16 +491,16 @@ class TestIncomingRequest:
 
 class TestPolicyCaching:
     @pytest.mark.asyncio
-    async def test_memory_cache_hit_skips_osv(self):
+    async def test_no_cache_queries_osv_every_time(self):
+        # Without a DB cache, every lookup hits OSV — no process-local cache.
         policy, osv = _make_policy(responses={"foo": []})
         ctx = _make_context()
-        # Two back-to-back calls for the same package in the same policy instance.
         await policy._lookup_vulns(PackageRef("PyPI", "foo"), ctx)
         await policy._lookup_vulns(PackageRef("PyPI", "foo"), ctx)
-        assert len(osv.calls) == 1
+        assert len(osv.calls) == 2
 
     @pytest.mark.asyncio
-    async def test_db_cache_hit_skips_osv_and_populates_memory(self):
+    async def test_db_cache_hit_skips_osv(self):
         policy, osv = _make_policy()
         # Fake cache that returns a previously-stored entry on first call.
         fake_cache = AsyncMock()
@@ -590,10 +590,62 @@ class TestMisc:
         policy, _ = _make_policy()
         assert policy.short_policy_name == "SupplyChainGuard"
 
-    def test_freeze_configured_state_allows_memory_cache(self):
+    def test_freeze_configured_state_passes(self):
         policy, _ = _make_policy()
-        # Should not raise despite the _memory_cache dict attribute.
         policy.freeze_configured_state()
+
+    @pytest.mark.asyncio
+    async def test_version_scoped_cache_key(self):
+        # Different versions of the same package must not share a cache entry.
+        policy, osv = _make_policy(responses={"foo": []})
+        stored: dict[str, dict] = {}
+        fake_cache = AsyncMock()
+
+        async def fake_get(key: str):
+            return stored.get(key)
+
+        async def fake_put(key: str, value: dict, ttl_seconds: int):
+            stored[key] = value
+
+        fake_cache.get = AsyncMock(side_effect=fake_get)
+        fake_cache.put = AsyncMock(side_effect=fake_put)
+        ctx = PolicyContext.for_testing(transaction_id="t", policy_cache_factory=lambda _n: fake_cache)
+
+        await policy._lookup_vulns(PackageRef("PyPI", "foo", version="1.0"), ctx)
+        await policy._lookup_vulns(PackageRef("PyPI", "foo", version="2.0"), ctx)
+        # Both versions trigger an OSV query — cache keys differ.
+        assert len(osv.calls) == 2
+        assert len(stored) == 2
+
+    @pytest.mark.asyncio
+    async def test_stream_complete_flushes_buffered_tool_use(self):
+        """Stream aborted mid tool_use must emit a fallback block, not silently drop."""
+        policy, osv = _make_policy()
+        ctx = _make_context()
+
+        # Start buffering a Bash tool_use but never send a content_block_stop.
+        await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, tool_start(0, tool_id="toolu_abort", name="Bash")), ctx
+        )
+        await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, tool_delta('{"command":"pip install foo"}', 0)), ctx
+        )
+
+        emissions = await policy.on_anthropic_stream_complete(ctx)
+
+        types = [getattr(e, "type", None) for e in emissions]
+        assert types == ["content_block_start", "content_block_delta", "content_block_stop"]
+        assert isinstance(emissions[0], RawContentBlockStartEvent)
+        assert emissions[0].content_block.type == "text"
+        assert isinstance(emissions[1], RawContentBlockDeltaEvent)
+        assert "NOT executed" in emissions[1].delta.text
+        assert osv.calls == []  # we never got to query OSV
+
+    @pytest.mark.asyncio
+    async def test_stream_complete_no_emissions_when_empty(self):
+        policy, _ = _make_policy()
+        ctx = _make_context()
+        assert await policy.on_anthropic_stream_complete(ctx) == []
 
     @pytest.mark.asyncio
     async def test_json_payload_path_roundtrip(self):

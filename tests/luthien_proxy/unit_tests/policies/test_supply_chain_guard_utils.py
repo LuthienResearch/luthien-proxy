@@ -23,7 +23,9 @@ from luthien_proxy.policies.supply_chain_guard_utils import (
     Severity,
     SupplyChainGuardConfig,
     VulnInfo,
+    _cvss3_base_score,
     _extract_max_severity,
+    _parse_cvss_score,
     _parse_osv_response,
     filter_blocking,
     format_blocked_message,
@@ -277,6 +279,65 @@ class TestSeverity:
 
     def test_ordering(self):
         assert Severity.HIGH > Severity.MEDIUM > Severity.LOW
+
+
+class TestCvssVectorParsing:
+    """CVSS v3 base score computation from vector strings.
+
+    Reference scores below come from NVD / FIRST CVSS calculators for well-known CVEs.
+    """
+
+    @pytest.mark.parametrize(
+        ("vector", "expected"),
+        [
+            # CVE-2021-44228 (Log4Shell) — 10.0
+            ("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H", 10.0),
+            # "C:H / I:N / A:N" unprivileged network — 7.5
+            ("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", 7.5),
+            # "C:L / I:N / A:N" unprivileged network — 5.3
+            ("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", 5.3),
+            # Local, high complexity, required privs + UI, low conf impact only — 1.8
+            ("CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:L/I:N/A:N", 1.8),
+        ],
+    )
+    def test_known_vectors(self, vector: str, expected: float):
+        assert _cvss3_base_score(vector) == pytest.approx(expected, abs=0.05)
+
+    def test_cvss_v3_0_prefix(self):
+        # 3.0 vectors use the same metric set and formula.
+        assert _cvss3_base_score("CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H") == pytest.approx(9.8, abs=0.1)
+
+    def test_missing_required_metric_returns_none(self):
+        assert _cvss3_base_score("CVSS:3.1/AV:N/AC:L") is None
+
+    def test_unknown_metric_value_returns_none(self):
+        assert _cvss3_base_score("CVSS:3.1/AV:Z/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H") is None
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            (8.1, 8.1),
+            ("8.1", 8.1),
+            ("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H", 10.0),
+            ("bogus", None),
+            (None, None),
+        ],
+    )
+    def test_parse_cvss_score_variants(self, raw: object, expected: float | None):
+        result = _parse_cvss_score(raw)
+        if expected is None:
+            assert result is None
+        else:
+            assert result == pytest.approx(expected, abs=0.05)
+
+    def test_real_vector_through_extract_max_severity(self):
+        # A log4shell-style entry should come out CRITICAL.
+        entry = {
+            "severity": [
+                {"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"},
+            ]
+        }
+        assert _extract_max_severity(entry) is Severity.CRITICAL
 
 
 class TestExtractMaxSeverity:

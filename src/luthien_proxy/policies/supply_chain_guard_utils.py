@@ -95,8 +95,14 @@ class PackageRef:
     version: str | None = None
 
     def cache_key(self) -> str:
-        """Key used for caching this package's OSV lookup result."""
-        return f"osv:{self.ecosystem}:{self.name}"
+        """Key used for caching this package's OSV lookup result.
+
+        OSV returns version-specific results when a version is supplied in
+        the query body, so the cache key must also be version-specific to
+        avoid cross-version contamination.
+        """
+        version_part = self.version or "*"
+        return f"osv:{self.ecosystem}:{self.name}:{version_part}"
 
 
 @dataclass(frozen=True)
@@ -693,19 +699,95 @@ def _extract_max_severity(entry: dict[str, Any]) -> Severity:
 
 
 def _parse_cvss_score(raw: Any) -> float | None:
-    """Extract the numeric score from a CVSS vector string or number."""
+    """Extract the numeric score from an OSV ``severity[].score`` entry.
+
+    OSV most commonly puts a CVSS vector string here
+    (e.g. ``CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H``). Some advisories
+    put a bare numeric score instead. Both forms are supported.
+    """
     if raw is None:
         return None
     if isinstance(raw, (int, float)):
         return float(raw)
-    if isinstance(raw, str):
-        # Vector strings look like "CVSS:3.1/AV:N/..." — no score embedded.
-        # Some OSV entries put a bare numeric string here.
-        try:
-            return float(raw)
-        except ValueError:
-            return None
+    if not isinstance(raw, str):
+        return None
+
+    stripped = raw.strip()
+    # Bare numeric string (e.g. "7.5").
+    try:
+        return float(stripped)
+    except ValueError:
+        pass
+
+    if stripped.upper().startswith("CVSS:3"):
+        return _cvss3_base_score(stripped)
     return None
+
+
+# CVSS v3 base metric values (CVSS 3.0 and 3.1 spec).
+_CVSS3_AV: Final[dict[str, float]] = {"N": 0.85, "A": 0.62, "L": 0.55, "P": 0.2}
+_CVSS3_AC: Final[dict[str, float]] = {"L": 0.77, "H": 0.44}
+_CVSS3_PR_UNCHANGED: Final[dict[str, float]] = {"N": 0.85, "L": 0.62, "H": 0.27}
+_CVSS3_PR_CHANGED: Final[dict[str, float]] = {"N": 0.85, "L": 0.68, "H": 0.5}
+_CVSS3_UI: Final[dict[str, float]] = {"N": 0.85, "R": 0.62}
+_CVSS3_CIA: Final[dict[str, float]] = {"H": 0.56, "L": 0.22, "N": 0.0}
+
+
+def _cvss3_base_score(vector: str) -> float | None:
+    """Compute the CVSS v3.x base score from a vector string.
+
+    Follows the specification at https://www.first.org/cvss/v3.1/specification-document.
+    Returns ``None`` if any required base metric is missing or malformed.
+    """
+    metrics: dict[str, str] = {}
+    for part in vector.split("/")[1:]:  # skip the "CVSS:3.x" prefix
+        if ":" not in part:
+            continue
+        key, _, value = part.partition(":")
+        metrics[key.strip().upper()] = value.strip().upper()
+
+    required = ("AV", "AC", "PR", "UI", "S", "C", "I", "A")
+    if not all(metric in metrics for metric in required):
+        return None
+
+    scope = metrics["S"]
+    try:
+        av = _CVSS3_AV[metrics["AV"]]
+        ac = _CVSS3_AC[metrics["AC"]]
+        ui = _CVSS3_UI[metrics["UI"]]
+        pr_table = _CVSS3_PR_CHANGED if scope == "C" else _CVSS3_PR_UNCHANGED
+        pr = pr_table[metrics["PR"]]
+        conf = _CVSS3_CIA[metrics["C"]]
+        integ = _CVSS3_CIA[metrics["I"]]
+        avail = _CVSS3_CIA[metrics["A"]]
+    except KeyError:
+        return None
+
+    isc_base = 1 - (1 - conf) * (1 - integ) * (1 - avail)
+    if scope == "C":
+        impact = 7.52 * (isc_base - 0.029) - 3.25 * pow(isc_base - 0.02, 15)
+    else:
+        impact = 6.42 * isc_base
+
+    if impact <= 0:
+        return 0.0
+
+    exploitability = 8.22 * av * ac * pr * ui
+    raw = impact + exploitability
+    if scope == "C":
+        raw *= 1.08
+    base = min(raw, 10.0)
+    # CVSS "roundup" to one decimal (always rounds up at the hundredths place).
+    return _cvss_roundup(base)
+
+
+def _cvss_roundup(value: float) -> float:
+    """CVSS specification roundup: round up to the nearest 0.1."""
+    # Spec: integer equivalent of value * 100,000, then roundup by tenths.
+    int_input = round(value * 100_000)
+    if int_input % 10_000 == 0:
+        return int_input / 100_000
+    return (int_input // 10_000 + 1) / 10
 
 
 # =============================================================================
