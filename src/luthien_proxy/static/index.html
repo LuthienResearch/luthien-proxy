@@ -36,13 +36,21 @@
             font-size: clamp(1.3rem, 3vw, 1.8rem);
             font-weight: 600;
             color: #fafafa;
-            margin-bottom: 4px;
+            margin-bottom: 12px;
             letter-spacing: -0.02em;
         }
 
         .version {
             color: #71717a;
             font-size: 14px;
+        }
+
+        .subheader {
+            color: #a1a1aa;
+            font-size: 16px;
+            max-width: 640px;
+            margin-bottom: 12px;
+            line-height: 1.6;
         }
 
         .section-label {
@@ -379,6 +387,7 @@
     <div class="container">
         <header>
             <h1>Luthien Proxy Gateway</h1>
+            <p class="subheader">Proxy between Claude Code and Anthropic. Requests are logged and run through your configured policies before reaching the API.</p>
         </header>
 
         <div class="card-list">
