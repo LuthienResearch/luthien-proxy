@@ -8,9 +8,9 @@ How auth works end-to-end, including passthrough auth and judge key resolution.
 
 Configured via `AUTH_MODE` env var / `auth_config` DB table. Three modes:
 
-- **`proxy_key`**: Client must present `PROXY_API_KEY`. Server uses its own `ANTHROPIC_API_KEY` for backend calls.
-- **`passthrough`**: Client's own Anthropic API key (or OAuth token) is forwarded directly to the Anthropic backend. No proxy key needed.
-- **`both`** (default): Accepts either the proxy key or a passthrough credential. If the token matches `PROXY_API_KEY`, uses server's client; otherwise treats it as a passthrough credential.
+- **`proxy_key`**: Client must present `PROXY_API_KEY`. The gateway then calls Anthropic using the server's own `ANTHROPIC_API_KEY`. If `ANTHROPIC_API_KEY` is unset in this mode, `/v1/messages` returns 500 (there are no credentials to forward upstream).
+- **`passthrough`**: Client's own Anthropic API key or OAuth token is forwarded directly to the Anthropic backend. No `PROXY_API_KEY` is required. `ANTHROPIC_API_KEY` is ignored for the forwarding path (but may still be used by judge policies — see below).
+- **`both`** (default, set by `luthien onboard`): Accepts either the proxy key or a passthrough credential. If the token matches `PROXY_API_KEY`, uses the server's client (requires `ANTHROPIC_API_KEY`); otherwise treats it as a passthrough credential.
 
 Managed by `CredentialManager` (`src/luthien_proxy/credential_manager.py`). Auth config is persisted to DB (`auth_config` table) and exposed via admin API (`/api/admin/auth/config`).
 

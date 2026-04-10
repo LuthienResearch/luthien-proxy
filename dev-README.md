@@ -121,14 +121,17 @@ The gateway is a single FastAPI application:
 - `GET /credentials` - Credential management UI
 - `GET /request-logs/viewer` - Request log viewer
 
-**Authentication (two layers):**
+**Authentication (three layers):**
 
-- **Upstream (Anthropic)**: By default, the gateway passes through client credentials (OAuth tokens or API keys) to Anthropic. Optionally set `ANTHROPIC_API_KEY` in `.env` to use a single API key for all requests — note this bills per-token at [Anthropic's rates](https://docs.anthropic.com/en/docs/about-claude/models).
-- **Gateway**: Optionally set `PROXY_API_KEY` in `.env` to require clients to authenticate with the gateway itself.
+Luthien has three independent authentication layers. The full reference is [`dev/context/authentication.md`](dev/context/authentication.md).
+
+- **Gateway ingress (`PROXY_API_KEY`, optional)**: The shared key clients present to talk to `/v1/messages`. When unset, clients authenticate with their own Anthropic OAuth tokens or API keys (passthrough mode). The active mode is controlled by `AUTH_MODE` (`proxy_key` / `passthrough` / `both`, default `both`).
+- **Upstream (`ANTHROPIC_API_KEY`, optional)**: Server-side key used when a client successfully authenticates with `PROXY_API_KEY`. When unset, each client's own credentials are forwarded upstream. Setting it bills all proxy-keyed traffic per-token at [Anthropic's rates](https://docs.anthropic.com/en/docs/about-claude/models).
+- **Admin (`ADMIN_API_KEY`)**: Admin dashboard and `/api/admin/*` endpoints. Localhost requests bypass this check by default (`LOCALHOST_AUTH_BYPASS=true`); disable the bypass if you expose the admin surface beyond loopback.
 
 ### Admin API
 
-Admin endpoints manage policies and configuration at runtime. All admin requests require the `Authorization: Bearer <ADMIN_API_KEY>` header.
+Admin endpoints manage policies and configuration at runtime. Non-localhost admin requests require the `Authorization: Bearer <ADMIN_API_KEY>` header (or `x-api-key` header, or a valid session cookie). When `LOCALHOST_AUTH_BYPASS=true` (default), requests from `127.0.0.1` / `::1` skip auth entirely — this covers admin routes too. Set `LOCALHOST_AUTH_BYPASS=false` if you want admin routes to require the header even on localhost.
 
 **Config dashboard API:**
 

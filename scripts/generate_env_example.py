@@ -17,6 +17,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from luthien_proxy.config_fields import CONFIG_CATEGORIES, CONFIG_FIELDS
 
 
+def _format_default(value: object) -> str:
+    """Render a default value as it should appear after ``VAR=`` in .env.
+
+    Enums need their ``.value``, not their repr — otherwise ``AUTH_MODE`` would
+    render as ``AuthMode.BOTH`` and a user uncommenting the line would set
+    the literal string ``AuthMode.BOTH`` as the env var, which is not a valid
+    ``AuthMode`` member and would fail at startup.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return str(value).lower()
+    if isinstance(value, Enum):
+        return str(value.value)
+    return str(value)
+
+
 def build_env_example_text() -> str:
     """Return the full generated .env.example text.
 
@@ -63,18 +80,7 @@ def build_env_example_text() -> str:
                 lines.append(f"# (default derived from {symbol} at startup)")
                 lines.append(f"# {meta.env_var}=")
             else:
-                if meta.default is None:
-                    default_str = ""
-                elif isinstance(meta.default, bool):
-                    default_str = str(meta.default).lower()
-                elif isinstance(meta.default, Enum):
-                    # `(str, Enum)` subclasses stringify to "ClassName.MEMBER",
-                    # not the underlying value — use `.value` explicitly so the
-                    # generated example round-trips through the env parser.
-                    default_str = str(meta.default.value)
-                else:
-                    default_str = str(meta.default)
-                lines.append(f"# {meta.env_var}={default_str}")
+                lines.append(f"# {meta.env_var}={_format_default(meta.default)}")
             lines.append("")
 
     return "\n".join(lines)
