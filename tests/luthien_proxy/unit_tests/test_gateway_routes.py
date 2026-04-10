@@ -70,7 +70,7 @@ class TestGatewayAuthAndClientResolution:
 
         mock_credential_manager = MagicMock(spec=CredentialManager)
         mock_credential_manager.config = AuthConfig(
-            auth_mode=AuthMode.PROXY_KEY,
+            auth_mode=AuthMode.CLIENT_KEY,
             validate_credentials=True,
             valid_cache_ttl_seconds=3600,
             invalid_cache_ttl_seconds=300,
@@ -94,9 +94,9 @@ class TestGatewayAuthAndClientResolution:
         app.state.dependencies = deps
         return app, mock_anthropic_client, mock_credential_manager, deps
 
-    def test_proxy_key_mode_accepts_correct_key(self, mock_app):
+    def test_client_key_mode_accepts_correct_key(self, mock_app):
         app, _, credential_manager, _ = mock_app
-        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PROXY_KEY)
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.CLIENT_KEY)
 
         with patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process:
             mock_process.return_value = MagicMock()
@@ -112,9 +112,9 @@ class TestGatewayAuthAndClientResolution:
             )
             assert response.status_code == 200
 
-    def test_proxy_key_mode_rejects_wrong_key(self, mock_app):
+    def test_client_key_mode_rejects_wrong_key(self, mock_app):
         app, _, credential_manager, _ = mock_app
-        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PROXY_KEY)
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.CLIENT_KEY)
 
         client = TestClient(app, raise_server_exceptions=False)
         response = client.post(
@@ -164,7 +164,7 @@ class TestGatewayAuthAndClientResolution:
         )
         assert response.status_code == 401
 
-    def test_both_mode_accepts_proxy_key(self, mock_app):
+    def test_both_mode_accepts_client_key(self, mock_app):
         app, _, credential_manager, _ = mock_app
         credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.BOTH)
 
@@ -218,7 +218,7 @@ class TestGatewayAuthAndClientResolution:
 
     def test_x_anthropic_api_key_header_takes_precedence(self, mock_app):
         app, mock_anthropic_client, credential_manager, _ = mock_app
-        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PROXY_KEY)
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.CLIENT_KEY)
 
         with (
             patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
@@ -243,7 +243,7 @@ class TestGatewayAuthAndClientResolution:
 
     def test_empty_x_anthropic_api_key_returns_401(self, mock_app):
         app, _, credential_manager, _ = mock_app
-        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PROXY_KEY)
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.CLIENT_KEY)
 
         client = TestClient(app, raise_server_exceptions=False)
         response = client.post(
@@ -358,10 +358,10 @@ class TestGatewayAuthAndClientResolution:
             )
             mock_cache.get_client.assert_called_once_with("sk-ant-my-key", auth_type="api_key", base_url=None)
 
-    def test_no_anthropic_client_returns_500_for_proxy_key(self, mock_app):
+    def test_no_anthropic_client_returns_500_for_client_key(self, mock_app):
         """Proxy key auth with no ANTHROPIC_API_KEY configured returns 500."""
         app, _, credential_manager, deps = mock_app
-        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PROXY_KEY)
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.CLIENT_KEY)
         deps.anthropic_client = None
 
         client = TestClient(app, raise_server_exceptions=False)
@@ -401,10 +401,10 @@ class TestGatewayAuthAndClientResolution:
             assert deps.last_credential_info["type"] == "oauth"
             assert "timestamp" in deps.last_credential_info
 
-    def test_proxy_key_mode_does_not_record_credential_type(self, mock_app):
-        """In proxy_key mode, last_credential_info is NOT updated (recording skipped)."""
+    def test_client_key_mode_does_not_record_credential_type(self, mock_app):
+        """In client_key mode, last_credential_info is NOT updated (recording skipped)."""
         app, _, credential_manager, deps = mock_app
-        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PROXY_KEY)
+        credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.CLIENT_KEY)
         deps.last_credential_info = {}
 
         with (
@@ -425,8 +425,8 @@ class TestGatewayAuthAndClientResolution:
             )
             assert deps.last_credential_info == {}
 
-    def test_x_anthropic_api_key_records_client_api_key_type(self, mock_app):
-        """When x-anthropic-api-key header provided, deps.last_credential_info updated with client_api_key type."""
+    def test_x_anthropic_api_key_records_user_api_key_type(self, mock_app):
+        """When x-anthropic-api-key header provided, deps.last_credential_info updated with user_api_key type."""
         app, _, credential_manager, deps = mock_app
         credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PASSTHROUGH)
         deps.last_credential_info = {}
@@ -451,11 +451,11 @@ class TestGatewayAuthAndClientResolution:
                 },
             )
             assert response.status_code == 200
-            assert deps.last_credential_info["type"] == "client_api_key"
+            assert deps.last_credential_info["type"] == "user_api_key"
             assert "timestamp" in deps.last_credential_info
 
-    def test_passthrough_x_api_key_non_anthropic_records_client_api_key(self, mock_app):
-        """In passthrough mode, any x-api-key token records client_api_key (transport header is authoritative)."""
+    def test_passthrough_x_api_key_non_anthropic_records_user_api_key(self, mock_app):
+        """In passthrough mode, any x-api-key token records user_api_key (transport header is authoritative)."""
         app, _, credential_manager, deps = mock_app
         credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PASSTHROUGH)
         deps.last_credential_info = {}
@@ -476,11 +476,11 @@ class TestGatewayAuthAndClientResolution:
                 },
                 headers={"x-api-key": "oauth-token-not-sk-ant"},
             )
-            assert deps.last_credential_info["type"] == "client_api_key"
+            assert deps.last_credential_info["type"] == "user_api_key"
             assert "timestamp" in deps.last_credential_info
 
-    def test_passthrough_x_api_key_anthropic_records_client_api_key(self, mock_app):
-        """In passthrough mode, x-api-key with sk-ant-* token records client_api_key."""
+    def test_passthrough_x_api_key_anthropic_records_user_api_key(self, mock_app):
+        """In passthrough mode, x-api-key with sk-ant-* token records user_api_key."""
         app, _, credential_manager, deps = mock_app
         credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PASSTHROUGH)
         deps.last_credential_info = {}
@@ -501,11 +501,11 @@ class TestGatewayAuthAndClientResolution:
                 },
                 headers={"x-api-key": "sk-ant-api-key-123"},
             )
-            assert deps.last_credential_info["type"] == "client_api_key"
+            assert deps.last_credential_info["type"] == "user_api_key"
             assert "timestamp" in deps.last_credential_info
 
     def test_passthrough_bearer_sk_ant_oat_records_oauth(self, mock_app):
-        """Bearer token with sk-ant-oat prefix (Anthropic OAuth) records oauth, not client_api_key."""
+        """Bearer token with sk-ant-oat prefix (Anthropic OAuth) records oauth, not user_api_key."""
         app, _, credential_manager, deps = mock_app
         credential_manager.config = replace(credential_manager.config, auth_mode=AuthMode.PASSTHROUGH)
         deps.last_credential_info = {}

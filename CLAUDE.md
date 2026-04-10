@@ -227,7 +227,7 @@ All gateway configuration is defined in `src/luthien_proxy/config_fields.py` —
 
 - Copy `.env.example` to `.env`; never commit secrets.
 - Key env vars: `DATABASE_URL`, `POLICY_CONFIG`, `ADMIN_API_KEY`. (`REDIS_URL` only needed for Docker Compose deployments.)
-  - `PROXY_API_KEY` and `ANTHROPIC_API_KEY` are optional and only apply in specific auth modes — see [`dev/context/authentication.md`](dev/context/authentication.md).
+  - `CLIENT_API_KEY` and `ANTHROPIC_API_KEY` are optional and only apply in specific auth modes — see [`dev/context/authentication.md`](dev/context/authentication.md).
 - Policy env vars:
   - `POLICY_SOURCE` — policy loading strategy: `db`, `file`, `db-fallback-file` (default), or `file-fallback-db`.
   - `POLICY_CONFIG` — path to the policy YAML file (used when `POLICY_SOURCE` resolves to file).

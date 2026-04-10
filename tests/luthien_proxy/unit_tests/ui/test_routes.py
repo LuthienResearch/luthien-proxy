@@ -50,10 +50,10 @@ class TestClientSetup:
         assert "ANTHROPIC_BASE_URL" in response.text
 
     @pytest.mark.asyncio
-    async def test_no_proxy_api_key_mentioned(self, client: AsyncClient):
-        """Page should not reference PROXY_API_KEY (passthrough auth)."""
+    async def test_no_client_api_key_mentioned(self, client: AsyncClient):
+        """Page should not reference CLIENT_API_KEY (passthrough auth)."""
         response = await client.get("/client-setup")
-        assert "PROXY_API_KEY" not in response.text
+        assert "CLIENT_API_KEY" not in response.text
 
     @pytest.mark.asyncio
     async def test_no_template_placeholders_remain(self, client: AsyncClient):

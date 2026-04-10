@@ -6,7 +6,7 @@ through the proxy and verifying log entries via the admin API.
 Requires:
 - Gateway running with ENABLE_REQUEST_LOGGING=true
 - Database with migration 008 applied
-- Valid ADMIN_API_KEY and PROXY_API_KEY
+- Valid ADMIN_API_KEY and CLIENT_API_KEY
 """
 
 import asyncio
@@ -16,7 +16,7 @@ import httpx
 import pytest
 
 GATEWAY_URL = os.getenv("E2E_GATEWAY_URL", "http://localhost:8002")
-API_KEY = os.getenv("E2E_API_KEY", os.getenv("PROXY_API_KEY", "sk-luthien-dev-key"))
+API_KEY = os.getenv("E2E_API_KEY", os.getenv("CLIENT_API_KEY", "sk-luthien-dev-key"))
 ADMIN_API_KEY = os.getenv("E2E_ADMIN_API_KEY", os.getenv("ADMIN_API_KEY", "admin-dev-key"))
 
 

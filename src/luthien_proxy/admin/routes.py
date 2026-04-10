@@ -126,7 +126,7 @@ class AuthConfigResponse(BaseModel):
 class AuthConfigUpdateRequest(BaseModel):
     """Request to update auth configuration."""
 
-    auth_mode: str | None = Field(default=None, description="Auth mode: proxy_key, passthrough, or both")
+    auth_mode: str | None = Field(default=None, description="Auth mode: client_key, passthrough, or both")
     validate_credentials: bool | None = Field(default=None)
     valid_cache_ttl_seconds: int | None = Field(default=None, gt=0)
     invalid_cache_ttl_seconds: int | None = Field(default=None, gt=0)
@@ -304,7 +304,7 @@ async def send_chat(
     """Send a test message through the proxy with the active policy.
 
     Forwards the request to the gateway's /v1/messages endpoint using either
-    the server's PROXY_API_KEY or a custom API key. In mock mode, returns the
+    the server's CLIENT_API_KEY or a custom API key. In mock mode, returns the
     user's message as an echo without calling the LLM or running the policy
     pipeline (useful for quick checks without API credits).
 
@@ -321,15 +321,15 @@ async def send_chat(
             model=body.model,
         )
 
-    # Determine which API key to use: custom key takes precedence over server proxy key
-    test_api_key = settings.proxy_api_key
+    # Determine which API key to use: custom key takes precedence over server client key
+    test_api_key = settings.client_api_key
     if body.api_key is not None and body.api_key.strip():
         test_api_key = body.api_key.strip()
 
     if not test_api_key:
         return ChatResponse(
             success=False,
-            error="No API key available — set PROXY_API_KEY on the server or provide a custom key",
+            error="No API key available — set CLIENT_API_KEY on the server or provide a custom key",
             model=body.model,
         )
 
@@ -431,7 +431,7 @@ async def update_auth_config(
         except ValueError:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid auth_mode: {body.auth_mode}. Must be one of: proxy_key, passthrough, both",
+                detail=f"Invalid auth_mode: {body.auth_mode}. Must be one of: client_key, passthrough, both",
             )
 
     config = await credential_manager.update_config(

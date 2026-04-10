@@ -49,7 +49,7 @@ class TestProvisionerCreateInstance:
         assert result.instance.name == "test"
         assert result.instance.url == "https://luthien-test-prod.railway.app"
         assert result.instance.status == InstanceStatus.PROVISIONING
-        assert result.proxy_api_key is not None
+        assert result.client_api_key is not None
         assert result.admin_api_key is not None
 
         # Verify services were created
@@ -64,7 +64,7 @@ class TestProvisionerCreateInstance:
         variables = call_kwargs["variables"]
         assert "DATABASE_URL" in variables
         assert "REDIS_URL" in variables
-        assert "PROXY_API_KEY" in variables
+        assert "CLIENT_API_KEY" in variables
         assert "ADMIN_API_KEY" in variables
 
     def test_invalid_name(self):
@@ -154,6 +154,6 @@ class TestProvisionerCreateInstance:
 
         result = provisioner.create_instance("test")
 
-        assert result.proxy_api_key != result.admin_api_key
-        assert len(result.proxy_api_key) == 32
+        assert result.client_api_key != result.admin_api_key
+        assert len(result.client_api_key) == 32
         assert len(result.admin_api_key) == 32

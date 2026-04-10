@@ -4,19 +4,29 @@ How auth works end-to-end, including passthrough auth and judge key resolution.
 
 ---
 
-## Auth Modes (2026-03-17)
+## Client-Facing Mental Model (2026-04-10)
 
-Configured via `AUTH_MODE` env var / `auth_config` DB table. Three modes:
+**From a client's perspective, the gateway is just an Anthropic endpoint.** Clients set `ANTHROPIC_BASE_URL` to the gateway and send their normal `ANTHROPIC_API_KEY` (or Claude Pro/Max OAuth token). There is no Luthien-specific credential, header, or flow on the client side. The SDK, Claude Code, `curl`, etc. all work unchanged.
 
-- **`proxy_key`**: Client must present `PROXY_API_KEY`. The gateway then calls Anthropic using the server's own `ANTHROPIC_API_KEY`. If `ANTHROPIC_API_KEY` is unset in this mode, `/v1/messages` returns 500 (there are no credentials to forward upstream).
-- **`passthrough`**: Client's own Anthropic API key or OAuth token is forwarded directly to the Anthropic backend. No `PROXY_API_KEY` is required. `ANTHROPIC_API_KEY` is ignored for the forwarding path (but may still be used by judge policies — see below).
-- **`both`** (default, set by `luthien onboard`): Accepts either the proxy key or a passthrough credential. If the token matches `PROXY_API_KEY`, uses the server's client (requires `ANTHROPIC_API_KEY`); otherwise treats it as a passthrough credential.
-
-Managed by `CredentialManager` (`src/luthien_proxy/credential_manager.py`). Auth config is persisted to DB (`auth_config` table) and exposed via admin API (`/api/admin/auth/config`).
+Passthrough is the typically assumed default — the gateway forwards the client's own credentials upstream to Anthropic, so billing stays on the client's account.
 
 ---
 
-## Incoming Request Auth Flow (2026-03-17)
+## Auth Modes (2026-04-10)
+
+Configured via `AUTH_MODE` env var / `auth_config` DB table. Three modes:
+
+- **`passthrough`**: The client's own Anthropic API key or OAuth token is forwarded directly to the Anthropic backend. The server-side `ANTHROPIC_API_KEY` and `CLIENT_API_KEY` are not consulted for forwarding (the server key may still be used by judge policies — see below).
+- **`client_key`**: Requests must present exactly the value set in `CLIENT_API_KEY`. The gateway then calls Anthropic using the server's own `ANTHROPIC_API_KEY`. If `ANTHROPIC_API_KEY` is unset in this mode, `/v1/messages` returns 500 (there are no credentials to forward upstream).
+- **`both`** (default, set by `luthien onboard`): If the incoming token matches `CLIENT_API_KEY`, the gateway uses the server's client (requires `ANTHROPIC_API_KEY`). Otherwise the token is treated as a passthrough credential and forwarded as-is.
+
+Managed by `CredentialManager` (`src/luthien_proxy/credential_manager.py`). Auth config is persisted to DB (`auth_config` table) and exposed via admin API (`/api/admin/auth/config`).
+
+`CLIENT_API_KEY` is a gateway-side concept only. It's the value the operator configures as "accept this as if it were a real Anthropic credential." Clients that use it set it as their `ANTHROPIC_API_KEY` — they don't need to know it's special.
+
+---
+
+## Incoming Request Auth Flow (2026-04-10)
 
 **Entry point**: `verify_token()` in `gateway_routes.py`
 
@@ -27,7 +37,7 @@ Token is extracted from, in order:
 **For Anthropic (`/v1/messages`)**: `resolve_anthropic_client()` then decides which `AnthropicClient` to use:
 
 1. `x-anthropic-api-key` header → always use that key directly (explicit override)
-2. Token matches `PROXY_API_KEY` and mode is not `passthrough` → use server's `AnthropicClient` (configured via `ANTHROPIC_API_KEY` env var)
+2. Token matches `CLIENT_API_KEY` and mode is not `passthrough` → use server's `AnthropicClient` (configured via `ANTHROPIC_API_KEY` env var)
 3. Otherwise (passthrough) → forward the client's token:
    - Received via `Authorization: Bearer` → `AnthropicClient(auth_token=token)` (OAuth token)
    - Received via `x-api-key` → `AnthropicClient(api_key=token)` (API key)
@@ -65,7 +75,7 @@ This is implemented in `_resolve_api_key(context)` on each policy class (backed 
 
 ---
 
-## OAuth Passthrough (2026-03-18, updated 2026-03-18)
+## OAuth Passthrough (2026-03-18)
 
 Claude Code authenticates via OAuth (Claude Pro/Max accounts). The transport header is authoritative for credential type:
 

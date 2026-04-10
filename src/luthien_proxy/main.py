@@ -150,13 +150,13 @@ def create_app(
     """Create FastAPI application with dependency injection.
 
     Args:
-        api_key: API key for client authentication (PROXY_API_KEY)
+        api_key: Shared API key the gateway accepts from clients (CLIENT_API_KEY)
         admin_key: API key for admin operations (ADMIN_API_KEY)
         db_pool: Database connection pool (already initialized)
         redis_client: Redis client (None for SQLite/local mode)
         startup_policy_path: Optional path to YAML policy config to load at startup
         policy_source: Strategy for loading policy at startup (db, file, db-fallback-file, file-fallback-db)
-        auth_mode: Authentication mode ("proxy_key", "passthrough", or "both")
+        auth_mode: Authentication mode ("client_key", "passthrough", or "both")
         cli_overrides: CLI argument overrides for config values
 
     Returns:
@@ -217,7 +217,7 @@ def create_app(
             raise RuntimeError(f"Failed to initialize PolicyManager: {exc}") from exc
 
         # Create Anthropic client if API key is configured.
-        # Used as the server-side credential in proxy_key and both modes.
+        # Used as the server-side credential in client_key and both modes.
         _anthropic_client: AnthropicClient | None = None
         anthropic_api_key = settings.anthropic_api_key
         if anthropic_api_key:
@@ -238,20 +238,22 @@ def create_app(
         await _credential_manager.initialize(default_auth_mode=auth_mode)
 
         _resolved_mode = _credential_manager.config.auth_mode.value
-        if _resolved_mode == "proxy_key":
-            logger.warning("Upstream auth mode: proxy_key — all requests billed to server ANTHROPIC_API_KEY.")
+        if _resolved_mode == "client_key":
+            logger.warning("Upstream auth mode: client_key — all requests billed to server ANTHROPIC_API_KEY.")
         elif _resolved_mode == "both":
-            logger.info("Upstream auth mode: both — uses client credentials when valid, falls back to server API key.")
+            logger.info(
+                "Upstream auth mode: both — forwards client credentials by default; falls back to server key on CLIENT_API_KEY match."
+            )
         else:
             logger.info("Upstream auth mode: passthrough — client credentials forwarded directly to Anthropic.")
 
-        if api_key is None and _resolved_mode == "proxy_key":
+        if api_key is None and _resolved_mode == "client_key":
             raise RuntimeError(
-                "AUTH_MODE=proxy_key requires PROXY_API_KEY to be set. "
-                "Either set PROXY_API_KEY or switch to AUTH_MODE=both or AUTH_MODE=passthrough."
+                "AUTH_MODE=client_key requires CLIENT_API_KEY to be set. "
+                "Either set CLIENT_API_KEY or switch to AUTH_MODE=both or AUTH_MODE=passthrough."
             )
         elif api_key is None and _resolved_mode == "both":
-            logger.info("PROXY_API_KEY is not set — proxy-key auth unavailable, using passthrough only")
+            logger.info("CLIENT_API_KEY is not set — shared-key auth unavailable, using passthrough only")
 
         # Check if request logging is enabled
         _enable_request_logging = get_settings().enable_request_logging
@@ -481,7 +483,7 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
     except ValidationError as e:
         raise ValueError(f"Invalid configuration: {e}")
 
-    # Both api keys are optional — passthrough mode doesn't need PROXY_API_KEY,
+    # Both api keys are optional — passthrough mode doesn't need CLIENT_API_KEY,
     # and admin endpoints degrade gracefully without ADMIN_API_KEY.
 
     database_url = settings.database_url
@@ -495,7 +497,7 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
     redis_url = settings.redis_url
 
     return {
-        "api_key": settings.proxy_api_key,
+        "api_key": settings.client_api_key,
         "admin_key": settings.admin_api_key,
         "database_url": database_url,
         "redis_url": redis_url,

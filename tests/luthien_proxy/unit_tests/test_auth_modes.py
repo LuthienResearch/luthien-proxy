@@ -1,6 +1,6 @@
 # ABOUTME: Unit tests for AuthMode configuration and enforcement
 # ABOUTME: Tests load_config_from_env auth_mode defaults, env var parsing,
-# ABOUTME: and proxy_key / both mode enforcement at the /v1/messages endpoint.
+# ABOUTME: and client_key / both mode enforcement at the /v1/messages endpoint.
 
 """Tests for AuthMode configuration and gateway enforcement."""
 
@@ -77,7 +77,7 @@ class TestAuthModeConfig:
         """AUTH_MODE defaults to 'both' when not set."""
         from luthien_proxy.settings import Settings
 
-        monkeypatch.setenv("PROXY_API_KEY", "test-proxy-key")
+        monkeypatch.setenv("CLIENT_API_KEY", "test-proxy-key")
         monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
         monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
         monkeypatch.delenv("AUTH_MODE", raising=False)
@@ -86,24 +86,24 @@ class TestAuthModeConfig:
 
         assert config["auth_mode"] == AuthMode.BOTH
 
-    def test_auth_mode_env_var_proxy_key(self, monkeypatch):
-        """AUTH_MODE=proxy_key is parsed to AuthMode.PROXY_KEY."""
+    def test_auth_mode_env_var_client_key(self, monkeypatch):
+        """AUTH_MODE=client_key is parsed to AuthMode.CLIENT_KEY."""
         from luthien_proxy.settings import Settings
 
-        monkeypatch.setenv("PROXY_API_KEY", "test-proxy-key")
+        monkeypatch.setenv("CLIENT_API_KEY", "test-proxy-key")
         monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
         monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
-        monkeypatch.setenv("AUTH_MODE", "proxy_key")
+        monkeypatch.setenv("AUTH_MODE", "client_key")
 
         config = load_config_from_env(settings=Settings(_env_file=None))  # type: ignore[call-arg]
 
-        assert config["auth_mode"] == AuthMode.PROXY_KEY
+        assert config["auth_mode"] == AuthMode.CLIENT_KEY
 
     def test_auth_mode_env_var_passthrough(self, monkeypatch):
         """AUTH_MODE=passthrough is parsed to AuthMode.PASSTHROUGH."""
         from luthien_proxy.settings import Settings
 
-        monkeypatch.setenv("PROXY_API_KEY", "test-proxy-key")
+        monkeypatch.setenv("CLIENT_API_KEY", "test-proxy-key")
         monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
         monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
         monkeypatch.setenv("AUTH_MODE", "passthrough")
@@ -120,7 +120,7 @@ class TestAuthModeConfig:
             db_pool=mock_db_pool,
             redis_client=mock_redis_client,
             startup_policy_path=policy_config_file,
-            auth_mode=AuthMode.PROXY_KEY,
+            auth_mode=AuthMode.CLIENT_KEY,
         )
 
         with TestClient(app):
@@ -133,23 +133,23 @@ class TestAuthModeConfig:
 
 
 class TestAuthModeProxyKey:
-    """Verify that proxy_key mode enforces PROXY_API_KEY-only access."""
+    """Verify that client_key mode enforces CLIENT_API_KEY-only access."""
 
     @pytest.fixture
-    def proxy_key_app(self, policy_config_file, mock_db_pool, mock_redis_client):
-        """App configured in proxy_key auth mode."""
+    def client_key_app(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """App configured in client_key auth mode."""
         return create_app(
             api_key="sk-test-proxy-key",
             admin_key=None,
             db_pool=mock_db_pool,
             redis_client=mock_redis_client,
             startup_policy_path=policy_config_file,
-            auth_mode=AuthMode.PROXY_KEY,
+            auth_mode=AuthMode.CLIENT_KEY,
         )
 
-    def test_proxy_key_mode_accepts_proxy_key(self, proxy_key_app):
+    def test_client_key_mode_accepts_client_key(self, client_key_app):
         """Correct proxy key is accepted (auth does not return 401/403)."""
-        with TestClient(proxy_key_app) as client:
+        with TestClient(client_key_app) as client:
             response = client.post(
                 "/v1/messages",
                 json=_MINIMAL_BODY,
@@ -158,9 +158,9 @@ class TestAuthModeProxyKey:
 
         assert response.status_code not in (401, 403)
 
-    def test_proxy_key_mode_rejects_unknown_key(self, proxy_key_app):
+    def test_client_key_mode_rejects_unknown_key(self, client_key_app):
         """A key that is not the proxy key is rejected with 401."""
-        with TestClient(proxy_key_app) as client:
+        with TestClient(client_key_app) as client:
             response = client.post(
                 "/v1/messages",
                 json=_MINIMAL_BODY,
@@ -169,9 +169,9 @@ class TestAuthModeProxyKey:
 
         assert response.status_code in (401, 403)
 
-    def test_proxy_key_mode_rejects_missing_auth(self, proxy_key_app):
+    def test_client_key_mode_rejects_missing_auth(self, client_key_app):
         """Requests without an Authorization header are rejected with 401."""
-        with TestClient(proxy_key_app) as client:
+        with TestClient(client_key_app) as client:
             response = client.post(
                 "/v1/messages",
                 json=_MINIMAL_BODY,
@@ -200,7 +200,7 @@ class TestAuthModeBoth:
             auth_mode=AuthMode.BOTH,
         )
 
-    def test_both_mode_accepts_proxy_key(self, both_mode_app):
+    def test_both_mode_accepts_client_key(self, both_mode_app):
         """The proxy key is accepted in 'both' mode (auth does not return 401/403)."""
         with TestClient(both_mode_app) as client:
             response = client.post(
@@ -228,11 +228,11 @@ class TestAuthModeBoth:
 
 
 class TestAuthWithNoProxyKey:
-    """Verify auth behavior when PROXY_API_KEY is not configured (api_key=None)."""
+    """Verify auth behavior when CLIENT_API_KEY is not configured (api_key=None)."""
 
     @pytest.fixture
     def both_mode_no_key(self, policy_config_file, mock_db_pool, mock_redis_client):
-        """App in both mode with no PROXY_API_KEY — falls through to passthrough."""
+        """App in both mode with no CLIENT_API_KEY — falls through to passthrough."""
         return create_app(
             api_key=None,
             admin_key=None,
@@ -244,7 +244,7 @@ class TestAuthWithNoProxyKey:
 
     @pytest.fixture
     def passthrough_mode_no_key(self, policy_config_file, mock_db_pool, mock_redis_client):
-        """App in passthrough mode with no PROXY_API_KEY."""
+        """App in passthrough mode with no CLIENT_API_KEY."""
         return create_app(
             api_key=None,
             admin_key=None,
@@ -254,22 +254,22 @@ class TestAuthWithNoProxyKey:
             auth_mode=AuthMode.PASSTHROUGH,
         )
 
-    def test_proxy_key_mode_refuses_to_start_without_key(self, policy_config_file, mock_db_pool, mock_redis_client):
-        """proxy_key mode with no PROXY_API_KEY refuses to start (hard error)."""
+    def test_client_key_mode_refuses_to_start_without_key(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """client_key mode with no CLIENT_API_KEY refuses to start (hard error)."""
         app = create_app(
             api_key=None,
             admin_key=None,
             db_pool=mock_db_pool,
             redis_client=mock_redis_client,
             startup_policy_path=policy_config_file,
-            auth_mode=AuthMode.PROXY_KEY,
+            auth_mode=AuthMode.CLIENT_KEY,
         )
-        with pytest.raises(RuntimeError, match="AUTH_MODE=proxy_key requires PROXY_API_KEY"):
+        with pytest.raises(RuntimeError, match="AUTH_MODE=client_key requires CLIENT_API_KEY"):
             with TestClient(app):
                 pass
 
     def test_both_mode_falls_through_to_passthrough_when_no_key(self, both_mode_no_key):
-        """both mode with no PROXY_API_KEY skips proxy-key check, validates via passthrough."""
+        """both mode with no CLIENT_API_KEY skips proxy-key check, validates via passthrough."""
         with TestClient(both_mode_no_key, raise_server_exceptions=False) as client:
             # Patch validate_credential to return True (simulates valid passthrough cred)
             cm = client.app.state.dependencies.credential_manager
@@ -284,7 +284,7 @@ class TestAuthWithNoProxyKey:
         cm.validate_credential.assert_called_once()
 
     def test_both_mode_rejects_invalid_passthrough_when_no_key(self, both_mode_no_key):
-        """both mode with no PROXY_API_KEY rejects credentials that fail validation."""
+        """both mode with no CLIENT_API_KEY rejects credentials that fail validation."""
         with TestClient(both_mode_no_key) as client:
             cm = client.app.state.dependencies.credential_manager
             cm.validate_credential = AsyncMock(return_value=False)
@@ -297,7 +297,7 @@ class TestAuthWithNoProxyKey:
         assert response.status_code in (401, 403)
 
     def test_passthrough_mode_validates_without_key(self, passthrough_mode_no_key):
-        """passthrough mode validates credentials normally without PROXY_API_KEY."""
+        """passthrough mode validates credentials normally without CLIENT_API_KEY."""
         with TestClient(passthrough_mode_no_key, raise_server_exceptions=False) as client:
             cm = client.app.state.dependencies.credential_manager
             cm.validate_credential = AsyncMock(return_value=True)
@@ -311,7 +311,7 @@ class TestAuthWithNoProxyKey:
         cm.validate_credential.assert_called_once()
 
     def test_missing_auth_rejected_when_no_key(self, both_mode_no_key):
-        """Requests with no credentials are still rejected even without PROXY_API_KEY."""
+        """Requests with no credentials are still rejected even without CLIENT_API_KEY."""
         with TestClient(both_mode_no_key) as client:
             response = client.post(
                 "/v1/messages",

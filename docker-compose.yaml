@@ -95,7 +95,7 @@ services:
       # Non-sensitive config can use shell override via ${VAR} syntax
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
-      - PROXY_API_KEY=${PROXY_API_KEY}
+      - CLIENT_API_KEY=${CLIENT_API_KEY}
       - ADMIN_API_KEY=${ADMIN_API_KEY}
       - AUTH_MODE=${AUTH_MODE:-both}
       - POLICY_SOURCE=${POLICY_SOURCE:-db-fallback-file}
@@ -145,7 +145,7 @@ services:
     profiles: ["overseer"]
     environment:
       - ANTHROPIC_BASE_URL=http://gateway:8000
-      - ANTHROPIC_API_KEY=${PROXY_API_KEY}
+      - ANTHROPIC_API_KEY=${CLIENT_API_KEY}
     depends_on:
       gateway:
         condition: service_healthy

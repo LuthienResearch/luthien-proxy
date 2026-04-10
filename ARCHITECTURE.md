@@ -378,7 +378,7 @@ current_policy: active policy configuration
   - Protected by Redis distributed lock on changes
 
 auth_config: gateway authentication settings
-  - auth_mode ("proxy_key" | "passthrough" | "both"), validate_credentials,
+  - auth_mode ("client_key" | "passthrough" | "both"), validate_credentials,
     valid_cache_ttl_seconds, invalid_cache_ttl_seconds, updated_at, updated_by
 
 telemetry_config: usage telemetry opt-out + deployment identity

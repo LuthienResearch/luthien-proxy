@@ -236,7 +236,7 @@ if stream_state.finish_reason:
 
 ## Passthrough Auth Mode Is DB-Persisted, Not Just Env (2026-02-27)
 
-**Gotcha**: `AUTH_MODE` env var is only the startup default; the effective mode is loaded from `auth_config` in DB on startup. If DB says `proxy_key`, passthrough tests will skip/fail even when container env has `AUTH_MODE=both`.
+**Gotcha**: `AUTH_MODE` env var is only the startup default; the effective mode is loaded from `auth_config` in DB on startup. If DB says `client_key`, passthrough tests will skip/fail even when container env has `AUTH_MODE=both`.
 
 - **Symptom**: Passthrough tests skip with "Gateway not in passthrough/both auth mode" while env shows `AUTH_MODE=both`
 - **Fix**: Set mode explicitly via admin API: `POST /admin/auth/config {"auth_mode":"both"}`

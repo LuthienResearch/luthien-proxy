@@ -331,7 +331,7 @@ async def test_missing_auth_header_returns_401(gateway_healthy, gateway_url):
 
 @pytest.mark.asyncio
 async def test_invalid_api_key_returns_401(mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url):
-    """Gateway rejects wrong API key (proxy_key) or forwards as passthrough (both)."""
+    """Gateway rejects wrong API key (client_key) or forwards as passthrough (both)."""
     if AUTH_MODE == "both":
         mock_anthropic.enqueue(text_response("passthrough response"))
 
@@ -423,7 +423,7 @@ async def test_gateway_responsive_after_malformed_requests(
             f"No-auth request should be rejected, got {no_auth_resp.status_code}"
         )
 
-        # Wrong key — rejected in proxy_key mode, passthrough in both mode
+        # Wrong key — rejected in client_key mode, passthrough in both mode
         wrong_key_resp = await client.post(
             f"{gateway_url}/v1/messages",
             json={**_BASE_REQUEST},

@@ -121,12 +121,12 @@ The gateway is a single FastAPI application:
 - `GET /credentials` - Credential management UI
 - `GET /request-logs/viewer` - Request log viewer
 
-**Authentication (three layers):**
+**Authentication:**
 
-Luthien has three independent authentication layers. The full reference is [`dev/context/authentication.md`](dev/context/authentication.md).
+From a client's perspective the gateway is just an Anthropic endpoint — clients set `ANTHROPIC_BASE_URL` to Luthien and use their normal `ANTHROPIC_API_KEY` or Claude Pro/Max OAuth. The full reference is [`dev/context/authentication.md`](dev/context/authentication.md).
 
-- **Gateway ingress (`PROXY_API_KEY`, optional)**: The shared key clients present to talk to `/v1/messages`. When unset, clients authenticate with their own Anthropic OAuth tokens or API keys (passthrough mode). The active mode is controlled by `AUTH_MODE` (`proxy_key` / `passthrough` / `both`, default `both`).
-- **Upstream (`ANTHROPIC_API_KEY`, optional)**: Server-side key used when a client successfully authenticates with `PROXY_API_KEY`. When unset, each client's own credentials are forwarded upstream. Setting it bills all proxy-keyed traffic per-token at [Anthropic's rates](https://docs.anthropic.com/en/docs/about-claude/models).
+- **Client ingress (`CLIENT_API_KEY`, optional, gateway-side)**: A shared value the gateway will accept as if it were a real Anthropic credential. Clients that use it just put it in their own `ANTHROPIC_API_KEY` env var — there is no Luthien-specific key on the client side. When unset, clients simply use their own Anthropic credentials and the gateway forwards them upstream (passthrough, the typical default). The active mode is controlled by `AUTH_MODE` (`client_key` / `passthrough` / `both`, default `both`).
+- **Upstream (`ANTHROPIC_API_KEY`, optional)**: Server-side Anthropic credential used when a request's token matches `CLIENT_API_KEY`. When unset, each client's own credentials are forwarded upstream. Setting it bills all `CLIENT_API_KEY`-matched traffic per-token at [Anthropic's rates](https://docs.anthropic.com/en/docs/about-claude/models).
 - **Admin (`ADMIN_API_KEY`)**: Admin dashboard and `/api/admin/*` endpoints. Localhost requests bypass this check by default (`LOCALHOST_AUTH_BYPASS=true`); disable the bypass if you expose the admin surface beyond loopback.
 
 ### Admin API

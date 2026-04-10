@@ -59,7 +59,7 @@ async def test_bad_auth_rejected_before_backend(
     gateway_healthy,
     gateway_url,
 ):
-    """Gateway auth: bad key gets 401 (proxy_key mode) or passes through (both mode)."""
+    """Gateway auth: bad key gets 401 (client_key mode) or passes through (both mode)."""
     mock_anthropic.enqueue(text_response("passthrough or blocked"))
     session = ClaudeCodeSimulator(gateway_url, api_key="sk-bad-key")
 

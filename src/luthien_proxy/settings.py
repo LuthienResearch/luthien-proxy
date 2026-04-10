@@ -47,7 +47,7 @@ class Settings(_SettingsBase):
     verbose_client_errors: bool = False
 
     # ── auth ────────────────────────────────────────────────────────
-    proxy_api_key: str | None = None
+    client_api_key: str | None = None
     admin_api_key: str | None = None
     auth_mode: AuthMode = AuthMode.BOTH
     localhost_auth_bypass: bool = True

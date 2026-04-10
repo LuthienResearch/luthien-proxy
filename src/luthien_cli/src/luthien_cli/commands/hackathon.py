@@ -170,18 +170,18 @@ def _pick_policy(console: Console, yes: bool) -> tuple[str, str]:
 
 
 def _read_existing_keys(env_path: Path) -> tuple[str | None, str | None]:
-    """Read existing PROXY_API_KEY and ADMIN_API_KEY from .env if present."""
+    """Read existing CLIENT_API_KEY and ADMIN_API_KEY from .env if present."""
     if not env_path.exists():
         return None, None
-    proxy_key = None
+    client_key = None
     admin_key = None
     for line in env_path.read_text().splitlines():
         line = line.strip()
-        if line.startswith("PROXY_API_KEY="):
-            proxy_key = _parse_env_value(line.partition("=")[2].strip())
+        if line.startswith("CLIENT_API_KEY="):
+            client_key = _parse_env_value(line.partition("=")[2].strip())
         elif line.startswith("ADMIN_API_KEY="):
             admin_key = _parse_env_value(line.partition("=")[2].strip())
-    return proxy_key, admin_key
+    return client_key, admin_key
 
 
 def _write_env(repo_path: Path, admin_key: str, port: int) -> str:
@@ -191,7 +191,7 @@ def _write_env(repo_path: Path, admin_key: str, port: int) -> str:
     Returns admin_key actually written (may differ from arg if reusing existing).
     """
     env_path = repo_path / ".env"
-    _existing_proxy, existing_admin = _read_existing_keys(env_path)
+    _existing_client_key, existing_admin = _read_existing_keys(env_path)
     if existing_admin:
         admin_key = existing_admin
 

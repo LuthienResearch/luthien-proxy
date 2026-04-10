@@ -60,11 +60,11 @@ if [ -f .env ] && [ -f .env.example ]; then
         insecure_defaults=true
     fi
 
-    # Check PROXY_API_KEY
-    env_api_key=$(grep "^PROXY_API_KEY=" .env 2>/dev/null | cut -d'=' -f2)
-    example_api_key=$(grep "^PROXY_API_KEY=" .env.example 2>/dev/null | cut -d'=' -f2)
+    # Check CLIENT_API_KEY
+    env_api_key=$(grep "^CLIENT_API_KEY=" .env 2>/dev/null | cut -d'=' -f2)
+    example_api_key=$(grep "^CLIENT_API_KEY=" .env.example 2>/dev/null | cut -d'=' -f2)
     if [ -n "$env_api_key" ] && [ "$env_api_key" = "$example_api_key" ]; then
-        echo "⚠️  WARNING: PROXY_API_KEY is using the default dev value!"
+        echo "⚠️  WARNING: CLIENT_API_KEY is using the default dev value!"
         echo "   This is INSECURE for production. Change it in .env"
         insecure_defaults=true
     fi

@@ -78,8 +78,8 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
 
     # ── auth ──────────────────────────────────────────────────────────────
     ConfigFieldMeta(
-        "proxy_api_key", "PROXY_API_KEY", str, None,
-        "API key clients must provide for proxy_key auth mode",
+        "client_api_key", "CLIENT_API_KEY", str, None,
+        "Shared API key the gateway accepts from clients (optional). Clients set this as ANTHROPIC_API_KEY.",
         sensitive=True, category="auth",
     ),
     ConfigFieldMeta(
@@ -89,7 +89,7 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
     ),
     ConfigFieldMeta(
         "auth_mode", "AUTH_MODE", AuthMode, AuthMode.BOTH,
-        "Authentication mode: proxy_key, passthrough, or both (managed via /api/admin/auth/config)",
+        "Authentication mode: client_key, passthrough, or both (managed via /api/admin/auth/config)",
         category="auth",
     ),
     ConfigFieldMeta(

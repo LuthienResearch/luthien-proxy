@@ -112,7 +112,7 @@ class TestWriteEnv:
         env_file = repo_path / ".env"
         assert env_file.exists()
         content = env_file.read_text()
-        assert "PROXY_API_KEY" not in content
+        assert "CLIENT_API_KEY" not in content
         assert "ADMIN_API_KEY=admin-test-key" in content
         assert "GATEWAY_PORT=9000" in content
 
@@ -147,7 +147,7 @@ class TestWriteEnv:
         ]
         for key in expected_keys:
             assert f"{key}=" in content
-        assert "PROXY_API_KEY" not in content
+        assert "CLIENT_API_KEY" not in content
 
     def test_write_env_sqlite_path(self, tmp_path):
         """Verify SQLite path is correctly set."""
@@ -311,14 +311,14 @@ class TestReadExistingKeys:
 
     def test_reads_existing_keys(self, tmp_path):
         env_path = tmp_path / ".env"
-        env_path.write_text("PROXY_API_KEY=sk-existing\nADMIN_API_KEY=admin-existing\n")
+        env_path.write_text("CLIENT_API_KEY=sk-existing\nADMIN_API_KEY=admin-existing\n")
         proxy, admin = _read_existing_keys(env_path)
         assert proxy == "sk-existing"
         assert admin == "admin-existing"
 
     def test_reads_quoted_keys(self, tmp_path):
         env_path = tmp_path / ".env"
-        env_path.write_text("PROXY_API_KEY=\"sk-quoted\"\nADMIN_API_KEY='admin-quoted'\n")
+        env_path.write_text("CLIENT_API_KEY=\"sk-quoted\"\nADMIN_API_KEY='admin-quoted'\n")
         proxy, admin = _read_existing_keys(env_path)
         assert proxy == "sk-quoted"
         assert admin == "admin-quoted"

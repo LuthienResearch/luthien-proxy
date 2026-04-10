@@ -59,7 +59,7 @@ load_dotenv(_env_path, override=False)
 # Module-level defaults — used by the session-scoped fixtures below.
 # Test files should NOT import these directly; use the fixtures instead.
 _DEFAULT_GATEWAY_URL = os.getenv("E2E_GATEWAY_URL", "http://localhost:8000")
-_DEFAULT_API_KEY = os.getenv("E2E_API_KEY", os.getenv("PROXY_API_KEY", "sk-luthien-dev-key"))
+_DEFAULT_API_KEY = os.getenv("E2E_API_KEY", os.getenv("CLIENT_API_KEY", "sk-luthien-dev-key"))
 _DEFAULT_ADMIN_API_KEY = os.getenv("E2E_ADMIN_API_KEY", os.getenv("ADMIN_API_KEY", "admin-dev-key"))
 
 
@@ -296,7 +296,7 @@ async def auth_config_context(
     """Context manager that temporarily changes auth config and restores it after the test.
 
     Args:
-        auth_mode: Auth mode to set ("proxy_key", "passthrough", "both")
+        auth_mode: Auth mode to set ("client_key", "passthrough", "both")
         validate_credentials: Whether to validate passthrough credentials against Anthropic
         gateway_url: Gateway base URL (required)
         admin_api_key: Admin API key (required)

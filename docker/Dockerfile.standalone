@@ -11,7 +11,7 @@
 #     -e ADMIN_API_KEY=admin-my-key \
 #     luthien-standalone
 #
-# Add -e PROXY_API_KEY / -e ANTHROPIC_API_KEY only for proxy-key auth with a
+# Add -e CLIENT_API_KEY / -e ANTHROPIC_API_KEY only for proxy-key auth with a
 # shared server-side Anthropic credential. See docs/standalone-container.md.
 #
 # Volume mount points:

@@ -1,6 +1,6 @@
 """Credential validation and caching for passthrough authentication.
 
-Manages configurable auth modes (proxy_key, passthrough, both) and validates
+Manages configurable auth modes (client_key, passthrough, both) and validates
 Anthropic credentials via the free count_tokens endpoint, caching results.
 """
 
@@ -49,7 +49,7 @@ VALIDATION_PAYLOAD = {
 class AuthMode(str, Enum):
     """Authentication mode for the gateway."""
 
-    PROXY_KEY = "proxy_key"
+    CLIENT_KEY = "client_key"
     PASSTHROUGH = "passthrough"
     BOTH = "both"
 

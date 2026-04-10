@@ -36,7 +36,7 @@ policies log conversations and apply safety rules via a judge LLM.
 
 | Feature | Default |
 |---------|---------|
-| Auth mode | **Passthrough** — your Claude session flows through, no server API key needed. The endpoint is public: anyone with the URL can proxy through it using their own credentials. Set `PROXY_API_KEY` to restrict access. |
+| Auth mode | **Passthrough** — your Claude session flows through, no server API key needed. The endpoint is public: anyone with the URL can proxy through it using their own credentials. Set `CLIENT_API_KEY` to restrict access to a single shared value. |
 | Database | **SQLite** — zero config, stored on Railway's ephemeral disk (lost on redeploy; add Postgres for durability) |
 | Policies | **Debug logging** (activity monitor at `/activity`) + **English safety rules** (redact secrets, block harmful content, professional tone) |
 | Admin API | Auto-generated key (printed in deploy logs) |
@@ -88,10 +88,10 @@ Override any default by setting environment variables in your Railway service:
 
 | Variable | Default on Railway | Description |
 |----------|--------------------|-------------|
-| `AUTH_MODE` | `passthrough` | `passthrough`, `proxy_key`, or `both` |
+| `AUTH_MODE` | `passthrough` | `passthrough`, `client_key`, or `both` |
 | `POLICY_CONFIG` | `config/railway_policy_config.yaml` | Path to policy YAML |
-| `PROXY_API_KEY` | *(not set)* | Set to require a proxy key for access (clients must present it as `x-api-key` or `Authorization: Bearer`) |
-| `ANTHROPIC_API_KEY` | *(not set)* | Only consulted when a request authenticates with `PROXY_API_KEY`. Required alongside `PROXY_API_KEY` for proxy-key traffic to reach Anthropic, otherwise `/v1/messages` returns 500 for proxy-keyed requests. |
+| `CLIENT_API_KEY` | *(not set)* | Shared value the gateway will accept as a client credential. Clients set it as their own `ANTHROPIC_API_KEY`. |
+| `ANTHROPIC_API_KEY` | *(not set)* | Server-side Anthropic credential used to forward requests whose token matched `CLIENT_API_KEY`. Required alongside `CLIENT_API_KEY` for matched traffic to reach Anthropic, otherwise `/v1/messages` returns 500 for those requests. |
 | `ADMIN_API_KEY` | *(auto-generated)* | Check deploy logs for the generated value |
 | `DATABASE_URL` | *(SQLite)* | Add a Postgres service for durable storage |
 | `REDIS_URL` | *(not set)* | Add Redis for real-time UI events |

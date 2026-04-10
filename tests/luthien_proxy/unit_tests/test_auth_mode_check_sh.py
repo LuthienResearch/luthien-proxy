@@ -37,8 +37,8 @@ class TestCheckAuthModeInteractive:
 
     def test_skips_in_noninteractive_mode(self) -> None:
         """When stdin is not a TTY (piped), should skip silently."""
-        result = run_bash('check_auth_mode_interactive "proxy_key"')
-        assert result.stdout.strip() == "proxy_key"
+        result = run_bash('check_auth_mode_interactive "client_key"')
+        assert result.stdout.strip() == "client_key"
         assert result.returncode == 1
 
 
@@ -47,7 +47,7 @@ class TestUpdateAuthModeEnv:
 
     def test_updates_existing_auth_mode(self, tmp_path: Path) -> None:
         env_file = tmp_path / ".env"
-        env_file.write_text("AUTH_MODE=proxy_key\nOTHER=value\n")
+        env_file.write_text("AUTH_MODE=client_key\nOTHER=value\n")
 
         result = run_bash(f'update_auth_mode_env "both" "{env_file}"')
         assert result.returncode == 0
@@ -58,7 +58,7 @@ class TestUpdateAuthModeEnv:
 
     def test_updates_commented_auth_mode(self, tmp_path: Path) -> None:
         env_file = tmp_path / ".env"
-        env_file.write_text("# AUTH_MODE=proxy_key\nOTHER=value\n")
+        env_file.write_text("# AUTH_MODE=client_key\nOTHER=value\n")
 
         result = run_bash(f'update_auth_mode_env "passthrough" "{env_file}"')
         assert result.returncode == 0
@@ -88,11 +88,11 @@ class TestUpdateAuthModeEnv:
 
     def test_preserves_other_lines(self, tmp_path: Path) -> None:
         env_file = tmp_path / ".env"
-        env_file.write_text("PROXY_API_KEY=sk-test\nAUTH_MODE=proxy_key\nDATABASE_URL=postgres://localhost\n")
+        env_file.write_text("CLIENT_API_KEY=sk-test\nAUTH_MODE=client_key\nDATABASE_URL=postgres://localhost\n")
 
         run_bash(f'update_auth_mode_env "both" "{env_file}"')
 
         content = env_file.read_text()
-        assert "PROXY_API_KEY=sk-test" in content
+        assert "CLIENT_API_KEY=sk-test" in content
         assert "AUTH_MODE=both" in content
         assert "DATABASE_URL=postgres://localhost" in content

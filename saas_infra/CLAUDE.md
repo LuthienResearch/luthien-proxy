@@ -90,7 +90,7 @@ This is different from most Railway mutations where the ID is inside the input o
 `provisioner.py` `create_instance(name)` does this in sequence:
 
 1. Validate name, check for duplicates
-2. Generate proxy_api_key and admin_api_key
+2. Generate client_api_key and admin_api_key
 3. `railway init -n luthien-<name>` (creates project)
 4. Find project via GraphQL to get project_id and environment_id
 5. `railway add -d postgres` + wait for propagation
