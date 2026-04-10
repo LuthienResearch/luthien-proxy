@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from opentelemetry.trace import Span
 
     from luthien_proxy.credential_manager import CredentialManager
+    from luthien_proxy.utils.policy_cache import PolicyCache, PolicyCacheFactory
 
 _tracer = trace.get_tracer(__name__)
 T = TypeVar("T")
@@ -56,6 +57,7 @@ class PolicyContext:
         session_id: str | None = None,
         user_credential: Credential | None = None,
         credential_manager: "CredentialManager | None" = None,
+        policy_cache_factory: "PolicyCacheFactory | None" = None,
     ) -> None:
         """Initialize policy context for a request.
 
@@ -71,6 +73,8 @@ class PolicyContext:
                              (accounts for x-anthropic-api-key overrides).
             credential_manager: Shared credential manager for auth provider
                                 resolution. Policies access via the property.
+            policy_cache_factory: Factory to create policy-scoped caches. If not
+                                  provided, policy caching is unavailable.
         """
         self.transaction_id: str = transaction_id
         self.request: Any | None = request
@@ -78,6 +82,7 @@ class PolicyContext:
         self.session_id: str | None = session_id
         self.user_credential: Credential | None = user_credential
         self._credential_manager: "CredentialManager | None" = credential_manager
+        self._policy_cache_factory: "PolicyCacheFactory | None" = policy_cache_factory
         self._emitter: EventEmitterProtocol = emitter or NullEventEmitter()
         self._scratchpad: dict[str, Any] = {}
         self._request_state: dict[tuple[int, type[Any]], Any] = {}
@@ -113,6 +118,23 @@ class PolicyContext:
                 "CredentialManager initialized."
             )
         return self._credential_manager
+
+    def policy_cache(self, policy_name: str) -> "PolicyCache":
+        """Get a DB-backed cache scoped to the given policy name.
+
+        Raises RuntimeError if no database is configured.
+        """
+        if self._policy_cache_factory is None:
+            raise RuntimeError(
+                "PolicyCache not available — no database configured. "
+                "Set DATABASE_URL to enable persistent policy caching."
+            )
+        return self._policy_cache_factory(policy_name)
+
+    @property
+    def has_policy_cache(self) -> bool:
+        """Whether persistent policy caching is available."""
+        return self._policy_cache_factory is not None
 
     @property
     def scratchpad(self) -> dict[str, Any]:
@@ -244,6 +266,7 @@ class PolicyContext:
         new_ctx.raw_http_request = self.raw_http_request  # read-only after creation
         new_ctx.user_credential = self.user_credential  # frozen dataclass
         new_ctx._credential_manager = self._credential_manager  # holds db/cache pools
+        new_ctx._policy_cache_factory = self._policy_cache_factory  # infrastructure, not per-request state
         new_ctx._emitter = self._emitter  # holds db/redis pool — share, not copy
 
         # Independently mutable: each sub-policy gets its own copy
@@ -268,6 +291,7 @@ class PolicyContext:
         session_id: str | None = None,
         user_credential: Credential | None = None,
         credential_manager: "CredentialManager | None" = None,
+        policy_cache_factory: "PolicyCacheFactory | None" = None,
     ) -> "PolicyContext":
         """Create a PolicyContext suitable for unit tests.
 
@@ -280,6 +304,7 @@ class PolicyContext:
             session_id: Optional session ID
             user_credential: Optional credential for tests exercising auth
             credential_manager: Optional manager for tests exercising auth providers
+            policy_cache_factory: Optional cache factory for tests exercising caching
 
         Returns:
             PolicyContext with null implementations for external services
@@ -292,6 +317,7 @@ class PolicyContext:
             session_id=session_id,
             user_credential=user_credential,
             credential_manager=credential_manager,
+            policy_cache_factory=policy_cache_factory,
         )
 
 
