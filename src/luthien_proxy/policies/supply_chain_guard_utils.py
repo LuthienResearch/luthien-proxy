@@ -170,8 +170,24 @@ class SupplyChainGuardConfig(BaseModel):
     )
     cache_ttl_seconds: int = Field(
         default=86400,
-        description="How long to cache OSV lookup results.",
+        description=(
+            "How long to cache a successful OSV lookup result. Longer TTLs "
+            "reduce load on OSV but increase the lag before a new advisory "
+            "becomes visible to the guard. The default (24h) trades a "
+            "one-day worst-case staleness window for ~1 query per "
+            "package-version per day."
+        ),
         gt=0,
+    )
+    error_cache_ttl_seconds: int = Field(
+        default=60,
+        description=(
+            "How long to cache a *failed* OSV lookup. Short by design so an "
+            "outage recovers quickly, but long enough that an outage doesn't "
+            "degenerate into `osv_timeout_seconds * N` per request under "
+            "fail_closed. Set to 0 to disable negative caching entirely."
+        ),
+        ge=0,
     )
     severity_threshold: str = Field(
         default="HIGH",
@@ -185,6 +201,26 @@ class SupplyChainGuardConfig(BaseModel):
         default=True,
         description="If true, block installs when the OSV lookup fails. If false, allow on lookup failure.",
     )
+    bash_tool_names: tuple[str, ...] = Field(
+        default=("Bash",),
+        description=(
+            "Tool names that represent shell execution and should be "
+            "inspected for install commands. Claude Code uses `Bash`; MCP "
+            "servers may expose shell access under other names (e.g. "
+            "`execute_command`, `Terminal`). Add those names here to "
+            "extend coverage to non–Claude-Code clients."
+        ),
+    )
+
+    @field_validator("bash_tool_names", mode="before")
+    @classmethod
+    def _coerce_bash_tool_names(cls, value: Any) -> tuple[str, ...]:
+        """Accept list input (from YAML) and normalise to a tuple."""
+        if isinstance(value, str):
+            return (value,)
+        if isinstance(value, (list, tuple)):
+            return tuple(str(v) for v in value)
+        return value
 
     @field_validator("severity_threshold")
     @classmethod
@@ -1359,6 +1395,25 @@ def redact_credentials(text: str) -> str:
 # =============================================================================
 
 
+# Max characters of untrusted OSV-summary text to show per vuln. Longer
+# summaries are a larger prompt-injection surface and rarely informative.
+_UNTRUSTED_SUMMARY_MAX = 200
+
+
+def _format_untrusted_summary(summary: str) -> str:
+    """Render an OSV summary with a clear untrusted-content delimiter.
+
+    OSV.dev accepts third-party advisory submissions, so the summary field
+    is untrusted text that will be shown back to the LLM. Wrap it in a
+    labelled quote so a malicious advisory can't cleanly impersonate
+    guard instructions.
+    """
+    text = (summary or "no summary").strip().splitlines()[0]
+    if len(text) > _UNTRUSTED_SUMMARY_MAX:
+        text = text[:_UNTRUSTED_SUMMARY_MAX] + "…"
+    return f"⟨untrusted OSV advisory text⟩ {text}"
+
+
 def format_blocked_message(
     results: list[PackageCheckResult],
     threshold: Severity,
@@ -1392,8 +1447,7 @@ def format_blocked_message(
             )
             lines.append(header)
             for vuln in blocking[:5]:
-                summary = (vuln.summary or "no summary").strip().splitlines()[0]
-                lines.append(f"    {vuln.id} [{vuln.severity.label}]: {summary}")
+                lines.append(f"    {vuln.id} [{vuln.severity.label}]: {_format_untrusted_summary(vuln.summary)}")
             if len(blocking) > 5:
                 lines.append(f"    ... and {len(blocking) - 5} more")
 
@@ -1459,8 +1513,7 @@ def format_incoming_warning(results: list[PackageCheckResult], threshold: Severi
             f"[{result.max_severity.label}]"
         )
         for vuln in blocking[:3]:
-            summary = (vuln.summary or "no summary").strip().splitlines()[0]
-            lines.append(f"    {vuln.id}: {summary}")
+            lines.append(f"    {vuln.id}: {_format_untrusted_summary(vuln.summary)}")
         action = _remediation_for(result.package)
         lines.append(f"    Action: {action}")
     return "\n".join(lines)

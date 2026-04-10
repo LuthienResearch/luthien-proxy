@@ -669,19 +669,189 @@ class TestPolicyCaching:
 
 class TestMisc:
     @pytest.mark.asyncio
-    async def test_malformed_json_input_is_ignored(self):
+    async def test_malformed_json_input_hard_blocks(self):
+        """Regression: an adversarial upstream could deliberately produce
+        malformed tool_use JSON to smuggle a Bash block past the guard."""
         policy, osv = _make_policy()
         ctx = _make_context()
         await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0, name="Bash")), ctx)
         await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta("{not-json", 0)), ctx)
         out = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-        # Falls through to "allowed" emission path since no command extractable.
+        # Must hard-block; the unparseable buffer is not safe to re-emit.
         assert event_types(out) == ["content_block_start", "content_block_delta", "content_block_stop"]
+        start = out[0]
+        assert isinstance(start, RawContentBlockStartEvent)
+        assert start.content_block.type == "text"  # hard-blocked
+        delta = out[1]
+        assert isinstance(delta, RawContentBlockDeltaEvent)
+        assert "Supply chain guard blocked" in delta.delta.text  # type: ignore[union-attr]
+        assert osv.calls == []  # no OSV call for an unparseable input
+
+    @pytest.mark.asyncio
+    async def test_empty_json_input_is_allowed(self):
+        """A completely empty buffered input (never got any delta) is
+        distinguishable from malformed JSON — just pass it through."""
+        policy, osv = _make_policy()
+        ctx = _make_context()
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0, name="Bash")), ctx)
+        # No delta event.
+        out = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+        start = out[0]
+        assert isinstance(start, RawContentBlockStartEvent)
+        assert start.content_block.type == "tool_use"
         assert osv.calls == []
 
     def test_short_policy_name(self):
         policy, _ = _make_policy()
         assert policy.short_policy_name == "SupplyChainGuard"
+
+    @pytest.mark.asyncio
+    async def test_custom_bash_tool_names_catch_mcp_shells(self):
+        """Configurable tool names let non-Claude-Code clients (MCP shell
+        servers, etc.) opt into the guard without forking."""
+        policy, osv = _make_policy(
+            responses={"evil": [_critical()]},
+            bash_tool_names=("Bash", "execute_command"),
+        )
+        ctx = _make_context()
+        # An MCP "execute_command" tool_use should be inspected.
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0, name="execute_command")), ctx)
+        await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, tool_delta('{"command":"pip install evil"}', 0)), ctx
+        )
+        out = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+        start = out[0]
+        assert isinstance(start, RawContentBlockStartEvent)
+        assert start.content_block.type == "text"  # blocked
+        assert osv.calls  # OSV was consulted
+
+    @pytest.mark.asyncio
+    async def test_unknown_tool_name_passes_through(self):
+        """A tool_use with a name not in bash_tool_names is not inspected —
+        its events pass through the stream handler unchanged."""
+        policy, osv = _make_policy(
+            responses={"evil": [_critical()]},
+            bash_tool_names=("Bash",),
+        )
+        ctx = _make_context()
+        # Start event for unknown tool is passed straight through.
+        start_out = await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, tool_start(0, name="Notebook")), ctx
+        )
+        assert len(start_out) == 1
+        assert isinstance(start_out[0], RawContentBlockStartEvent)
+        # Delta is passed through unchanged.
+        delta_out = await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, tool_delta('{"command":"pip install evil"}', 0)), ctx
+        )
+        assert len(delta_out) == 1
+        assert isinstance(delta_out[0], RawContentBlockDeltaEvent)
+        # Stop event is passed through unchanged.
+        stop_out = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+        assert len(stop_out) == 1
+        # No OSV call — the policy never inspected the command.
+        assert osv.calls == []
+
+    @pytest.mark.asyncio
+    async def test_multiple_bash_blocks_at_different_indices(self):
+        """Two interleaved Bash tool_use blocks at different indices must
+        each be buffered, analysed, and re-emitted independently."""
+        policy, osv = _make_policy(
+            responses={"clean1": [], "evil": [_critical()]},
+        )
+        ctx = _make_context()
+        # Index 0: clean install
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0, name="Bash")), ctx)
+        # Index 1: evil install
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(1, name="Bash")), ctx)
+        # Interleaved deltas
+        await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, tool_delta('{"command":"pip install clean1"}', 0)), ctx
+        )
+        await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, tool_delta('{"command":"pip install evil"}', 1)), ctx
+        )
+        out_0 = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+        out_1 = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+        # Block 0 (clean1): passes through as tool_use
+        start_0 = out_0[0]
+        assert isinstance(start_0, RawContentBlockStartEvent)
+        assert start_0.content_block.type == "tool_use"
+        # Block 1 (evil): blocked as text
+        start_1 = out_1[0]
+        assert isinstance(start_1, RawContentBlockStartEvent)
+        assert start_1.content_block.type == "text"
+
+    @pytest.mark.asyncio
+    async def test_stream_complete_flushes_multiple_buffered_blocks(self):
+        """If the stream aborts with two blocks still buffered, both must be
+        flushed (via the fail-safe text fallback), not just one."""
+        policy, _ = _make_policy()
+        ctx = _make_context()
+        # Two blocks started but never stopped.
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(2, name="Bash")), ctx)
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(5, name="Bash")), ctx)
+        await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, tool_delta('{"command":"pip install foo"}', 2)), ctx
+        )
+        await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, tool_delta('{"command":"pip install bar"}', 5)), ctx
+        )
+        emissions = await policy.on_anthropic_stream_complete(ctx)
+        # Each buffered block should produce start + delta + stop (3 events each).
+        assert len(emissions) == 6
+        # Indices 2 and 5 must both be represented.
+        seen_indices = {getattr(e, "index", None) for e in emissions}
+        assert seen_indices == {2, 5}
+
+    @pytest.mark.asyncio
+    async def test_osv_error_is_negative_cached(self):
+        """After an OSV failure, a repeat lookup within the error TTL must
+        hit the cache and not re-call OSV."""
+        call_count = 0
+
+        class FailingOSV:
+            def __init__(self):
+                self.calls: list[PackageRef] = []
+
+            async def query(self, package: PackageRef) -> list[VulnInfo]:
+                nonlocal call_count
+                call_count += 1
+                self.calls.append(package)
+                raise RuntimeError(f"OSV down (call #{call_count})")
+
+        # Manual policy + in-memory cache fixture.
+        stored: dict[str, dict] = {}
+        fake_cache = AsyncMock()
+
+        async def fake_get(key: str):
+            return stored.get(key)
+
+        async def fake_put(key: str, value: dict, ttl_seconds: int):
+            stored[key] = value
+
+        fake_cache.get = AsyncMock(side_effect=fake_get)
+        fake_cache.put = AsyncMock(side_effect=fake_put)
+        ctx = PolicyContext.for_testing(
+            transaction_id="t",
+            policy_cache_factory=lambda _n: fake_cache,
+        )
+        osv = FailingOSV()
+        policy = SupplyChainGuardPolicy(
+            config=SupplyChainGuardConfig(),
+            osv_client=cast(Any, osv),
+        )
+
+        pkg = PackageRef("PyPI", "foo", "1.0")
+        vulns1, err1 = await policy._lookup_vulns(pkg, ctx)
+        vulns2, err2 = await policy._lookup_vulns(pkg, ctx)
+
+        assert vulns1 == [] and err1 is not None
+        assert vulns2 == [] and err2 is not None
+        # First call hits OSV, second call hits the negative cache.
+        assert call_count == 1
+        assert len(osv.calls) == 1
 
     @pytest.mark.asyncio
     async def test_multi_package_lookups_are_concurrent(self):

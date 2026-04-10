@@ -77,15 +77,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# Tool name that Claude Code uses for shell execution.
+# Default tool name that Claude Code uses for shell execution. Other clients
+# (e.g. MCP servers) may use different names — configurable via
+# ``SupplyChainGuardConfig.bash_tool_names``.
 BASH_TOOL_NAME = "Bash"
 
 
 @dataclass
 class _BufferedBashToolUse:
-    # The tool name is always BASH_TOOL_NAME (we only buffer Bash blocks),
-    # so we don't store it.
+    # Store the tool name so re-emission preserves it (the config allows
+    # multiple Bash-like tool names — e.g. Claude Code's "Bash" plus an
+    # MCP server's "execute_command" — so we can't hardcode it on re-emit).
     id: str
+    name: str
     input_json: str = ""
 
 
@@ -113,6 +117,7 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
         self.config = self._init_config(config, SupplyChainGuardConfig)
         self._allowlist: frozenset[str] = frozenset(self.config.allowlist)
         self._threshold: Severity = self.config.severity_threshold_enum
+        self._bash_tool_names: frozenset[str] = frozenset(self.config.bash_tool_names)
         # OSVClient defaults to using the module-level shared httpx.AsyncClient,
         # so every query reuses the existing connection pool without the policy
         # instance needing to own (and clean up) a client. This is the safer
@@ -140,7 +145,14 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
         return self._state(context).buffered_tool_uses
 
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
-        """Drop per-request state when streaming finishes."""
+        """Drop per-request state when streaming finishes.
+
+        Only invoked by ``MultiSerialPolicy`` between policies in a chain.
+        Single-policy execution never calls it — request state lives on the
+        ``PolicyContext`` and dies when the context itself is released at
+        the end of the request, so the hook is not load-bearing for the
+        single-policy case. It exists purely for multi-policy composition.
+        """
         context.pop_request_state(self, _SupplyChainGuardState)
 
     async def on_anthropic_stream_complete(self, context: "PolicyContext") -> list[AnthropicPolicyEmission]:
@@ -236,12 +248,29 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
                 logger.warning("policy_cache get failed for %s: %s", key, exc)
                 cached = None
             if cached is not None:
+                cached_error = cached.get("error")
+                if cached_error is not None:
+                    # Negative cache hit: OSV was previously down for this
+                    # package. Surface it as an error result so fail_closed
+                    # still blocks, without re-hammering OSV.
+                    return [], str(cached_error)
                 return [VulnInfo.from_dict(v) for v in cached.get("vulns", [])], None
 
         try:
             vulns = await self._osv.query(package)
         except Exception as exc:
             logger.warning("OSV query failed for %s: %s", key, exc)
+            # Negative caching: don't let an outage turn into N × timeout
+            # per request. Short TTL so recovery is quick.
+            if cache is not None and self.config.error_cache_ttl_seconds > 0:
+                try:
+                    await cache.put(
+                        key,
+                        {"error": str(exc), "vulns": []},
+                        ttl_seconds=self.config.error_cache_ttl_seconds,
+                    )
+                except Exception as cache_exc:
+                    logger.warning("policy_cache put (error) failed for %s: %s", key, cache_exc)
             return [], str(exc)
 
         if cache is not None:
@@ -318,7 +347,7 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
         for block in content:
             if isinstance(block, dict) and block.get("type") == "tool_use":
                 tool_use = cast("AnthropicToolUseBlock", block)
-                if tool_use.get("name") == BASH_TOOL_NAME:
+                if tool_use.get("name") in self._bash_tool_names:
                     command = _extract_bash_command(tool_use.get("input", {}))
                     blocked_msg = await self._maybe_block_command(command, context)
                     if blocked_msg is not None:
@@ -358,8 +387,8 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
         self, event: RawContentBlockStartEvent, context: "PolicyContext"
     ) -> list[MessageStreamEvent]:
         block = event.content_block
-        if isinstance(block, ToolUseBlock) and block.name == BASH_TOOL_NAME:
-            self._buffered(context)[event.index] = _BufferedBashToolUse(id=block.id)
+        if isinstance(block, ToolUseBlock) and block.name in self._bash_tool_names:
+            self._buffered(context)[event.index] = _BufferedBashToolUse(id=block.id, name=block.name)
             return []  # suppress until we decide
         return [event]
 
@@ -381,7 +410,29 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
         buffered = buffered_map.pop(event.index)
 
         command = _extract_command_from_json(buffered.input_json)
-        blocked_msg = await self._maybe_block_command(command, context)
+        # Fail-safe: an unparseable buffered tool_use (truncated/malformed
+        # JSON) cannot be analysed, and an adversarial upstream could
+        # deliberately produce malformed JSON to smuggle a tool_use past
+        # the guard. Hard-block instead of passing through.
+        if command is None and buffered.input_json:
+            logger.warning(
+                "Supply chain guard: buffered Bash tool_use (id=%s, index=%d) had unparseable input JSON; hard-blocking",
+                buffered.id,
+                event.index,
+            )
+            context.record_event(
+                "policy.supply_chain_guard.unparseable_input",
+                {
+                    "summary": "Blocked Bash tool_use with unparseable input JSON",
+                    "tool_use_id": buffered.id,
+                    "index": event.index,
+                },
+            )
+            blocked_msg = format_hard_block_message(
+                "Bash tool_use input JSON was unparseable; the command could not be inspected"
+            )
+        else:
+            blocked_msg = await self._maybe_block_command(command, context)
 
         if blocked_msg is not None:
             logger.info("Blocked supply chain install in streaming response")
@@ -405,7 +456,7 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
         # into a single delta because we only buffered the accumulated JSON,
         # not the original chunk boundaries. Anthropic clients tolerate this
         # but downstream wire shape is not preserved byte-for-byte.
-        tool_use_block = ToolUseBlock(type="tool_use", id=buffered.id, name=BASH_TOOL_NAME, input={})
+        tool_use_block = ToolUseBlock(type="tool_use", id=buffered.id, name=buffered.name, input={})
         start_event = RawContentBlockStartEvent(
             type="content_block_start", index=event.index, content_block=tool_use_block
         )
@@ -490,7 +541,7 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
         if not tool_results:
             return request
 
-        commands = _commands_for_tool_results(tool_results, messages)
+        commands = _commands_for_tool_results(tool_results, messages, self._bash_tool_names)
         if not commands:
             return request
 
@@ -574,19 +625,20 @@ def _collect_tool_results(message: "AnthropicMessage") -> list["AnthropicToolRes
 def _commands_for_tool_results(
     tool_results: list["AnthropicToolResultBlock"],
     messages: list["AnthropicMessage"],
+    tool_names: frozenset[str],
 ) -> list[str]:
-    """For each tool_result, find the matching Bash tool_use by id and return its command.
+    """For each tool_result, find the matching shell tool_use by id and return its command.
 
     tool_results in the last user message are correlated with tool_use blocks
-    in the preceding assistant messages by ``tool_use_id``. The tool name is
-    hardcoded to ``"Bash"`` — this is correct for Claude Code but would miss
-    MCP-provided shell tools or clients with a different naming convention.
+    in the preceding assistant messages by ``tool_use_id``. A single forward
+    pass over assistant messages builds a ``{tool_use_id → command}`` dict,
+    then we look up each requested id — O(M+N) instead of O(M·N).
     """
     wanted_ids = {tr.get("tool_use_id") for tr in tool_results if tr.get("tool_use_id")}
     if not wanted_ids:
         return []
 
-    commands: list[str] = []
+    id_to_command: dict[str, str] = {}
     for message in messages:
         if message.get("role") != "assistant":
             continue
@@ -598,14 +650,16 @@ def _commands_for_tool_results(
                 continue
             if block.get("type") != "tool_use":
                 continue
-            if block.get("name") != BASH_TOOL_NAME:
+            if block.get("name") not in tool_names:
                 continue
-            if block.get("id") not in wanted_ids:
+            block_id = block.get("id")
+            if not isinstance(block_id, str) or block_id not in wanted_ids:
                 continue
             command = _extract_bash_command(block.get("input"))
             if command:
-                commands.append(command)
-    return commands
+                id_to_command[block_id] = command
+
+    return [id_to_command[tid] for tid in wanted_ids if tid in id_to_command]
 
 
 def _prepend_system_warning(
