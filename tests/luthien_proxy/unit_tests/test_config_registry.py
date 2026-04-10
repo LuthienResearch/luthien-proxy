@@ -284,19 +284,14 @@ class TestGenerateEnvExample:
 
 
 class TestConfigFieldsCompleteness:
-    def test_registry_fields_exist_in_settings(self):
+    def test_settings_generated_from_config_fields(self):
+        """Settings model has exactly the fields defined in CONFIG_FIELDS."""
         settings_fields = set(Settings.model_fields.keys())
         registry_fields = {f.name for f in CONFIG_FIELDS}
-        for name in registry_fields:
-            assert name in settings_fields, f"Config field '{name}' not found in Settings model"
-
-    def test_settings_fields_exist_in_registry(self):
-        """Every Settings field should have a ConfigFieldMeta entry."""
-        settings_fields = set(Settings.model_fields.keys())
-        registry_fields = {f.name for f in CONFIG_FIELDS}
-        missing = settings_fields - registry_fields
-        assert not missing, (
-            f"Settings fields missing from CONFIG_FIELDS (add a ConfigFieldMeta entry): {sorted(missing)}"
+        assert settings_fields == registry_fields, (
+            f"Settings/CONFIG_FIELDS mismatch. "
+            f"Only in Settings: {settings_fields - registry_fields}, "
+            f"Only in CONFIG_FIELDS: {registry_fields - settings_fields}"
         )
 
     def test_no_duplicate_names(self):

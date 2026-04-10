@@ -1,16 +1,19 @@
 """Config field definitions — single source of truth for all gateway configuration.
 
 Every config value in the gateway is defined here exactly once. The ConfigFieldMeta
-entries drive: Settings model population, CLI arg generation, .env.example generation,
+entries drive: Settings model generation, CLI arg generation, .env.example generation,
 the config dashboard API, and provenance tracking.
 
 To add a new config value: add a ConfigFieldMeta to CONFIG_FIELDS below.
+The Settings model is auto-generated from these definitions.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+
+from luthien_proxy.credential_manager import AuthMode
 
 
 @dataclass(frozen=True)
@@ -72,7 +75,7 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         sensitive=True, category="auth",
     ),
     ConfigFieldMeta(
-        "auth_mode", "AUTH_MODE", str, "both",
+        "auth_mode", "AUTH_MODE", AuthMode, AuthMode.BOTH,
         "Authentication mode: proxy_key, passthrough, or both (managed via /api/admin/auth/config)",
         category="auth",
     ),
