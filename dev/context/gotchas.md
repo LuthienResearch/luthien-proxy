@@ -152,10 +152,25 @@ if stream_state.finish_reason:
 - Only trusted users should have access to modify `policy_config.yaml` or set `POLICY_CONFIG` env var
 - Policy classes are instantiated with full Python capabilities
 - In production: ensure config files have proper filesystem permissions
-- The Admin API requires `ADMIN_API_KEY` authentication for runtime policy changes from non-localhost clients (localhost is bypassed by default via `LOCALHOST_AUTH_BYPASS=true`; set to `false` to enforce on loopback)
-- **Reverse-proxy landmine**: `is_localhost_request()` checks the TCP source IP (`request.client.host`), not forwarded headers. If Luthien runs behind a reverse proxy on the *same host* (Caddy/nginx/Traefik/Tailscale Funnel), every forwarded request arrives as `127.0.0.1` and bypasses admin auth. Set `LOCALHOST_AUTH_BYPASS=false` for any same-host reverse-proxy deployment, or the admin API is effectively unauthenticated to external callers. Railway disables the bypass automatically at startup, so cloud deployments via `deploy/railway.json` are safe.
+- The Admin API requires `ADMIN_API_KEY` authentication for runtime policy changes from non-localhost clients (localhost is bypassed by default via `LOCALHOST_AUTH_BYPASS=true`; set to `false` to enforce on loopback — see the reverse-proxy gotcha below)
 
 **Related TODO item**: Add security documentation for dynamic policy loading.
+
+## Admin Auth Localhost Bypass + Same-Host Reverse Proxy (2026-04-10)
+
+**Gotcha**: `LOCALHOST_AUTH_BYPASS=true` (the default) skips admin auth for any request whose TCP source IP matches loopback. `is_localhost_request()` in `src/luthien_proxy/auth.py:30-35` inspects `request.client.host` only — it does NOT parse `X-Forwarded-For` or any other forwarding header. That means:
+
+- If Luthien runs behind a reverse proxy on the **same host** (Caddy, nginx, Traefik, Tailscale Funnel, cavil.jai.one's Caddy), every forwarded request appears as `127.0.0.1` to the gateway.
+- The admin API (`/api/admin/*`) and the monitoring/policy dashboards are then effectively unauthenticated to the public internet.
+- The Luthien gateway request scheme *does* honor `X-Forwarded-Proto` (`auth.py:132-142`) — so the header-trust story is asymmetric: scheme is trusted from headers, source IP is not.
+
+**Fix for operators**:
+- For any same-host reverse-proxy deployment: set `LOCALHOST_AUTH_BYPASS=false` in the gateway env.
+- Railway sets it to `false` at startup automatically (`src/luthien_proxy/main.py:607-609`) if the variable isn't explicitly set, so cloud deployments via `deploy/railway.json` are safe out of the box.
+
+**Structural fix tracked at**: https://trello.com/c/6IspgIkX — the code should probably either parse trusted forwarding headers, or auto-disable the bypass when forwarding headers are present.
+
+**Related to**: the admin auth docs correction (PR #531) — the previous docs claimed admin endpoints always required the bearer token, masking this landmine.
 
 ## Docker Compose Orphaned Containers from Mismatched Project Names (2026-02-17)
 
