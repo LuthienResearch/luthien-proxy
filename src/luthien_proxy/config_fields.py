@@ -34,8 +34,12 @@ class ConfigFieldMeta:
         restart_required: If True, changes only take effect after gateway restart.
         default_from: Optional (module, symbol) tuple. When set, the generator emits
             `from {module} import {symbol}` in settings.py and uses {symbol} as the
-            default expression. Use for defaults that must be re-evaluated at import
-            time (e.g. PROXY_VERSION read from package metadata).
+            default expression. Use whenever you want the generated file to reference
+            a named constant instead of baking in the literal value.
+        dynamic_default: True if the resolved default value depends on the build
+            environment and must not be embedded in .env.example (e.g. PROXY_VERSION
+            varies between local dev and CI). When set, the env example generator
+            emits a blank value with an explanatory comment instead of the stale literal.
     """
 
     name: str
@@ -48,6 +52,7 @@ class ConfigFieldMeta:
     db_settable: bool = False
     restart_required: bool = True
     default_from: tuple[str, str] | None = None
+    dynamic_default: bool = False
 
 
 # fmt: off
@@ -197,6 +202,7 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         "Service version for distributed tracing (derived from package metadata)",
         category="observability",
         default_from=("luthien_proxy.version", "PROXY_VERSION"),
+        dynamic_default=True,
     ),
     ConfigFieldMeta(
         "environment", "ENVIRONMENT", str, "development",

@@ -46,10 +46,19 @@ def main() -> None:
             if meta.db_settable:
                 lines.append("# (can also be set at runtime via admin API)")
 
-            default_str = "" if meta.default is None else str(meta.default)
-            if isinstance(meta.default, bool):
-                default_str = str(meta.default).lower()
-            lines.append(f"# {meta.env_var}={default_str}")
+            if meta.dynamic_default:
+                # Dynamic defaults (e.g. PROXY_VERSION from package metadata)
+                # must not be baked into .env.example — their resolved value
+                # depends on the build environment and would create spurious
+                # drift between local and CI generation.
+                symbol = meta.default_from[1] if meta.default_from else "runtime"
+                lines.append(f"# (default derived from {symbol} at startup)")
+                lines.append(f"# {meta.env_var}=")
+            else:
+                default_str = "" if meta.default is None else str(meta.default)
+                if isinstance(meta.default, bool):
+                    default_str = str(meta.default).lower()
+                lines.append(f"# {meta.env_var}={default_str}")
             lines.append("")
 
     output = "\n".join(lines)

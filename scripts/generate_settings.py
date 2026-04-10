@@ -86,9 +86,10 @@ def generate() -> str:
     lines.append("")
     lines.append("from pydantic import model_validator")
     lines.append("from pydantic_settings import BaseSettings, SettingsConfigDict")
-    for mod, names in sorted(extra_imports.items()):
+    if extra_imports:
         lines.append("")
-        lines.append(f"from {mod} import {', '.join(sorted(names))}")
+        for mod, names in sorted(extra_imports.items()):
+            lines.append(f"from {mod} import {', '.join(sorted(names))}")
     lines.append("")
     lines.append("")
 
