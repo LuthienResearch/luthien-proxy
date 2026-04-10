@@ -8,8 +8,9 @@ Usage:
 import sys
 from pathlib import Path
 
-# Add src to path so we can import config_fields when run as a script.
-# When imported as a module (from tests), the package is already installed.
+# Add src to path so we can import config_fields when run as a script
+# (the insert is harmless when imported from tests because the installed
+# package is already on sys.path — we just end up with an extra entry).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from luthien_proxy.config_fields import CONFIG_CATEGORIES, CONFIG_FIELDS

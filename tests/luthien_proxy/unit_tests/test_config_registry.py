@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import difflib
 import importlib.util
+import subprocess
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -449,12 +451,18 @@ class TestConfigFieldsCompleteness:
 
         Regression guard for PR #519: commit 1b28e4d5 accidentally wiped
         .env.example (150 lines -> 0), which broke CI clean-tree checks on main
-        until it was spotted. The dev_checks.sh clean-tree check catches drift,
-        but only after running the full pipeline. This test gives fast pytest-level
-        feedback (runs in unit test tier) and also catches the case where a
-        config field change doesn't make it into the committed .env.example —
-        e.g. the original "hardcoded SERVICE_VERSION=2.0.0" scenario this ticket
-        was opened to prevent.
+        until it was spotted. The dev_checks.sh clean-tree check catches drift
+        at pipeline end. This test adds a fast pytest-level guard and also
+        catches the original "hardcoded SERVICE_VERSION=2.0.0" class of bug:
+        any config field whose committed default drifts from config_fields.py
+        fails this test.
+
+        Critical detail: we read the committed copy via `git show HEAD:.env.example`
+        rather than the on-disk file. dev_checks.sh regenerates the on-disk
+        .env.example *before* running pytest, so reading the working tree would
+        always see the generator's current output and the test would trivially
+        pass in CI. Reading from git HEAD catches drift even when dev_checks
+        has already rewritten the working file.
 
         The generator intentionally omits dynamic_default values (like
         SERVICE_VERSION resolved from PROXY_VERSION) so its output is stable
@@ -462,22 +470,41 @@ class TestConfigFieldsCompleteness:
         """
         repo_root = Path(__file__).resolve().parents[3]
         generator_path = repo_root / "scripts" / "generate_env_example.py"
-        env_example = repo_root / ".env.example"
 
         assert generator_path.exists(), f"Generator missing at {generator_path}"
-        assert env_example.exists(), f".env.example missing at {env_example}"
 
-        # Load the script as a module without running it as a subprocess —
-        # faster and produces real tracebacks on failure.
+        # Load the script as a module to call build_env_example_text() in-process.
+        # Faster than shelling out and produces real tracebacks on generator errors.
         spec = importlib.util.spec_from_file_location("_generate_env_example", generator_path)
         assert spec is not None and spec.loader is not None
         generator = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(generator)
-
         expected = generator.build_env_example_text()
-        actual = env_example.read_text()
 
-        assert actual == expected, (
-            ".env.example is out of sync with scripts/generate_env_example.py. "
-            "Run: uv run python scripts/generate_env_example.py > .env.example"
+        # Read the committed copy from git HEAD — NOT from the working tree —
+        # so the test catches drift even after dev_checks.sh has regenerated
+        # the on-disk file. See class docstring for why.
+        result = subprocess.run(
+            ["git", "show", "HEAD:.env.example"],
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+            check=True,
         )
+        actual = result.stdout
+
+        if actual != expected:
+            diff = "\n".join(
+                difflib.unified_diff(
+                    expected.splitlines(),
+                    actual.splitlines(),
+                    fromfile="expected (generator output)",
+                    tofile="actual (committed .env.example)",
+                    lineterm="",
+                )
+            )
+            pytest.fail(
+                "Committed .env.example is out of sync with scripts/generate_env_example.py.\n"
+                "Run: uv run python scripts/generate_env_example.py > .env.example && git add .env.example\n\n"
+                f"{diff}"
+            )
