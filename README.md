@@ -287,11 +287,17 @@ docker compose down && ./scripts/quick_start.sh
 
 ### API requests failing
 
-1. **Check gateway key**: Ensure `Authorization: Bearer <PROXY_API_KEY>` header is set
-2. **Check upstream credentials**:
+`luthien onboard` sets `AUTH_MODE=both` and does **not** set a `PROXY_API_KEY` — clients
+authenticate by forwarding their upstream credential (Claude Pro/Max OAuth session or
+`ANTHROPIC_API_KEY`). Start with the credential path:
+
+1. **Check upstream credentials**:
    - *OAuth passthrough (default)*: Run `claude auth login` to ensure your Claude Pro/Max session is active
    - *API key mode*: Verify `ANTHROPIC_API_KEY` starts with `sk-ant-api` in `.env`
-3. **Check logs**: `luthien logs` (local mode) or `docker compose logs -f gateway` (Docker mode)
+2. **Check logs**: `luthien logs` (local mode) or `docker compose logs -f gateway` (Docker mode)
+3. **Only if you explicitly configured `PROXY_API_KEY`**: ensure clients send it via
+   `Authorization: Bearer <PROXY_API_KEY>` or `x-api-key: <PROXY_API_KEY>`. Onboarding does
+   not set this, so skip this step unless you added one manually.
 
 ### Database connection issues
 
