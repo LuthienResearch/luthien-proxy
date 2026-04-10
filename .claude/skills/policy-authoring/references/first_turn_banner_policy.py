@@ -1,5 +1,8 @@
 """FirstTurnBannerPolicy — SimplePolicy with request-scoped state.
 
+REFERENCE EXAMPLE — this file lives under `.claude/skills/` and imports
+from `luthien_proxy.*`. To use, copy to `src/luthien_proxy/policies/`.
+
 Prepends a welcome banner to the first response in each conversation.
 Demonstrates: SimplePolicy subclassing, PolicyContext state, first-turn detection.
 

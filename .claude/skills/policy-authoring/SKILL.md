@@ -95,6 +95,7 @@ policy:
 3. **Thinking blocks first** — `thinking`/`redacted_thinking` blocks must come before `text` blocks.
 4. **Single finish_reason** — emit `finish_reason` once in the final chunk, not per tool call.
 5. **Preflight detection** — Claude Code sends probe requests (`max_tokens=1`) sharing `session_id`. Use `is_first_turn()` (re-evaluated per request), not session-level counters.
+6. **Override `short_policy_name`** — `BasePolicy.short_policy_name` returns the class name by default. Override it for a short human-readable identifier (e.g., `"NoOp"`, `"ToolJudge"`) used in logs and the admin UI.
 
 ## Streaming Event Types
 

@@ -143,14 +143,11 @@ This preserves all other fields and creates a new object (no shared state).
 
 ## Buffer Cleanup
 
-Always clean up request-scoped state when streaming completes:
+Always clean up request-scoped state when streaming completes. There are two options:
 
-```python
-async def on_anthropic_streaming_policy_complete(self, context):
-    context.pop_request_state(self, _MyState)
-```
+### Option A: `on_anthropic_stream_complete` (standard protocol hook)
 
-Or implement cleanup in `on_anthropic_stream_complete`:
+This is the fourth lifecycle hook defined on `AnthropicExecutionInterface`/`AnthropicHookPolicy`. The executor always calls it after the upstream stream ends. Use this as the primary cleanup path:
 
 ```python
 async def on_anthropic_stream_complete(self, context):
@@ -159,6 +156,12 @@ async def on_anthropic_stream_complete(self, context):
         return self._flush(state)  # emit remaining buffered content
     return []
 ```
+
+### Option B: `on_anthropic_streaming_policy_complete` (convention method, MultiSerialPolicy only)
+
+Several built-in policies (`SimplePolicy`, `ToolCallJudgePolicy`, `DogfoodSafetyPolicy`) define an `on_anthropic_streaming_policy_complete` cleanup method. **This is not part of any protocol** — it's a convention method discovered via `getattr` in `MultiSerialPolicy.on_anthropic_streaming_policy_complete()` (see `src/luthien_proxy/policies/multi_serial_policy.py:170-175`).
+
+It is **only called when policies are composed via `MultiSerialPolicy`**. If the policy runs standalone (the default), this method will never fire. Do not rely on it for correctness-critical cleanup — use `on_anthropic_stream_complete` instead. Only define it if the policy will specifically be used as a sub-policy in a chain and needs a cleanup hook that doesn't return events.
 
 ---
 

@@ -278,6 +278,7 @@ class MyPolicy(SimplePolicy):
 For policies that call a separate LLM to evaluate content:
 
 ```python
+from luthien_proxy.credentials import parse_auth_provider
 from luthien_proxy.llm.judge_client import judge_completion
 
 class MyJudge(BasePolicy, AnthropicHookPolicy):
@@ -307,7 +308,7 @@ class MyJudge(BasePolicy, AnthropicHookPolicy):
 Policies can be chained via `MultiSerialPolicy`:
 
 ```python
-from luthien_proxy.policies.policy_composition import compose_policy
+from luthien_proxy.policy_composition import compose_policy
 
 # At runtime (e.g., via admin API):
 combined = compose_policy(current_policy, additional_policy)
