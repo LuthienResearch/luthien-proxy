@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 from luthien_proxy.utils.db import DatabasePool
@@ -92,6 +94,56 @@ class TestPolicyCacheJsonValues:
         await cache.put("items", [1, 2, {"nested": True}], ttl_seconds=3600)
         result = await cache.get("items")
         assert result == [1, 2, {"nested": True}]
+
+
+class TestPolicyCacheJsonbDecoding:
+    """Regression tests for asyncpg JSONB returning already-decoded values.
+
+    asyncpg may hand back JSONB columns as dict/list depending on connection
+    config. SQLite always returns str. The get() path must handle all three.
+    """
+
+    def _mock_cache_with_row_value(self, raw_value: object) -> PolicyCache:
+        """Build a PolicyCache whose pool.fetchrow returns {'value_json': raw_value}."""
+        fake_pool = MagicMock()
+        fake_pool.fetchrow = AsyncMock(return_value={"value_json": raw_value})
+
+        db = MagicMock(spec=DatabasePool)
+        db.get_pool = AsyncMock(return_value=fake_pool)
+        db.is_sqlite = False  # pretend Postgres so NOW() is used
+        return PolicyCache(db, "test_policy")
+
+    @pytest.mark.asyncio
+    async def test_get_returns_dict_directly_when_asyncpg_decodes(self):
+        """If asyncpg already decoded JSONB to a dict, return it as-is (no json.loads)."""
+        expected = {"foo": "bar", "nested": {"k": 1}}
+        cache = self._mock_cache_with_row_value(expected)
+        result = await cache.get("any_key")
+        assert result == expected
+        assert result is expected  # identity: not re-parsed
+
+    @pytest.mark.asyncio
+    async def test_get_returns_list_directly_when_asyncpg_decodes(self):
+        """Top-level JSON arrays are legal; if pre-decoded, return as-is."""
+        expected = [1, 2, {"nested": True}]
+        cache = self._mock_cache_with_row_value(expected)
+        result = await cache.get("any_key")
+        assert result == expected
+        assert result is expected
+
+    @pytest.mark.asyncio
+    async def test_get_parses_str_payload(self):
+        """When the backend hands back a str (SQLite or asyncpg without codec), parse it."""
+        cache = self._mock_cache_with_row_value('{"foo": "bar"}')
+        result = await cache.get("any_key")
+        assert result == {"foo": "bar"}
+
+    @pytest.mark.asyncio
+    async def test_get_raises_on_unexpected_type(self):
+        """Anything other than str/dict/list is a driver bug — fail loud."""
+        cache = self._mock_cache_with_row_value(42)
+        with pytest.raises(TypeError, match="unexpected value_json type"):
+            await cache.get("any_key")
 
 
 class TestPolicyCacheIsolation:

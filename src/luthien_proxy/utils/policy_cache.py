@@ -66,10 +66,16 @@ class PolicyCache:
             return None
 
         raw = row["value_json"]
-        # asyncpg returns jsonb as str (no codec registered); SQLite stores TEXT.
-        # Both backends hand us a str here.
-        assert isinstance(raw, str), f"unexpected value_json type {type(raw).__name__}"
-        return json.loads(raw)
+        # WHY: asyncpg may hand back JSONB as either an already-decoded dict/list
+        # or a raw str depending on connection/codec configuration; SQLite's TEXT
+        # column is always str. Mirror the dual-path pattern used by
+        # request_log.service._parse_jsonb and debug.service so a Postgres
+        # deployment with JSONB auto-decoding doesn't trip an assertion.
+        if isinstance(raw, str):
+            return json.loads(raw)
+        if isinstance(raw, (dict, list)):
+            return raw
+        raise TypeError(f"unexpected value_json type {type(raw).__name__}")
 
     async def put(self, key: str, value: Any, ttl_seconds: int) -> None:
         """Upsert a cache entry with the given TTL.
