@@ -90,7 +90,8 @@ Override any default by setting environment variables in your Railway service:
 |----------|--------------------|-------------|
 | `AUTH_MODE` | `passthrough` | `passthrough`, `proxy_key`, or `both` |
 | `POLICY_CONFIG` | `config/railway_policy_config.yaml` | Path to policy YAML |
-| `PROXY_API_KEY` | *(not set)* | Set to require a proxy key for access |
+| `PROXY_API_KEY` | *(not set)* | Set to require a proxy key for access (clients must present it as `x-api-key` or `Authorization: Bearer`) |
+| `ANTHROPIC_API_KEY` | *(not set)* | Only consulted when a request authenticates with `PROXY_API_KEY`. Required alongside `PROXY_API_KEY` for proxy-key traffic to reach Anthropic, otherwise `/v1/messages` returns 500 for proxy-keyed requests. |
 | `ADMIN_API_KEY` | *(auto-generated)* | Check deploy logs for the generated value |
 | `DATABASE_URL` | *(SQLite)* | Add a Postgres service for durable storage |
 | `REDIS_URL` | *(not set)* | Add Redis for real-time UI events |

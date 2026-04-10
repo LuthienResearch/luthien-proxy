@@ -4,13 +4,15 @@
 # Build:
 #   docker build -f docker/Dockerfile.standalone -t luthien-standalone .
 #
-# Run:
+# Run (passthrough auth, minimal):
 #   docker run -p 8000:8000 \
 #     -v luthien-pgdata:/var/lib/postgresql/data \
 #     -v luthien-redis:/data \
-#     -e PROXY_API_KEY=sk-my-key \
-#     -e ANTHROPIC_API_KEY=sk-ant-... \
+#     -e ADMIN_API_KEY=admin-my-key \
 #     luthien-standalone
+#
+# Add -e PROXY_API_KEY / -e ANTHROPIC_API_KEY only for proxy-key auth with a
+# shared server-side Anthropic credential. See docs/standalone-container.md.
 #
 # Volume mount points:
 #   /var/lib/postgresql/data  – PostgreSQL data (persistent)
