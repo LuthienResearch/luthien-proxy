@@ -266,6 +266,18 @@
             if (type === 'success') setTimeout(() => { el.className = 'status-msg'; }, 3000);
         }
 
+        // HTML-escape anything that lands inside innerHTML. Config values come
+        // from the DB and are admin-writable, so we must not trust them as HTML.
+        function esc(s) {
+            const d = document.createElement('div');
+            d.textContent = s === null || s === undefined ? '' : String(s);
+            return d.innerHTML;
+        }
+
+        // Store resolved field objects by name so edit handlers can look them
+        // up without smuggling JSON through HTML attributes.
+        const fieldsByName = {};
+
         function formatValue(field) {
             if (field.sensitive) return '***';
             const v = field.value;
@@ -284,8 +296,8 @@
             const keys = Object.keys(overrides);
             if (keys.length === 0) return '';
             const parts = keys.map(s => {
-                const val = field.sensitive ? '***' : overrides[s];
-                return `<span class="override-source">${s}</span>: ${val}`;
+                const val = field.sensitive ? '***' : esc(overrides[s]);
+                return `<span class="override-source">${esc(s)}</span>: ${val}`;
             });
             return `<div class="overrides">Also set by: ${parts.join(', ')}</div>`;
         }
@@ -293,12 +305,14 @@
         function renderEditControl(field) {
             if (!field.db_settable) return '';
             if (field.source === 'cli' || field.source === 'env') {
-                return `<span style="font-size:11px;color:#666" title="Overridden by ${field.source}">locked</span>`;
+                return `<span style="font-size:11px;color:#666" title="Overridden by ${esc(field.source)}">locked</span>`;
             }
-            return `<button class="edit-btn" onclick="startEdit('${field.name}', ${JSON.stringify(field).replace(/"/g, '&quot;')})">edit</button>`;
+            return `<button class="edit-btn" data-field="${esc(field.name)}" data-action="edit">edit</button>`;
         }
 
-        function startEdit(name, field) {
+        function startEdit(name) {
+            const field = fieldsByName[name];
+            if (!field) return;
             editingField = name;
             const cell = document.getElementById('edit-' + name);
             if (!cell) return;
@@ -306,20 +320,20 @@
             let input;
             if (field.type === 'bool') {
                 const current = field.value === true || field.value === 'true';
-                input = `<select id="edit-input-${name}">
+                input = `<select id="edit-input-${esc(name)}">
                     <option value="true" ${current ? 'selected' : ''}>true</option>
                     <option value="false" ${!current ? 'selected' : ''}>false</option>
                 </select>`;
             } else {
                 const val = field.sensitive ? '' : (field.value ?? '');
-                input = `<input id="edit-input-${name}" type="text" value="${String(val).replace(/"/g, '&quot;')}" placeholder="${field.sensitive ? '(hidden)' : ''}">`;
+                input = `<input id="edit-input-${esc(name)}" type="text" value="${esc(val)}" placeholder="${field.sensitive ? '(hidden)' : ''}">`;
             }
 
             cell.innerHTML = `<div class="edit-form">
                 ${input}
-                <button class="save-btn" onclick="saveEdit('${name}', '${field.type}')">Save</button>
-                <button class="cancel-btn" onclick="loadConfig()">Cancel</button>
-                ${field.source === 'db' ? `<button class="reset-btn" onclick="resetField('${name}')" title="Remove DB override">Reset</button>` : ''}
+                <button class="save-btn" data-field="${esc(name)}" data-type="${esc(field.type)}" data-action="save">Save</button>
+                <button class="cancel-btn" data-action="cancel">Cancel</button>
+                ${field.source === 'db' ? `<button class="reset-btn" data-field="${esc(name)}" data-action="reset" title="Remove DB override">Reset</button>` : ''}
             </div>`;
         }
 
@@ -387,6 +401,10 @@
         }
 
         function renderDashboard(fields, policy) {
+            // Rebuild the lookup map for edit-button handlers.
+            for (const k of Object.keys(fieldsByName)) delete fieldsByName[k];
+            for (const f of fields) fieldsByName[f.name] = f;
+
             const grouped = {};
             for (const f of fields) {
                 if (!grouped[f.category]) grouped[f.category] = [];
@@ -398,10 +416,11 @@
 
             // Active policy section
             if (policy) {
+                const policyName = policy.policy || policy.class_ref || 'None';
                 html += `<div class="section policy-section">
                     <h2>Active Policy</h2>
-                    <div class="policy-name">${policy.policy || policy.class_ref || 'None'}</div>
-                    ${policy.config ? `<div class="policy-config">${JSON.stringify(policy.config, null, 2)}</div>` : ''}
+                    <div class="policy-name">${esc(policyName)}</div>
+                    ${policy.config ? `<div class="policy-config">${esc(JSON.stringify(policy.config, null, 2))}</div>` : ''}
                 </div>`;
             }
 
@@ -409,7 +428,7 @@
                 const catFields = grouped[cat];
                 if (!catFields || catFields.length === 0) continue;
 
-                html += `<div class="section"><h2>${CATEGORY_LABELS[cat] || cat}</h2>`;
+                html += `<div class="section"><h2>${esc(CATEGORY_LABELS[cat] || cat)}</h2>`;
                 html += `<table class="config-table">
                     <thead><tr>
                         <th>Field</th>
@@ -426,16 +445,16 @@
 
                     html += `<tr>
                         <td>
-                            <span class="field-name">${f.name}</span>${f.db_settable ? indicator : ''}
-                            <span class="field-env">${f.env_var}</span>
+                            <span class="field-name">${esc(f.name)}</span>${f.db_settable ? indicator : ''}
+                            <span class="field-env">${esc(f.env_var)}</span>
                         </td>
-                        <td><span class="field-desc">${f.description}</span></td>
+                        <td><span class="field-desc">${esc(f.description)}</span></td>
                         <td>
-                            <span class="field-value ${f.sensitive ? 'sensitive' : ''}">${formatValue(f)}</span>
+                            <span class="field-value ${f.sensitive ? 'sensitive' : ''}">${esc(formatValue(f))}</span>
                             ${renderOverrides(f)}
                         </td>
-                        <td><span class="${sourceBadgeClass(f.source)}">${f.source}</span></td>
-                        <td id="edit-${f.name}">${renderEditControl(f)}</td>
+                        <td><span class="${sourceBadgeClass(f.source)}">${esc(f.source)}</span></td>
+                        <td id="edit-${esc(f.name)}">${renderEditControl(f)}</td>
                     </tr>`;
                 }
 
@@ -444,6 +463,19 @@
 
             document.getElementById('content').innerHTML = html;
         }
+
+        // Event delegation for edit/save/cancel/reset buttons — avoids smuggling
+        // field state through inline onclick handlers.
+        document.addEventListener('click', (ev) => {
+            const btn = ev.target.closest('button[data-action]');
+            if (!btn) return;
+            const action = btn.getAttribute('data-action');
+            const name = btn.getAttribute('data-field');
+            if (action === 'edit' && name) startEdit(name);
+            else if (action === 'save' && name) saveEdit(name, btn.getAttribute('data-type') || 'str');
+            else if (action === 'cancel') loadConfig();
+            else if (action === 'reset' && name) resetField(name);
+        });
 
         document.addEventListener('DOMContentLoaded', loadConfig);
     </script>

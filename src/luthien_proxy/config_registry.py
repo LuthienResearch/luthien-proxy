@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from luthien_proxy.config_fields import CONFIG_CATEGORIES, CONFIG_FIELDS, CONFIG_FIELDS_BY_NAME, ConfigFieldMeta
+from luthien_proxy.config_fields import CONFIG_FIELDS, CONFIG_FIELDS_BY_NAME, ConfigFieldMeta
 from luthien_proxy.settings import Settings
 from luthien_proxy.utils.db import DatabasePool
 
@@ -153,11 +153,15 @@ class ConfigRegistry:
         if self._db_pool is None:
             raise ValueError("No database connection available")
 
+        # Serialize the coerced (canonical) value so what's stored matches what
+        # will be read back — avoids double-parsing fragile round-trips like
+        # json.dumps("true") → "\"true\"" → json.loads → str → bool coercion.
         coerced = _coerce(meta, value)
-        serialized = json.dumps(value)
+        serialized = json.dumps(coerced)
 
         async with self._lock:
             pool = await self._db_pool.get_pool()
+            # NOW() is translated to datetime('now') by db_sqlite for SQLite deploys.
             await pool.execute(
                 """
                 INSERT INTO gateway_config (key, value, updated_at, updated_by)
@@ -230,45 +234,6 @@ class ConfigRegistry:
             result.append(entry)
         return result
 
-    def generate_env_example(self) -> str:
-        """Generate .env.example content from field definitions."""
-        lines = [
-            "# Luthien Proxy — Environment Configuration",
-            "# Auto-generated from config field definitions.",
-            "# Copy to .env and edit as needed.",
-            "",
-        ]
-        current_category: str | None = None
-
-        fields_by_cat: dict[str, list[ConfigFieldMeta]] = {}
-        for meta in CONFIG_FIELDS:
-            fields_by_cat.setdefault(meta.category, []).append(meta)
-
-        for cat in CONFIG_CATEGORIES:
-            cat_fields = fields_by_cat.get(cat, [])
-            if not cat_fields:
-                continue
-            if current_category is not None:
-                lines.append("")
-            current_category = cat
-            lines.append(f"# {'═' * 3} {cat.upper()} {'═' * (60 - len(cat))}")
-            lines.append("")
-
-            for meta in cat_fields:
-                lines.append(f"# {meta.description}")
-                if meta.sensitive:
-                    lines.append("# (sensitive — not shown in config dashboard)")
-                if meta.db_settable:
-                    lines.append("# (DB-settable — can be changed at runtime via admin API)")
-
-                default_str = "" if meta.default is None else str(meta.default)
-                if isinstance(meta.default, bool):
-                    default_str = str(meta.default).lower()
-                lines.append(f"# {meta.env_var}={default_str}")
-                lines.append("")
-
-        return "\n".join(lines) + "\n"
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -279,12 +244,21 @@ def _source_key(source: ConfigSource) -> str:
 
 
 def _coerce(meta: ConfigFieldMeta, raw: Any) -> Any:
-    """Coerce a raw value (possibly JSON string from DB) to the field's type."""
+    """Coerce a raw value (possibly JSON string from DB) to the field's type.
+
+    Passing raw=None returns None only when the field has default=None (nullable);
+    otherwise it raises TypeError since the field type contract demands a value.
+    """
     if isinstance(raw, str):
         try:
             raw = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
             pass
+
+    if raw is None:
+        if meta.default is None:
+            return None
+        raise TypeError(f"Config field '{meta.name}' ({meta.field_type.__name__}) cannot be None")
 
     if meta.field_type is bool:
         if isinstance(raw, bool):
@@ -302,7 +276,7 @@ def _coerce(meta: ConfigFieldMeta, raw: Any) -> Any:
     if meta.field_type is float:
         return float(raw)
     if meta.field_type is str:
-        return str(raw) if raw is not None else None
+        return str(raw)
     return raw
 
 

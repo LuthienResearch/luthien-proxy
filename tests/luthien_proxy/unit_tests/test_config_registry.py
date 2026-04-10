@@ -198,6 +198,27 @@ class TestSetDbValue:
         assert settings.dogfood_mode is True
 
     @pytest.mark.asyncio
+    async def test_serializes_coerced_value_not_raw(self):
+        """DB should store the canonical coerced value so raw strings like
+        'true' become the JSON boolean true, not '"true"'."""
+        mock_pool = MagicMock()
+        mock_pool.execute = AsyncMock()
+        mock_db = MagicMock()
+        mock_db.get_pool = AsyncMock(return_value=mock_pool)
+
+        settings = _make_settings()
+        registry = ConfigRegistry(settings=settings, db_pool=mock_db)
+        registry._resolve_all()
+
+        await registry.set_db_value("dogfood_mode", "true")
+
+        # The second positional arg to execute() is the serialized value.
+        call_args = mock_pool.execute.call_args
+        serialized = call_args.args[2]
+        assert serialized == "true", f"expected canonical 'true', got {serialized!r}"
+        assert registry._db_values["dogfood_mode"] == "true"
+
+    @pytest.mark.asyncio
     async def test_delete_db_value(self):
         mock_pool = MagicMock()
         mock_pool.execute = AsyncMock()
@@ -255,32 +276,16 @@ class TestCoerce:
         meta = CONFIG_FIELDS_BY_NAME["log_level"]
         assert _coerce(meta, "debug") == "debug"
 
+    def test_none_allowed_for_nullable_field(self):
+        # llm_judge_model has default=None, so None is valid.
+        meta = CONFIG_FIELDS_BY_NAME["llm_judge_model"]
+        assert _coerce(meta, None) is None
 
-class TestGenerateEnvExample:
-    def test_generates_all_fields(self):
-        registry = _make_registry()
-        registry._resolve_all()
-        output = registry.generate_env_example()
-        for meta in CONFIG_FIELDS:
-            assert meta.env_var in output
-
-    def test_includes_descriptions(self):
-        registry = _make_registry()
-        registry._resolve_all()
-        output = registry.generate_env_example()
-        assert "Port the gateway listens on" in output
-
-    def test_marks_sensitive(self):
-        registry = _make_registry()
-        registry._resolve_all()
-        output = registry.generate_env_example()
-        assert "(sensitive" in output
-
-    def test_marks_db_settable(self):
-        registry = _make_registry()
-        registry._resolve_all()
-        output = registry.generate_env_example()
-        assert "runtime via admin API" in output
+    def test_none_rejected_for_non_nullable_field(self):
+        # log_level has default="info", so None violates the contract.
+        meta = CONFIG_FIELDS_BY_NAME["log_level"]
+        with pytest.raises(TypeError, match="cannot be None"):
+            _coerce(meta, None)
 
 
 class TestConfigFieldsCompleteness:

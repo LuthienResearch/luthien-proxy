@@ -710,7 +710,10 @@ async def set_config_value(
             f"(value from {resolved.source.value} takes precedence over DB)",
         )
 
-    new_resolved = await registry.set_db_value(key, body.value)
+    try:
+        new_resolved = await registry.set_db_value(key, body.value)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {
         "success": True,
         "name": key,
