@@ -107,18 +107,30 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
     - `decisions.md`: Technical decisions made and their rationale
     - `gotchas.md`: Non-obvious behaviors, edge cases, things that are easy to get wrong
 - `CHANGELOG.md`: Record changes as we make them (typically updated when we complete an OBJECTIVE)
-- `src/luthien_proxy/`: core package
-  - `orchestration/`: PolicyOrchestrator coordinates streaming pipeline
-  - `policies/`: Event-driven policy implementations
-  - `policy_core/`: Policy protocol, contexts, and chunk builders
-  - `streaming/`: Policy executor and client formatters
-  - `storage/`: Conversation event persistence
-  - `observability/`: OpenTelemetry integration, transaction recording
-  - `admin/`: Runtime policy management API
-  - `debug/`: Debug endpoints for inspecting conversation events
-  - `ui/`: Activity monitoring and diff viewer interfaces
-  - `llm/`: Anthropic client wrapper and LiteLLM-based judge client
-  - `utils/`: Shared utilities (db, redis, validation)
+- `src/luthien_proxy/`: core gateway package
+  - `main.py`: FastAPI app factory, lifespan wiring, CLI entry point
+  - `gateway_routes.py`: `/v1/messages` and related Anthropic-shaped proxy endpoints
+  - `auth.py`: admin/session authentication helpers
+  - `dependencies.py`: FastAPI dependency providers (policy, emitter, credential store, etc.)
+  - `config_fields.py`, `config_registry.py`, `settings.py`: config system (see "Configuration System" below). `settings.py` is auto-generated — do not edit by hand.
+  - `policy_manager.py`: loads the active policy from YAML or DB and hot-swaps at runtime
+  - `policy_composition.py`: `compose_policy()` helper for wrapping policies in a `MultiSerialPolicy` chain
+  - `credential_manager.py`: validates client credentials (proxy_key / passthrough / both) and caches results
+  - `pipeline/`: request processing pipeline — request entry point, client format detection, policy-context injection, stream protocol validation
+  - `policies/`: concrete policy implementations; `policies/presets/` holds reusable rule presets (e.g. `block_dangerous_commands`, `no_yapping`)
+  - `policy_core/`: policy contract layer — `BasePolicy`, `AnthropicExecutionInterface`, `AnthropicHookPolicy`, `PolicyContext`, `TextModifierPolicy`
+  - `credentials/`: typed credential models and `AuthProvider` strategies (server-key, passthrough, user-then-server) with a DB-backed store
+  - `llm/`: Anthropic HTTP client wrapper, per-credential client cache, LiteLLM-based judge client, and shared Anthropic type definitions
+  - `observability/`: event emitter, Redis/in-process event publishers, Sentry integration, SSE streaming for the activity monitor
+  - `storage/`: helpers for persisting and reconstructing conversation events
+  - `request_log/`: HTTP-level request/response recording for `/v1/` traffic (gated by `ENABLE_REQUEST_LOGGING`)
+  - `usage_telemetry/`: anonymous aggregate usage metrics sent to the central telemetry endpoint
+  - `admin/`: admin API routes and policy class discovery
+  - `debug/`: debug endpoints for inspecting recorded conversation events
+  - `history/`: conversation history browsing and export
+  - `ui/`: protected HTML routes for the admin UI pages
+  - `static/`: HTML/JS/CSS assets served by the UI routes
+  - `utils/`: shared infrastructure — DB pools (Postgres + SQLite), Redis client, credential cache, migration check, URL helpers
 - `src/luthien_cli/`: Standalone CLI (`uv tool install luthien-cli`); `luthien onboard` auto-downloads proxy artifacts
   - `commands/`: Click commands — `onboard`, `claude`, `status`, `up`/`down`, `logs`, `config`
   - `repo.py`: Manages `~/.luthien/luthien-proxy/` — downloads and updates proxy artifacts from GitHub
@@ -213,8 +225,12 @@ All gateway configuration is defined in `src/luthien_proxy/config_fields.py` —
 - Copy `.env.example` to `.env`; never commit secrets.
 - Key env vars: `DATABASE_URL`, `POLICY_CONFIG`, `ADMIN_API_KEY`. (`REDIS_URL` only needed for Docker Compose deployments.)
   - `PROXY_API_KEY` and `ANTHROPIC_API_KEY` are optional and only apply in specific auth modes — see [`dev/context/authentication.md`](dev/context/authentication.md).
+- Policy env vars:
+  - `POLICY_SOURCE` — policy loading strategy: `db`, `file`, `db-fallback-file` (default), or `file-fallback-db`.
+  - `POLICY_CONFIG` — path to the policy YAML file (used when `POLICY_SOURCE` resolves to file).
 - For dockerless dev, leave `DATABASE_URL` unset — defaults to `~/.luthien/local.db` (no Postgres needed).
 - All config values can be overridden via CLI flags: `python -m luthien_proxy.main --gateway-port 9000`.
+- Full field list lives in `src/luthien_proxy/config_fields.py`; `.env.example` is auto-generated from it.
 - Keep lint, test, and type-check settings consolidated in `pyproject.toml`; avoid extra config files unless necessary.
 
 ## Policy Architecture
