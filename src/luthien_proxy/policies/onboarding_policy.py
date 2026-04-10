@@ -49,6 +49,8 @@ tool call judges, or write your own.
 - `!luthien logs` — view gateway logs
 - `!luthien config` — manage settings
 - `!luthien down` / `!luthien up` — stop/start the gateway
+- `!luthien agent-tutorial` — how to create and activate policies via the CLI and API \
+(run this if you need to implement or manage policies)
 
 ---"""
 
