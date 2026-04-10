@@ -10,6 +10,7 @@ from functools import lru_cache
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from luthien_proxy._version import __version__ as _package_version
 from luthien_proxy.credential_manager import AuthMode
 from luthien_proxy.utils.constants import DEFAULT_GATEWAY_PORT
 
@@ -49,7 +50,7 @@ class Settings(BaseSettings):
     otel_exporter_otlp_endpoint: str = "http://tempo:4317"
     tempo_url: str = "http://localhost:3200"
     service_name: str = "luthien-proxy"
-    service_version: str = "2.0.0"
+    service_version: str = _package_version
     environment: str = "development"
     railway_service_name: str = ""
 
