@@ -158,9 +158,14 @@ class TestParseCargo:
 
 
 class TestParseGo:
-    def test_install(self):
+    def test_install_at_latest_treated_as_unversioned(self):
+        # `@latest` is a tag, not an exact version — OSV can't query it.
         refs = parse_install_commands("go install github.com/foo/bar@latest")
-        assert refs == [PackageRef(ecosystem="Go", name="github.com/foo/bar", version="latest")]
+        assert refs == [PackageRef(ecosystem="Go", name="github.com/foo/bar")]
+
+    def test_install_exact_version(self):
+        refs = parse_install_commands("go install github.com/foo/bar@v1.2.3")
+        assert refs == [PackageRef(ecosystem="Go", name="github.com/foo/bar", version="v1.2.3")]
 
     def test_get(self):
         refs = parse_install_commands("go get golang.org/x/tools")
@@ -432,6 +437,103 @@ class TestAnalyzeCommandHardBlock:
         assert isinstance(result, CommandAnalysis)
         assert isinstance(result.packages, tuple)
         assert {p.name for p in result.packages} == {"foo", "bar"}
+
+
+class TestNpmRangeNormalisation:
+    """OSV's single-package query wants an exact version, not an npm range."""
+
+    @pytest.mark.parametrize(
+        ("spec", "expected_version"),
+        [
+            ("left-pad@1.3.0", "1.3.0"),  # exact — keep
+            ("left-pad@^1.3.0", None),  # caret range — strip
+            ("left-pad@~1.3.0", None),  # tilde range — strip
+            ("left-pad@>=1.0.0", None),  # comparator — strip
+            ("left-pad@latest", None),  # tag — strip
+            ("left-pad@next", None),
+            ("left-pad@*", None),  # wildcard — strip
+            ("@scope/pkg@^2.0.0", None),  # scoped + range — strip
+            ("@scope/pkg@2.0.0", "2.0.0"),  # scoped + exact — keep
+        ],
+    )
+    def test_range_operators_stripped(self, spec: str, expected_version: str | None):
+        refs = parse_install_commands(f"npm install {spec}")
+        assert len(refs) == 1
+        assert refs[0].version == expected_version
+
+
+class TestInvalidSeverityThresholdRejected:
+    """Pydantic should reject nonsense severity labels at config load time."""
+
+    def test_typo_rejected(self):
+        with pytest.raises(ValueError, match="unknown severity threshold"):
+            SupplyChainGuardConfig(severity_threshold="HIH")
+
+    def test_empty_rejected(self):
+        with pytest.raises(ValueError, match="unknown severity threshold"):
+            SupplyChainGuardConfig(severity_threshold="")
+
+    def test_unknown_label_rejected(self):
+        with pytest.raises(ValueError, match="unknown severity threshold"):
+            SupplyChainGuardConfig(severity_threshold="SEVERE")
+
+    @pytest.mark.parametrize("label", ["LOW", "MEDIUM", "HIGH", "CRITICAL", "low", "high"])
+    def test_valid_labels_accepted(self, label: str):
+        cfg = SupplyChainGuardConfig(severity_threshold=label)
+        assert cfg.severity_threshold == label
+
+
+class TestFormatBlockedMessageErrorHandling:
+    """Error-only results must not render as '0 blocking vulnerabilities'."""
+
+    def test_error_only_result_renders_lookup_failed(self):
+        results = [
+            PackageCheckResult(
+                package=PackageRef("PyPI", "foo", "1.0"),
+                vulns=[],
+                error="network timeout",
+            )
+        ]
+        msg = format_blocked_message(results, Severity.HIGH, command="pip install foo==1.0")
+        assert "LOOKUP FAILED" in msg
+        assert "network timeout" in msg
+        # The misleading "0 blocking vulnerabilities" phrasing must not appear.
+        assert "0 blocking vulnerabilit" not in msg
+
+    def test_mixed_vuln_and_error_results(self):
+        results = [
+            PackageCheckResult(
+                package=PackageRef("PyPI", "vulnerable", "1.0"),
+                vulns=[VulnInfo(id="CVE-X", summary="critical", severity=Severity.CRITICAL)],
+            ),
+            PackageCheckResult(
+                package=PackageRef("PyPI", "errored", "2.0"),
+                vulns=[],
+                error="503 Service Unavailable",
+            ),
+        ]
+        msg = format_blocked_message(results, Severity.HIGH)
+        assert "CVE-X" in msg
+        assert "vulnerable" in msg
+        assert "LOOKUP FAILED" in msg
+        assert "503" in msg
+        assert "errored" in msg
+
+
+class TestDpkgInstallVerb:
+    """`dpkg -i` is an install form but `-i` must not be globally interpreted
+    as an install verb (would over-block `npm -i`, hypothetical flag forms)."""
+
+    def test_dpkg_dash_i_is_hard_blocked(self):
+        result = analyze_command("dpkg -i ./package.deb")
+        assert result.hard_block_reason is not None
+        assert "system package managers" in result.hard_block_reason
+
+    def test_npm_dash_i_is_not_install_form(self):
+        # `npm -i` isn't a valid install shortcut today, but if anyone ever
+        # writes it they shouldn't see a confusing dpkg-ish hard-block.
+        result = analyze_command("npm -i something")
+        assert result.hard_block_reason is None
 
 
 class TestFormatHardBlockMessage:

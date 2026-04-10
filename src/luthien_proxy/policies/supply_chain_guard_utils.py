@@ -23,7 +23,7 @@ from enum import IntEnum
 from typing import Any, Final
 
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +185,20 @@ class SupplyChainGuardConfig(BaseModel):
         default=True,
         description="If true, block installs when the OSV lookup fails. If false, allow on lookup failure.",
     )
+
+    @field_validator("severity_threshold")
+    @classmethod
+    def _validate_severity_threshold(cls, value: str) -> str:
+        """Reject unknown severity labels at config load.
+
+        Without this, a typo like ``severity_threshold: "HIH"`` would parse
+        to ``Severity.UNKNOWN`` and the policy would silently over-block
+        (any vuln satisfies ``severity >= UNKNOWN``).
+        """
+        if Severity.from_label(value) is Severity.UNKNOWN and value.strip().upper() != "UNKNOWN":
+            valid = ", ".join(s.label for s in Severity if s is not Severity.UNKNOWN)
+            raise ValueError(f"unknown severity threshold {value!r}; expected one of: {valid}")
+        return value
 
     @property
     def severity_threshold_enum(self) -> Severity:
@@ -382,11 +396,32 @@ def _split_npm_specifier(raw: str) -> tuple[str, str | None]:
         at = raw.find("@", 1)
         if at == -1:
             return raw, None
-        return raw[:at], raw[at + 1 :] or None
+        return raw[:at], _normalise_npm_version(raw[at + 1 :])
     if "@" in raw:
         name, _, version = raw.partition("@")
-        return name, version or None
+        return name, _normalise_npm_version(version)
     return raw, None
+
+
+def _normalise_npm_version(version: str) -> str | None:
+    """Drop version ranges and tags that OSV's exact-version lookup can't match.
+
+    npm accepts ``^1.3.0``, ``~1.3.0``, ``>=1.0.0 <2.0.0``, ``latest``, ``next``,
+    etc. OSV's single-package query expects an exact version string, so we
+    treat anything non-exact as "no version known" to avoid silent false
+    negatives where OSV returns no matches for ``^1.3.0`` but does have
+    advisories for ``1.3.0`` itself.
+    """
+    version = version.strip()
+    if not version:
+        return None
+    # Tags like "latest", "next", "beta" — not useful for OSV.
+    if version in {"latest", "next", "beta", "alpha", "rc", "canary"}:
+        return None
+    # Range operators at the start: ^, ~, >=, <=, >, <, =, !, ||, space, ...
+    if version[0] in "^~<>=!|*x" or " " in version:
+        return None
+    return version
 
 
 def _parse_cargo_packages(tokens: list[str]) -> list[PackageRef]:
@@ -410,7 +445,12 @@ def _parse_go_packages(tokens: list[str]) -> list[PackageRef]:
         # Go modules are paths like github.com/foo/bar[@version]
         if "@" in raw:
             name, _, version = raw.partition("@")
-            refs.append(PackageRef(ecosystem="Go", name=name, version=version or None))
+            # Go tags like "latest" / "upgrade" don't round-trip through OSV's
+            # exact-version query; treat as unknown version.
+            clean_version: str | None = version.strip() or None
+            if clean_version in {"latest", "upgrade", "patch", "none"}:
+                clean_version = None
+            refs.append(PackageRef(ecosystem="Go", name=name, version=clean_version))
         else:
             refs.append(PackageRef(ecosystem="Go", name=raw))
     return refs
@@ -824,7 +864,14 @@ _SYSTEM_MANAGER_MESSAGES: Final[dict[str, str]] = {
     "easy_install": "`easy_install` is deprecated and not supported by this guard; use pip instead",
 }
 
-_INSTALL_VERBS: Final[frozenset[str]] = frozenset({"install", "add", "require", "get", "-i"})
+_INSTALL_VERBS: Final[frozenset[str]] = frozenset({"install", "add", "require", "get"})
+
+# Some tools use a different subcommand token. Only recognised when the head
+# is the matching command — never globally, to avoid e.g. `npm -i` (if that
+# ever becomes a thing) over-blocking.
+_HEAD_SPECIFIC_VERBS: Final[dict[str, frozenset[str]]] = {
+    "dpkg": frozenset({"-i", "--install"}),
+}
 
 
 def _detect_unsupported_install_form(command: str) -> str | None:
@@ -848,7 +895,8 @@ def _detect_unsupported_install_form(command: str) -> str | None:
             continue
         head = stripped[0]
         verb = stripped[1]
-        if verb not in _INSTALL_VERBS:
+        head_verbs = _HEAD_SPECIFIC_VERBS.get(head, frozenset())
+        if verb not in _INSTALL_VERBS and verb not in head_verbs:
             continue
         if head in _SYSTEM_MANAGER_MESSAGES:
             return _SYSTEM_MANAGER_MESSAGES[head]
@@ -1109,25 +1157,49 @@ def format_blocked_message(
     threshold: Severity,
     command: str | None = None,
 ) -> str:
-    """Render the message shown to the LLM/user when an install is blocked."""
+    """Render the message shown to the LLM/user when an install is blocked.
+
+    Handles three result shapes:
+    - Vulnerabilities at or above threshold: show the vuln list.
+    - OSV lookup failure under ``fail_closed``: show a ``[LOOKUP FAILED]``
+      line with the error reason instead of a bogus ``0 blocking
+      vulnerabilities`` header.
+    - Mixed: render both kinds in the same message.
+    """
     lines: list[str] = ["⛔ Supply chain guard blocked this install.", ""]
     if command:
         lines.append(f"Command: {command}")
         lines.append("")
-    lines.append("Packages with known vulnerabilities:")
-    for result in results:
-        blocking = result.blocking_vulns(threshold)
-        header = (
-            f"- {result.package.name} ({result.package.ecosystem}): "
-            f"{len(blocking)} blocking vulnerabilit{'y' if len(blocking) == 1 else 'ies'} "
-            f"[{result.max_severity.label}]"
-        )
-        lines.append(header)
-        for vuln in blocking[:5]:
-            summary = (vuln.summary or "no summary").strip().splitlines()[0]
-            lines.append(f"    {vuln.id} [{vuln.severity.label}]: {summary}")
-        if len(blocking) > 5:
-            lines.append(f"    ... and {len(blocking) - 5} more")
+
+    vulnerable = [r for r in results if r.blocking_vulns(threshold)]
+    errored = [r for r in results if r.error and not r.blocking_vulns(threshold)]
+
+    if vulnerable:
+        lines.append("Packages with known vulnerabilities:")
+        for result in vulnerable:
+            blocking = result.blocking_vulns(threshold)
+            header = (
+                f"- {result.package.name} ({result.package.ecosystem}): "
+                f"{len(blocking)} blocking vulnerabilit{'y' if len(blocking) == 1 else 'ies'} "
+                f"[{result.max_severity.label}]"
+            )
+            lines.append(header)
+            for vuln in blocking[:5]:
+                summary = (vuln.summary or "no summary").strip().splitlines()[0]
+                lines.append(f"    {vuln.id} [{vuln.severity.label}]: {summary}")
+            if len(blocking) > 5:
+                lines.append(f"    ... and {len(blocking) - 5} more")
+
+    if errored:
+        if vulnerable:
+            lines.append("")
+        lines.append("Packages where the OSV lookup failed (fail-closed):")
+        for result in errored:
+            lines.append(
+                f"- {result.package.name} ({result.package.ecosystem}) [LOOKUP FAILED]: "
+                f"{result.error or 'unknown error'}"
+            )
+
     lines.append("")
     lines.append(
         "Remediation: pin to a patched version listed in the OSV advisory, "

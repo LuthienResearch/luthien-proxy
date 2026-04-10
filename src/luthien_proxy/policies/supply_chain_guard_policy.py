@@ -274,6 +274,10 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
         to_check = [p for p in packages if not is_allowlisted(p, self._allowlist)]
         if not to_check:
             return []
+        # _lookup_vulns swallows its own exceptions and returns them in the
+        # `error` field, so gather() can safely omit return_exceptions=True.
+        # Keep that invariant — any exception escaping _lookup_vulns would
+        # poison the whole response via gather's fail-fast semantics.
         lookups = await asyncio.gather(*(self._lookup_vulns(p, context) for p in to_check))
         return [
             PackageCheckResult(package=package, vulns=vulns, error=error)
@@ -401,6 +405,10 @@ class SupplyChainGuardPolicy(BasePolicy, AnthropicHookPolicy):
             ]
 
         # Allowed: re-emit the original tool_use events.
+        # Note: upstream may have sent N partial-JSON deltas; we coalesce them
+        # into a single delta because we only buffered the accumulated JSON,
+        # not the original chunk boundaries. Anthropic clients tolerate this
+        # but downstream wire shape is not preserved byte-for-byte.
         tool_use_block = ToolUseBlock(type="tool_use", id=buffered.id, name=BASH_TOOL_NAME, input={})
         start_event = RawContentBlockStartEvent(
             type="content_block_start", index=event.index, content_block=tool_use_block
@@ -615,8 +623,7 @@ def _prepend_system_warning(
         return warning
     if isinstance(existing, str):
         return f"{warning}\n\n{existing}" if existing else warning
-    # list of AnthropicSystemBlock
-    warning_block: AnthropicSystemBlock = {"type": "text", "text": warning}  # type: ignore[typeddict-item]
+    warning_block: AnthropicSystemBlock = {"type": "text", "text": warning}
     return [warning_block, *existing]
 
 
