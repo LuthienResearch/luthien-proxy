@@ -137,7 +137,7 @@ Admin endpoints manage policies and configuration at runtime. Requests must eith
 - `x-api-key: <ADMIN_API_KEY>` header
 - Session cookie (set by `/auth/login` for browser access)
 
-Set `LOCALHOST_AUTH_BYPASS=false` to require the admin key even for loopback requests. Cloud deployments (e.g. Railway) disable the bypass automatically.
+Set `LOCALHOST_AUTH_BYPASS=false` to require the admin key even for loopback requests. Railway deployments set `LOCALHOST_AUTH_BYPASS=false` by default at startup (explicit env values are respected).
 
 > **Reverse proxy warning**: The bypass checks the TCP source IP, not forwarded headers. If Luthien runs behind a reverse proxy on the same host (Caddy/nginx/Traefik), every external request arrives as `127.0.0.1` and bypasses admin auth. Set `LOCALHOST_AUTH_BYPASS=false` for any same-host reverse-proxy deployment.
 

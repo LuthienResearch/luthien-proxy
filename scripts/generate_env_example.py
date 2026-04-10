@@ -80,7 +80,17 @@ def build_env_example_text() -> str:
                 lines.append(f"# (default derived from {symbol} at startup)")
                 lines.append(f"# {meta.env_var}=")
             else:
-                lines.append(f"# {meta.env_var}={_format_default(meta.default)}")
+                # Enum must serialize to its .value (str(AuthMode.BOTH) gives
+                # "AuthMode.BOTH", which won't round-trip through the env parser).
+                if meta.default is None:
+                    default_str = ""
+                elif isinstance(meta.default, bool):
+                    default_str = str(meta.default).lower()
+                elif isinstance(meta.default, Enum):
+                    default_str = str(meta.default.value)
+                else:
+                    default_str = str(meta.default)
+                lines.append(f"# {meta.env_var}={default_str}")
             lines.append("")
 
     return "\n".join(lines)
