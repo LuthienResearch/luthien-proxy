@@ -100,9 +100,10 @@ The gateway is a single FastAPI application:
 - `GET /conversation/live/{id}` - Live conversation view with SSE streaming
 - `GET /debug` - Debug information viewer
 
-**Authentication:**
+**Authentication (two layers):**
 
-By default, the gateway passes through client credentials (OAuth tokens or API keys) to Anthropic. Optionally set `PROXY_API_KEY` in `.env` to require a gateway-level key.
+- **Upstream (Anthropic)**: By default, the gateway passes through client credentials (OAuth tokens or API keys) to Anthropic. Optionally set `ANTHROPIC_API_KEY` in `.env` to use a single API key for all requests.
+- **Gateway**: Optionally set `PROXY_API_KEY` in `.env` to require clients to authenticate with the gateway itself.
 
 ### Admin API
 
