@@ -23,7 +23,6 @@ async def db_pool():
         "value_json TEXT NOT NULL, "
         "expires_at TEXT NOT NULL, "
         "created_at TEXT NOT NULL DEFAULT (datetime('now')), "
-        "updated_at TEXT NOT NULL DEFAULT (datetime('now')), "
         "PRIMARY KEY (policy_name, cache_key))"
     )
     yield pool
@@ -178,3 +177,38 @@ class TestPolicyCacheCleanup:
         # Valid entry should still be there
         result = await cache.get("valid")
         assert result == {"v": 3}
+
+
+class TestPolicyCacheSchema:
+    """Schema regression tests.
+
+    WHY: updated_at was originally added to the table but never read by any
+    code path (see Trello 69d8a429). It was dropped to keep the schema minimal
+    and avoid write amplification. These tests lock in that decision so a
+    future refactor doesn't silently reintroduce the column (or a SQL
+    statement referencing it) without an explicit consumer.
+    """
+
+    @pytest.mark.asyncio
+    async def test_table_has_no_updated_at_column(self, db_pool: SqlitePool):
+        """The policy_cache table must not have an updated_at column."""
+        rows = await db_pool.fetch("PRAGMA table_info(policy_cache)")
+        columns = {row["name"] for row in rows}
+        assert "updated_at" not in columns, (
+            "policy_cache.updated_at was reintroduced — if adding it back, "
+            "also add a read path or stats consumer (see Trello 69d8a429)"
+        )
+        # Sanity: the columns we do expect are still there.
+        assert {"policy_name", "cache_key", "value_json", "expires_at", "created_at"}.issubset(columns)
+
+    @pytest.mark.asyncio
+    async def test_put_sql_does_not_reference_updated_at(self, cache: PolicyCache):
+        """put() must succeed against a schema without updated_at.
+
+        This is an integration-level guard: if put()'s SQL is edited to
+        reference updated_at again, this test fails because the column does
+        not exist in the fixture's table.
+        """
+        await cache.put("probe", {"x": 1}, ttl_seconds=3600)
+        result = await cache.get("probe")
+        assert result == {"x": 1}
