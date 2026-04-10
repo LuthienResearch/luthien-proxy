@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -440,4 +443,42 @@ class TestConfigFieldsCompleteness:
         env_vars = [f.env_var for f in CONFIG_FIELDS]
         assert len(env_vars) == len(set(env_vars)), (
             f"Duplicate env vars: {[v for v in env_vars if env_vars.count(v) > 1]}"
+        )
+
+    def test_env_example_matches_generator(self):
+        """Committed .env.example must match scripts/generate_env_example.py output.
+
+        Regression guard for PR #519: commit 1b28e4d5 accidentally wiped
+        .env.example (150 lines -> 0), which broke CI clean-tree checks on main
+        until it was spotted. The dev_checks.sh clean-tree check catches drift,
+        but only after running the full pipeline. This test gives fast pytest-level
+        feedback (runs in unit test tier) and also catches the case where a
+        config field change doesn't make it into the committed .env.example —
+        e.g. the original "hardcoded SERVICE_VERSION=2.0.0" scenario this ticket
+        was opened to prevent.
+
+        The generator intentionally omits dynamic_default values (like
+        SERVICE_VERSION resolved from PROXY_VERSION) so its output is stable
+        across build environments.
+        """
+        repo_root = Path(__file__).resolve().parents[3]
+        generator = repo_root / "scripts" / "generate_env_example.py"
+        env_example = repo_root / ".env.example"
+
+        assert generator.exists(), f"Generator missing at {generator}"
+        assert env_example.exists(), f".env.example missing at {env_example}"
+
+        result = subprocess.run(
+            [sys.executable, str(generator)],
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+            check=True,
+        )
+        expected = result.stdout
+        actual = env_example.read_text()
+
+        assert actual == expected, (
+            ".env.example is out of sync with scripts/generate_env_example.py. "
+            "Run: uv run python scripts/generate_env_example.py > .env.example"
         )
