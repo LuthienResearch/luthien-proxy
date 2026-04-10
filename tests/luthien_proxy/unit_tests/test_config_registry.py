@@ -462,15 +462,24 @@ class TestConfigFieldsCompleteness:
         - In CI and on a clean checkout, the index mirrors HEAD — the
           committed state we want to validate.
         - In dev_checks.sh, the pipeline regenerates .env.example into the
-          working tree and auto-stages it before pytest runs, so the index
-          reflects exactly what's about to be committed.
+          working tree BEFORE the auto-stage step (which only stages files
+          dirtied by `ruff format`/`ruff check --fix`). So the index is not
+          updated and still reflects the committed state — a stale committed
+          copy fails this test earlier than the end-of-pipeline clean-tree
+          gate, giving the developer faster feedback.
         - In a pre-commit TDD workflow (dev edits config_fields.py,
           regenerates, stages, runs pytest), the index shows the staged
           version, avoiding a false-positive from comparing against stale HEAD.
         - Reading the raw working tree would miss the dev_checks.sh case
-          (working tree gets rewritten before pytest runs, so the comparison
-          becomes tautological) and would false-positive on WIP edits the
-          developer hasn't staged yet.
+          because `dev_checks.sh` rewrites the working tree before pytest
+          runs, making the comparison tautological.
+
+        Note: reading the index isolates unstaged edits to `.env.example`
+        itself, but NOT unstaged edits to `config_fields.py` — the generator
+        imports the live module, so an unstaged config edit will still
+        propagate through and the test will compare generator(working-tree
+        config) vs index(.env.example). That's intentional: `config_fields.py`
+        is the input under test.
 
         The generator intentionally omits dynamic_default values (like
         SERVICE_VERSION resolved from PROXY_VERSION) so its output is stable
