@@ -37,6 +37,8 @@ All standard Luthien env vars work. The auth-related ones:
 
 `DATABASE_URL` and `REDIS_URL` are set automatically to point at the in-container services — you don't need to provide them.
 
+> **Reverse proxy warning**: If you put a reverse proxy (Caddy, nginx, Traefik, Tailscale Funnel) in front of this container on the same host, every forwarded request appears as `127.0.0.1` to the gateway and bypasses admin auth via `LOCALHOST_AUTH_BYPASS=true` (the default). Set `LOCALHOST_AUTH_BYPASS=false` for that deployment pattern, or admin routes are effectively unauthenticated to external callers.
+
 ## Persistent Storage
 
 Two volume mount points keep data across container restarts and rebuilds:
