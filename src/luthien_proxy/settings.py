@@ -57,6 +57,7 @@ class Settings(_SettingsBase):
     policy_config: str = ""
     inject_policy_context: bool = True
     dogfood_mode: bool = False
+    policy_cache_max_entries: int = 10000
 
     # ── database ────────────────────────────────────────────────────
     database_url: str = ""

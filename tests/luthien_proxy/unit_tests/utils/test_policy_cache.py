@@ -10,7 +10,7 @@ import pytest
 
 from luthien_proxy.utils.db import DatabasePool
 from luthien_proxy.utils.db_sqlite import SqlitePool
-from luthien_proxy.utils.policy_cache import PolicyCache
+from luthien_proxy.utils.policy_cache import DEFAULT_MAX_ENTRIES, PolicyCache
 
 
 @pytest.fixture
@@ -557,6 +557,16 @@ class TestPolicyCacheCleanup:
         assert result == {"v": 3}
 
 
+async def _count_entries(pool: SqlitePool, policy_name: str) -> int:
+    """Count rows in the policy_cache table for a given namespace."""
+    row = await pool.fetchrow(
+        "SELECT COUNT(*) as n FROM policy_cache WHERE policy_name = ?",
+        policy_name,
+    )
+    assert row is not None
+    return int(row["n"])
+
+
 class TestPolicyCacheSchema:
     """Schema regression tests.
 
@@ -590,3 +600,214 @@ class TestPolicyCacheSchema:
         await cache.put("probe", {"x": 1}, ttl_seconds=3600)
         result = await cache.get("probe")
         assert result == {"x": 1}
+
+
+class TestPolicyCacheSizeCap:
+    """Tests for the entry cap and eviction policy.
+
+    The cap is enforced on every put(): if the post-upsert row count for this
+    policy_name exceeds ``max_entries``, entries are evicted in ``ORDER BY
+    created_at ASC, cache_key ASC`` order — oldest-inserted first, with
+    cache_key as a deterministic tiebreak. On SQLite the default
+    ``datetime('now')`` resolution is 1 second, so tests use alphabetical
+    cache keys that match the intended eviction order for multi-put-in-the-
+    same-second scenarios.
+    """
+
+    @pytest.mark.asyncio
+    async def test_default_cap_is_reasonable(self, db_pool: SqlitePool):
+        """The module-level default is large enough that existing callers aren't surprised."""
+        cache = PolicyCache(_wrap_sqlite_pool(db_pool), "p")
+        assert cache.max_entries == DEFAULT_MAX_ENTRIES
+        assert DEFAULT_MAX_ENTRIES >= 1000  # sanity: not a tiny number
+
+    @pytest.mark.asyncio
+    async def test_rejects_non_positive_cap(self, db_pool: SqlitePool):
+        """A zero or negative cap is a configuration error and must fail loudly."""
+        db = _wrap_sqlite_pool(db_pool)
+        with pytest.raises(ValueError, match="must be positive"):
+            PolicyCache(db, "p", max_entries=0)
+        with pytest.raises(ValueError, match="must be positive"):
+            PolicyCache(db, "p", max_entries=-5)
+
+    @pytest.mark.asyncio
+    async def test_none_cap_means_unbounded(self, db_pool: SqlitePool):
+        """max_entries=None disables enforcement — useful for migrations and tests."""
+        cache = PolicyCache(_wrap_sqlite_pool(db_pool), "unbounded", max_entries=None)
+        for i in range(20):
+            await cache.put(f"k{i:02d}", {"v": i}, ttl_seconds=3600)
+
+        assert await _count_entries(db_pool, "unbounded") == 20
+        assert cache.max_entries is None
+
+    @pytest.mark.asyncio
+    async def test_cap_enforced_on_put(self, db_pool: SqlitePool):
+        """Putting one more than the cap triggers eviction of the FIFO-oldest entry."""
+        cache = PolicyCache(_wrap_sqlite_pool(db_pool), "capped", max_entries=3)
+
+        # Alphabetical cache keys match insertion order. Under SQLite's
+        # 1-second-precision created_at, the (created_at, cache_key) ORDER BY
+        # falls back to the cache_key tiebreak within a single second, which
+        # matches intended FIFO order for this test.
+        await cache.put("k0", {"v": 0}, ttl_seconds=3600)
+        await cache.put("k1", {"v": 1}, ttl_seconds=3600)
+        await cache.put("k2", {"v": 2}, ttl_seconds=3600)
+        assert await _count_entries(db_pool, "capped") == 3
+
+        await cache.put("k3", {"v": 3}, ttl_seconds=3600)  # pushes over cap
+
+        assert await _count_entries(db_pool, "capped") == 3
+        assert await cache.get("k0") is None  # evicted — oldest by FIFO order
+        assert await cache.get("k1") == {"v": 1}
+        assert await cache.get("k2") == {"v": 2}
+        assert await cache.get("k3") == {"v": 3}
+
+    @pytest.mark.asyncio
+    async def test_eviction_order_is_fifo(self, db_pool: SqlitePool):
+        """Multiple evictions in one put go in FIFO order — oldest inserts first."""
+        cache = PolicyCache(_wrap_sqlite_pool(db_pool), "order", max_entries=2)
+
+        # Alphabetical order == intended FIFO order. First two survive, third
+        # pushes cap. Since all three share a created_at under SQLite second
+        # precision, cache_key tiebreak picks "k0" as the one to evict.
+        await cache.put("k0", {"v": 0}, ttl_seconds=3600)
+        await cache.put("k1", {"v": 1}, ttl_seconds=3600)
+        await cache.put("k2", {"v": 2}, ttl_seconds=3600)
+
+        assert await _count_entries(db_pool, "order") == 2
+        assert await cache.get("k0") is None
+        assert await cache.get("k1") == {"v": 1}
+        assert await cache.get("k2") == {"v": 2}
+
+    @pytest.mark.asyncio
+    async def test_new_key_is_never_immediately_self_evicted(self, db_pool: SqlitePool):
+        """A brand-new put() must not evict its own freshly-inserted row.
+
+        This is the key semantic difference from an expires_at-based policy:
+        because FIFO evicts oldest-by-created_at (and the new key has the
+        largest created_at), a new entry is always safe even if its TTL is
+        much shorter than the rest of the cache. Regression guard.
+        """
+        cache = PolicyCache(_wrap_sqlite_pool(db_pool), "selfevict", max_entries=2)
+
+        # Fill the cache with long-lived entries using alphabetically-early
+        # keys so they're the FIFO victims.
+        await cache.put("a_old", {"v": "old1"}, ttl_seconds=10_000)
+        await cache.put("b_old", {"v": "old2"}, ttl_seconds=10_000)
+
+        # Now put a new entry with a much *shorter* TTL. Under a
+        # naive expires_at-ASC eviction this would evict itself; under
+        # FIFO-by-created_at the new entry survives and an old one goes.
+        await cache.put("c_new", {"v": "new"}, ttl_seconds=1)
+
+        assert await _count_entries(db_pool, "selfevict") == 2
+        assert await cache.get("c_new") == {"v": "new"}
+
+    @pytest.mark.asyncio
+    async def test_upsert_does_not_evict_the_refreshed_key(self, db_pool: SqlitePool):
+        """Updating an existing key at cap does not trigger eviction of that key.
+
+        Row count is unchanged by an upsert (ON CONFLICT update, not insert),
+        so _enforce_cap sees count == cap and does nothing. Crucially the
+        cap check runs *after* the upsert inside the same transaction, so
+        even if the count were briefly wrong, the value must not be lost.
+        """
+        cache = PolicyCache(_wrap_sqlite_pool(db_pool), "updates", max_entries=2)
+
+        await cache.put("a", {"v": 1}, ttl_seconds=3600)
+        await cache.put("b", {"v": 1}, ttl_seconds=3600)
+        assert await _count_entries(db_pool, "updates") == 2
+
+        await cache.put("a", {"v": 2}, ttl_seconds=3600)  # refresh
+
+        assert await _count_entries(db_pool, "updates") == 2
+        assert await cache.get("a") == {"v": 2}
+        assert await cache.get("b") == {"v": 1}
+
+    @pytest.mark.asyncio
+    async def test_cap_is_per_policy_namespace(self, db_pool: SqlitePool):
+        """Caps count separately for each policy_name — siblings don't evict each other."""
+        db = _wrap_sqlite_pool(db_pool)
+        cache_a = PolicyCache(db, "alpha", max_entries=2)
+        cache_b = PolicyCache(db, "beta", max_entries=2)
+
+        await cache_a.put("x", {"v": 1}, ttl_seconds=3600)
+        await cache_a.put("y", {"v": 2}, ttl_seconds=3600)
+        await cache_b.put("x", {"v": 3}, ttl_seconds=3600)
+        await cache_b.put("y", {"v": 4}, ttl_seconds=3600)
+
+        # Each namespace is full (2/2) — neither should have evicted anything
+        # because the cap is per namespace.
+        assert await _count_entries(db_pool, "alpha") == 2
+        assert await _count_entries(db_pool, "beta") == 2
+        assert await cache_a.get("x") == {"v": 1}
+        assert await cache_b.get("x") == {"v": 3}
+
+    @pytest.mark.asyncio
+    async def test_cap_does_not_evict_other_namespaces(self, db_pool: SqlitePool):
+        """Filling one namespace over its cap must never delete rows from another.
+
+        Regression guard: a buggy _enforce_cap that forgot the ``WHERE
+        policy_name = $1`` filter in the SELECT would happily pick up rows
+        from the oldest-inserted namespace, not the one being filled.
+        """
+        db = _wrap_sqlite_pool(db_pool)
+        cache_a = PolicyCache(db, "alpha", max_entries=1)
+        cache_b = PolicyCache(db, "beta", max_entries=1)
+
+        # Insert beta first so beta's entry is FIFO-oldest across the whole
+        # table — a cross-namespace bug would evict *it* instead of alpha's.
+        await cache_b.put("beta_key", {"v": "b"}, ttl_seconds=3600)
+        await cache_a.put("a1", {"v": 1}, ttl_seconds=3600)
+        await cache_a.put("a2", {"v": 2}, ttl_seconds=3600)  # pushes alpha over cap
+
+        assert await _count_entries(db_pool, "alpha") == 1
+        assert await _count_entries(db_pool, "beta") == 1
+        assert await cache_b.get("beta_key") == {"v": "b"}
+
+    @pytest.mark.asyncio
+    async def test_many_sequential_puts_converge_to_cap(self, db_pool: SqlitePool):
+        """20 sequential puts against a cap of 5 must leave exactly 5 rows.
+
+        SQLite serializes all writes through the shim's pool lock, so
+        asyncio.gather() of 20 puts degrades to sequential execution (no
+        real concurrency contention is exercised here). The test still
+        verifies the transactional put+evict sequence handles long runs
+        of over-cap writes without getting stuck or losing integrity.
+        """
+        cache = PolicyCache(_wrap_sqlite_pool(db_pool), "concurrent", max_entries=5)
+
+        # Two-digit keys so alphabetical order matches insertion order for
+        # the within-1-second created_at tiebreak.
+        tasks = [cache.put(f"k{i:02d}", {"v": i}, ttl_seconds=3600) for i in range(20)]
+        await asyncio.gather(*tasks)
+
+        assert await _count_entries(db_pool, "concurrent") == 5
+        # The 5 latest insertions (k15..k19) should remain; earlier ones evicted.
+        for i in range(15):
+            assert await cache.get(f"k{i:02d}") is None, f"k{i:02d} should have been evicted"
+        for i in range(15, 20):
+            assert await cache.get(f"k{i:02d}") == {"v": i}
+
+    @pytest.mark.asyncio
+    async def test_cap_counts_expired_rows_as_well(self, db_pool: SqlitePool):
+        """Expired rows still occupy a slot — the cap is on row count, not live entries.
+
+        This is intentional: ``cleanup_expired()`` is the mechanism for
+        dropping dead rows by TTL. The cap is orthogonal — a hard ceiling
+        on row *count*. Expired rows that happen to be the oldest will be
+        evicted first by FIFO ordering, so the cap still effectively
+        protects live entries in typical workloads.
+        """
+        cache = PolicyCache(_wrap_sqlite_pool(db_pool), "mixed", max_entries=2)
+
+        # Alphabetical keys match intended eviction order under SQLite's
+        # 1-second-precision created_at.
+        await cache.put("a_dead", {"v": "d1"}, ttl_seconds=-100)
+        await cache.put("b_dead", {"v": "d2"}, ttl_seconds=-50)
+        await cache.put("c_live", {"v": "live"}, ttl_seconds=3600)
+
+        assert await _count_entries(db_pool, "mixed") == 2
+        # The oldest dead row is gone; the most-recent put always survives.
+        assert await cache.get("c_live") == {"v": "live"}
+        assert await cache.get("a_dead") is None

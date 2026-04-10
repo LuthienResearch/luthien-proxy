@@ -119,6 +119,11 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         "Auto-compose DogfoodSafetyPolicy to prevent agents from killing the proxy",
         category="policy", db_settable=True, restart_required=False,
     ),
+    ConfigFieldMeta(
+        "policy_cache_max_entries", "POLICY_CACHE_MAX_ENTRIES", int, 10_000,
+        "Max rows per policy namespace in PolicyCache (0 or negative disables the cap)",
+        category="policy",
+    ),
 
     # ── database ──────────────────────────────────────────────────────────
     ConfigFieldMeta(
