@@ -29,7 +29,7 @@ Integrated single-process gateway. Authoritative module map and request lifecycl
   - `on_anthropic_request(request, context) -> AnthropicRequest`
   - `on_anthropic_response(response, context) -> AnthropicResponse`
   - `on_anthropic_stream_event(event, context) -> list[MessageStreamEvent]`
-  - `on_anthropic_stream_complete(context) -> list[MessageStreamEvent]`
+  - `on_anthropic_stream_complete(context) -> list[AnthropicPolicyEmission]` — where `AnthropicPolicyEmission = AnthropicResponse | MessageStreamEvent`, so tail emissions can include a non-streaming response object, not only stream events.
 - Policies never see the IO layer directly. The executor wraps the backend in `_AnthropicPolicyIO` (implementing `AnthropicPolicyIOProtocol`) and calls `io.stream(request)` or `io.complete(request)` exactly once per request based on the incoming `stream` flag.
 
 ## Key Patterns (2025-10-24)
@@ -82,7 +82,7 @@ Three test tiers with increasing infrastructure requirements:
 
 ## Streaming Pipeline (2026-04-10)
 
-Anthropic streaming lives inside `src/luthien_proxy/pipeline/anthropic_processor.py`. The gateway calls `AnthropicClient.stream(...)` (Anthropic SDK), hands the async iterator to an execution-interface policy, and the policy emits `RawMessageStreamEvent`s that the processor forwards as SSE to the client. Policies implement `AnthropicExecutionInterface.run_anthropic(io, context)` and use the `io` surface to call `io.stream()` / `io.complete()` zero or more times.
+Anthropic streaming lives inside `src/luthien_proxy/pipeline/anthropic_processor.py`. The executor (`_run_policy_hooks`) owns the backend call: it calls `io.stream(request)` on the `_AnthropicPolicyIO` helper, which invokes `AnthropicClient.stream(...)` (Anthropic SDK), and then iterates the resulting async stream. For each backend event it invokes `policy.on_anthropic_stream_event(event, context)`, which returns zero or more `MessageStreamEvent` values to emit downstream; after the backend stream is exhausted it calls `policy.on_anthropic_stream_complete(context)` to pick up any tail emissions. The processor serializes each emitted event with `_format_sse_event` and yields it to the client as SSE. Policies never see the IO layer directly — they only implement hooks.
 
 Do not trust older notes that describe a `PolicyOrchestrator` + `PolicyExecutor` + `ClientFormatter` + `Queue[ModelResponse]` pipeline or a separate `orchestration/` / `streaming/` package — those modules do not exist in the current codebase. When in doubt, read `src/luthien_proxy/pipeline/anthropic_processor.py` directly; `ARCHITECTURE.md` also describes the flow but has known staleness (tracked separately on Trello).
 
