@@ -153,6 +153,7 @@ if stream_state.finish_reason:
 - Policy classes are instantiated with full Python capabilities
 - In production: ensure config files have proper filesystem permissions
 - The Admin API requires `ADMIN_API_KEY` authentication for runtime policy changes from non-localhost clients (localhost is bypassed by default via `LOCALHOST_AUTH_BYPASS=true`; set to `false` to enforce on loopback)
+- **Reverse-proxy landmine**: `is_localhost_request()` checks the TCP source IP (`request.client.host`), not forwarded headers. If Luthien runs behind a reverse proxy on the *same host* (Caddy/nginx/Traefik/Tailscale Funnel), every forwarded request arrives as `127.0.0.1` and bypasses admin auth. Set `LOCALHOST_AUTH_BYPASS=false` for any same-host reverse-proxy deployment, or the admin API is effectively unauthenticated to external callers. Railway disables the bypass automatically at startup, so cloud deployments via `deploy/railway.json` are safe.
 
 **Related TODO item**: Add security documentation for dynamic policy loading.
 

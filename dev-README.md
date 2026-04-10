@@ -139,6 +139,8 @@ Admin endpoints manage policies and configuration at runtime. Requests must eith
 
 Set `LOCALHOST_AUTH_BYPASS=false` to require the admin key even for loopback requests. Cloud deployments (e.g. Railway) disable the bypass automatically.
 
+> **Reverse proxy warning**: The bypass checks the TCP source IP, not forwarded headers. If Luthien runs behind a reverse proxy on the same host (Caddy/nginx/Traefik), every external request arrives as `127.0.0.1` and bypasses admin auth. Set `LOCALHOST_AUTH_BYPASS=false` for any same-host reverse-proxy deployment.
+
 **Config dashboard API:**
 
 ```bash
