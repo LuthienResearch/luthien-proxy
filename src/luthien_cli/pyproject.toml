@@ -25,6 +25,12 @@ packages = ["src/luthien_cli"]
 source = "vcs"
 raw-options.root = "../.."
 raw-options.tag_regex = "^cli-v(?P<version>\\d+(?:\\.\\d+)*)$"
+# Filter git describe to only cli-v* tags — otherwise the proxy's v3.0.0 tag
+# (newer than any cli-v*) trips tag_regex parsing and builds fail with:
+#   UserWarning: tag 'v3.0.0' no version found
+raw-options.git_describe_command = [
+    "git", "describe", "--dirty", "--tags", "--long", "--match", "cli-v*",
+]
 
 [tool.hatch.build.hooks.vcs]
 version-file = "src/luthien_cli/_version.py"
