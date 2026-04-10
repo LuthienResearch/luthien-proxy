@@ -33,6 +33,22 @@ class ConfigSource(str, Enum):
     DEFAULT = "default"
 
 
+class ConfigOverriddenError(RuntimeError):
+    """Raised when a DB write is attempted on a field currently overridden by CLI/ENV.
+
+    Distinct from ValueError/TypeError so the admin route can map it to 409
+    while coercion errors map to 422.
+    """
+
+    def __init__(self, name: str, source: ConfigSource) -> None:
+        """Build the exception for a field blocked by a higher-priority source."""
+        super().__init__(
+            f"Config '{name}' is currently overridden by {source.value}; {source.value} takes precedence over DB writes"
+        )
+        self.name = name
+        self.source = source
+
+
 @dataclass
 class ResolvedValue:
     """A resolved config value with provenance information."""
@@ -76,9 +92,32 @@ class ConfigRegistry:
         try:
             pool = await self._db_pool.get_pool()
             rows = await pool.fetch("SELECT key, value FROM gateway_config")
-            self._db_values = {str(row["key"]): str(row["value"]) for row in rows}
         except Exception:
-            logger.warning("Failed to load gateway_config from DB", exc_info=True)
+            # Log at ERROR level so operators notice that runtime config
+            # fell back to defaults at startup — this is fail-open behavior
+            # and we want it visible, not buried in a warning.
+            logger.error(
+                "Failed to load gateway_config from DB — registry will use defaults "
+                "until a successful reload. Runtime overrides (DB layer) are not applied.",
+                exc_info=True,
+            )
+            return
+
+        loaded: dict[str, str] = {}
+        orphan_keys: list[str] = []
+        for row in rows:
+            key = str(row["key"])
+            if key in CONFIG_FIELDS_BY_NAME:
+                loaded[key] = str(row["value"])
+            else:
+                orphan_keys.append(key)
+        self._db_values = loaded
+        if orphan_keys:
+            logger.warning(
+                "gateway_config contains %d row(s) for removed/renamed fields (ignored): %s",
+                len(orphan_keys),
+                ", ".join(sorted(orphan_keys)),
+            )
 
     def _resolve_all(self) -> None:
         for meta in CONFIG_FIELDS:
@@ -154,7 +193,10 @@ class ConfigRegistry:
     async def set_db_value(self, name: str, value: Any, *, updated_by: str = "admin-api") -> ResolvedValue:
         """Write a value to the gateway_config DB table and update in-memory state.
 
-        Raises ValueError if the field is not db_settable or no DB is available.
+        Raises:
+            ValueError: field is unknown, not db_settable, or no DB is available.
+            TypeError / ValueError: coercion of `value` failed.
+            ConfigOverriddenError: field is currently overridden by CLI or ENV.
         """
         meta = CONFIG_FIELDS_BY_NAME.get(name)
         if meta is None:
@@ -171,6 +213,12 @@ class ConfigRegistry:
         serialized = json.dumps(coerced)
 
         async with self._lock:
+            # Check the override under the lock so we can't race against a
+            # concurrent cli_overrides mutation between a pre-check and the write.
+            current = self._resolved.get(name)
+            if current is not None and current.source in (ConfigSource.CLI, ConfigSource.ENV):
+                raise ConfigOverriddenError(name, current.source)
+
             pool = await self._db_pool.get_pool()
             # NOW() is translated to datetime('now') by db_sqlite for SQLite deploys.
             await pool.execute(
@@ -196,7 +244,15 @@ class ConfigRegistry:
         return resolved
 
     async def delete_db_value(self, name: str) -> ResolvedValue:
-        """Remove a DB override, falling back to env or default."""
+        """Remove a DB override, falling back to env or default.
+
+        Raises:
+            ValueError: field is unknown or no DB is available.
+            ConfigOverriddenError: field is currently overridden by CLI or ENV.
+                The DB row is NOT removed in this case — the caller intended
+                to make the field fall back to a lower layer, and removing the
+                row would silently succeed without changing the live value.
+        """
         if self._db_pool is None:
             raise ValueError("No database connection available")
 
@@ -205,6 +261,10 @@ class ConfigRegistry:
             raise ValueError(f"Unknown config field: {name}")
 
         async with self._lock:
+            current = self._resolved.get(name)
+            if current is not None and current.source in (ConfigSource.CLI, ConfigSource.ENV):
+                raise ConfigOverriddenError(name, current.source)
+
             pool = await self._db_pool.get_pool()
             await pool.execute("DELETE FROM gateway_config WHERE key = $1", name)
             self._db_values.pop(name, None)
@@ -296,4 +356,4 @@ def _display_value(meta: ConfigFieldMeta, value: Any) -> str:
     return repr(value)
 
 
-__all__ = ["ConfigRegistry", "ConfigSource", "ResolvedValue"]
+__all__ = ["ConfigOverriddenError", "ConfigRegistry", "ConfigSource", "ResolvedValue"]

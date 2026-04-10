@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any
 
@@ -13,7 +14,7 @@ from pydantic import BaseModel, Field, ValidationError
 from luthien_proxy.admin.policy_discovery import discover_policies, validate_policy_config
 from luthien_proxy.auth import verify_admin_token
 from luthien_proxy.config import _import_policy_class
-from luthien_proxy.config_registry import ConfigRegistry, ConfigSource
+from luthien_proxy.config_registry import ConfigOverriddenError, ConfigRegistry
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CredentialManager
 from luthien_proxy.credentials import Credential, CredentialError, CredentialType
 from luthien_proxy.dependencies import (
@@ -688,11 +689,23 @@ async def get_config_dashboard(
     return {"config": registry.dashboard_view()}
 
 
+def _admin_subject(token: str) -> str:
+    """Fingerprint the admin auth subject for the gateway_config.updated_by audit column.
+
+    The raw token/session string must never land in the DB. Truncated SHA-256
+    is enough to correlate edits without revealing the credential.
+    """
+    if token == "localhost-bypass":
+        return "admin-localhost"
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()[:12]
+    return f"admin:{digest}"
+
+
 @router.put("/config/{key}")
 async def set_config_value(
     body: ConfigSetRequest,
     key: str = Path(..., description="Config field name"),
-    _: str = Depends(verify_admin_token),
+    subject: str = Depends(verify_admin_token),
     registry: ConfigRegistry = Depends(require_config_registry),
 ):
     """Set a DB-settable config value. Returns the new resolved state."""
@@ -702,16 +715,10 @@ async def set_config_value(
     if not meta.db_settable:
         raise HTTPException(status_code=400, detail=f"Config key '{key}' cannot be set via admin API")
 
-    resolved = registry.get_resolved(key)
-    if resolved.source in (ConfigSource.CLI, ConfigSource.ENV):
-        raise HTTPException(
-            status_code=409,
-            detail=f"Config '{key}' is currently overridden by {resolved.source.value} "
-            f"(value from {resolved.source.value} takes precedence over DB)",
-        )
-
     try:
-        new_resolved = await registry.set_db_value(key, body.value)
+        new_resolved = await registry.set_db_value(key, body.value, updated_by=_admin_subject(subject))
+    except ConfigOverriddenError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {
@@ -735,7 +742,10 @@ async def delete_config_value(
     if not meta.db_settable:
         raise HTTPException(status_code=400, detail=f"Config key '{key}' is not DB-settable")
 
-    new_resolved = await registry.delete_db_value(key)
+    try:
+        new_resolved = await registry.delete_db_value(key)
+    except ConfigOverriddenError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
         "success": True,
         "name": key,

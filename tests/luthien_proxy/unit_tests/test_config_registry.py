@@ -8,7 +8,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from luthien_proxy.config_fields import CONFIG_FIELDS, CONFIG_FIELDS_BY_NAME
-from luthien_proxy.config_registry import ConfigRegistry, ConfigSource, ResolvedValue, _coerce
+from luthien_proxy.config_registry import (
+    ConfigOverriddenError,
+    ConfigRegistry,
+    ConfigSource,
+    ResolvedValue,
+    _coerce,
+)
 from luthien_proxy.settings import Settings
 
 
@@ -126,6 +132,44 @@ class TestOverridesTracking:
         assert resolved.overrides == {}
 
 
+class TestLoadDbValues:
+    @pytest.mark.asyncio
+    async def test_orphan_keys_are_dropped(self, caplog):
+        """Rows for removed/renamed fields must not enter _db_values."""
+        import logging
+
+        mock_pool = MagicMock()
+        mock_pool.fetch = AsyncMock(
+            return_value=[
+                {"key": "dogfood_mode", "value": "true"},
+                {"key": "this_field_does_not_exist", "value": '"stale"'},
+            ]
+        )
+        mock_db = MagicMock()
+        mock_db.get_pool = AsyncMock(return_value=mock_pool)
+
+        registry = ConfigRegistry(settings=_make_settings(), db_pool=mock_db)
+        with caplog.at_level(logging.WARNING):
+            await registry._load_db_values()
+        assert "dogfood_mode" in registry._db_values
+        assert "this_field_does_not_exist" not in registry._db_values
+        assert any("orphan" in rec.message.lower() or "removed" in rec.message.lower() for rec in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_db_error_logs_at_error_level_and_keeps_empty(self, caplog):
+        """DB failures must log at ERROR level — fail-open is operator-hostile when silent."""
+        import logging
+
+        mock_db = MagicMock()
+        mock_db.get_pool = AsyncMock(side_effect=RuntimeError("connection refused"))
+
+        registry = ConfigRegistry(settings=_make_settings(), db_pool=mock_db)
+        with caplog.at_level(logging.ERROR):
+            await registry._load_db_values()
+        assert registry._db_values == {}
+        assert any(rec.levelno == logging.ERROR for rec in caplog.records)
+
+
 class TestDashboardView:
     def test_dashboard_returns_all_fields(self):
         registry = _make_registry()
@@ -238,6 +282,41 @@ class TestSetDbValue:
         assert result.source == ConfigSource.DEFAULT
         assert result.value is False
 
+    @pytest.mark.asyncio
+    async def test_set_raises_when_cli_override_present(self):
+        """Under a CLI override, set_db_value must refuse the write."""
+        mock_pool = MagicMock()
+        mock_pool.execute = AsyncMock()
+        mock_db = MagicMock()
+        mock_db.get_pool = AsyncMock(return_value=mock_pool)
+
+        settings = _make_settings()
+        registry = ConfigRegistry(settings=settings, db_pool=mock_db, cli_overrides={"dogfood_mode": True})
+        registry._resolve_all()
+        with pytest.raises(ConfigOverriddenError) as exc:
+            await registry.set_db_value("dogfood_mode", False)
+        assert exc.value.source == ConfigSource.CLI
+        mock_pool.execute.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_raises_when_env_override_present(self, monkeypatch):
+        """DELETE must also refuse when a higher layer is active, otherwise
+        the user thinks they cleared the override when nothing observable changed."""
+        mock_pool = MagicMock()
+        mock_pool.execute = AsyncMock()
+        mock_db = MagicMock()
+        mock_db.get_pool = AsyncMock(return_value=mock_pool)
+
+        monkeypatch.setenv("DOGFOOD_MODE", "true")
+        settings = _make_settings(dogfood_mode=True)
+        registry = ConfigRegistry(settings=settings, db_pool=mock_db)
+        registry._db_values = {"dogfood_mode": "true"}
+        registry._resolve_all()
+        with pytest.raises(ConfigOverriddenError) as exc:
+            await registry.delete_db_value("dogfood_mode")
+        assert exc.value.source == ConfigSource.ENV
+        mock_pool.execute.assert_not_called()
+
 
 class TestCoerce:
     def test_bool_from_string_true(self):
@@ -261,8 +340,11 @@ class TestCoerce:
         assert _coerce(meta, "9000") == 9000
 
     def test_int_from_json_string(self):
+        # JSON-encoded form as stored in gateway_config.value (json.dumps(9000) = '9000').
         meta = CONFIG_FIELDS_BY_NAME["gateway_port"]
-        assert _coerce(meta, "9000") == 9000
+        import json as _json
+
+        assert _coerce(meta, _json.dumps(9000)) == 9000
 
     def test_float_from_string(self):
         meta = CONFIG_FIELDS_BY_NAME["sentry_traces_sample_rate"]
