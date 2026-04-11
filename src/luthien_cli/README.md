@@ -58,6 +58,6 @@ repo_path = "/path/to/luthien-proxy"
 | Key | Description |
 |-----|-------------|
 | `gateway.url` | Gateway base URL (default: `http://localhost:8000`) |
-| `gateway.api_key` | Optional proxy API key — sent as `ANTHROPIC_API_KEY` to the gateway when set (server-side key mode). Omit for passthrough auth (default). |
+| `gateway.api_key` | Stored but currently unused by `luthien claude` — the CLI only sets `ANTHROPIC_BASE_URL` and lets Claude Code forward its own credentials upstream. Reserved for future proxy-key injection; safe to leave unset. |
 | `gateway.admin_key` | Admin API key — sent as `Authorization: Bearer <key>` for admin endpoints (`luthien status`) |
 | `local.repo_path` | Auto-set by `luthien onboard`. Override to use a custom repo checkout. |

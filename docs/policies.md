@@ -366,7 +366,7 @@ curl http://localhost:8000/api/admin/policy/list \
   -H "Authorization: Bearer $ADMIN_API_KEY"
 ```
 
-`ADMIN_API_KEY` is set in your `.env` file (defaults to `PROXY_API_KEY` if not set separately).
+`ADMIN_API_KEY` is set in your `.env` file by `luthien onboard`; if you set up the gateway manually, you need to set it yourself. On localhost the admin API bypasses auth by default (`LOCALHOST_AUTH_BYPASS=true`), so the header is only required for remote access.
 
 The Admin API lets you switch policies without restarting the gateway — useful for experimenting during a hackathon.
 

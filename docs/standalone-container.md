@@ -10,27 +10,25 @@ A single Docker container that bundles the Luthien gateway, PostgreSQL, and Redi
 # Build
 docker build -f docker/Dockerfile.standalone -t luthien-standalone .
 
-# Run
+# Run (minimal — passthrough auth; clients use their own Anthropic credentials)
 docker run -p 8000:8000 \
   -v luthien-pgdata:/var/lib/postgresql/data \
   -v luthien-redis:/data \
-  -e PROXY_API_KEY=sk-my-key \
   -e ADMIN_API_KEY=admin-my-key \
-  -e ANTHROPIC_API_KEY=sk-ant-... \
   luthien-standalone
 ```
 
-The gateway will be available at `http://localhost:8000`.
+The gateway will be available at `http://localhost:8000`. Add `-e PROXY_API_KEY=...` and `-e ANTHROPIC_API_KEY=...` only if you want proxy-key auth with a shared server-side Anthropic credential (see the [README authentication section](../README.md#authentication) for the full picture).
 
 ## Environment Variables
 
-All standard Luthien env vars work. The most important ones:
+All standard Luthien env vars work. The auth-related ones:
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `PROXY_API_KEY` | Yes | — | API key clients use to authenticate |
-| `ADMIN_API_KEY` | Yes | — | API key for admin endpoints |
-| `ANTHROPIC_API_KEY` | No | — | Anthropic API key for upstream calls |
+| `ADMIN_API_KEY` | For remote admin access | — | API key for admin endpoints. On localhost the admin API bypasses auth (`LOCALHOST_AUTH_BYPASS=true`). |
+| `PROXY_API_KEY` | No (opt-in) | — | Shared gateway key clients present to `/v1/messages`. Without it, clients pass their own Anthropic credentials (passthrough). |
+| `ANTHROPIC_API_KEY` | Only if `PROXY_API_KEY` is set and you expect proxy-keyed traffic | — | Server-side Anthropic key used for proxy-key auth traffic. Without it, proxy-keyed requests return 500. Passthrough requests are unaffected. |
 | `GATEWAY_PORT` | No | `8000` | Port the gateway listens on |
 | `POLICY_CONFIG` | No | `/app/config/policy_config.yaml` | Policy config file path |
 | `POSTGRES_USER` | No | `luthien` | PostgreSQL username |
