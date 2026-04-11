@@ -162,7 +162,7 @@ if stream_state.finish_reason:
 
 - If Luthien runs behind a reverse proxy on the **same host** (Caddy, nginx, Traefik, Tailscale Funnel, cavil.jai.one's Caddy), every forwarded request appears as `127.0.0.1` to the gateway.
 - The admin API (`/api/admin/*`) and the monitoring/policy dashboards are then effectively unauthenticated to the public internet.
-- The Luthien gateway request scheme *does* honor `X-Forwarded-Proto` (`auth.py:132-142`) — so the header-trust story is asymmetric: scheme is trusted from headers, source IP is not.
+- The Luthien gateway request scheme *does* honor `X-Forwarded-Proto` (`auth.py:150-152`, inside `get_base_url`) — so the header-trust story is asymmetric: scheme is trusted from headers, source IP is not.
 
 **Fix for operators**:
 - For any same-host reverse-proxy deployment: set `LOCALHOST_AUTH_BYPASS=false` in the gateway env.

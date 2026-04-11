@@ -1,6 +1,6 @@
 """Guardrails for the auto-generated ``.env.example`` file.
 
-These tests prevent three failure modes seen in recent history:
+These tests prevent several failure modes seen in recent history:
 
 1. ``.env.example`` getting committed empty (regression from a merge/stage
    mistake). dev_checks.sh regenerates it and the clean-tree check is
@@ -13,6 +13,9 @@ These tests prevent three failure modes seen in recent history:
 3. Enum defaults leaking their repr (e.g. ``AUTH_MODE=AuthMode.BOTH``)
    instead of their ``.value`` (``auth_mode=both``). Any shell sourcing the
    file would set the literal string ``AuthMode.BOTH`` as the env var.
+
+4. Other default-value branches in ``_format_default`` (bool, None, int,
+   dynamic_default) silently breaking round-trip with the env parser.
 """
 
 from __future__ import annotations
@@ -20,9 +23,12 @@ from __future__ import annotations
 import importlib.util
 import re
 import sys
+from enum import Enum
 from pathlib import Path
 
 import pytest
+
+from luthien_proxy.config_fields import CONFIG_FIELDS, ConfigFieldMeta
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
@@ -105,3 +111,64 @@ def test_generator_does_not_leak_enum_repr(generator_output: str) -> None:
         f"generate_env_example.py emitted raw enum repr lines {offenders!r}; "
         "add an Enum branch to `_format_default` in scripts/generate_env_example.py."
     )
+
+
+def test_bool_default_renders_lowercase(generator_output: str) -> None:
+    """Python bool ``True``/``False`` must render as ``true``/``false``.
+
+    ``str(True)`` returns ``"True"``, which most env parsers (including
+    pydantic-settings) reject as not-a-bool. ``_format_default`` has a
+    dedicated bool branch to normalize this.
+    """
+    assert "# LOCALHOST_AUTH_BYPASS=true" in generator_output
+    assert "# LOCALHOST_AUTH_BYPASS=True" not in generator_output
+    assert "# DOGFOOD_MODE=false" in generator_output
+    assert "# DOGFOOD_MODE=False" not in generator_output
+
+
+def test_none_default_renders_empty(generator_output: str) -> None:
+    """Fields with no default render as bare ``# FIELD=`` — no literal ``None``."""
+    assert "# PROXY_API_KEY=" in generator_output
+    assert "# PROXY_API_KEY=None" not in generator_output
+
+
+def test_int_default_renders_as_decimal(generator_output: str) -> None:
+    """Int defaults like ``GATEWAY_PORT=8000`` render as plain decimals."""
+    assert "# GATEWAY_PORT=8000" in generator_output
+
+
+def test_dynamic_default_renders_blank_with_comment(generator_output: str) -> None:
+    """``dynamic_default`` fields render as a blank value with a comment.
+
+    Baking the resolved value into .env.example would make the generator
+    non-deterministic across build environments. This was fixed in
+    commit 533f5fc0.
+    """
+    assert "(default derived from PROXY_VERSION at startup)" in generator_output
+    lines = generator_output.splitlines()
+    service_version_lines = [line for line in lines if line.startswith("# SERVICE_VERSION")]
+    assert any(line == "# SERVICE_VERSION=" for line in service_version_lines), (
+        f"expected blank SERVICE_VERSION assignment, saw {service_version_lines!r}"
+    )
+
+
+_ENUM_FIELDS = [
+    meta
+    for meta in CONFIG_FIELDS
+    if meta.default is not None and isinstance(meta.default, Enum) and not meta.dynamic_default
+]
+
+
+@pytest.mark.parametrize("meta", _ENUM_FIELDS, ids=lambda m: m.env_var)
+def test_enum_default_round_trips_to_value(meta: ConfigFieldMeta, generator_output: str) -> None:
+    """Every enum-valued config field must render as its ``.value``.
+
+    This is the real contract: the string we write must be something
+    ``Settings``'s env parser would accept back. Parametrizing over
+    ``CONFIG_FIELDS`` catches future enum additions that re-introduce the
+    same ``AuthMode.BOTH`` bug, and gives per-field failure messages.
+    """
+    assert _ENUM_FIELDS, "test harness expected at least one enum field; update if none remain"
+    assert isinstance(meta.default, Enum)  # narrowed by _ENUM_FIELDS filter
+    expected = f"# {meta.env_var}={meta.default.value}"
+    assert expected in generator_output, f"enum field {meta.env_var} rendered wrong; expected {expected!r}"
