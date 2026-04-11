@@ -9,6 +9,7 @@ import os
 import secrets
 from collections.abc import MutableMapping
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import litellm
 import uvicorn
@@ -457,6 +458,34 @@ async def connect_redis(redis_url: str) -> Redis:
         raise RuntimeError(f"Failed to connect to Redis: {exc}") from exc
 
 
+def _read_env_file_value(env_path: Path, key: str) -> str | None:
+    """Read a single key from a .env file without loading pydantic-settings.
+
+    Used for legacy-alias pre-coercion so an operator with `AUTH_MODE=proxy_key`
+    in `.env` (not in the shell env) still gets the same tolerance as an
+    operator who set it as a shell env var. Deliberately minimal: no variable
+    interpolation, no multi-line values, no export keyword handling — the
+    caller only needs to detect a pre-rename value that would otherwise crash
+    Pydantic validation.
+    """
+    if not env_path.exists():
+        return None
+    try:
+        for raw_line in env_path.read_text().splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            name, _, value = line.partition("=")
+            if name.strip() == key:
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                    value = value[1:-1]
+                return value or None
+    except OSError:
+        return None
+    return None
+
+
 def load_config_from_env(settings: Settings | None = None) -> dict:
     """Load and validate configuration from environment variables.
 
@@ -480,10 +509,11 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
     # Symmetric with parse_auth_mode() on the DB path: tolerate a pre-#524
     # AUTH_MODE env var (e.g. 'proxy_key') with a warning so an operator who
     # missed one env var on upgrade gets a clear message and a running gateway
-    # instead of a cryptic Pydantic ValidationError.
+    # instead of a cryptic Pydantic ValidationError. Covers both shell env
+    # vars and values read from a `.env` file.
     # TODO(post-v0.2): remove legacy AUTH_MODE / PROXY_API_KEY tolerance once
     # all deployments have migrated past PR #535.
-    raw_env_auth_mode = os.environ.get("AUTH_MODE")
+    raw_env_auth_mode = os.environ.get("AUTH_MODE") or _read_env_file_value(Path(".env"), "AUTH_MODE")
     if raw_env_auth_mode:
         try:
             coerced = parse_auth_mode(raw_env_auth_mode, source="AUTH_MODE env var")
@@ -493,13 +523,19 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
             pass
         else:
             if coerced.value != raw_env_auth_mode:
+                # Force os.environ so pydantic-settings sees the coerced value
+                # regardless of whether the original was in the shell env or .env
+                # (os.environ takes precedence over the env_file source).
                 os.environ["AUTH_MODE"] = coerced.value
 
     # A leftover PROXY_API_KEY in the environment is silently dropped by
     # pydantic (extra='ignore'), which would leave the gateway running on
     # passthrough while the operator still thinks shared-key auth is active.
-    # Warn loudly and point at the new name.
-    if os.environ.get("PROXY_API_KEY") and not os.environ.get("CLIENT_API_KEY"):
+    # Warn loudly and point at the new name. Check both the shell env and .env.
+    leftover_proxy_api_key = os.environ.get("PROXY_API_KEY") or _read_env_file_value(Path(".env"), "PROXY_API_KEY")
+    if leftover_proxy_api_key and not (
+        os.environ.get("CLIENT_API_KEY") or _read_env_file_value(Path(".env"), "CLIENT_API_KEY")
+    ):
         logger.warning(
             "PROXY_API_KEY is set in the environment but is no longer read. "
             "Rename to CLIENT_API_KEY — see changelog for PR #535."

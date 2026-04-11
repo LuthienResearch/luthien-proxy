@@ -148,6 +148,61 @@ class TestAuthModeConfig:
         assert warnings, "expected a warning when AUTH_MODE=proxy_key is read"
         assert any("AUTH_MODE env var" in r.getMessage() for r in warnings)
 
+    def test_auth_mode_dotenv_legacy_proxy_key_is_tolerated(self, monkeypatch, tmp_path, caplog):
+        """Legacy AUTH_MODE=proxy_key in a .env file is also tolerated.
+
+        Closes the gap flagged in review: pydantic-settings reads `.env`
+        inside Settings.__init__, so a pre-coercion check on `os.environ`
+        alone would miss values that only live in `.env`. `load_config_from_env`
+        now pre-reads the file directly.
+        """
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".env").write_text(
+            "CLIENT_API_KEY=test-proxy-key\n"
+            "ADMIN_API_KEY=test-admin-key\n"
+            "DATABASE_URL=postgresql://test:test@localhost/test\n"
+            "AUTH_MODE=proxy_key\n"
+        )
+        monkeypatch.delenv("AUTH_MODE", raising=False)
+
+        from luthien_proxy.settings import clear_settings_cache
+
+        clear_settings_cache()
+
+        with caplog.at_level("WARNING", logger="luthien_proxy.credential_manager"):
+            config = load_config_from_env()
+
+        assert config["auth_mode"] == AuthMode.CLIENT_KEY
+        warnings = [
+            r for r in caplog.records if r.name == "luthien_proxy.credential_manager" and r.levelno == logging.WARNING
+        ]
+        assert warnings, "expected a warning when AUTH_MODE=proxy_key is read from .env"
+
+    def test_leftover_proxy_api_key_env_var_warns(self, monkeypatch, caplog):
+        """A leftover PROXY_API_KEY in the environment triggers a rename warning.
+
+        Without the warning, the old env var would be silently dropped
+        (pydantic-settings `extra="ignore"`), leaving the operator confused
+        about why shared-key auth stopped working.
+        """
+        monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
+        monkeypatch.setenv("PROXY_API_KEY", "sk-leftover")
+        monkeypatch.delenv("CLIENT_API_KEY", raising=False)
+        monkeypatch.delenv("AUTH_MODE", raising=False)
+
+        from luthien_proxy.settings import clear_settings_cache
+
+        clear_settings_cache()
+
+        with caplog.at_level("WARNING", logger="luthien_proxy.main"):
+            load_config_from_env()
+
+        warnings = [r for r in caplog.records if r.name == "luthien_proxy.main" and r.levelno == logging.WARNING]
+        assert any("PROXY_API_KEY" in r.getMessage() for r in warnings), (
+            "expected a warning pointing operators at the rename"
+        )
+
     def test_auth_mode_flows_into_create_app(self, policy_config_file, mock_db_pool, mock_redis_client):
         """create_app with auth_mode=CLIENT_KEY initialises a CredentialManager."""
         app = create_app(

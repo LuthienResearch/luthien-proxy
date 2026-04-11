@@ -58,7 +58,7 @@ Build CLI tooling to provision and manage independent luthien-proxy instances on
 - **Authentication**: `RAILWAY_TOKEN` environment variable (Railway account token)
 - **Instance Names**: DNS-safe (lowercase alphanumeric + hyphens, max 63 chars)
 - **Default Config**: Secure API keys auto-generated, default policy config applied
-- **Per-Instance Config**: Policy YAML, PROXY_API_KEY, upstream LLM keys, model allowlists, rate limits (modifiable post-creation)
+- **Per-Instance Config**: Policy YAML, CLIENT_API_KEY, upstream LLM keys, model allowlists, rate limits (modifiable post-creation)
 
 ### Error Handling
 
@@ -108,7 +108,7 @@ Use `httpx` for HTTP requests with manual GraphQL query construction:
 6. Configure environment variables with service references:
    - `DATABASE_URL=${{Postgres.DATABASE_URL}}`
    - `REDIS_URL=${{Redis.REDIS_URL}}`
-   - `PROXY_API_KEY=<generated>`
+   - `CLIENT_API_KEY=<generated>`
    - `ADMIN_API_KEY=<generated>`
    - `GATEWAY_PORT=${{PORT}}`
 7. Wait for initial deployment to complete

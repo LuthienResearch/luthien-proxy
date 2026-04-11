@@ -276,13 +276,12 @@ class CredentialManager:
             return cached.valid
 
         # Cache miss - validate against Anthropic API
-        is_oauth_bearer = is_bearer
         is_valid = await self._call_count_tokens(credential, is_bearer=is_bearer)
         if is_valid is None:
             # Inconclusive (network error, unexpected status, or OAuth bearer that
             # count_tokens can't validate). For OAuth tokens, pass through and let
             # Anthropic's messages endpoint decide. For API keys, block to be safe.
-            return is_oauth_bearer
+            return is_bearer
         await self._cache_result(key_hash, is_valid)
         logger.info(f"Credential validated: hash={key_hash[:16]}... valid={is_valid}")
         return is_valid
