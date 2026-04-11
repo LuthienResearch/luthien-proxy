@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
     from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
     from luthien_proxy.policy_core.policy_context import PolicyContext
+    from luthien_proxy.scheduler import Scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,11 @@ class MultiSerialPolicy(BasePolicy, AnthropicExecutionInterface):
         for p in self._sub_policies:
             names.extend(p.active_policy_names())
         return names
+
+    def register_scheduled_tasks(self, scheduler: "Scheduler") -> None:
+        """Recurse into sub-policies so each can register its own tasks."""
+        for policy in self._sub_policies:
+            policy.register_scheduled_tasks(scheduler)
 
     def _validate_interface(self, interface: type, interface_name: str) -> None:
         """Raise TypeError if any sub-policy doesn't implement the required interface."""

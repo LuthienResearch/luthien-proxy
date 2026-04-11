@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from luthien_proxy.policy_core.policy_context import PolicyContext
+    from luthien_proxy.scheduler import Scheduler
     from luthien_proxy.types import RawHttpRequest
 
 T = TypeVar("T", bound=BaseModel)
@@ -81,6 +82,25 @@ class BasePolicy:
         NoOpPolicy overrides to return [].
         """
         return [self.short_policy_name]
+
+    def register_scheduled_tasks(self, scheduler: "Scheduler") -> None:
+        """Register periodic background tasks with the gateway scheduler.
+
+        Called once after the policy is loaded (and again after every
+        hot-swap reload). Default behavior is a no-op so existing policies
+        are unaffected. Policies that need periodic work override this and
+        call ``scheduler.schedule(ScheduledTaskConfig(...))`` one or more
+        times.
+
+        Tasks registered here are cancelled on policy reload and gateway
+        shutdown — they should be idempotent and must not rely on any
+        request-scoped state.
+
+        Multi-policies (e.g. ``MultiSerialPolicy``) recurse into their
+        sub-policies so each sub-policy can register its own tasks.
+        """
+        # Default no-op: most policies don't need scheduled tasks.
+        return None
 
     def get_config(self) -> dict[str, Any]:
         """Get the configuration for this policy instance.
