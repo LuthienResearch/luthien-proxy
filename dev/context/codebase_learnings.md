@@ -96,7 +96,7 @@ The gateway provides an admin API for runtime policy management. Policies are cr
 
 ### Authentication
 
-All admin endpoints require `Authorization: Bearer ${ADMIN_API_KEY}` header.
+Admin endpoints accept `Authorization: Bearer ${ADMIN_API_KEY}`, `x-api-key: ${ADMIN_API_KEY}`, or a session cookie (from `/auth/login`). Requests from localhost bypass auth by default (`LOCALHOST_AUTH_BYPASS=true`); set the env var to `false` to enforce the key on loopback too. Cloud deployments (e.g. Railway) disable the bypass automatically at startup. See `src/luthien_proxy/auth.py` for the canonical implementation.
 
 ### Setting the Active Policy
 

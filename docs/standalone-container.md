@@ -26,9 +26,9 @@ All standard Luthien env vars work. The auth-related ones:
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `ADMIN_API_KEY` | For remote admin access | — | API key for admin endpoints. On localhost the admin API bypasses auth (`LOCALHOST_AUTH_BYPASS=true`). |
-| `PROXY_API_KEY` | No (opt-in) | — | Shared gateway key clients present to `/v1/messages`. Without it, clients pass their own Anthropic credentials (passthrough). |
-| `ANTHROPIC_API_KEY` | Only if `PROXY_API_KEY` is set and you expect proxy-keyed traffic | — | Server-side Anthropic key used for proxy-key auth traffic. Without it, proxy-keyed requests return 500. Passthrough requests are unaffected. |
+| `PROXY_API_KEY` | No* | — | API key clients use to authenticate. Required when `AUTH_MODE=proxy_key`; optional for `both`/`passthrough`. |
+| `ADMIN_API_KEY` | No* | — | API key for admin endpoints. Required when admin routes are reached from outside the container (localhost bypass covers loopback by default — see `LOCALHOST_AUTH_BYPASS`). |
+| `ANTHROPIC_API_KEY` | No | — | Anthropic API key for upstream calls |
 | `GATEWAY_PORT` | No | `8000` | Port the gateway listens on |
 | `POLICY_CONFIG` | No | `/app/config/policy_config.yaml` | Policy config file path |
 | `POSTGRES_USER` | No | `luthien` | PostgreSQL username |
@@ -36,6 +36,8 @@ All standard Luthien env vars work. The auth-related ones:
 | `POSTGRES_DB` | No | `luthien_control` | PostgreSQL database name |
 
 `DATABASE_URL` and `REDIS_URL` are set automatically to point at the in-container services — you don't need to provide them.
+
+> **Reverse proxy warning**: If you put a reverse proxy (Caddy, nginx, Traefik, Tailscale Funnel) in front of this container on the same host, every forwarded request appears as `127.0.0.1` to the gateway and bypasses admin auth via `LOCALHOST_AUTH_BYPASS=true` (the default). Set `LOCALHOST_AUTH_BYPASS=false` for that deployment pattern, or admin routes are effectively unauthenticated to external callers.
 
 ## Persistent Storage
 
