@@ -4,14 +4,17 @@ from unittest.mock import patch
 
 import httpx
 import pytest
+import yaml
 
 from luthien_cli.repo import (
     GITHUB_RAW_BASE,
     GITHUB_SHA_URL,
+    _DEFAULT_POLICY_CONFIG_YAML,
     _download_files,
     _get_remote_sha,
     _remove_build_blocks,
     _strip_dev_only_lines,
+    _write_default_policy_config,
     ensure_gateway_venv,
     ensure_repo,
     resolve_proxy_ref,
@@ -449,3 +452,54 @@ def test_ensure_gateway_venv_preserves_existing_policy_config(tmp_path):
 
     content = (repo_dir / "config" / "policy_config.yaml").read_text()
     assert content == custom_content
+
+
+def test_download_files_creates_default_policy_config(tmp_path, httpx_mock):
+    """_download_files creates default policy_config.yaml if missing."""
+    httpx_mock.add_response(url=f"{GITHUB_RAW_BASE}docker-compose.yaml", text="services:\n  gw:\n    image: x\n")
+    httpx_mock.add_response(url=f"{GITHUB_RAW_BASE}.env.example", text="K=V\n")
+    httpx_mock.add_response(url=GITHUB_SHA_URL, text="sha123")
+
+    _download_files(tmp_path)
+
+    policy_config = tmp_path / "config" / "policy_config.yaml"
+    assert policy_config.exists()
+    content = policy_config.read_text()
+    assert "NoOpPolicy" in content
+    assert "policy:" in content
+
+
+def test_download_files_preserves_existing_policy_config(tmp_path, httpx_mock):
+    """_download_files preserves existing policy_config.yaml."""
+    (tmp_path / "config").mkdir()
+    custom_content = "policy:\n  class: custom:MyPolicy\n  config: {}\n"
+    (tmp_path / "config" / "policy_config.yaml").write_text(custom_content)
+
+    httpx_mock.add_response(url=f"{GITHUB_RAW_BASE}docker-compose.yaml", text="services:\n  gw:\n    image: x\n")
+    httpx_mock.add_response(url=f"{GITHUB_RAW_BASE}.env.example", text="K=V\n")
+    httpx_mock.add_response(url=GITHUB_SHA_URL, text="sha123")
+
+    _download_files(tmp_path)
+
+    content = (tmp_path / "config" / "policy_config.yaml").read_text()
+    assert content == custom_content
+
+
+def test_default_policy_config_yaml_is_valid(tmp_path):
+    """The seeded default policy_config.yaml is valid YAML with expected structure."""
+    venv_dir = tmp_path / "venv"
+    repo_dir = tmp_path / "repo"
+
+    with (
+        patch("luthien_cli.repo.MANAGED_VENV_DIR", venv_dir),
+        patch("luthien_cli.repo.MANAGED_REPO_DIR", repo_dir),
+        patch("luthien_cli.repo._run_uv"),
+    ):
+        ensure_gateway_venv()
+
+    content = (repo_dir / "config" / "policy_config.yaml").read_text()
+    parsed = yaml.safe_load(content)
+    assert parsed is not None
+    assert "policy" in parsed
+    assert "class" in parsed["policy"]
+    assert "NoOpPolicy" in parsed["policy"]["class"]

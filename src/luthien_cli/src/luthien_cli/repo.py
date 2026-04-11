@@ -25,6 +25,24 @@ FILES_TO_DOWNLOAD = ("docker-compose.yaml", ".env.example")
 # Matches the ./src volume mount line
 _SRC_MOUNT_RE = re.compile(r"^ *- \./src:/app/src.*\n", re.MULTILINE)
 
+_DEFAULT_POLICY_CONFIG_YAML = textwrap.dedent("""\
+    # Luthien Policy Configuration
+    # Default: pass-through (no modifications)
+    policy:
+      class: "luthien_proxy.policies.noop_policy:NoOpPolicy"
+      config: {}
+    """)
+
+
+def _write_default_policy_config(config_dir: Path) -> None:
+    """Write a default policy_config.yaml if one does not already exist.
+
+    Never overwrites an existing file — user customizations are preserved.
+    """
+    policy_config = config_dir / "policy_config.yaml"
+    if not policy_config.exists():
+        policy_config.write_text(_DEFAULT_POLICY_CONFIG_YAML)
+
 
 def resolve_proxy_ref(ref: str) -> str:
     """Resolve a proxy ref string to a git ref.
@@ -101,18 +119,7 @@ def _download_files(dest: Path) -> None:
     config_dir = dest / "config"
     config_dir.mkdir(exist_ok=True)
 
-    # Write default policy config if it doesn't exist
-    policy_config = config_dir / "policy_config.yaml"
-    if not policy_config.exists():
-        policy_config.write_text(
-            textwrap.dedent("""\
-            # Luthien Policy Configuration
-            # Default: pass-through (no modifications)
-            policy:
-              class: "luthien_proxy.policies.noop_policy:NoOpPolicy"
-              config: {}
-            """)
-        )
+    _write_default_policy_config(config_dir)
 
     with console.status("Downloading proxy files from GitHub..."):
         for filename in FILES_TO_DOWNLOAD:
@@ -222,18 +229,7 @@ def ensure_gateway_venv(
     config_dir = repo_dir / "config"
     config_dir.mkdir(exist_ok=True)
 
-    # Write default policy config if it doesn't exist
-    policy_config = config_dir / "policy_config.yaml"
-    if not policy_config.exists():
-        policy_config.write_text(
-            textwrap.dedent("""\
-            # Luthien Policy Configuration
-            # Default: pass-through (no modifications)
-            policy:
-              class: "luthien_proxy.policies.noop_policy:NoOpPolicy"
-              config: {}
-            """)
-        )
+    _write_default_policy_config(config_dir)
 
     venv_python = venv_dir / "bin" / "python"
     needs_install = not venv_python.exists()
