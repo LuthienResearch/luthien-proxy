@@ -17,6 +17,19 @@ time.
 The intervention shape is **command substitution**, not content injection.
 Flagged tool_use blocks keep their original stream index so indices remain
 monotonic and no untrusted OSV text reaches the LLM.
+
+Scope: v3 does not scan incoming tool_result content (e.g., output of
+``pip freeze``, ``npm ls``, ``cat package.json``) for already-installed
+compromised versions. v2 (PR #536) had such a scanner; v3 drops it because:
+
+(a) the install-time gate catches all future installs;
+(b) the awareness-only signal added prompt-injection surface and complex
+    injection-shape problems for marginal value;
+(c) operators who need to detect already-installed compromised versions
+    should run OSV-Scanner against their lockfiles out-of-band.
+
+This is a deliberate scope decision, not an oversight. See
+``dev/context/decisions.md`` entry dated 2026-04-10 for the rationale.
 """
 
 from __future__ import annotations
@@ -45,7 +58,7 @@ from luthien_proxy.policies.supply_chain_gate_utils import (
     SupplyChainGateConfig,
     VulnInfo,
     build_blocked_command,
-    build_lockfile_review_command,
+    build_lockfile_substitute,
     extract_install_commands,
     redact_credentials,
 )
@@ -249,9 +262,11 @@ class SupplyChainGatePolicy(BasePolicy, AnthropicHookPolicy):
                         "command": redact_credentials(command),
                         "manager": match.manager,
                         "verb": match.verb,
+                        "requirement_file": match.requirement_file,
+                        "constraint_file": match.constraint_file,
                     },
                 )
-                return build_lockfile_review_command(command, match.manager, match.verb)
+                return build_lockfile_substitute(match, command)
         return None
 
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
@@ -310,12 +325,21 @@ class SupplyChainGatePolicy(BasePolicy, AnthropicHookPolicy):
         if isinstance(event.delta, InputJSONDelta):
             buffered[event.index].input_json += event.delta.partial_json
             return []
+        # Unexpected delta type at a buffered tool_use index. We already
+        # swallowed the content_block_start; emitting the delta alone would
+        # leave downstream with an orphaned delta. Flush the buffered block
+        # in passthrough mode (unmodified start + any accumulated input JSON)
+        # and then emit the unexpected delta. Future events at this index
+        # pass through untouched.
         logger.warning(
-            "Unexpected delta type %s at buffered index %d; passing through",
+            "Unexpected delta type %s at buffered index %d; flushing buffered block and releasing",
             type(event.delta).__name__,
             event.index,
         )
-        return [event]
+        flushed = buffered.pop(event.index)
+        emissions = _reemit_tool_use_events(flushed, event.index, flushed.input_json or "{}")
+        emissions.append(event)
+        return emissions
 
     async def _handle_block_stop(
         self, event: RawContentBlockStopEvent, context: "PolicyContext"

@@ -211,7 +211,8 @@ class TestInit:
     def test_custom_threshold_and_blocklist(self):
         policy = _make_policy(config={"severity_threshold": "medium", "explicit_blocklist": ["PyPI:foo:1.0"]})
         assert policy._threshold is Severity.MEDIUM
-        assert "PyPI:foo:1.0" in policy._blocklist
+        # Stored in canonical form.
+        assert "pypi:foo:1.0" in policy._blocklist
 
     def test_freeze_configured_state_passes(self):
         _make_policy().freeze_configured_state()
@@ -782,3 +783,214 @@ class TestCache:
 
         await policy._rewrite_if_needed("pip install litellm==1.59.0", ctx)
         assert len(osv.calls) == 1  # served from negative cache
+
+
+# =============================================================================
+# Major #1 — unexpected-delta at buffered index flushes cleanly
+# =============================================================================
+
+
+class TestBufferedBlockFlushOnUnexpectedDelta:
+    @pytest.mark.asyncio
+    async def test_text_delta_at_buffered_tool_use_flushes_block(self):
+        # Construct a fake stream where a tool_use is buffered (content_block_start
+        # was swallowed) and then an unexpected TextDelta arrives at the same
+        # index. Downstream must see the flushed content_block_start before the
+        # unexpected delta — otherwise the delta is orphaned.
+        osv = _FakeOSVClient()
+        policy = _make_policy(osv)
+        ctx = _make_context()
+
+        start_out = await policy.on_anthropic_stream_event(_tool_start(0), ctx)  # type: ignore[arg-type]
+        assert start_out == []  # buffered — nothing emitted yet
+
+        # Accumulate some input_json first so we have state to flush.
+        await policy.on_anthropic_stream_event(
+            _input_delta(0, '{"command": "pip install foo'),
+            ctx,  # type: ignore[arg-type]
+        )
+
+        # Unexpected delta type at the buffered index.
+        text_event = _text_delta(0, "oops")
+        out = await policy.on_anthropic_stream_event(text_event, ctx)  # type: ignore[arg-type]
+
+        # Expected: [flushed start, flushed accumulated json, unexpected delta]
+        assert len(out) == 3
+        assert isinstance(out[0], RawContentBlockStartEvent)
+        assert isinstance(out[1], RawContentBlockDeltaEvent)
+        assert out[2] is text_event
+
+        # Future events at this index must pass through without buffering.
+        post_event = _text_delta(0, "more")
+        out2 = await policy.on_anthropic_stream_event(post_event, ctx)  # type: ignore[arg-type]
+        assert out2 == [post_event]
+
+        # And the state dictionary no longer holds the block.
+        state = ctx.get_request_state(policy, _GateState, _GateState)
+        assert 0 not in state.buffered_tool_uses
+
+
+# =============================================================================
+# Fatal #4 — wrapper commands
+# =============================================================================
+
+
+class TestWrapperCommandIntegration:
+    @pytest.mark.asyncio
+    async def test_docker_run_does_not_trigger_osv_lookup(self):
+        osv = _FakeOSVClient(
+            responses={"osv:PyPI:litellm:1.59.0": [_critical("LITELLM")]},
+        )
+        policy = _make_policy(osv)
+        response: dict[str, Any] = {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "t1",
+                    "name": "Bash",
+                    "input": {"command": "docker run --rm python:3.11 pip install litellm==1.59.0"},
+                },
+            ],
+        }
+        result = await policy.on_anthropic_response(response, _make_context())  # type: ignore[arg-type]
+        # Wrapper suppresses extraction — no substitution, no OSV call.
+        assert result is response
+        assert osv.calls == []
+
+    @pytest.mark.asyncio
+    async def test_sudo_still_substitutes(self):
+        osv = _FakeOSVClient(
+            responses={"osv:PyPI:litellm:1.59.0": [_critical("LITELLM")]},
+        )
+        policy = _make_policy(osv)
+        response: dict[str, Any] = {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "t1",
+                    "name": "Bash",
+                    "input": {"command": "sudo pip install litellm==1.59.0"},
+                },
+            ],
+        }
+        result = await policy.on_anthropic_response(response, _make_context())  # type: ignore[arg-type]
+        assert "LUTHIEN BLOCKED" in result["content"][0]["input"]["command"]
+
+
+# =============================================================================
+# Fatal #5 — line continuation normalization
+# =============================================================================
+
+
+class TestLineContinuationIntegration:
+    @pytest.mark.asyncio
+    async def test_continuation_still_triggers_substitution(self):
+        osv = _FakeOSVClient(
+            responses={"osv:PyPI:litellm:1.59.0": [_critical("LITELLM")]},
+        )
+        policy = _make_policy(osv)
+        response: dict[str, Any] = {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "t1",
+                    "name": "Bash",
+                    "input": {"command": "pip install \\\n  litellm==1.59.0"},
+                },
+            ],
+        }
+        result = await policy.on_anthropic_response(response, _make_context())  # type: ignore[arg-type]
+        assert "LUTHIEN BLOCKED" in result["content"][0]["input"]["command"]
+        assert len(osv.calls) == 1
+        assert osv.calls[0].name == "litellm"
+
+
+# =============================================================================
+# Fatal #1 — lockfile dry-run threads the filename
+# =============================================================================
+
+
+class TestLockfileDryRunFilenameThreading:
+    @pytest.mark.asyncio
+    async def test_dev_requirements_filename_in_substitute(self):
+        osv = _FakeOSVClient()
+        policy = _make_policy(osv)
+        response: dict[str, Any] = {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "t1",
+                    "name": "Bash",
+                    "input": {"command": "pip install -r dev-requirements.txt"},
+                },
+            ],
+        }
+        result = await policy.on_anthropic_response(response, _make_context())  # type: ignore[arg-type]
+        substituted = result["content"][0]["input"]["command"]
+        assert "dev-requirements.txt" in substituted
+        # No spurious bare `requirements.txt` argument.
+        assert "'requirements.txt'" not in substituted
+
+    @pytest.mark.asyncio
+    async def test_yarn_uses_explain_refuse_not_dry_run(self):
+        osv = _FakeOSVClient()
+        policy = _make_policy(osv)
+        response: dict[str, Any] = {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "t1",
+                    "name": "Bash",
+                    "input": {"command": "yarn install --frozen-lockfile"},
+                },
+            ],
+        }
+        result = await policy.on_anthropic_response(response, _make_context())  # type: ignore[arg-type]
+        substituted = result["content"][0]["input"]["command"]
+        # Fatal #2: yarn must not emit a fake --mode=skip-build dry-run.
+        assert "--mode=skip-build" not in substituted
+        assert "LUTHIEN BLOCKED" in substituted or "cannot be safely previewed" in substituted
+
+
+# =============================================================================
+# Fatal #3 — blocklist canonicalization through the policy
+# =============================================================================
+
+
+class TestBlocklistCanonicalizationPolicy:
+    @pytest.mark.asyncio
+    async def test_pypi_case_variant_matches_blocklist(self):
+        osv = _FakeOSVClient()
+        policy = _make_policy(osv, {"explicit_blocklist": ["PyPI:Pillow:10.0.0"]})
+        response: dict[str, Any] = {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "t1",
+                    "name": "Bash",
+                    "input": {"command": "pip install pillow==10.0.0"},
+                },
+            ],
+        }
+        result = await policy.on_anthropic_response(response, _make_context())  # type: ignore[arg-type]
+        substituted = result["content"][0]["input"]["command"]
+        assert "LUTHIEN BLOCKED" in substituted
+        assert "explicit blocklist" in substituted
+
+    @pytest.mark.asyncio
+    async def test_npm_scoped_case_variant_matches_blocklist(self):
+        osv = _FakeOSVClient()
+        policy = _make_policy(osv, {"explicit_blocklist": ["npm:@MyScope/Pkg:1.0"]})
+        response: dict[str, Any] = {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "t1",
+                    "name": "Bash",
+                    "input": {"command": "npm install @myscope/pkg@1.0"},
+                },
+            ],
+        }
+        result = await policy.on_anthropic_response(response, _make_context())  # type: ignore[arg-type]
+        substituted = result["content"][0]["input"]["command"]
+        assert "LUTHIEN BLOCKED" in substituted

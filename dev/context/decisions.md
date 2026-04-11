@@ -7,6 +7,19 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 ---
 
+## SupplyChainGate v3 drops the tool_result scanner (2026-04-10)
+
+**Decision**: v3 of `SupplyChainGatePolicy` (command-substitution design) does not scan incoming `tool_result` content for already-installed compromised packages. v2 (PR #536) had a scanner that inspected output of `pip freeze`, `npm ls`, `cat package.json`, etc., and injected an awareness-only warning into the assistant's context. v3 removes this entirely.
+
+**Rationale**:
+- The install-time gate catches all future installs from the cooperative LLM — which is the actionable case.
+- The awareness-only signal on existing installs added prompt-injection surface (OSV text, package names from untrusted command output) and complicated the injection shape, for marginal value (the LLM cannot uninstall on its own anyway).
+- Operators who need to detect already-installed compromised versions should run OSV-Scanner against their lockfiles out-of-band. That is the right layer for that check, and it runs without LLM involvement.
+
+This is a deliberate scope decision, not an oversight. Revisit only if the install-time gate proves insufficient and there's a specific cooperative-LLM workflow that requires the awareness signal.
+
+---
+
 ## Auto-Release on Merge to Main (2026-04-09)
 
 **Decision**: Fully automated patch releases on every merge to main. Replaces the previous manual tag-based workflow (2026-03-18). See `dev-README.md` § Releasing for the full procedure.
