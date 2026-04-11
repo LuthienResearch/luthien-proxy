@@ -446,6 +446,29 @@ class TestConfigFieldsCompleteness:
             f"Duplicate env vars: {[v for v in env_vars if env_vars.count(v) > 1]}"
         )
 
+    def test_generator_uses_enum_value_not_repr(self):
+        """Enum defaults must serialize to their .value, not ClassName.MEMBER.
+
+        Regression guard: `AuthMode(str, Enum)` previously rendered as
+        `AUTH_MODE=AuthMode.BOTH` because `str(meta.default)` hits Enum's
+        __str__ before str's, producing an invalid default value.
+        """
+        from luthien_proxy.credential_manager import AuthMode
+
+        auth_meta = CONFIG_FIELDS_BY_NAME["auth_mode"]
+        assert isinstance(auth_meta.default, AuthMode)
+
+        repo_root = Path(__file__).resolve().parents[3]
+        generator_path = repo_root / "scripts" / "generate_env_example.py"
+        spec = importlib.util.spec_from_file_location("_generate_env_example", generator_path)
+        assert spec is not None and spec.loader is not None
+        generator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(generator)
+        text = generator.build_env_example_text()
+
+        assert f"# {auth_meta.env_var}={auth_meta.default.value}" in text
+        assert "AuthMode.BOTH" not in text
+
     def test_env_example_matches_generator(self):
         """The .env.example about to land in a commit must match the generator.
 

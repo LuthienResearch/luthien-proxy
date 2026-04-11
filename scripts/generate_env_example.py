@@ -6,6 +6,7 @@ Usage:
 """
 
 import sys
+from enum import Enum
 from pathlib import Path
 
 # Add src to path so we can import config_fields when run as a script
@@ -62,9 +63,17 @@ def build_env_example_text() -> str:
                 lines.append(f"# (default derived from {symbol} at startup)")
                 lines.append(f"# {meta.env_var}=")
             else:
-                default_str = "" if meta.default is None else str(meta.default)
-                if isinstance(meta.default, bool):
+                if meta.default is None:
+                    default_str = ""
+                elif isinstance(meta.default, bool):
                     default_str = str(meta.default).lower()
+                elif isinstance(meta.default, Enum):
+                    # `(str, Enum)` subclasses stringify to "ClassName.MEMBER",
+                    # not the underlying value — use `.value` explicitly so the
+                    # generated example round-trips through the env parser.
+                    default_str = str(meta.default.value)
+                else:
+                    default_str = str(meta.default)
                 lines.append(f"# {meta.env_var}={default_str}")
             lines.append("")
 
