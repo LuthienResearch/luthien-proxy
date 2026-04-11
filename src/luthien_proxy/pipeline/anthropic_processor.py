@@ -403,8 +403,12 @@ async def process_anthropic_request(
         if beta := raw_http_request.headers.get("anthropic-beta"):
             forwarded_headers = {"anthropic-beta": beta}
 
-        # Create policy cache factory if database is available
-        policy_cache_factory = (lambda name: PolicyCache(db_pool, name)) if db_pool else None
+        # Create policy cache factory if database is available. The cap is
+        # configured once here so every policy's cache honors the same limit;
+        # 0-or-negative in settings means "unbounded" (pass None to the cache).
+        cache_cap_setting = get_settings().policy_cache_max_entries
+        cache_cap: int | None = cache_cap_setting if cache_cap_setting > 0 else None
+        policy_cache_factory = (lambda name: PolicyCache(db_pool, name, max_entries=cache_cap)) if db_pool else None
 
         # Create policy context
         policy_ctx = PolicyContext(
