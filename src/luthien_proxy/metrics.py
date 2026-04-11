@@ -8,7 +8,7 @@ Exposed metrics:
   luthien_requests_total{streaming}          — cumulative request counter
   luthien_tokens_total{type}                 — cumulative token counter (input/output)
   luthien_request_ttfb_seconds{status}       — time-to-first-byte histogram (BaseHTTPMiddleware limitation)
-  luthien_active_requests                    — in-flight request gauge
+  luthien_active_requests                    — in-flight request gauge (TTFB-scoped, see description)
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ request_duration = _meter.create_histogram(
 
 active_requests = _meter.create_up_down_counter(
     "luthien_active_requests",
-    description="Number of LLM requests currently in flight",
+    description="LLM requests in flight (decrements at TTFB due to BaseHTTPMiddleware; streaming requests appear shorter than actual)",
     unit="1",
 )
 

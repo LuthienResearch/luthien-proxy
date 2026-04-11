@@ -78,6 +78,17 @@ def _get_otel_config() -> tuple[bool, str, str, str, str]:
     )
 
 
+def _build_resource() -> Resource:
+    _, _, service_name, service_version, environment = _get_otel_config()
+    return Resource.create(
+        {
+            "service.name": service_name,
+            "service.version": service_version,
+            "deployment.environment": environment,
+        }
+    )
+
+
 def _silence_otel_loggers() -> None:
     """Suppress noisy gRPC and OTel exporter logs.
 
@@ -105,36 +116,23 @@ def configure_tracing() -> trace.Tracer:
     Returns:
         Configured tracer for manual instrumentation
     """
-    otel_enabled, otel_endpoint, service_name, service_version, environment = _get_otel_config()
+    otel_enabled, otel_endpoint, service_name, _, _ = _get_otel_config()
 
     if not otel_enabled:
         logger.debug("OpenTelemetry disabled (OTEL_ENABLED=false)")
         _silence_otel_loggers()
         return trace.get_tracer(__name__)
 
-    # Define resource attributes
-    resource = Resource.create(
-        {
-            "service.name": service_name,
-            "service.version": service_version,
-            "deployment.environment": environment,
-        }
-    )
-
-    # Create tracer provider
+    resource = _build_resource()
     provider = TracerProvider(resource=resource)
 
-    # Configure OTLP exporter (sends to Tempo)
     otlp_exporter = OTLPSpanExporter(
         endpoint=otel_endpoint,
-        insecure=True,  # No TLS for local dev
+        insecure=True,
     )
 
-    # Use batch processor for efficiency (batches spans before export)
     processor = BatchSpanProcessor(otlp_exporter)
     provider.add_span_processor(processor)
-
-    # Set as global tracer provider
     trace.set_tracer_provider(provider)
 
     logger.info(f"OpenTelemetry configured: {service_name} → {otel_endpoint}")
@@ -153,22 +151,12 @@ def configure_metrics() -> None:
     Intentionally does not gate on otel_enabled: Prometheus scraping is useful
     even when OTLP trace export is disabled (e.g. local dev without Tempo).
     """
-    otel_enabled, _, service_name, service_version, environment = _get_otel_config()
-
-    resource = Resource.create(
-        {
-            "service.name": service_name,
-            "service.version": service_version,
-            "deployment.environment": environment,
-        }
-    )
-
+    resource = _build_resource()
     reader = PrometheusMetricReader()
     provider = MeterProvider(resource=resource, metric_readers=[reader])
     metrics.set_meter_provider(provider)
 
-    if otel_enabled:
-        logger.info("Prometheus metrics configured")
+    logger.info("Prometheus metrics endpoint enabled at /metrics")
 
 
 def instrument_app(app) -> None:

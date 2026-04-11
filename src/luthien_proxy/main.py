@@ -269,10 +269,11 @@ def create_app(
             db_pool=db_pool,
             env_value=settings.usage_telemetry,
         )
-        _usage_collector: UsageCollector | None = None
+        # Always create MetricsAwareUsageCollector so Prometheus counters
+        # work regardless of the phone-home telemetry setting.
+        _usage_collector: UsageCollector = MetricsAwareUsageCollector()
         _telemetry_sender: TelemetrySender | None = None
         if _telemetry_config.enabled:
-            _usage_collector = MetricsAwareUsageCollector()
             _telemetry_sender = TelemetrySender(
                 config=_telemetry_config,
                 collector=_usage_collector,
@@ -280,7 +281,7 @@ def create_app(
             )
             _telemetry_sender.start()
         else:
-            logger.info("Usage telemetry disabled")
+            logger.info("Usage telemetry disabled (Prometheus metrics still active)")
 
         # Create Dependencies container with all services
         _dependencies = Dependencies(
@@ -389,6 +390,9 @@ def create_app(
         return Response(generate_latest(REGISTRY), media_type=CONTENT_TYPE_LATEST)
 
     class _LatencyMiddleware(BaseHTTPMiddleware):
+        # NOTE: BaseHTTPMiddleware.dispatch returns at TTFB (first byte), not
+        # stream completion. Both the histogram and gauge reflect TTFB timing.
+        # Pure-ASGI middleware would be needed for true stream-duration metrics.
         async def dispatch(self, request: Request, call_next):
             if request.url.path != "/v1/messages":
                 return await call_next(request)
