@@ -17,7 +17,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 
 import uvicorn
 
@@ -44,9 +44,10 @@ def boot_sqlite_gateway(
 ) -> Iterator[str]:
     """Spin up an in-process SQLite gateway pointed at a mock Anthropic server.
 
-    Yields the gateway base URL. On exit, stops the gateway thread, closes the
-    DB pool, removes the temp dir, restores env vars, and clears the cached
-    settings instance.
+    Yields the gateway base URL. Cleanup runs on both normal exit and any
+    failure during setup — `ExitStack` registers each rollback as the matching
+    resource is acquired, so a raise from `check_migrations()`, `create_app()`,
+    or the gateway-startup wait still tears down everything that was set up.
 
     Why clear the settings cache: `get_settings()` is `@lru_cache`-wrapped, and
     pytest fixture ordering means session/module-scoped fixtures run *before*
@@ -56,57 +57,63 @@ def boot_sqlite_gateway(
     the helper hermetic — the next caller resolves against the restored env.
     """
     port = free_port()
-    tmp_dir = tempfile.mkdtemp(prefix=tmp_prefix)
-    db_path = os.path.join(tmp_dir, "test.db")
-    db_pool = DatabasePool(f"sqlite:///{db_path}")
 
-    loop = asyncio.new_event_loop()
-    loop.run_until_complete(check_migrations(db_pool))
+    with ExitStack() as stack:
+        tmp_dir = tempfile.mkdtemp(prefix=tmp_prefix)
+        stack.callback(shutil.rmtree, tmp_dir, ignore_errors=True)
 
-    old_env: dict[str, str | None] = {}
-    for k, v in {
-        "ANTHROPIC_BASE_URL": mock_anthropic_url,
-        "ANTHROPIC_API_KEY": "mock-key",
-    }.items():
-        old_env[k] = os.environ.get(k)
-        os.environ[k] = v
+        loop = asyncio.new_event_loop()
+        stack.callback(loop.close)
 
-    clear_settings_cache()
-    app = create_app(
-        api_key=api_key,
-        admin_key=admin_key,
-        db_pool=db_pool,
-        redis_client=None,
-        startup_policy_path="config/policy_config.yaml",
-        policy_source="db-fallback-file",
-    )
+        db_pool = DatabasePool(f"sqlite:///{os.path.join(tmp_dir, 'test.db')}")
+        stack.callback(lambda: loop.run_until_complete(db_pool.close()))
 
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-    server = uvicorn.Server(config)
-    thread = threading.Thread(target=server.run, daemon=True, name=thread_name)
-    thread.start()
+        loop.run_until_complete(check_migrations(db_pool))
 
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
-                break
-        except OSError:
-            time.sleep(0.1)
-    else:
-        raise RuntimeError(f"SQLite gateway ({thread_name}) did not start")
+        old_env: dict[str, str | None] = {k: os.environ.get(k) for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY")}
 
-    try:
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        server.should_exit = True
-        thread.join(timeout=5)
-        loop.run_until_complete(db_pool.close())
-        loop.close()
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        for k, v in old_env.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
+        def restore_env() -> None:
+            for k, v in old_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+        stack.callback(clear_settings_cache)
+        stack.callback(restore_env)
+
+        os.environ["ANTHROPIC_BASE_URL"] = mock_anthropic_url
+        os.environ["ANTHROPIC_API_KEY"] = "mock-key"
+
         clear_settings_cache()
+        app = create_app(
+            api_key=api_key,
+            admin_key=admin_key,
+            db_pool=db_pool,
+            redis_client=None,
+            startup_policy_path="config/policy_config.yaml",
+            policy_source="db-fallback-file",
+        )
+
+        config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+        server = uvicorn.Server(config)
+        thread = threading.Thread(target=server.run, daemon=True, name=thread_name)
+        thread.start()
+
+        def stop_server() -> None:
+            server.should_exit = True
+            thread.join(timeout=5)
+
+        stack.callback(stop_server)
+
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+                    break
+            except OSError:
+                time.sleep(0.1)
+        else:
+            raise RuntimeError(f"SQLite gateway ({thread_name}) did not start")
+
+        yield f"http://127.0.0.1:{port}"
