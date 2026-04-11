@@ -114,48 +114,47 @@ class TestAuthModeConfig:
 
         assert config["auth_mode"] == AuthMode.PASSTHROUGH
 
-    def test_auth_mode_env_var_legacy_proxy_key_is_tolerated(self, monkeypatch, caplog):
-        """Legacy AUTH_MODE=proxy_key (pre-#524) is coerced to CLIENT_KEY with a warning.
+    def test_settings_coerces_legacy_auth_mode_env_var(self, monkeypatch, caplog):
+        """Legacy AUTH_MODE=proxy_key (pre-#524) is coerced at Settings validation time.
 
-        Mirrors the DB-row tolerance: an operator who upgrades the gateway
-        image but misses one env var should get a running gateway and a clear
-        warning, not a cryptic Pydantic ValidationError. The legacy alias is
-        removed in a follow-up release.
+        This exercises the `_coerce_legacy_auth_mode` field_validator directly
+        by constructing a fresh Settings inside the test. The field_validator
+        runs before pydantic's enum coercion, so `proxy_key` never reaches the
+        enum and no ValidationError is raised.
 
-        Note: this test does NOT pass a pre-constructed Settings because the
-        env-var coercion has to run before Settings is validated. Letting
-        `load_config_from_env` build its own Settings exercises the real
-        startup path.
+        IMPORTANT: the real upgrade scenario — operator restarts a gateway
+        image with `AUTH_MODE=proxy_key` still in the env — is covered by
+        `test_module_import_tolerates_legacy_auth_mode_env_var`, which runs
+        a subprocess so the module-level `get_settings()` calls in
+        `luthien_proxy.main` exercise the same code path. This test alone
+        is not sufficient because pytest has already imported the module.
         """
+        from luthien_proxy.settings import Settings, clear_settings_cache
+
         monkeypatch.setenv("CLIENT_API_KEY", "test-proxy-key")
         monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
         monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
         monkeypatch.setenv("AUTH_MODE", "proxy_key")
-
-        # Force get_settings() to rebuild so it picks up the monkeypatched env.
-        from luthien_proxy.settings import clear_settings_cache
-
         clear_settings_cache()
 
         with caplog.at_level("WARNING", logger="luthien_proxy.credential_manager"):
-            config = load_config_from_env()
+            settings = Settings()  # type: ignore[call-arg]
 
-        assert config["auth_mode"] == AuthMode.CLIENT_KEY
-        assert os.environ["AUTH_MODE"] == "client_key"
+        assert settings.auth_mode == AuthMode.CLIENT_KEY
         warnings = [
             r for r in caplog.records if r.name == "luthien_proxy.credential_manager" and r.levelno == logging.WARNING
         ]
-        assert warnings, "expected a warning when AUTH_MODE=proxy_key is read"
-        assert any("AUTH_MODE env var" in r.getMessage() for r in warnings)
+        assert warnings, "expected a warning when Settings sees AUTH_MODE=proxy_key"
 
-    def test_auth_mode_dotenv_legacy_proxy_key_is_tolerated(self, monkeypatch, tmp_path, caplog):
-        """Legacy AUTH_MODE=proxy_key in a .env file is also tolerated.
+    def test_settings_coerces_legacy_auth_mode_dotenv(self, monkeypatch, tmp_path, caplog):
+        """Legacy AUTH_MODE=proxy_key in a .env file is also coerced by the field_validator.
 
-        Closes the gap flagged in review: pydantic-settings reads `.env`
-        inside Settings.__init__, so a pre-coercion check on `os.environ`
-        alone would miss values that only live in `.env`. `load_config_from_env`
-        now pre-reads the file directly.
+        pydantic-settings reads `.env` inside Settings.__init__ and runs the
+        field_validator over the result, so the tolerance covers both shell
+        env and .env without a separate code path.
         """
+        from luthien_proxy.settings import Settings, clear_settings_cache
+
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".env").write_text(
             "CLIENT_API_KEY=test-proxy-key\n"
@@ -164,19 +163,75 @@ class TestAuthModeConfig:
             "AUTH_MODE=proxy_key\n"
         )
         monkeypatch.delenv("AUTH_MODE", raising=False)
-
-        from luthien_proxy.settings import clear_settings_cache
-
         clear_settings_cache()
 
         with caplog.at_level("WARNING", logger="luthien_proxy.credential_manager"):
-            config = load_config_from_env()
+            settings = Settings()  # type: ignore[call-arg]
 
-        assert config["auth_mode"] == AuthMode.CLIENT_KEY
+        assert settings.auth_mode == AuthMode.CLIENT_KEY
         warnings = [
             r for r in caplog.records if r.name == "luthien_proxy.credential_manager" and r.levelno == logging.WARNING
         ]
-        assert warnings, "expected a warning when AUTH_MODE=proxy_key is read from .env"
+        assert warnings, "expected a warning when Settings reads AUTH_MODE=proxy_key from .env"
+
+    def test_settings_rejects_unknown_auth_mode_env_var(self, monkeypatch):
+        """An AUTH_MODE value that is neither current nor a legacy alias still raises."""
+        from pydantic import ValidationError
+
+        from luthien_proxy.settings import Settings, clear_settings_cache
+
+        monkeypatch.setenv("CLIENT_API_KEY", "test-proxy-key")
+        monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
+        monkeypatch.setenv("AUTH_MODE", "not_a_real_mode")
+        clear_settings_cache()
+
+        with pytest.raises(ValidationError):
+            Settings()  # type: ignore[call-arg]
+
+    @pytest.mark.timeout(60)
+    def test_module_import_tolerates_legacy_auth_mode_env_var(self, tmp_path):
+        """Regression test for PR #535: `import luthien_proxy.main` must not crash on AUTH_MODE=proxy_key.
+
+        This is the test that would have caught the fatal flaw where
+        `load_config_from_env` held the legacy-tolerance logic but the module
+        constructed Settings at import time via configure_tracing / init_sentry.
+        Runs as a subprocess because a single pytest process imports
+        `luthien_proxy.main` exactly once before tests run; monkeypatching
+        environment variables in-test does not re-exercise the import path.
+        """
+        import subprocess
+        import sys
+
+        db_path = tmp_path / "test.db"
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import luthien_proxy.main; "
+                "from luthien_proxy.settings import get_settings; "
+                "print('auth_mode=' + get_settings().auth_mode.value)",
+            ],
+            env={
+                "AUTH_MODE": "proxy_key",
+                "DATABASE_URL": f"sqlite:///{db_path}",
+                "PATH": os.environ.get("PATH", ""),
+                "HOME": os.environ.get("HOME", ""),
+                "VIRTUAL_ENV": os.environ.get("VIRTUAL_ENV", ""),
+            },
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, (
+            f"import crashed with AUTH_MODE=proxy_key:\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+        assert "auth_mode=client_key" in result.stdout, (
+            f"expected coerced auth_mode=client_key in stdout, got: {result.stdout}"
+        )
+        assert "pre-PR-#524" in result.stderr or "pre-PR-#524" in result.stdout, (
+            "expected a warning about the legacy alias"
+        )
 
     def test_leftover_proxy_api_key_env_var_warns(self, monkeypatch, caplog):
         """A leftover PROXY_API_KEY in the environment triggers a rename warning.

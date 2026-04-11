@@ -48,7 +48,7 @@ Config is stored at `~/.luthien/config.toml`:
 ```toml
 [gateway]
 url = "http://localhost:8000"
-api_key = "sk-your-proxy-key"
+api_key = "sk-your-client-key"
 admin_key = "admin-your-key"
 
 [local]

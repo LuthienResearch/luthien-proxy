@@ -63,7 +63,7 @@ echo -e "${GREEN}✅ gateway is running on port ${GATEWAY_PORT_VAR}${NC}"
 # Prepare gateway configuration for Claude Code
 # Note: Don't include /v1 in base URL - Anthropic SDK adds it automatically
 # Claude Code requires these to be set inline when launching to skip onboarding
-PROXY_KEY="${CLIENT_API_KEY:-sk-luthien-dev-key}"
+CLIENT_KEY="${CLIENT_API_KEY:-sk-luthien-dev-key}"
 GATEWAY_URL="http://localhost:${GATEWAY_PORT_VAR}/"
 
 # Detect auth mode from /health endpoint:
@@ -77,7 +77,7 @@ if [[ "${AUTH_MODE}" == "passthrough" ]]; then
     USE_OAUTH=true
 elif [[ "${AUTH_MODE}" == "both" ]]; then
     # In both mode, the gateway handles credential selection server-side.
-    # Default to OAuth; the gateway falls back to the proxy key if needed.
+    # Default to OAuth; the gateway falls back to the client key if needed.
     AUTH_MODE_LABEL="OAuth passthrough or API key fallback (both mode)"
     USE_OAUTH=true
 else
@@ -152,7 +152,7 @@ fi
 if [ "${USE_OAUTH}" = false ]; then
     env \
       ANTHROPIC_BASE_URL="${GATEWAY_URL}" \
-      ANTHROPIC_API_KEY="${PROXY_KEY}" \
+      ANTHROPIC_API_KEY="${CLIENT_KEY}" \
       claude "$@"
 else
     # Unset ANTHROPIC_API_KEY to avoid Claude Code's "both token and API key set" conflict warning.

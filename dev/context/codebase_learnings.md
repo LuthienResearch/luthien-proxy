@@ -205,7 +205,7 @@ Credentials flow through the system as `Credential` value objects (frozen datacl
 **Request flow**:
 ```
 Request → get_request_credential() → Credential (from headers)
-  → verify_token() → validates against proxy key / CredentialManager
+  → verify_token() → validates against client key / CredentialManager
   → resolve_anthropic_client() → builds AnthropicClient
   → PolicyContext.user_credential → available to policies
 ```

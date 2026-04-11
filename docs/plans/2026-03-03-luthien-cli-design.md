@@ -42,7 +42,7 @@ luthien-cli/
 ```toml
 [gateway]
 url = "http://localhost:8000"
-api_key = "your-proxy-api-key"
+api_key = "your-client-api-key"
 admin_key = "your-admin-api-key"
 
 [local]

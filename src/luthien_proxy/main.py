@@ -508,35 +508,13 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
     """
     errors: list[str] = []
 
-    # Symmetric with parse_auth_mode() on the DB path: tolerate a pre-#524
-    # AUTH_MODE env var (e.g. 'proxy_key') with a warning so an operator who
-    # missed one env var on upgrade gets a clear message and a running gateway
-    # instead of a cryptic Pydantic ValidationError. Covers both shell env
-    # vars and values read from a `.env` file; the warning attributes the
-    # value to the right source so a hybrid setup is easy to debug.
-    # NOTE: this pre-coercion runs once per startup. If the function is ever
-    # called repeatedly in the same process, the second call will see the
-    # already-coerced value in os.environ and the warning won't re-fire.
-    # TODO(post-v0.2): remove legacy AUTH_MODE / PROXY_API_KEY tolerance once
+    # The legacy-AUTH_MODE tolerance lives in Settings._coerce_legacy_auth_mode
+    # (auto-generated field_validator). It must run at Settings construction
+    # time because this module itself triggers Settings() at import time via
+    # configure_tracing/configure_logging/init_sentry — if the coercion lived
+    # here, the import would crash before load_config_from_env is ever called.
+    # TODO(post-v0.2): remove legacy AUTH_MODE tolerance in settings.py once
     # all deployments have migrated past PR #535.
-    raw_env_auth_mode = os.environ.get("AUTH_MODE")
-    auth_mode_source = "AUTH_MODE env var"
-    if not raw_env_auth_mode:
-        raw_env_auth_mode = _read_env_file_value(Path(".env"), "AUTH_MODE")
-        auth_mode_source = "AUTH_MODE in .env file"
-    if raw_env_auth_mode:
-        try:
-            coerced = parse_auth_mode(raw_env_auth_mode, source=auth_mode_source)
-        except ValueError:
-            # Fall through to Pydantic so the existing error-aggregation path
-            # surfaces the invalid value alongside any other config errors.
-            pass
-        else:
-            if coerced.value != raw_env_auth_mode:
-                # Force os.environ so pydantic-settings sees the coerced value
-                # regardless of whether the original was in the shell env or .env
-                # (os.environ takes precedence over the env_file source).
-                os.environ["AUTH_MODE"] = coerced.value
 
     # A leftover PROXY_API_KEY in the environment is silently dropped by
     # pydantic (extra='ignore'), which would leave the gateway running on
@@ -720,6 +698,16 @@ if __name__ == "__main__":
             else:
                 parser.add_argument(flag, type=str, default=None, help=field_meta.description)
         args = parser.parse_args()
+
+        # Pre-coerce a legacy `--auth-mode proxy_key` (pre-#524) with the same
+        # warning path as the env-var tolerance. Symmetry: if an operator who
+        # upgrades via shell env gets a clear message, an operator who upgrades
+        # via CLI flag should too. Removed in the same post-v0.2 cleanup.
+        if getattr(args, "auth_mode", None) is not None:
+            try:
+                args.auth_mode = parse_auth_mode(args.auth_mode, source="--auth-mode CLI flag").value
+            except ValueError:
+                pass  # fall through to coerce_value for the cryptic-but-informative error
 
         # Collect CLI overrides (only non-None values) through coerce_value so
         # invalid input (e.g. --dogfood-mode ture, --auth-mode bogus) fails loudly

@@ -27,7 +27,7 @@ anthropic_transaction_processing
 
 ### 1. Ingest & Authenticate
 
-`gateway_routes.py` validates the credential via `CredentialManager`, resolves the backend `AnthropicClient` (proxy-key vs passthrough vs explicit `x-anthropic-api-key`), and dispatches to `process_anthropic_request()`.
+`gateway_routes.py` validates the credential via `CredentialManager`, resolves the backend `AnthropicClient` (client-key vs passthrough vs explicit `x-anthropic-api-key`), and dispatches to `process_anthropic_request()`.
 
 ### 2. Build PolicyContext
 

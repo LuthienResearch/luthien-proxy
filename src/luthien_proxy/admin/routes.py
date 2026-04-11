@@ -98,7 +98,7 @@ class ChatRequest(BaseModel):
     api_key: str | None = Field(
         default=None,
         description="Optional API key to use for this test request. "
-        "Overrides the server's proxy key as the credential sent to the gateway.",
+        "Overrides the server's client key as the credential sent to the gateway.",
     )
 
 
