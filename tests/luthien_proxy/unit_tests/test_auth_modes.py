@@ -113,7 +113,7 @@ class TestAuthModeConfig:
         assert config["auth_mode"] == AuthMode.PASSTHROUGH
 
     def test_auth_mode_flows_into_create_app(self, policy_config_file, mock_db_pool, mock_redis_client):
-        """create_app with auth_mode=PROXY_KEY initialises a CredentialManager."""
+        """create_app with auth_mode=CLIENT_KEY initialises a CredentialManager."""
         app = create_app(
             api_key="sk-test-proxy-key",
             admin_key=None,
@@ -128,11 +128,11 @@ class TestAuthModeConfig:
 
 
 # ---------------------------------------------------------------------------
-# TestAuthModeProxyKey
+# TestAuthModeClientKey
 # ---------------------------------------------------------------------------
 
 
-class TestAuthModeProxyKey:
+class TestAuthModeClientKey:
     """Verify that client_key mode enforces CLIENT_API_KEY-only access."""
 
     @pytest.fixture
@@ -148,7 +148,7 @@ class TestAuthModeProxyKey:
         )
 
     def test_client_key_mode_accepts_client_key(self, client_key_app):
-        """Correct proxy key is accepted (auth does not return 401/403)."""
+        """Correct client key is accepted (auth does not return 401/403)."""
         with TestClient(client_key_app) as client:
             response = client.post(
                 "/v1/messages",
@@ -159,7 +159,7 @@ class TestAuthModeProxyKey:
         assert response.status_code not in (401, 403)
 
     def test_client_key_mode_rejects_unknown_key(self, client_key_app):
-        """A key that is not the proxy key is rejected with 401."""
+        """A key that is not the client key is rejected with 401."""
         with TestClient(client_key_app) as client:
             response = client.post(
                 "/v1/messages",
@@ -186,7 +186,7 @@ class TestAuthModeProxyKey:
 
 
 class TestAuthModeBoth:
-    """Verify that 'both' mode accepts the proxy key and rejects missing auth."""
+    """Verify that 'both' mode accepts the client key and rejects missing auth."""
 
     @pytest.fixture
     def both_mode_app(self, policy_config_file, mock_db_pool, mock_redis_client):
@@ -201,7 +201,7 @@ class TestAuthModeBoth:
         )
 
     def test_both_mode_accepts_client_key(self, both_mode_app):
-        """The proxy key is accepted in 'both' mode (auth does not return 401/403)."""
+        """The client key is accepted in 'both' mode (auth does not return 401/403)."""
         with TestClient(both_mode_app) as client:
             response = client.post(
                 "/v1/messages",
@@ -223,11 +223,11 @@ class TestAuthModeBoth:
 
 
 # ---------------------------------------------------------------------------
-# TestAuthWithNoProxyKey — api_key=None scenarios
+# TestAuthWithNoClientKey — api_key=None scenarios
 # ---------------------------------------------------------------------------
 
 
-class TestAuthWithNoProxyKey:
+class TestAuthWithNoClientKey:
     """Verify auth behavior when CLIENT_API_KEY is not configured (api_key=None)."""
 
     @pytest.fixture
@@ -269,7 +269,7 @@ class TestAuthWithNoProxyKey:
                 pass
 
     def test_both_mode_falls_through_to_passthrough_when_no_key(self, both_mode_no_key):
-        """both mode with no CLIENT_API_KEY skips proxy-key check, validates via passthrough."""
+        """both mode with no CLIENT_API_KEY skips client-key check, validates via passthrough."""
         with TestClient(both_mode_no_key, raise_server_exceptions=False) as client:
             # Patch validate_credential to return True (simulates valid passthrough cred)
             cm = client.app.state.dependencies.credential_manager

@@ -35,7 +35,7 @@ A `POST /v1/messages` request flows through four phases. The entry point is `pro
 `gateway_routes.py` receives the HTTP request and resolves three things in a linear dependency chain:
 
 1. `get_request_credential` — extracts a `Credential` from the `Authorization: Bearer` or `x-api-key` header.
-2. `verify_token` — validates the credential against the configured `AuthMode` (`proxy_key`, `passthrough`, or `both`). In passthrough/both modes, `CredentialManager.validate_credential()` checks Anthropic's free `count_tokens` endpoint, cached via Redis or an in-process cache.
+2. `verify_token` — validates the credential against the configured `AuthMode` (`client_key`, `passthrough`, or `both`). In passthrough/both modes, `CredentialManager.validate_credential()` checks Anthropic's free `count_tokens` endpoint, cached via Redis or an in-process cache.
 3. `resolve_anthropic_client` — builds an `AnthropicClient` from the credential. The `x-anthropic-api-key` header, if present, is used to forward a different key to the backend than the one that authenticated the client.
 
 ### 2. Process Request

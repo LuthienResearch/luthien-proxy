@@ -184,6 +184,13 @@ class CredentialManager:
 
         Builds a new AuthConfig and replaces the reference in one assignment,
         so concurrent readers always see a consistent snapshot (no torn reads).
+
+        Note: the write path uses `AuthMode(auth_mode)` directly, not the
+        legacy-tolerant `_parse_auth_mode()` used by `initialize()`. This is
+        intentional — the admin API already validates the incoming value at
+        `admin/routes.py` before calling this method, and writing a pre-#524
+        alias like `'proxy_key'` back into the DB would undo migration 013.
+        Strictness here is load-bearing.
         """
         new_config = AuthConfig(
             auth_mode=AuthMode(auth_mode) if auth_mode is not None else self._config.auth_mode,
