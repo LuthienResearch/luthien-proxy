@@ -25,6 +25,9 @@ FILES_TO_DOWNLOAD = ("docker-compose.yaml", ".env.example")
 # Matches the ./src volume mount line
 _SRC_MOUNT_RE = re.compile(r"^ *- \./src:/app/src.*\n", re.MULTILINE)
 
+# Minimal fallback used only when config/ is empty. The canonical default
+# lives in config/policy_config.yaml in the luthien-proxy repo — keep these
+# in sync if the default policy class ever changes.
 _DEFAULT_POLICY_CONFIG_YAML = textwrap.dedent("""\
     # Luthien Policy Configuration
     # Default: pass-through (no modifications)
