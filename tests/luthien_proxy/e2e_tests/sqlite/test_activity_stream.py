@@ -9,22 +9,12 @@ Run:  uv run pytest tests/luthien_proxy/e2e_tests/sqlite/test_activity_stream.py
 
 import asyncio
 import json
-import os
-import socket
-import tempfile
-import threading
-import time
 
 import httpx
 import pytest
-import uvicorn
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
-
-from luthien_proxy.main import create_app
-from luthien_proxy.settings import clear_settings_cache
-from luthien_proxy.utils.db import DatabasePool
-from luthien_proxy.utils.migration_check import check_migrations
+from tests.luthien_proxy.e2e_tests.sqlite._boot import boot_sqlite_gateway, free_port
 
 pytestmark = pytest.mark.sqlite_e2e
 
@@ -32,16 +22,9 @@ _API_KEY = "test-activity-key"
 _ADMIN_KEY = "test-activity-admin-key"
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("", 0))
-        return s.getsockname()[1]
-
-
 @pytest.fixture(scope="module")
 def mock_server():
-    mock_port = _free_port()
-    server = MockAnthropicServer(port=mock_port)
+    server = MockAnthropicServer(port=free_port())
     server.start()
     yield server
     server.stop()
@@ -50,63 +33,14 @@ def mock_server():
 @pytest.fixture(scope="module")
 def gateway_url(mock_server):
     """Boot an in-process SQLite gateway with no Redis."""
-    port = _free_port()
-    tmp_dir = tempfile.mkdtemp(prefix="luthien_activity_e2e_")
-    db_path = os.path.join(tmp_dir, "test.db")
-    db_pool = DatabasePool(f"sqlite:///{db_path}")
-
-    loop = asyncio.new_event_loop()
-    loop.run_until_complete(check_migrations(db_pool))
-
-    old_env = {}
-    for k, v in {
-        "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{mock_server.port}",
-        "ANTHROPIC_API_KEY": "mock-key",
-    }.items():
-        old_env[k] = os.environ.get(k)
-        os.environ[k] = v
-
-    # Flush cached settings so create_app() picks up the env vars set above.
-    # Without this, get_settings() may return a stale instance that lacks
-    # ANTHROPIC_API_KEY, causing credential resolution to fail. Module-scoped
-    # fixtures run before function-scoped autouse fixtures can clear the cache.
-    clear_settings_cache()
-    app = create_app(
+    with boot_sqlite_gateway(
         api_key=_API_KEY,
         admin_key=_ADMIN_KEY,
-        db_pool=db_pool,
-        redis_client=None,
-        startup_policy_path="config/policy_config.yaml",
-        policy_source="db-fallback-file",
-    )
-
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-    server = uvicorn.Server(config)
-    thread = threading.Thread(target=server.run, daemon=True, name="activity-gateway")
-    thread.start()
-
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
-                break
-        except OSError:
-            time.sleep(0.1)
-    else:
-        raise RuntimeError("Gateway did not start")
-
-    yield f"http://127.0.0.1:{port}"
-
-    server.should_exit = True
-    thread.join(timeout=5)
-    loop.run_until_complete(db_pool.close())
-    loop.close()
-    for k, v in old_env.items():
-        if v is None:
-            os.environ.pop(k, None)
-        else:
-            os.environ[k] = v
-    clear_settings_cache()
+        mock_anthropic_url=f"http://127.0.0.1:{mock_server.port}",
+        tmp_prefix="luthien_activity_e2e_",
+        thread_name="activity-gateway",
+    ) as url:
+        yield url
 
 
 @pytest.mark.asyncio
