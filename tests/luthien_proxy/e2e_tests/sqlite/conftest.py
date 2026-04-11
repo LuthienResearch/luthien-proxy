@@ -18,7 +18,6 @@ import pytest
 import uvicorn
 
 from luthien_proxy.main import create_app
-from luthien_proxy.settings import clear_settings_cache
 from luthien_proxy.utils.db import DatabasePool
 from luthien_proxy.utils.migration_check import check_migrations
 
@@ -54,10 +53,6 @@ def sqlite_gateway_url(mock_anthropic):
         old_env[k] = os.environ.get(k)
         os.environ[k] = v
 
-    # Flush cached settings so create_app() picks up the env vars set above.
-    # Without this, get_settings() may return a stale instance that lacks
-    # ANTHROPIC_API_KEY, causing credential resolution to fail.
-    clear_settings_cache()
     app = create_app(
         api_key=_API_KEY,
         admin_key=_ADMIN_API_KEY,

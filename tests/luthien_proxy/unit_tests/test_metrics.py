@@ -69,7 +69,7 @@ class TestMetricsAwareUsageCollector:
             assert reader_cls.call_count == 1
             assert provider_cls.call_count == 1
 
-    def test_snapshot_and_reset_unaffected_by_metrics(self):
+    def test_snapshot_and_reset_preserves_parent_counters(self):
         collector = MetricsAwareUsageCollector()
         with patch("luthien_proxy.metrics.request_counter"), patch("luthien_proxy.metrics.token_counter"):
             collector.record_completed(is_streaming=True)
@@ -115,9 +115,11 @@ class TestLatencyMiddleware:
         mock_active.add.assert_any_call(1)
         mock_active.add.assert_any_call(-1)
         mock_duration.record.assert_called_once()
-        assert mock_duration.record.call_args[0][1]["status"] == "error"
+        attrs = mock_duration.record.call_args[0][1]
+        assert attrs["status"] == "error"
+        assert attrs["streaming"] == "false"
 
-    def test_success_records_status_200(self):
+    def test_success_records_status_200_non_streaming(self):
         from starlette.responses import JSONResponse
 
         async def ok(request):
@@ -135,9 +137,33 @@ class TestLatencyMiddleware:
             resp = client.post("/v1/messages")
 
         assert resp.status_code == 200
-        mock_active.add.assert_any_call(1)
-        mock_active.add.assert_any_call(-1)
-        assert mock_duration.record.call_args[0][1]["status"] == "200"
+        attrs = mock_duration.record.call_args[0][1]
+        assert attrs["status"] == "200"
+        assert attrs["streaming"] == "false"
+
+    def test_streaming_response_labeled_as_streaming(self):
+        from starlette.responses import StreamingResponse
+
+        async def stream_gen():
+            yield b"data: hello\n\n"
+
+        async def sse(request):
+            return StreamingResponse(stream_gen(), media_type="text/event-stream")
+
+        app = self._build_app(sse)
+        mock_duration = MagicMock()
+        mock_active = MagicMock()
+
+        with (
+            patch("luthien_proxy.main.request_duration", mock_duration),
+            patch("luthien_proxy.main.active_requests", mock_active),
+        ):
+            client = TestClient(app)
+            resp = client.post("/v1/messages")
+
+        assert resp.status_code == 200
+        attrs = mock_duration.record.call_args[0][1]
+        assert attrs["streaming"] == "true"
 
     def test_non_messages_path_skips_metrics(self):
         from starlette.applications import Starlette

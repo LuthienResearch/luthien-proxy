@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 import litellm
 import uvicorn
 from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import HTTPException as FastAPIHTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
@@ -143,27 +144,36 @@ async def request_validation_error_handler(request: Request, exc: Exception) -> 
 
 
 class LatencyMiddleware(BaseHTTPMiddleware):
-    """Record TTFB and in-flight gauge for /v1/messages requests.
+    """Record latency histogram and in-flight gauge for /v1/messages only.
 
-    NOTE: BaseHTTPMiddleware.dispatch returns at TTFB (first byte), not
-    stream completion. For non-streaming requests this measures full latency;
-    for streaming it measures only time-to-first-byte. Both the histogram
-    and gauge reflect this asymmetry.
-    Pure-ASGI middleware would be needed for true stream-duration metrics.
+    Only instruments the primary completion endpoint. Passthrough routes
+    (/v1/models, /v1/messages/count_tokens, etc.) are intentionally excluded
+    because they have different latency profiles.
+
+    Measurement semantics depend on response type:
+      - Non-streaming: full request duration (body fully produced)
+      - Streaming (text/event-stream): time-to-first-byte only
+    A ``streaming`` label on the histogram lets dashboards split the two
+    distributions. Pure-ASGI middleware would be needed for true
+    stream-duration metrics.
     """
 
     async def dispatch(self, request: Request, call_next):
         if request.url.path != "/v1/messages":
             return await call_next(request)
-        active_requests.add(1)
         t0 = time.perf_counter()
         response = None
         try:
+            active_requests.add(1)
             response = await call_next(request)
             return response
         finally:
             status = str(response.status_code) if response is not None else "error"
-            request_duration.record(time.perf_counter() - t0, {"status": status})
+            is_streaming = response is not None and "text/event-stream" in response.headers.get("content-type", "")
+            request_duration.record(
+                time.perf_counter() - t0,
+                {"status": status, "streaming": str(is_streaming).lower()},
+            )
             active_requests.add(-1)
 
 
@@ -411,8 +421,8 @@ def create_app(
 
     @app.get("/metrics", include_in_schema=False)
     async def prometheus_metrics() -> Response:
-        # No auth required; standard for Prometheus scraping
-        return Response(generate_latest(REGISTRY), media_type=CONTENT_TYPE_LATEST)
+        body = await run_in_threadpool(generate_latest, REGISTRY)
+        return Response(body, media_type=CONTENT_TYPE_LATEST)
 
     app.add_middleware(LatencyMiddleware)
 
