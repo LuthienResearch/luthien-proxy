@@ -83,6 +83,27 @@ class PolicyListResponse(BaseModel):
     policies: list[PolicyClassInfo]
 
 
+class ScheduledTaskStatusResponse(BaseModel):
+    """One scheduled task as seen by the admin API."""
+
+    name: str
+    interval_seconds: float
+    jitter_seconds: float
+    run_count: int
+    error_count: int
+    last_run_at: str | None
+    last_run_status: str
+    last_error: str | None
+    next_run_at: str | None
+
+
+class ScheduledTasksResponse(BaseModel):
+    """List of currently-registered scheduled tasks."""
+
+    tasks: list[ScheduledTaskStatusResponse]
+    count: int
+
+
 class ChatRequest(BaseModel):
     """Request for testing chat through the proxy."""
 
@@ -282,6 +303,37 @@ async def list_available_policies(
         for p in discovered
     ]
     return PolicyListResponse(policies=policies)
+
+
+@router.get("/scheduler/tasks", response_model=ScheduledTasksResponse)
+async def list_scheduled_tasks(
+    _: str = Depends(verify_admin_token),
+    manager: PolicyManager = Depends(get_policy_manager),
+):
+    """List scheduled tasks currently registered with the gateway scheduler.
+
+    Returns per-task observability (last run, status, run/error counts,
+    next run). Useful for confirming that policies that register periodic
+    work are actually ticking.
+
+    Requires admin authentication.
+    """
+    snapshots = manager.scheduler.task_status()
+    tasks = [
+        ScheduledTaskStatusResponse(
+            name=s.name,
+            interval_seconds=s.interval_seconds,
+            jitter_seconds=s.jitter_seconds,
+            run_count=s.run_count,
+            error_count=s.error_count,
+            last_run_at=s.last_run_at,
+            last_run_status=s.last_run_status,
+            last_error=s.last_error,
+            next_run_at=s.next_run_at,
+        )
+        for s in snapshots
+    ]
+    return ScheduledTasksResponse(tasks=tasks, count=len(tasks))
 
 
 @router.get("/models")
