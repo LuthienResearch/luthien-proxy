@@ -23,6 +23,7 @@ from redis.asyncio import Redis
 
 from luthien_proxy.config import _import_policy_class, _instantiate_policy, load_policy_from_yaml
 from luthien_proxy.policy_core.base_policy import BasePolicy
+from luthien_proxy.scheduler import Scheduler
 from luthien_proxy.utils import db
 from luthien_proxy.utils.constants import REDIS_LOCK_TIMEOUT_SECONDS
 
@@ -82,6 +83,7 @@ class PolicyManager:
         self.startup_policy_path = startup_policy_path
         self.policy_source = policy_source
         self._current_policy: BasePolicy | None = None
+        self._scheduler = Scheduler()
         self.lock_key = "luthien:policy:lock"
         self._local_lock = asyncio.Lock()
 
@@ -105,6 +107,7 @@ class PolicyManager:
             )
 
         self._current_policy = self._maybe_compose_dogfood(self._current_policy)
+        self._register_scheduled_tasks(self._current_policy)
 
     async def _initialize_from_file(self) -> None:
         """Load policy from YAML file and persist to DB."""
@@ -212,8 +215,15 @@ class PolicyManager:
                 # 2. Persist to DB
                 await self._persist_to_db(policy_class_ref, config, enabled_by)
 
-                # 3. Hot-swap in memory (compose dogfood if enabled)
+                # 3. Tear down the previous policy's scheduled tasks BEFORE
+                # swapping. Otherwise the old policy's periodic work keeps
+                # running against stale state after the hot-swap.
+                await self._scheduler.cancel_all()
+
+                # 4. Hot-swap in memory (compose dogfood if enabled) and
+                # re-register scheduled tasks for the new policy.
                 self._current_policy = self._maybe_compose_dogfood(new_policy)
+                self._register_scheduled_tasks(self._current_policy)
 
                 duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
 
@@ -307,6 +317,31 @@ class PolicyManager:
         if not self._current_policy:
             raise RuntimeError("No policy loaded")
         return self._current_policy
+
+    @property
+    def scheduler(self) -> Scheduler:
+        """Return the gateway-wide scheduler owned by this manager."""
+        return self._scheduler
+
+    async def shutdown(self) -> None:
+        """Cancel all scheduled tasks. Called from the gateway lifespan exit."""
+        await self._scheduler.cancel_all()
+
+    def _register_scheduled_tasks(self, policy: BasePolicy) -> None:
+        """Ask the policy to register its scheduled tasks with the scheduler.
+
+        Wraps the call so a misbehaving policy can't crash the load path —
+        if it raises, we log and continue with an empty scheduler rather
+        than bricking the gateway.
+        """
+        try:
+            policy.register_scheduled_tasks(self._scheduler)
+        except Exception as exc:
+            logger.error(
+                f"Policy {policy.__class__.__name__}.register_scheduled_tasks raised {exc!r}; "
+                "continuing with any tasks that were successfully registered before the error",
+                exc_info=True,
+            )
 
     @asynccontextmanager
     async def _acquire_lock(self, timeout: int = REDIS_LOCK_TIMEOUT_SECONDS):

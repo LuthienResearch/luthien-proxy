@@ -303,6 +303,9 @@ def create_app(
         yield
 
         # Shutdown
+        # Cancel scheduled policy tasks first so they can't race with
+        # resource teardown (DB pool close, Redis disconnect, etc.).
+        await _policy_manager.shutdown()
         if _telemetry_sender is not None:
             await _telemetry_sender.stop()
         await _credential_manager.close()
