@@ -170,7 +170,7 @@ def configure_metrics() -> None:
         # for milliseconds. LLM TTFB ranges from ~0.1s to 120s, so we need custom
         # buckets to get useful p50/p95/p99 percentiles.
         ttfb_view = View(
-            instrument_name="luthien_request_ttfb_seconds",
+            instrument_name="luthien_request_duration_seconds",
             aggregation=ExplicitBucketHistogramAggregation(
                 boundaries=(0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0),
             ),

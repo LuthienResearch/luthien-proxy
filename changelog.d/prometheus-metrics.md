@@ -8,7 +8,7 @@ pr: 517
 Metrics exposed:
 - `luthien_requests_completed_total{streaming}` — completed request counter
 - `luthien_tokens_total{type}` — cumulative token counter (`input` / `output`)
-- `luthien_request_ttfb_seconds{status,streaming}` — latency histogram for `/v1/messages` (full duration for non-streaming, TTFB for streaming)
+- `luthien_request_duration_seconds{status,streaming}` — latency histogram for `/v1/messages` (full duration for non-streaming, TTFB for streaming — use `streaming` label to split)
 - `luthien_active_requests` — in-flight request gauge
 
 Implementation: `MetricsAwareUsageCollector` extends `UsageCollector` as a drop-in replacement — the existing external telemetry sender is unaffected. OTel `MeterProvider` with `PrometheusMetricReader` wired at startup alongside the existing `TracerProvider`.

@@ -161,10 +161,10 @@ class LatencyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if request.url.path != "/v1/messages":
             return await call_next(request)
+        active_requests.add(1)
         t0 = time.perf_counter()
         response = None
         try:
-            active_requests.add(1)
             response = await call_next(request)
             return response
         finally:

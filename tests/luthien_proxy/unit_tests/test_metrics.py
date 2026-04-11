@@ -1,5 +1,6 @@
 # ABOUTME: Unit tests for Prometheus metrics instruments and MetricsAwareUsageCollector
 
+import threading
 from unittest.mock import MagicMock, patch
 
 from starlette.testclient import TestClient
@@ -58,7 +59,7 @@ class TestMetricsAwareUsageCollector:
     def test_configure_metrics_idempotent(self):
         with (
             patch.object(telemetry_mod, "_metrics_configured", False),
-            patch.object(telemetry_mod, "_metrics_lock", telemetry_mod.threading.Lock()),
+            patch.object(telemetry_mod, "_metrics_lock", threading.Lock()),
             patch("luthien_proxy.telemetry.PrometheusMetricReader") as reader_cls,
             patch("luthien_proxy.telemetry.MeterProvider") as provider_cls,
             patch("luthien_proxy.telemetry.metrics"),
@@ -164,6 +165,27 @@ class TestLatencyMiddleware:
         assert resp.status_code == 200
         attrs = mock_duration.record.call_args[0][1]
         assert attrs["streaming"] == "true"
+
+    def test_response_without_content_type_is_non_streaming(self):
+        from starlette.responses import Response
+
+        async def bare(request):
+            return Response(content=b"ok", status_code=200)
+
+        app = self._build_app(bare)
+        mock_duration = MagicMock()
+        mock_active = MagicMock()
+
+        with (
+            patch("luthien_proxy.main.request_duration", mock_duration),
+            patch("luthien_proxy.main.active_requests", mock_active),
+        ):
+            client = TestClient(app)
+            resp = client.post("/v1/messages")
+
+        assert resp.status_code == 200
+        attrs = mock_duration.record.call_args[0][1]
+        assert attrs["streaming"] == "false"
 
     def test_non_messages_path_skips_metrics(self):
         from starlette.applications import Starlette

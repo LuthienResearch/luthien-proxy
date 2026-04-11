@@ -12,7 +12,7 @@ load-balances to, producing incomplete numbers. Current scripts run single-worke
 Exposed metrics:
   luthien_requests_completed_total{streaming} — completed request counter
   luthien_tokens_total{type}                  — cumulative token counter (input/output)
-  luthien_request_ttfb_seconds{status}        — latency histogram (full for non-streaming, TTFB for streaming)
+  luthien_request_duration_seconds{status,streaming} — latency histogram (full for non-streaming, TTFB for streaming)
   luthien_active_requests                     — in-flight gauge (TTFB-scoped for streaming)
 """
 
@@ -39,8 +39,8 @@ token_counter = _meter.create_counter(
 )
 
 request_duration = _meter.create_histogram(
-    "luthien_request_ttfb_seconds",
-    description="Request latency in seconds: full response time for non-streaming, TTFB only for streaming (BaseHTTPMiddleware limitation)",
+    "luthien_request_duration_seconds",
+    description="Request latency: full duration for non-streaming, TTFB for streaming (use streaming label to split)",
     unit="s",
 )
 
@@ -66,9 +66,9 @@ class MetricsAwareUsageCollector(UsageCollector):
     def record_tokens(self, *, input_tokens: int, output_tokens: int) -> None:
         """Record token usage and increment Prometheus token counter."""
         super().record_tokens(input_tokens=input_tokens, output_tokens=output_tokens)
-        if input_tokens:
+        if input_tokens > 0:
             token_counter.add(input_tokens, {"type": "input"})
-        if output_tokens:
+        if output_tokens > 0:
             token_counter.add(output_tokens, {"type": "output"})
 
 

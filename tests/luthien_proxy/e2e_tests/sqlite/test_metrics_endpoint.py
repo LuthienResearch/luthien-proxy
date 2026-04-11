@@ -16,7 +16,7 @@ pytestmark = pytest.mark.sqlite_e2e
 _EXPECTED_FAMILIES = {
     "luthien_requests_completed",
     "luthien_tokens",
-    "luthien_request_ttfb_seconds",
+    "luthien_request_duration_seconds",
     "luthien_active_requests",
 }
 
@@ -109,11 +109,13 @@ async def test_metrics_histogram_buckets(gateway_url, api_key, mock_anthropic):
         )
 
         families = _parse_families((await client.get(f"{gateway_url}/metrics")).text)
-        ttfb = families.get("luthien_request_ttfb_seconds")
-        assert ttfb is not None, "Missing luthien_request_ttfb_seconds family"
+        duration = families.get("luthien_request_duration_seconds")
+        assert duration is not None, "Missing luthien_request_duration_seconds family"
 
         bucket_les = sorted(
-            float(s.labels["le"]) for s in ttfb.samples if s.name.endswith("_bucket") and s.labels.get("le") != "+Inf"
+            float(s.labels["le"])
+            for s in duration.samples
+            if s.name.endswith("_bucket") and s.labels.get("le") != "+Inf"
         )
         expected = sorted(_TTFB_BUCKET_BOUNDARIES)
         assert bucket_les == expected, f"Bucket boundaries mismatch: got {bucket_les}, expected {expected}"
