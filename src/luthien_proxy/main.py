@@ -389,14 +389,12 @@ def create_app(
         # No auth required; standard for Prometheus scraping
         return Response(generate_latest(REGISTRY), media_type=CONTENT_TYPE_LATEST)
 
-    _METERED_PATHS = frozenset({"/v1/messages", "/v1/chat/completions"})
-
     class _LatencyMiddleware(BaseHTTPMiddleware):
         # NOTE: BaseHTTPMiddleware.dispatch returns at TTFB (first byte), not
         # stream completion. Both the histogram and gauge reflect TTFB timing.
         # Pure-ASGI middleware would be needed for true stream-duration metrics.
         async def dispatch(self, request: Request, call_next):
-            if request.url.path not in _METERED_PATHS:
+            if request.url.path != "/v1/messages":
                 return await call_next(request)
             active_requests.add(1)
             t0 = time.perf_counter()

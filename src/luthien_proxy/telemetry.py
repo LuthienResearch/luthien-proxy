@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from collections.abc import Generator
 from contextlib import contextmanager
 
@@ -141,6 +142,7 @@ def configure_tracing() -> trace.Tracer:
     return trace.get_tracer(__name__)
 
 
+_metrics_lock = threading.Lock()
 _metrics_configured = False
 
 
@@ -157,23 +159,26 @@ def configure_metrics() -> None:
     global _metrics_configured  # noqa: PLW0603
     if _metrics_configured:
         return
-    _metrics_configured = True
+    with _metrics_lock:
+        if _metrics_configured:
+            return
 
-    resource = _build_resource()
-    reader = PrometheusMetricReader()
+        resource = _build_resource()
+        reader = PrometheusMetricReader()
 
-    # OTel default histogram boundaries are [0, 5, 10, 25, ... 10000] — designed
-    # for milliseconds. LLM TTFB ranges from ~0.1s to 120s, so we need custom
-    # buckets to get useful p50/p95/p99 percentiles.
-    ttfb_view = View(
-        instrument_name="luthien_request_ttfb_seconds",
-        aggregation=ExplicitBucketHistogramAggregation(
-            boundaries=(0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0),
-        ),
-    )
+        # OTel default histogram boundaries are [0, 5, 10, 25, ... 10000] — designed
+        # for milliseconds. LLM TTFB ranges from ~0.1s to 120s, so we need custom
+        # buckets to get useful p50/p95/p99 percentiles.
+        ttfb_view = View(
+            instrument_name="luthien_request_ttfb_seconds",
+            aggregation=ExplicitBucketHistogramAggregation(
+                boundaries=(0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0),
+            ),
+        )
 
-    provider = MeterProvider(resource=resource, metric_readers=[reader], views=[ttfb_view])
-    metrics.set_meter_provider(provider)
+        provider = MeterProvider(resource=resource, metric_readers=[reader], views=[ttfb_view])
+        metrics.set_meter_provider(provider)
+        _metrics_configured = True
 
     logger.info("Prometheus metrics endpoint enabled at /metrics")
 

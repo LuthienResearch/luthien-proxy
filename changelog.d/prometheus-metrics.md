@@ -12,3 +12,5 @@ Metrics exposed:
 - `luthien_active_requests` — in-flight request gauge
 
 Implementation: `MetricsAwareUsageCollector` extends `UsageCollector` as a drop-in replacement — the existing external telemetry sender is unaffected. OTel `MeterProvider` with `PrometheusMetricReader` wired at startup alongside the existing `TracerProvider`.
+
+Note: `/metrics` is unauthenticated (standard Prometheus convention). Public deployments should restrict access at the network layer (ingress allowlist or private subnet).

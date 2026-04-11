@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
+import luthien_proxy.telemetry as telemetry_mod
 from luthien_proxy.metrics import MetricsAwareUsageCollector
 
 
@@ -45,14 +46,24 @@ class TestMetricsAwareUsageCollector:
         assert snapshot["input_tokens"] == 10
         assert snapshot["output_tokens"] == 20
 
-    def test_record_tokens_zero_values_still_emitted(self):
+    def test_record_tokens_skips_zero_values(self):
         collector = MetricsAwareUsageCollector()
         mock_counter = MagicMock()
         with patch("luthien_proxy.metrics.token_counter", mock_counter):
             collector.record_tokens(input_tokens=0, output_tokens=0)
-        assert mock_counter.add.call_count == 2
-        mock_counter.add.assert_any_call(0, {"type": "input"})
-        mock_counter.add.assert_any_call(0, {"type": "output"})
+        mock_counter.add.assert_not_called()
+
+    def test_configure_metrics_idempotent(self):
+        with (
+            patch.object(telemetry_mod, "_metrics_configured", False),
+            patch.object(telemetry_mod, "_metrics_lock", telemetry_mod.threading.Lock()),
+            patch("luthien_proxy.telemetry.PrometheusMetricReader"),
+            patch("luthien_proxy.telemetry.MeterProvider"),
+            patch("luthien_proxy.telemetry.metrics"),
+            patch("luthien_proxy.telemetry._build_resource"),
+        ):
+            telemetry_mod.configure_metrics()
+            telemetry_mod.configure_metrics()
 
     def test_snapshot_and_reset_unaffected_by_metrics(self):
         collector = MetricsAwareUsageCollector()

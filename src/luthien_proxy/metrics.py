@@ -66,8 +66,10 @@ class MetricsAwareUsageCollector(UsageCollector):
     def record_tokens(self, *, input_tokens: int, output_tokens: int) -> None:
         """Record token usage and increment Prometheus token counter."""
         super().record_tokens(input_tokens=input_tokens, output_tokens=output_tokens)
-        token_counter.add(input_tokens, {"type": "input"})
-        token_counter.add(output_tokens, {"type": "output"})
+        if input_tokens:
+            token_counter.add(input_tokens, {"type": "input"})
+        if output_tokens:
+            token_counter.add(output_tokens, {"type": "output"})
 
 
 __all__ = [
