@@ -411,3 +411,41 @@ def test_ensure_gateway_venv_with_ref_shows_message(tmp_path, capsys):
 
     captured = capsys.readouterr()
     assert "abc123" in captured.err
+
+
+def test_ensure_gateway_venv_creates_default_policy_config(tmp_path):
+    """ensure_gateway_venv creates default policy_config.yaml if missing."""
+    venv_dir = tmp_path / "venv"
+    repo_dir = tmp_path / "repo"
+
+    with (
+        patch("luthien_cli.repo.MANAGED_VENV_DIR", venv_dir),
+        patch("luthien_cli.repo.MANAGED_REPO_DIR", repo_dir),
+        patch("luthien_cli.repo._run_uv"),
+    ):
+        ensure_gateway_venv()
+
+    policy_config = repo_dir / "config" / "policy_config.yaml"
+    assert policy_config.exists()
+    content = policy_config.read_text()
+    assert "NoOpPolicy" in content
+    assert "policy:" in content
+
+
+def test_ensure_gateway_venv_preserves_existing_policy_config(tmp_path):
+    """ensure_gateway_venv preserves existing policy_config.yaml."""
+    venv_dir = tmp_path / "venv"
+    repo_dir = tmp_path / "repo"
+    (repo_dir / "config").mkdir(parents=True)
+    custom_content = "policy:\n  class: custom:MyPolicy\n  config: {}\n"
+    (repo_dir / "config" / "policy_config.yaml").write_text(custom_content)
+
+    with (
+        patch("luthien_cli.repo.MANAGED_VENV_DIR", venv_dir),
+        patch("luthien_cli.repo.MANAGED_REPO_DIR", repo_dir),
+        patch("luthien_cli.repo._run_uv"),
+    ):
+        ensure_gateway_venv()
+
+    content = (repo_dir / "config" / "policy_config.yaml").read_text()
+    assert content == custom_content

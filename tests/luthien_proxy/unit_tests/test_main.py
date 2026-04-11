@@ -293,6 +293,24 @@ class TestAutoProvisionDefaultsRailway:
         assert result["POLICY_CONFIG"].startswith("/")
 
 
+class TestConfigureLocalMode:
+    """Test configure_local_mode sets absolute paths."""
+
+    def test_sets_absolute_policy_config(self, monkeypatch, tmp_path):
+        """configure_local_mode must set POLICY_CONFIG to absolute path."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("POLICY_CONFIG", raising=False)
+
+        from luthien_proxy.main import configure_local_mode
+
+        configure_local_mode()
+
+        policy_config = os.environ["POLICY_CONFIG"]
+        assert policy_config.startswith("/"), f"Expected absolute path, got {policy_config}"
+        assert policy_config.endswith("config/policy_config.yaml")
+        assert str(tmp_path) in policy_config
+
+
 @pytest.fixture
 def policy_config_file():
     """Create a temporary policy config file for testing."""
