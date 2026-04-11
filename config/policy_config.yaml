@@ -39,3 +39,23 @@ policy:
 #     # judge_instructions: "You are a security analyst. Evaluate tool calls for risk..."
 #     # Optional: Customize blocked message template
 #     # Variables: {tool_name}, {tool_arguments}, {probability}, {explanation}
+
+# Supply Chain Gate Policy - rewrites bash installs of known-vulnerable
+# packages as failing commands. Queries OSV.dev to check package versions.
+# Lockfile installs (npm ci, pip install -r requirements.txt) are always
+# substituted with a dry-run so the LLM can review resolved versions first.
+# This is a best-effort gate for cooperative LLMs — NOT a security boundary.
+# policy:
+#   class: "luthien_proxy.policies.supply_chain_gate_policy:SupplyChainGatePolicy"
+#   config:
+#     severity_threshold: "critical"  # low | medium | high | critical
+#     osv_fail_mode: "warn"            # block | allow | warn
+#     osv_timeout_seconds: 5.0
+#     max_concurrent_lookups: 10
+#     cache_ttl_seconds: 3600
+#     negative_cache_ttl_seconds: 300
+#     block_lockfile_installs: true
+#     explicit_blocklist:
+#       # Hard blocklist that bypasses OSV and the severity threshold:
+#       # - "PyPI:litellm:1.59.0"
+#       # - "npm:axios:1.6.8"
