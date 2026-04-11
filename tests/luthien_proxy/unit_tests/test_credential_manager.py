@@ -72,6 +72,76 @@ class TestCredentialManagerInitialize:
         await manager.initialize(default_auth_mode=AuthMode.PASSTHROUGH)
         assert manager.config.auth_mode == AuthMode.PASSTHROUGH
 
+    @pytest.mark.asyncio
+    async def test_loads_client_key_row(self):
+        """Regression guard: a row with the post-#524 'client_key' value round-trips.
+
+        Closes the test gap flagged in review — verifies that after migration
+        013 rewrites `auth_mode='proxy_key'` → `'client_key'`, the gateway can
+        still parse its own stored config.
+        """
+        mock_pool = AsyncMock()
+        mock_pool.fetchrow.return_value = {
+            "auth_mode": "client_key",
+            "validate_credentials": True,
+            "valid_cache_ttl_seconds": 3600,
+            "invalid_cache_ttl_seconds": 300,
+            "updated_at": None,
+            "updated_by": None,
+        }
+        mock_db = AsyncMock()
+        mock_db.get_pool.return_value = mock_pool
+
+        manager = CredentialManager(db_pool=mock_db, cache=None)
+        await manager.initialize()
+        assert manager.config.auth_mode == AuthMode.CLIENT_KEY
+
+    @pytest.mark.asyncio
+    async def test_tolerates_legacy_proxy_key_row(self, caplog):
+        """Regression guard: a pre-#524 'proxy_key' row does not crash startup.
+
+        Postgres migrations run in a separate service from the gateway. If the
+        gateway restarts before migration 013 has applied, the DB still holds
+        'proxy_key' — which is no longer a valid AuthMode value. We tolerate
+        it with a warning so the gateway can still serve traffic.
+        """
+        mock_pool = AsyncMock()
+        mock_pool.fetchrow.return_value = {
+            "auth_mode": "proxy_key",
+            "validate_credentials": True,
+            "valid_cache_ttl_seconds": 3600,
+            "invalid_cache_ttl_seconds": 300,
+            "updated_at": None,
+            "updated_by": None,
+        }
+        mock_db = AsyncMock()
+        mock_db.get_pool.return_value = mock_pool
+
+        manager = CredentialManager(db_pool=mock_db, cache=None)
+        with caplog.at_level("WARNING", logger="luthien_proxy.credential_manager"):
+            await manager.initialize()
+        assert manager.config.auth_mode == AuthMode.CLIENT_KEY
+        assert any("pre-PR-#524" in record.message for record in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_rejects_unknown_auth_mode_row(self):
+        """An auth_mode value that is neither current nor a legacy alias should still raise."""
+        mock_pool = AsyncMock()
+        mock_pool.fetchrow.return_value = {
+            "auth_mode": "not_a_real_mode",
+            "validate_credentials": True,
+            "valid_cache_ttl_seconds": 3600,
+            "invalid_cache_ttl_seconds": 300,
+            "updated_at": None,
+            "updated_by": None,
+        }
+        mock_db = AsyncMock()
+        mock_db.get_pool.return_value = mock_pool
+
+        manager = CredentialManager(db_pool=mock_db, cache=None)
+        with pytest.raises(ValueError):
+            await manager.initialize()
+
 
 class TestValidateCredential:
     @pytest.mark.asyncio

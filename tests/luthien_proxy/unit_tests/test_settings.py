@@ -221,9 +221,10 @@ class TestAuthModeValidation:
 class TestAuthModeDefaultConsistency:
     """Ensure DB migration default and Python defaults never silently diverge.
 
-    PR #222 COE: migration 007 seeded 'client_key' while settings.py defaulted
-    to 'both', causing 401s for Claude Code OAuth. This test catches that class
-    of bug by reading the actual migration SQL and comparing to Python defaults.
+    PR #222 COE: migration 007 seeded 'proxy_key' (now 'client_key' after PR
+    #524's rename) while settings.py defaulted to 'both', causing 401s for
+    Claude Code OAuth. This test catches that class of bug by reading the
+    actual migration SQL and comparing to Python defaults.
     """
 
     def _get_effective_db_default(self) -> str:
