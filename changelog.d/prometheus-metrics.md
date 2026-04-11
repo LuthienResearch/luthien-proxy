@@ -6,7 +6,7 @@ pr: 517
 **Prometheus `/metrics` endpoint**: The gateway now exposes Prometheus-compatible metrics at `/metrics` via the OpenTelemetry Prometheus exporter.
 
 Metrics exposed:
-- `luthien_requests_total{streaming}` — cumulative request counter (completed requests)
+- `luthien_requests_completed_total{streaming}` — completed request counter
 - `luthien_tokens_total{type}` — cumulative token counter (`input` / `output`)
 - `luthien_request_ttfb_seconds{status}` — time-to-first-byte histogram for `/v1/messages` (BaseHTTPMiddleware limitation)
 - `luthien_active_requests` — in-flight request gauge

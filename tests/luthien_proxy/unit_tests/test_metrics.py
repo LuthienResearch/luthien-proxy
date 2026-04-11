@@ -45,12 +45,14 @@ class TestMetricsAwareUsageCollector:
         assert snapshot["input_tokens"] == 10
         assert snapshot["output_tokens"] == 20
 
-    def test_record_tokens_skips_zero_values(self):
+    def test_record_tokens_zero_values_still_emitted(self):
         collector = MetricsAwareUsageCollector()
         mock_counter = MagicMock()
         with patch("luthien_proxy.metrics.token_counter", mock_counter):
             collector.record_tokens(input_tokens=0, output_tokens=0)
-        mock_counter.add.assert_not_called()
+        assert mock_counter.add.call_count == 2
+        mock_counter.add.assert_any_call(0, {"type": "input"})
+        mock_counter.add.assert_any_call(0, {"type": "output"})
 
     def test_snapshot_and_reset_unaffected_by_metrics(self):
         collector = MetricsAwareUsageCollector()

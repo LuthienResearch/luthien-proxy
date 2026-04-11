@@ -135,7 +135,7 @@ async def test_metrics_contains_expected_families_after_request(gateway_url, moc
         assert metrics_resp.status_code == 200
         body = metrics_resp.text
 
-        assert "luthien_requests" in body, f"Missing luthien_requests in:\n{body[:500]}"
+        assert "luthien_requests_completed" in body, f"Missing luthien_requests_completed in:\n{body[:500]}"
         assert "luthien_tokens" in body, f"Missing luthien_tokens in:\n{body[:500]}"
         assert "luthien_request_ttfb_seconds" in body, f"Missing luthien_request_ttfb_seconds in:\n{body[:500]}"
         assert "luthien_active_requests" in body, f"Missing luthien_active_requests in:\n{body[:500]}"
@@ -167,7 +167,7 @@ async def test_metrics_no_double_suffixes(gateway_url, mock_server):
         metrics_resp = await client.get(f"{gateway_url}/metrics")
         body = metrics_resp.text
 
-        assert "luthien_requests_total_total" not in body, "Double _total suffix detected"
+        assert "luthien_requests_completed_total_total" not in body, "Double _total suffix detected"
         assert "luthien_tokens_total_total" not in body, "Double _total suffix detected"
         assert "luthien_request_ttfb_seconds_seconds" not in body, "Double _seconds suffix detected"
 

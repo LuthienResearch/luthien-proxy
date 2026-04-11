@@ -1,14 +1,19 @@
 """Prometheus-compatible metric instruments for the Luthien gateway.
 
-Instruments are created lazily via get_meter() so they pick up whatever
-MeterProvider is configured at call time. Call configure_metrics() in
-telemetry.py before the first request to wire them to the Prometheus exporter.
+Instruments are created eagerly at import time against the global MeterProvider.
+OTel's _ProxyMeter delegates to the real provider once configure_metrics()
+(telemetry.py) sets it — so import order doesn't matter as long as
+configure_metrics() runs before the first request.
+
+NOTE: In multi-worker deployments (uvicorn --workers N), each worker maintains
+independent in-memory metrics. Prometheus will scrape whichever worker the OS
+load-balances to, producing incomplete numbers. Current scripts run single-worker.
 
 Exposed metrics:
-  luthien_requests_total{streaming}          — cumulative request counter
-  luthien_tokens_total{type}                 — cumulative token counter (input/output)
-  luthien_request_ttfb_seconds{status}       — time-to-first-byte histogram (BaseHTTPMiddleware limitation)
-  luthien_active_requests                    — in-flight request gauge (TTFB-scoped, see description)
+  luthien_requests_completed_total{streaming} — completed request counter
+  luthien_tokens_total{type}                  — cumulative token counter (input/output)
+  luthien_request_ttfb_seconds{status}        — time-to-first-byte histogram
+  luthien_active_requests                     — in-flight request gauge (TTFB-scoped)
 """
 
 from __future__ import annotations
@@ -22,8 +27,8 @@ _METER_NAME = "luthien.proxy"
 _meter = metrics.get_meter(_METER_NAME)
 
 request_counter = _meter.create_counter(
-    "luthien_requests_total",
-    description="Total LLM proxy requests completed",
+    "luthien_requests_completed_total",
+    description="Total LLM proxy requests that completed successfully",
     unit="1",
 )
 
@@ -61,10 +66,8 @@ class MetricsAwareUsageCollector(UsageCollector):
     def record_tokens(self, *, input_tokens: int, output_tokens: int) -> None:
         """Record token usage and increment Prometheus token counter."""
         super().record_tokens(input_tokens=input_tokens, output_tokens=output_tokens)
-        if input_tokens:
-            token_counter.add(input_tokens, {"type": "input"})
-        if output_tokens:
-            token_counter.add(output_tokens, {"type": "output"})
+        token_counter.add(input_tokens, {"type": "input"})
+        token_counter.add(output_tokens, {"type": "output"})
 
 
 __all__ = [

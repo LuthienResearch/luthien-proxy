@@ -21,6 +21,7 @@ from opentelemetry.exporter.prometheus import PrometheusMetricReader
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
 from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.view import ExplicitBucketHistogramAggregation, View
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -140,20 +141,38 @@ def configure_tracing() -> trace.Tracer:
     return trace.get_tracer(__name__)
 
 
+_metrics_configured = False
+
+
 def configure_metrics() -> None:
     """Configure OpenTelemetry metrics with a Prometheus exporter.
 
-    Registers a PrometheusMetricReader into prometheus_client's global REGISTRY
-    so that generate_latest() in the /metrics endpoint includes all OTel metrics.
-    The OTel SDK silently ignores duplicate set_meter_provider calls, so calling
-    this more than once is safe but redundant.
+    Registers a PrometheusMetricReader into prometheus_client's global REGISTRY.
+    Guarded to run exactly once — a second call is a no-op because
+    PrometheusMetricReader raises ValueError on duplicate REGISTRY registration.
 
     Intentionally does not gate on otel_enabled: Prometheus scraping is useful
     even when OTLP trace export is disabled (e.g. local dev without Tempo).
     """
+    global _metrics_configured  # noqa: PLW0603
+    if _metrics_configured:
+        return
+    _metrics_configured = True
+
     resource = _build_resource()
     reader = PrometheusMetricReader()
-    provider = MeterProvider(resource=resource, metric_readers=[reader])
+
+    # OTel default histogram boundaries are [0, 5, 10, 25, ... 10000] — designed
+    # for milliseconds. LLM TTFB ranges from ~0.1s to 120s, so we need custom
+    # buckets to get useful p50/p95/p99 percentiles.
+    ttfb_view = View(
+        instrument_name="luthien_request_ttfb_seconds",
+        aggregation=ExplicitBucketHistogramAggregation(
+            boundaries=(0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0),
+        ),
+    )
+
+    provider = MeterProvider(resource=resource, metric_readers=[reader], views=[ttfb_view])
     metrics.set_meter_provider(provider)
 
     logger.info("Prometheus metrics endpoint enabled at /metrics")
