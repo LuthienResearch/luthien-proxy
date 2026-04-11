@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import textwrap
 from pathlib import Path
 
 import click
@@ -97,7 +98,21 @@ def _download_files(dest: Path) -> None:
     """Download proxy artifacts from GitHub and write to dest."""
     console = Console(stderr=True)
     dest.mkdir(parents=True, exist_ok=True)
-    (dest / "config").mkdir(exist_ok=True)
+    config_dir = dest / "config"
+    config_dir.mkdir(exist_ok=True)
+
+    # Write default policy config if it doesn't exist
+    policy_config = config_dir / "policy_config.yaml"
+    if not policy_config.exists():
+        policy_config.write_text(
+            textwrap.dedent("""\
+            # Luthien Policy Configuration
+            # Default: pass-through (no modifications)
+            policy:
+              class: "luthien_proxy.policies.noop_policy:NoOpPolicy"
+              config: {}
+            """)
+        )
 
     with console.status("Downloading proxy files from GitHub..."):
         for filename in FILES_TO_DOWNLOAD:
@@ -204,7 +219,21 @@ def ensure_gateway_venv(
     repo_dir = MANAGED_REPO_DIR
 
     repo_dir.mkdir(parents=True, exist_ok=True)
-    (repo_dir / "config").mkdir(exist_ok=True)
+    config_dir = repo_dir / "config"
+    config_dir.mkdir(exist_ok=True)
+
+    # Write default policy config if it doesn't exist
+    policy_config = config_dir / "policy_config.yaml"
+    if not policy_config.exists():
+        policy_config.write_text(
+            textwrap.dedent("""\
+            # Luthien Policy Configuration
+            # Default: pass-through (no modifications)
+            policy:
+              class: "luthien_proxy.policies.noop_policy:NoOpPolicy"
+              config: {}
+            """)
+        )
 
     venv_python = venv_dir / "bin" / "python"
     needs_install = not venv_python.exists()
