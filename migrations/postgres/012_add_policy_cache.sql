@@ -6,7 +6,6 @@ CREATE TABLE IF NOT EXISTS policy_cache (
     value_json  JSONB NOT NULL,
     expires_at  TIMESTAMPTZ NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (policy_name, cache_key)
 );
 

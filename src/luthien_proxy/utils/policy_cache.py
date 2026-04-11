@@ -110,8 +110,7 @@ class PolicyCache:
             "VALUES ($1, $2, $3::jsonb, $4::timestamptz) "
             "ON CONFLICT (policy_name, cache_key) DO UPDATE SET "
             "value_json = EXCLUDED.value_json, "
-            "expires_at = EXCLUDED.expires_at, "
-            "updated_at = NOW()",
+            "expires_at = EXCLUDED.expires_at",
             self._policy_name,
             key,
             value_json,
