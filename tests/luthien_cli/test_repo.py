@@ -7,9 +7,9 @@ import pytest
 import yaml
 
 from luthien_cli.repo import (
+    _DEFAULT_POLICY_CONFIG_YAML,
     GITHUB_RAW_BASE,
     GITHUB_SHA_URL,
-    _DEFAULT_POLICY_CONFIG_YAML,
     _download_files,
     _get_remote_sha,
     _remove_build_blocks,
@@ -503,3 +503,54 @@ def test_default_policy_config_yaml_is_valid(tmp_path):
     assert "policy" in parsed
     assert "class" in parsed["policy"]
     assert "NoOpPolicy" in parsed["policy"]["class"]
+
+
+def test_write_default_policy_config_creates_file(tmp_path):
+    """_write_default_policy_config writes the constant to disk when file is absent."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+
+    _write_default_policy_config(config_dir)
+
+    written = (config_dir / "policy_config.yaml").read_text()
+    assert written == _DEFAULT_POLICY_CONFIG_YAML
+
+
+def test_write_default_policy_config_skips_existing(tmp_path):
+    """_write_default_policy_config does not overwrite an existing file."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    existing = "policy:\n  class: custom:MyPolicy\n  config: {}\n"
+    (config_dir / "policy_config.yaml").write_text(existing)
+
+    _write_default_policy_config(config_dir)
+
+    assert (config_dir / "policy_config.yaml").read_text() == existing
+
+
+def test_default_policy_config_matches_canonical():
+    """_DEFAULT_POLICY_CONFIG_YAML active policy class matches config/policy_config.yaml."""
+    from pathlib import Path
+
+    import yaml
+
+    repo_root = Path(__file__).parents[2]
+    canonical = yaml.safe_load((repo_root / "config" / "policy_config.yaml").read_text())
+    seeded = yaml.safe_load(_DEFAULT_POLICY_CONFIG_YAML)
+
+    assert canonical["policy"]["class"] == seeded["policy"]["class"], (
+        f"_DEFAULT_POLICY_CONFIG_YAML policy class '{seeded['policy']['class']}' "
+        f"differs from canonical '{canonical['policy']['class']}'. "
+        "Update _DEFAULT_POLICY_CONFIG_YAML in repo.py to match."
+    )
+    repo_root = __import__("pathlib").Path(__file__).parents[2]
+    canonical_file = repo_root / "config" / "policy_config.yaml"
+
+    canonical = yaml.safe_load(canonical_file.read_text())
+    seeded = yaml.safe_load(_DEFAULT_POLICY_CONFIG_YAML)
+
+    assert canonical["policy"]["class"] == seeded["policy"]["class"], (
+        f"_DEFAULT_POLICY_CONFIG_YAML policy class '{seeded['policy']['class']}' "
+        f"differs from canonical config/policy_config.yaml '{canonical['policy']['class']}'. "
+        "Update _DEFAULT_POLICY_CONFIG_YAML in repo.py to match."
+    )

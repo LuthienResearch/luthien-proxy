@@ -522,6 +522,9 @@ def configure_local_mode() -> None:
     # luthien_cli.local_process.start_gateway spawns this process with
     # cwd=MANAGED_REPO_DIR (~/.luthien/luthien-proxy), but relying on that
     # would be an implicit coupling. Use the known path directly instead.
+    # TODO: devs running `python -m luthien_proxy.main --local` from a source
+    # checkout will get this managed path, not the checkout's config/. Add a
+    # fallback to ./config/policy_config.yaml if the managed path doesn't exist.
     os.environ["POLICY_CONFIG"] = os.path.join(
         os.path.expanduser("~"), ".luthien", "luthien-proxy", "config", "policy_config.yaml"
     )
@@ -594,11 +597,7 @@ def auto_provision_defaults() -> dict[str, str]:
         provisioned["ADMIN_API_KEY"] = value
 
     if not os.environ.get("POLICY_CONFIG"):
-        value = (
-            os.path.abspath("config/railway_policy_config.yaml")
-            if on_railway
-            else os.path.abspath("config/policy_config.yaml")
-        )
+        value = "config/railway_policy_config.yaml" if on_railway else "config/policy_config.yaml"
         os.environ["POLICY_CONFIG"] = value
         provisioned["POLICY_CONFIG"] = value
 
