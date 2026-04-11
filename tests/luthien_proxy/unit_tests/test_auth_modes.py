@@ -203,6 +203,33 @@ class TestAuthModeConfig:
             "expected a warning pointing operators at the rename"
         )
 
+    def test_leftover_proxy_api_key_in_dotenv_warns(self, monkeypatch, tmp_path, caplog):
+        """Symmetric with the shell-env case: PROXY_API_KEY in .env also warns.
+
+        The pre-Pydantic check in load_config_from_env reads both sources;
+        this test locks in that symmetry so a regression in the `.env` branch
+        of `_read_env_file_value` wouldn't silently bypass the warning.
+        """
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".env").write_text(
+            "ADMIN_API_KEY=test-admin-key\n"
+            "DATABASE_URL=postgresql://test:test@localhost/test\n"
+            "PROXY_API_KEY=sk-leftover\n"
+        )
+        monkeypatch.delenv("PROXY_API_KEY", raising=False)
+        monkeypatch.delenv("CLIENT_API_KEY", raising=False)
+        monkeypatch.delenv("AUTH_MODE", raising=False)
+
+        from luthien_proxy.settings import clear_settings_cache
+
+        clear_settings_cache()
+
+        with caplog.at_level("WARNING", logger="luthien_proxy.main"):
+            load_config_from_env()
+
+        warnings = [r for r in caplog.records if r.name == "luthien_proxy.main" and r.levelno == logging.WARNING]
+        assert any("PROXY_API_KEY" in r.getMessage() for r in warnings)
+
     def test_auth_mode_flows_into_create_app(self, policy_config_file, mock_db_pool, mock_redis_client):
         """create_app with auth_mode=CLIENT_KEY initialises a CredentialManager."""
         app = create_app(

@@ -464,9 +464,8 @@ def _read_env_file_value(env_path: Path, key: str) -> str | None:
     Used for legacy-alias pre-coercion so an operator with `AUTH_MODE=proxy_key`
     in `.env` (not in the shell env) still gets the same tolerance as an
     operator who set it as a shell env var. Deliberately minimal: no variable
-    interpolation, no multi-line values, no export keyword handling — the
-    caller only needs to detect a pre-rename value that would otherwise crash
-    Pydantic validation.
+    interpolation, no multi-line values — but we do strip a leading `export `
+    so that `.env` files sourced by shell scripts elsewhere still match.
     """
     if not env_path.exists():
         return None
@@ -476,7 +475,10 @@ def _read_env_file_value(env_path: Path, key: str) -> str | None:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             name, _, value = line.partition("=")
-            if name.strip() == key:
+            name = name.strip()
+            if name.startswith("export "):
+                name = name[len("export ") :].strip()
+            if name == key:
                 value = value.strip()
                 if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
                     value = value[1:-1]
@@ -510,13 +512,21 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
     # AUTH_MODE env var (e.g. 'proxy_key') with a warning so an operator who
     # missed one env var on upgrade gets a clear message and a running gateway
     # instead of a cryptic Pydantic ValidationError. Covers both shell env
-    # vars and values read from a `.env` file.
+    # vars and values read from a `.env` file; the warning attributes the
+    # value to the right source so a hybrid setup is easy to debug.
+    # NOTE: this pre-coercion runs once per startup. If the function is ever
+    # called repeatedly in the same process, the second call will see the
+    # already-coerced value in os.environ and the warning won't re-fire.
     # TODO(post-v0.2): remove legacy AUTH_MODE / PROXY_API_KEY tolerance once
     # all deployments have migrated past PR #535.
-    raw_env_auth_mode = os.environ.get("AUTH_MODE") or _read_env_file_value(Path(".env"), "AUTH_MODE")
+    raw_env_auth_mode = os.environ.get("AUTH_MODE")
+    auth_mode_source = "AUTH_MODE env var"
+    if not raw_env_auth_mode:
+        raw_env_auth_mode = _read_env_file_value(Path(".env"), "AUTH_MODE")
+        auth_mode_source = "AUTH_MODE in .env file"
     if raw_env_auth_mode:
         try:
-            coerced = parse_auth_mode(raw_env_auth_mode, source="AUTH_MODE env var")
+            coerced = parse_auth_mode(raw_env_auth_mode, source=auth_mode_source)
         except ValueError:
             # Fall through to Pydantic so the existing error-aggregation path
             # surfaces the invalid value alongside any other config errors.
