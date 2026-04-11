@@ -1,6 +1,9 @@
 # ABOUTME: Unit tests for Prometheus metrics instruments and MetricsAwareUsageCollector
 
+import time
 from unittest.mock import MagicMock, patch
+
+from starlette.testclient import TestClient
 
 import luthien_proxy.telemetry as telemetry_mod
 from luthien_proxy.metrics import MetricsAwareUsageCollector
@@ -57,13 +60,15 @@ class TestMetricsAwareUsageCollector:
         with (
             patch.object(telemetry_mod, "_metrics_configured", False),
             patch.object(telemetry_mod, "_metrics_lock", telemetry_mod.threading.Lock()),
-            patch("luthien_proxy.telemetry.PrometheusMetricReader"),
-            patch("luthien_proxy.telemetry.MeterProvider"),
+            patch("luthien_proxy.telemetry.PrometheusMetricReader") as reader_cls,
+            patch("luthien_proxy.telemetry.MeterProvider") as provider_cls,
             patch("luthien_proxy.telemetry.metrics"),
             patch("luthien_proxy.telemetry._build_resource"),
         ):
             telemetry_mod.configure_metrics()
             telemetry_mod.configure_metrics()
+            assert reader_cls.call_count == 1
+            assert provider_cls.call_count == 1
 
     def test_snapshot_and_reset_unaffected_by_metrics(self):
         collector = MetricsAwareUsageCollector()
@@ -77,3 +82,47 @@ class TestMetricsAwareUsageCollector:
         assert snapshot["output_tokens"] == 3
         snapshot2 = collector.snapshot_and_reset()
         assert snapshot2["requests_completed"] == 0
+
+
+class TestLatencyMiddlewareErrorPath:
+    def test_error_status_when_call_next_raises(self):
+        from starlette.applications import Starlette
+        from starlette.middleware import Middleware
+        from starlette.middleware.base import BaseHTTPMiddleware
+        from starlette.routing import Route
+
+        mock_duration = MagicMock()
+        mock_active = MagicMock()
+
+        class _TestMiddleware(BaseHTTPMiddleware):
+            async def dispatch(self, request, call_next):
+                if request.url.path != "/v1/messages":
+                    return await call_next(request)
+                mock_active.add(1)
+                t0 = time.perf_counter()
+                response = None
+                try:
+                    response = await call_next(request)
+                    return response
+                finally:
+                    status = str(response.status_code) if response is not None else "error"
+                    mock_duration.record(time.perf_counter() - t0, {"status": status})
+                    mock_active.add(-1)
+
+        async def boom(request):
+            raise RuntimeError("boom")
+
+        app = Starlette(
+            routes=[Route("/v1/messages", boom, methods=["POST"])],
+            middleware=[Middleware(_TestMiddleware)],
+        )
+
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post("/v1/messages")
+        assert resp.status_code == 500
+
+        mock_active.add.assert_any_call(1)
+        mock_active.add.assert_any_call(-1)
+        mock_duration.record.assert_called_once()
+        recorded_attrs = mock_duration.record.call_args[0][1]
+        assert recorded_attrs["status"] == "error"
