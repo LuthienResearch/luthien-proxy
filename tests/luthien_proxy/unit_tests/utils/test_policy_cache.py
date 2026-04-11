@@ -695,10 +695,14 @@ class TestPolicyCacheSizeCap:
         await cache.put("a_old", {"v": "old1"}, ttl_seconds=10_000)
         await cache.put("b_old", {"v": "old2"}, ttl_seconds=10_000)
 
-        # Now put a new entry with a much *shorter* TTL. Under a
-        # naive expires_at-ASC eviction this would evict itself; under
-        # FIFO-by-created_at the new entry survives and an old one goes.
-        await cache.put("c_new", {"v": "new"}, ttl_seconds=1)
+        # Put a new entry with a *shorter* TTL than the long-lived rows.
+        # Under a naive expires_at-ASC eviction this would evict itself;
+        # under FIFO-by-created_at the new entry survives and an old one
+        # goes. TTL must be long enough to survive SQLite's second-
+        # precision expires_at (datetime('now') truncates fractional
+        # seconds) plus worst-case CI latency between put() and get() —
+        # a 1s TTL flakes on loaded CI runners.
+        await cache.put("c_new", {"v": "new"}, ttl_seconds=60)
 
         assert await _count_entries(db_pool, "selfevict") == 2
         assert await cache.get("c_new") == {"v": "new"}
