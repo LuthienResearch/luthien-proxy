@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import math
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -143,6 +145,382 @@ class TestPolicyCacheJsonbDecoding:
         cache = self._mock_cache_with_row_value(42)
         with pytest.raises(TypeError, match="unexpected value_json type"):
             await cache.get("any_key")
+
+
+class TestPolicyCacheRoundTrip:
+    """Round-trip coverage for non-trivial values.
+
+    These tests would catch type-codec, encoding, or JSON-serialization
+    regressions in either backend (SQLite TEXT or Postgres jsonb). The
+    base tests above only exercise toy dicts like ``{foo: bar}``.
+    """
+
+    @pytest.mark.asyncio
+    async def test_deeply_nested_dict(self, cache: PolicyCache):
+        value = {
+            "level1": {
+                "level2": {
+                    "level3": {
+                        "level4": {
+                            "level5": {"leaf": "deep_value", "count": 42},
+                        },
+                    },
+                },
+            },
+        }
+        await cache.put("nested", value, ttl_seconds=3600)
+        assert await cache.get("nested") == value
+
+    @pytest.mark.asyncio
+    async def test_mixed_nested_dict_and_list(self, cache: PolicyCache):
+        value = {
+            "users": [
+                {"id": 1, "tags": ["admin", "owner"], "meta": {"active": True}},
+                {"id": 2, "tags": [], "meta": {"active": False, "reason": None}},
+            ],
+            "counts": {"total": 2, "active": 1},
+            "matrix": [[1, 2, 3], [4, 5, 6]],
+        }
+        await cache.put("mixed", value, ttl_seconds=3600)
+        assert await cache.get("mixed") == value
+
+    @pytest.mark.asyncio
+    async def test_unicode_basic_multilingual(self, cache: PolicyCache):
+        # WHY: json.dumps defaults to ensure_ascii=True, so the stored
+        # TEXT is actually pure ASCII escape sequences (\uXXXX). The
+        # contract we care about is that the Python object round-trips
+        # identically — this verifies the full encode → store → decode
+        # → reconstruct path without mojibake on either backend.
+        value = {
+            "greek": "αβγδε",
+            "cyrillic": "Привет мир",
+            "chinese": "你好世界",
+            "japanese": "こんにちは",
+            "korean": "안녕하세요",
+            "arabic": "مرحبا بالعالم",
+            "hebrew": "שלום עולם",
+        }
+        await cache.put("unicode_bmp", value, ttl_seconds=3600)
+        assert await cache.get("unicode_bmp") == value
+
+    @pytest.mark.asyncio
+    async def test_unicode_supplementary_plane_and_emoji(self, cache: PolicyCache):
+        # Emoji and supplementary plane codepoints (> U+FFFF) — exercise
+        # surrogate-pair handling in any UTF-16 intermediate layers.
+        value = {
+            "emoji_simple": "🙂🔥🚀",
+            "emoji_flags": "🇺🇸🇯🇵🇫🇷",
+            "emoji_zwj": "👨‍👩‍👧‍👦",  # family via ZWJ sequence
+            "emoji_skin_tone": "👋🏽👍🏿",
+            "math": "𝔸𝕀𝕄",  # mathematical alphanumeric symbols
+            "cuneiform": "𒀀𒀁𒀂",
+        }
+        await cache.put("unicode_smp", value, ttl_seconds=3600)
+        assert await cache.get("unicode_smp") == value
+
+    @pytest.mark.asyncio
+    async def test_unicode_combining_and_normalization(self, cache: PolicyCache):
+        # NFC vs NFD forms must round-trip byte-for-byte — JSON storage
+        # must not silently normalize.
+        nfc = "café"  # precomposed é (U+00E9)
+        nfd = "cafe\u0301"  # e + combining acute
+        value = {"nfc": nfc, "nfd": nfd}
+        await cache.put("normalization", value, ttl_seconds=3600)
+        result = await cache.get("normalization")
+        assert result == value
+        assert result["nfc"] != result["nfd"], "NFC and NFD must stay distinct"
+        assert len(result["nfc"]) == 4
+        assert len(result["nfd"]) == 5
+
+    @pytest.mark.asyncio
+    async def test_string_with_json_control_chars(self, cache: PolicyCache):
+        # Characters that need escaping in JSON — quotes, backslashes,
+        # newlines, tabs, control chars.
+        value = {
+            "quote": 'he said "hello"',
+            "backslash": "path\\to\\file",
+            "newline": "line1\nline2\r\nline3",
+            "tab": "col1\tcol2",
+            "null_byte_ish": "before\u0000after",  # NUL
+            "bell": "\a\b\f",
+            "json_lookalike": '{"not": "actually parsed"}',
+            "mixed": 'say "hi"\nand\t"bye"\\',
+        }
+        await cache.put("control_chars", value, ttl_seconds=3600)
+        assert await cache.get("control_chars") == value
+
+    @pytest.mark.asyncio
+    async def test_large_payload_100kb(self, cache: PolicyCache):
+        # Exercise storage of ~100KB payloads — would catch TEXT/BLOB
+        # column size truncation or buffer-size assumptions.
+        chunk = "a" * 1024
+        value = {"data": [chunk] * 100, "tag": "large"}
+        await cache.put("large", value, ttl_seconds=3600)
+        result = await cache.get("large")
+        assert result == value
+        assert len(result["data"]) == 100
+        assert all(len(s) == 1024 for s in result["data"])
+
+    @pytest.mark.asyncio
+    async def test_large_unicode_payload(self, cache: PolicyCache):
+        # Large payload with multi-byte characters — bytes != chars.
+        chunk = "日本語テスト" * 100  # ~600 chars, ~1800 UTF-8 bytes per chunk
+        value = {"text": chunk * 50}
+        await cache.put("large_unicode", value, ttl_seconds=3600)
+        result = await cache.get("large_unicode")
+        assert result == value
+        assert result["text"] == chunk * 50
+
+    @pytest.mark.asyncio
+    async def test_scalar_top_level_string(self, cache: PolicyCache):
+        await cache.put("s", "just a string", ttl_seconds=3600)
+        result = await cache.get("s")
+        assert result == "just a string"
+        assert isinstance(result, str)
+
+    @pytest.mark.asyncio
+    async def test_scalar_top_level_int(self, cache: PolicyCache):
+        await cache.put("i", 42, ttl_seconds=3600)
+        result = await cache.get("i")
+        assert result == 42
+        assert isinstance(result, int)
+        assert not isinstance(result, bool)
+
+    @pytest.mark.asyncio
+    async def test_scalar_top_level_float(self, cache: PolicyCache):
+        await cache.put("f", 3.14159, ttl_seconds=3600)
+        result = await cache.get("f")
+        assert result == 3.14159
+        assert isinstance(result, float)
+
+    @pytest.mark.asyncio
+    async def test_scalar_top_level_bool(self, cache: PolicyCache):
+        await cache.put("t", True, ttl_seconds=3600)
+        await cache.put("f", False, ttl_seconds=3600)
+        assert await cache.get("t") is True
+        assert await cache.get("f") is False
+
+    @pytest.mark.asyncio
+    async def test_bool_not_coerced_to_int(self, cache: PolicyCache):
+        # JSON preserves bool vs int distinction — a True stored should
+        # not come back as 1. Important because Python bools are an
+        # int subclass and naive storage layers sometimes lose the type.
+        await cache.put("b", True, ttl_seconds=3600)
+        result = await cache.get("b")
+        assert result is True
+        assert type(result) is bool
+
+        await cache.put("i", 1, ttl_seconds=3600)
+        result_int = await cache.get("i")
+        assert result_int == 1
+        assert type(result_int) is int
+
+    @pytest.mark.asyncio
+    async def test_none_value_round_trip(self, cache: PolicyCache):
+        # None is a valid JSON value (`null`). The cache stores it but
+        # get() returns None on both a miss and a stored-None, so this
+        # test documents that behavior: stored None is retrievable but
+        # indistinguishable from a miss. If a future PR changes get()
+        # to raise or sentinel-distinguish, this test will flag it.
+        await cache.put("nil", None, ttl_seconds=3600)
+        assert await cache.get("nil") is None
+        assert await cache.get("not_stored") is None
+
+    @pytest.mark.asyncio
+    async def test_integer_edge_values(self, cache: PolicyCache):
+        # Large integers that exceed 32-bit and 64-bit signed range.
+        # JSON has no int size limit but some numeric codecs coerce to
+        # float once the mantissa overflows.
+        value = {
+            "zero": 0,
+            "negative": -1,
+            "max_i32": 2**31 - 1,
+            "min_i32": -(2**31),
+            "max_i64": 2**63 - 1,
+            "min_i64": -(2**63),
+            "beyond_i64": 2**80,  # Python int, would overflow JS Number
+        }
+        await cache.put("ints", value, ttl_seconds=3600)
+        result = await cache.get("ints")
+        assert result == value
+        for k, v in value.items():
+            assert type(result[k]) is int, f"{k} should stay int, got {type(result[k])}"
+
+    @pytest.mark.asyncio
+    async def test_float_edge_values(self, cache: PolicyCache):
+        # JSON doesn't support NaN/Infinity, so we exclude those — but
+        # negative zero, tiny subnormals, and very large finite floats
+        # should round-trip.
+        value = {
+            "zero": 0.0,
+            "negative": -1.5,
+            "small": 1e-300,
+            "large": 1e300,
+            "pi": 3.141592653589793,
+        }
+        await cache.put("floats", value, ttl_seconds=3600)
+        result = await cache.get("floats")
+        assert result == value
+        assert math.isclose(result["pi"], math.pi)
+
+    @pytest.mark.asyncio
+    async def test_non_finite_floats_current_behavior(self, cache: PolicyCache):
+        # json.dumps with default settings accepts NaN/Infinity (emitting
+        # the non-standard `NaN`/`Infinity` tokens). This test pins the
+        # current round-trip behavior so any future switch to
+        # json.dumps(..., allow_nan=False) is a visible change: the test
+        # will start raising ValueError inside put(), which is what
+        # callers would then need to handle.
+        await cache.put("nan", float("nan"), ttl_seconds=3600)
+        nan_result = await cache.get("nan")
+        assert isinstance(nan_result, float)
+        assert math.isnan(nan_result)
+
+        await cache.put("inf", float("inf"), ttl_seconds=3600)
+        assert await cache.get("inf") == float("inf")
+
+        await cache.put("ninf", float("-inf"), ttl_seconds=3600)
+        assert await cache.get("ninf") == float("-inf")
+
+    @pytest.mark.asyncio
+    async def test_empty_containers(self, cache: PolicyCache):
+        await cache.put("empty_dict", {}, ttl_seconds=3600)
+        await cache.put("empty_list", [], ttl_seconds=3600)
+        await cache.put("empty_string", "", ttl_seconds=3600)
+
+        assert await cache.get("empty_dict") == {}
+        assert await cache.get("empty_list") == []
+        assert await cache.get("empty_string") == ""
+
+    @pytest.mark.asyncio
+    async def test_heterogeneous_list(self, cache: PolicyCache):
+        value = [1, "two", 3.0, True, False, None, {"k": "v"}, [1, 2], []]
+        await cache.put("hetero", value, ttl_seconds=3600)
+        result = await cache.get("hetero")
+        assert result == value
+        assert type(result[0]) is int
+        assert type(result[2]) is float
+        assert result[3] is True
+        assert result[4] is False
+        assert result[5] is None
+
+    @pytest.mark.asyncio
+    async def test_overwrite_with_different_type(self, cache: PolicyCache):
+        # Upserting should fully replace the value, including its type.
+        await cache.put("k", {"was": "dict"}, ttl_seconds=3600)
+        await cache.put("k", [1, 2, 3], ttl_seconds=3600)
+        result = await cache.get("k")
+        assert result == [1, 2, 3]
+        assert isinstance(result, list)
+
+        await cache.put("k", "now a string", ttl_seconds=3600)
+        assert await cache.get("k") == "now a string"
+
+        await cache.put("k", 99, ttl_seconds=3600)
+        assert await cache.get("k") == 99
+
+    @pytest.mark.asyncio
+    async def test_dict_with_unicode_keys(self, cache: PolicyCache):
+        value = {"café": 1, "你好": 2, "🔑": "key", "مفتاح": "arabic key"}
+        await cache.put("unicode_keys", value, ttl_seconds=3600)
+        assert await cache.get("unicode_keys") == value
+
+    @pytest.mark.asyncio
+    async def test_cache_key_with_unicode_and_special_chars(self, cache: PolicyCache):
+        # The cache_key itself (SQL param, not JSON) — should survive
+        # arbitrary unicode and SQL-meta characters.
+        keys = [
+            "key with spaces",
+            "key/with/slashes",
+            "key:with:colons",
+            "key'with'quotes",
+            'key"with"doublequotes',
+            "key;DROP TABLE policy_cache;--",
+            "键_unicode",
+            "🔑_emoji_key",
+            "a" * 500,  # long key
+        ]
+        for i, key in enumerate(keys):
+            await cache.put(key, {"idx": i, "key": key}, ttl_seconds=3600)
+        for i, key in enumerate(keys):
+            result = await cache.get(key)
+            assert result == {"idx": i, "key": key}, f"failed for key {key!r}"
+
+    @pytest.mark.asyncio
+    async def test_empty_string_cache_key(self, cache: PolicyCache):
+        # Empty string is a legal SQL parameter value. The cache should
+        # treat it as a normal key, not conflate it with "no key".
+        await cache.put("", {"marker": "empty_key"}, ttl_seconds=3600)
+        assert await cache.get("") == {"marker": "empty_key"}
+        # And it must not collide with other keys.
+        await cache.put("other", {"marker": "other"}, ttl_seconds=3600)
+        assert await cache.get("") == {"marker": "empty_key"}
+
+    @pytest.mark.asyncio
+    async def test_ttl_zero_is_immediately_expired(self, cache: PolicyCache):
+        # policy_cache uses strict > in the expires_at comparison, so
+        # ttl=0 stores an entry whose expires_at equals NOW() and is
+        # therefore already expired on read. This test pins that
+        # behavior — a future change to >= would flip it.
+        await cache.put("zero_ttl", {"v": 1}, ttl_seconds=0)
+        assert await cache.get("zero_ttl") is None
+
+    @pytest.mark.asyncio
+    async def test_dict_with_non_string_keys_coerces_to_string(self, cache: PolicyCache):
+        # JSON only supports string keys — json.dumps silently coerces
+        # int/float/bool keys to strings. This documents the behavior
+        # so callers who assume dict keys round-trip unchanged get a
+        # heads-up from the test suite.
+        await cache.put("coerced", {1: "one", 2: "two"}, ttl_seconds=3600)
+        result = await cache.get("coerced")
+        assert result == {"1": "one", "2": "two"}
+        assert all(isinstance(k, str) for k in result)
+
+    @pytest.mark.asyncio
+    async def test_nested_bool_and_none_in_lists(self, cache: PolicyCache):
+        # Top-level heterogeneous lists are covered above, but nested
+        # positions are a separate code path in some JSON codecs.
+        value = [[True, False], [None, None], [[True, None, False]]]
+        await cache.put("nested_typed", value, ttl_seconds=3600)
+        result = await cache.get("nested_typed")
+        assert result == value
+        assert result[0][0] is True
+        assert result[0][1] is False
+        assert result[1][0] is None
+        assert result[2][0][0] is True
+        assert result[2][0][1] is None
+        assert result[2][0][2] is False
+
+    @pytest.mark.asyncio
+    async def test_policy_name_isolation_with_unicode(self, db_pool: SqlitePool):
+        # Namespacing must hold even when policy names share a key and
+        # contain non-ASCII characters.
+        db = _wrap_sqlite_pool(db_pool)
+        cache_a = PolicyCache(db, "policy_αβγ")
+        cache_b = PolicyCache(db, "policy_xyz")
+        await cache_a.put("k", {"ns": "a"}, ttl_seconds=3600)
+        await cache_b.put("k", {"ns": "b"}, ttl_seconds=3600)
+        assert await cache_a.get("k") == {"ns": "a"}
+        assert await cache_b.get("k") == {"ns": "b"}
+
+    @pytest.mark.asyncio
+    async def test_concurrent_puts_leave_consistent_state(self, cache: PolicyCache):
+        # The put() docstring claims atomicity via ON CONFLICT, so
+        # concurrent puts on the same key must leave the row in one of
+        # the two valid states (not a mix). SQLite serializes writes
+        # via SqlitePool's lock, so this mainly verifies the fixture
+        # doesn't corrupt under interleaved awaits — but it would
+        # catch a future regression where put() splits into a
+        # non-atomic SELECT+INSERT sequence.
+        await asyncio.gather(
+            cache.put("race", {"writer": "a", "payload": list(range(100))}, ttl_seconds=3600),
+            cache.put("race", {"writer": "b", "payload": list(range(100))}, ttl_seconds=3600),
+            cache.put("race", {"writer": "c", "payload": list(range(100))}, ttl_seconds=3600),
+        )
+        result = await cache.get("race")
+        assert isinstance(result, dict)
+        assert result["writer"] in {"a", "b", "c"}
+        assert result["payload"] == list(range(100))
 
 
 class TestPolicyCacheIsolation:
