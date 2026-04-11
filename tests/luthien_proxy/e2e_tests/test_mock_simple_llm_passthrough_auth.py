@@ -5,7 +5,7 @@ auth token is forwarded to judge LLM calls.
 
 How this works in the mock_e2e setup:
 - Gateway has ANTHROPIC_API_KEY=mock-key (used for main LLM calls via LiteLLM env var)
-- Client authenticates with API_KEY (= PROXY_API_KEY = "sk-luthien-dev-key")
+- Client authenticates with API_KEY (= CLIENT_API_KEY = "sk-luthien-dev-key")
 - Judge api_base points at the mock server (same as main LLM)
 - Main LLM call arrives at mock server with mock-key
 - Judge call arrives at mock server with the client's passthrough key (sk-luthien-dev-key)

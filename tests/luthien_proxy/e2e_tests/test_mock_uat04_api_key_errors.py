@@ -63,7 +63,7 @@ async def test_invalid_key_returns_clean_response(
 
     AUTH_MODE=both (default): unknown keys are forwarded as passthrough — mock
     backend accepts them, so we get a valid message response.
-    AUTH_MODE=proxy_key: invalid keys are rejected with an Anthropic error envelope.
+    AUTH_MODE=client_key: invalid keys are rejected with an Anthropic error envelope.
     Both paths must return structured responses without tracebacks or double-encoded JSON.
     """
     auth_mode = os.getenv("AUTH_MODE", "both")

@@ -48,7 +48,7 @@ Config is stored at `~/.luthien/config.toml`:
 ```toml
 [gateway]
 url = "http://localhost:8000"
-api_key = "sk-your-proxy-key"
+api_key = "sk-your-client-key"
 admin_key = "admin-your-key"
 
 [local]
@@ -58,6 +58,6 @@ repo_path = "/path/to/luthien-proxy"
 | Key | Description |
 |-----|-------------|
 | `gateway.url` | Gateway base URL (default: `http://localhost:8000`) |
-| `gateway.api_key` | Stored but currently unused by `luthien claude` — the CLI only sets `ANTHROPIC_BASE_URL` and lets Claude Code forward its own credentials upstream. Reserved for future proxy-key injection; safe to leave unset. |
+| `gateway.api_key` | Stored but currently unused by `luthien claude` — the CLI only sets `ANTHROPIC_BASE_URL` and lets Claude Code forward its own credentials upstream. Reserved for future `CLIENT_API_KEY` injection; safe to leave unset. |
 | `gateway.admin_key` | Admin API key — sent as `Authorization: Bearer <key>` for admin endpoints (`luthien status`) |
 | `local.repo_path` | Auto-set by `luthien onboard`. Override to use a custom repo checkout. |

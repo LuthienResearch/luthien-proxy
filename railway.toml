@@ -11,7 +11,7 @@
 # then point Claude Code at your proxy:
 #   export ANTHROPIC_BASE_URL=https://your-app.railway.app
 #
-# For production use, add a Postgres service and set PROXY_API_KEY to a stable value.
+# For production use, add a Postgres service and set CLIENT_API_KEY to a stable value.
 # Set a Railway usage limit ($5-20/month) as a budget safety valve.
 
 [build]
@@ -26,9 +26,9 @@ restartPolicyMaxRetries = 3
 # Optional environment variables (set in Railway dashboard to override defaults):
 # AUTH_MODE - Defaults to "passthrough" on Railway (OAuth pass-through)
 # DATABASE_URL - Add PostgreSQL service for multi-user (defaults to SQLite)
-# PROXY_API_KEY - Set for proxy-key auth mode (not needed for passthrough)
+# CLIENT_API_KEY - Set for client_key auth mode (not needed for passthrough)
 # ADMIN_API_KEY - Admin endpoints (auto-generated if not set)
 # REDIS_URL - Add Redis for real-time UI events (optional)
 # POLICY_CONFIG - Path to policy YAML (defaults to config/railway_policy_config.yaml)
-# ANTHROPIC_API_KEY - Only needed for proxy_key auth mode, not passthrough
+# ANTHROPIC_API_KEY - Only needed for client_key auth mode, not passthrough
 # GATEWAY_PORT - Auto-detected from Railway's PORT (no manual config needed)

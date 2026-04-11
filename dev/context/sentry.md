@@ -34,7 +34,7 @@ Built-in denylist includes: `password`, `secret`, `api_key`, `apikey`, `auth`, `
 
 We extend it with proxy-specific keys:
 ```
-anthropic_api_key, openai_api_key, proxy_api_key, admin_api_key,
+anthropic_api_key, openai_api_key, client_api_key, admin_api_key,
 resolved_api_key, explicit_key, bearer_token, api_key_header
 ```
 

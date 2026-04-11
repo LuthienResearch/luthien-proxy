@@ -51,15 +51,15 @@ document.addEventListener('alpine:init', () => {
                     let tooltipText = null;
 
                     const isApiKeyCredential =
-                        data.auth_mode === 'proxy_key' ||
-                        data.last_credential_type === 'proxy_key_fallback' ||
-                        data.last_credential_type === 'client_api_key';
+                        data.auth_mode === 'client_key' ||
+                        data.last_credential_type === 'client_key_match' ||
+                        data.last_credential_type === 'user_api_key';
 
                     if (isApiKeyCredential) {
                         sawApiKey = true;
                     }
 
-                    if (data.auth_mode === 'proxy_key') {
+                    if (data.auth_mode === 'client_key') {
                         badgeType = 'warning';
                         badgeLabel = '⚠ API key billing';
                         tooltipText =
@@ -67,7 +67,7 @@ document.addEventListener('alpine:init', () => {
                     } else if (sawApiKey) {
                         badgeType = 'warning';
                         badgeLabel = '⚠ API key billing';
-                        if (data.last_credential_type === 'client_api_key') {
+                        if (data.last_credential_type === 'user_api_key') {
                             tooltipText =
                                 'Traffic is using your Anthropic API key, not your Claude subscription. ' +
                                 'To use Claude Max instead, run: claude auth login';

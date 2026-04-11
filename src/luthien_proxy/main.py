@@ -9,6 +9,7 @@ import os
 import secrets
 from collections.abc import MutableMapping
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import litellm
 import uvicorn
@@ -24,7 +25,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from luthien_proxy.admin import router as admin_router
 from luthien_proxy.config_fields import CONFIG_FIELDS, CONFIG_FIELDS_BY_NAME
 from luthien_proxy.config_registry import ConfigRegistry, coerce_value
-from luthien_proxy.credential_manager import AuthMode, CredentialManager
+from luthien_proxy.credential_manager import AuthMode, CredentialManager, parse_auth_mode
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.exceptions import BackendAPIError
@@ -150,13 +151,13 @@ def create_app(
     """Create FastAPI application with dependency injection.
 
     Args:
-        api_key: API key for client authentication (PROXY_API_KEY)
+        api_key: Shared API key the gateway accepts from clients (CLIENT_API_KEY)
         admin_key: API key for admin operations (ADMIN_API_KEY)
         db_pool: Database connection pool (already initialized)
         redis_client: Redis client (None for SQLite/local mode)
         startup_policy_path: Optional path to YAML policy config to load at startup
         policy_source: Strategy for loading policy at startup (db, file, db-fallback-file, file-fallback-db)
-        auth_mode: Authentication mode ("proxy_key", "passthrough", or "both")
+        auth_mode: Authentication mode ("client_key", "passthrough", or "both")
         cli_overrides: CLI argument overrides for config values
 
     Returns:
@@ -217,7 +218,7 @@ def create_app(
             raise RuntimeError(f"Failed to initialize PolicyManager: {exc}") from exc
 
         # Create Anthropic client if API key is configured.
-        # Used as the server-side credential in proxy_key and both modes.
+        # Used as the server-side credential in client_key and both modes.
         _anthropic_client: AnthropicClient | None = None
         anthropic_api_key = settings.anthropic_api_key
         if anthropic_api_key:
@@ -238,20 +239,22 @@ def create_app(
         await _credential_manager.initialize(default_auth_mode=auth_mode)
 
         _resolved_mode = _credential_manager.config.auth_mode.value
-        if _resolved_mode == "proxy_key":
-            logger.warning("Upstream auth mode: proxy_key — all requests billed to server ANTHROPIC_API_KEY.")
+        if _resolved_mode == "client_key":
+            logger.warning("Upstream auth mode: client_key — all requests billed to server ANTHROPIC_API_KEY.")
         elif _resolved_mode == "both":
-            logger.info("Upstream auth mode: both — uses client credentials when valid, falls back to server API key.")
+            logger.info(
+                "Upstream auth mode: both — forwards client credentials by default; falls back to server key on CLIENT_API_KEY match."
+            )
         else:
             logger.info("Upstream auth mode: passthrough — client credentials forwarded directly to Anthropic.")
 
-        if api_key is None and _resolved_mode == "proxy_key":
+        if api_key is None and _resolved_mode == "client_key":
             raise RuntimeError(
-                "AUTH_MODE=proxy_key requires PROXY_API_KEY to be set. "
-                "Either set PROXY_API_KEY or switch to AUTH_MODE=both or AUTH_MODE=passthrough."
+                "AUTH_MODE=client_key requires CLIENT_API_KEY to be set. "
+                "Either set CLIENT_API_KEY or switch to AUTH_MODE=both or AUTH_MODE=passthrough."
             )
         elif api_key is None and _resolved_mode == "both":
-            logger.info("PROXY_API_KEY is not set — proxy-key auth unavailable, using passthrough only")
+            logger.info("CLIENT_API_KEY is not set — shared-key auth unavailable, using passthrough only")
 
         # Check if request logging is enabled
         _enable_request_logging = get_settings().enable_request_logging
@@ -455,6 +458,36 @@ async def connect_redis(redis_url: str) -> Redis:
         raise RuntimeError(f"Failed to connect to Redis: {exc}") from exc
 
 
+def _read_env_file_value(env_path: Path, key: str) -> str | None:
+    """Read a single key from a .env file without loading pydantic-settings.
+
+    Used for legacy-alias pre-coercion so an operator with `AUTH_MODE=proxy_key`
+    in `.env` (not in the shell env) still gets the same tolerance as an
+    operator who set it as a shell env var. Deliberately minimal: no variable
+    interpolation, no multi-line values — but we do strip a leading `export `
+    so that `.env` files sourced by shell scripts elsewhere still match.
+    """
+    if not env_path.exists():
+        return None
+    try:
+        for raw_line in env_path.read_text().splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            name, _, value = line.partition("=")
+            name = name.strip()
+            if name.startswith("export "):
+                name = name[len("export ") :].strip()
+            if name == key:
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                    value = value[1:-1]
+                return value or None
+    except OSError:
+        return None
+    return None
+
+
 def load_config_from_env(settings: Settings | None = None) -> dict:
     """Load and validate configuration from environment variables.
 
@@ -475,13 +508,34 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
     """
     errors: list[str] = []
 
+    # The legacy-AUTH_MODE tolerance lives in Settings._coerce_legacy_auth_mode
+    # (auto-generated field_validator). It must run at Settings construction
+    # time because this module itself triggers Settings() at import time via
+    # configure_tracing/configure_logging/init_sentry — if the coercion lived
+    # here, the import would crash before load_config_from_env is ever called.
+    # TODO(post-v0.2): remove legacy AUTH_MODE tolerance in settings.py once
+    # all deployments have migrated past PR #535.
+
+    # A leftover PROXY_API_KEY in the environment is silently dropped by
+    # pydantic (extra='ignore'), which would leave the gateway running on
+    # passthrough while the operator still thinks shared-key auth is active.
+    # Warn loudly and point at the new name. Check both the shell env and .env.
+    leftover_proxy_api_key = os.environ.get("PROXY_API_KEY") or _read_env_file_value(Path(".env"), "PROXY_API_KEY")
+    if leftover_proxy_api_key and not (
+        os.environ.get("CLIENT_API_KEY") or _read_env_file_value(Path(".env"), "CLIENT_API_KEY")
+    ):
+        logger.warning(
+            "PROXY_API_KEY is set in the environment but is no longer read. "
+            "Rename to CLIENT_API_KEY — see changelog for PR #535."
+        )
+
     try:
         if settings is None:
             settings = get_settings()
     except ValidationError as e:
         raise ValueError(f"Invalid configuration: {e}")
 
-    # Both api keys are optional — passthrough mode doesn't need PROXY_API_KEY,
+    # Both api keys are optional — passthrough mode doesn't need CLIENT_API_KEY,
     # and admin endpoints degrade gracefully without ADMIN_API_KEY.
 
     database_url = settings.database_url
@@ -495,7 +549,7 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
     redis_url = settings.redis_url
 
     return {
-        "api_key": settings.proxy_api_key,
+        "api_key": settings.client_api_key,
         "admin_key": settings.admin_api_key,
         "database_url": database_url,
         "redis_url": redis_url,
@@ -644,6 +698,16 @@ if __name__ == "__main__":
             else:
                 parser.add_argument(flag, type=str, default=None, help=field_meta.description)
         args = parser.parse_args()
+
+        # Pre-coerce a legacy `--auth-mode proxy_key` (pre-#524) with the same
+        # warning path as the env-var tolerance. Symmetry: if an operator who
+        # upgrades via shell env gets a clear message, an operator who upgrades
+        # via CLI flag should too. Removed in the same post-v0.2 cleanup.
+        if getattr(args, "auth_mode", None) is not None:
+            try:
+                args.auth_mode = parse_auth_mode(args.auth_mode, source="--auth-mode CLI flag").value
+            except ValueError:
+                pass  # fall through to coerce_value for the cryptic-but-informative error
 
         # Collect CLI overrides (only non-None values) through coerce_value so
         # invalid input (e.g. --dogfood-mode ture, --auth-mode bogus) fails loudly

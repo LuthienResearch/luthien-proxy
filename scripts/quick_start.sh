@@ -141,7 +141,7 @@ source "${SCRIPT_DIR}/find-available-ports.sh"
 # shellcheck source=auth_mode_check.sh
 source "${SCRIPT_DIR}/auth_mode_check.sh"
 
-# Nudge users on proxy_key mode toward passthrough/both
+# Nudge users on client_key mode toward passthrough/both
 current_auth_mode="${AUTH_MODE:-both}"
 if new_mode=$(check_auth_mode_interactive "$current_auth_mode"); then
     update_auth_mode_env "$new_mode"
@@ -176,11 +176,11 @@ if [ -f .env ] && [ -f .env.example ]; then
         insecure_defaults=true
     fi
 
-    # Check PROXY_API_KEY
-    env_api_key=$(grep "^PROXY_API_KEY=" .env 2>/dev/null | cut -d'=' -f2)
-    example_api_key=$(grep "^PROXY_API_KEY=" .env.example 2>/dev/null | cut -d'=' -f2)
+    # Check CLIENT_API_KEY
+    env_api_key=$(grep "^CLIENT_API_KEY=" .env 2>/dev/null | cut -d'=' -f2)
+    example_api_key=$(grep "^CLIENT_API_KEY=" .env.example 2>/dev/null | cut -d'=' -f2)
     if [ -n "$env_api_key" ] && [ "$env_api_key" = "$example_api_key" ]; then
-        echo "⚠️  WARNING: PROXY_API_KEY is using the default dev value!"
+        echo "⚠️  WARNING: CLIENT_API_KEY is using the default dev value!"
         echo "   This is INSECURE for production. Change it in .env"
         insecure_defaults=true
     fi

@@ -18,7 +18,7 @@ docker run -p 8000:8000 \
   luthien-standalone
 ```
 
-The gateway will be available at `http://localhost:8000`. Add `-e PROXY_API_KEY=...` and `-e ANTHROPIC_API_KEY=...` only if you want proxy-key auth with a shared server-side Anthropic credential (see the [README authentication section](../README.md#authentication) for the full picture).
+The gateway will be available at `http://localhost:8000`. Clients point their `ANTHROPIC_BASE_URL` at the gateway and keep using their normal `ANTHROPIC_API_KEY` (or OAuth) — the gateway forwards those credentials upstream (passthrough, the default). Add `-e CLIENT_API_KEY=...` and `-e ANTHROPIC_API_KEY=...` only if you want a shared key clients can use instead of their real Anthropic credentials (see the [README authentication section](../README.md#authentication) for the full picture).
 
 ## Environment Variables
 
@@ -26,9 +26,9 @@ All standard Luthien env vars work. The auth-related ones:
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `PROXY_API_KEY` | No* | — | API key clients use to authenticate. Required when `AUTH_MODE=proxy_key`; optional for `both`/`passthrough`. |
-| `ADMIN_API_KEY` | No* | — | API key for admin endpoints. Required when admin routes are reached from outside the container (localhost bypass covers loopback by default — see `LOCALHOST_AUTH_BYPASS`). |
-| `ANTHROPIC_API_KEY` | No | — | Anthropic API key for upstream calls |
+| `ADMIN_API_KEY` | For remote admin access | — | API key for admin endpoints. Required when admin routes are reached from outside the container (localhost bypass covers loopback by default — see `LOCALHOST_AUTH_BYPASS`). |
+| `CLIENT_API_KEY` | No (opt-in) | — | Shared value the gateway will accept as a client credential. Clients that use it set it as their own `ANTHROPIC_API_KEY`. Without it, clients just use their own Anthropic credentials (passthrough). |
+| `ANTHROPIC_API_KEY` | Only if `CLIENT_API_KEY` is set and you expect matched traffic | — | Server-side Anthropic key used to forward requests that matched `CLIENT_API_KEY`. Without it, those requests return 500. Pure passthrough requests are unaffected. |
 | `GATEWAY_PORT` | No | `8000` | Port the gateway listens on |
 | `POLICY_CONFIG` | No | `/app/config/policy_config.yaml` | Policy config file path |
 | `POSTGRES_USER` | No | `luthien` | PostgreSQL username |

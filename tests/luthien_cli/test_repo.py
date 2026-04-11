@@ -124,7 +124,7 @@ def test_remove_build_blocks_preserves_non_build_nesting():
 
 def test_download_files(tmp_path, httpx_mock):
     compose_content = SAMPLE_COMPOSE
-    env_content = "PROXY_API_KEY=placeholder\n"
+    env_content = "CLIENT_API_KEY=placeholder\n"
 
     httpx_mock.add_response(
         url=f"{GITHUB_RAW_BASE}docker-compose.yaml",

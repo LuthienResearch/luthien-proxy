@@ -11,10 +11,10 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from luthien_proxy.credential_manager import AuthMode
+from luthien_proxy.credential_manager import AuthMode, parse_auth_mode
 from luthien_proxy.utils.constants import DEFAULT_GATEWAY_PORT
 from luthien_proxy.version import PROXY_VERSION
 
@@ -37,6 +37,18 @@ class _SettingsBase(BaseSettings):
             object.__setattr__(self, "environment", railway)
         return self
 
+    @field_validator("auth_mode", mode="before", check_fields=False)
+    @classmethod
+    def _coerce_legacy_auth_mode(cls, raw: object) -> object:
+        """Coerce pre-PR-#535 AUTH_MODE aliases (e.g. 'proxy_key') before enum validation."""
+        if isinstance(raw, str):
+            try:
+                return parse_auth_mode(raw, source="AUTH_MODE env var").value
+            except ValueError:
+                # Let pydantic's enum validator produce the canonical error message.
+                return raw
+        return raw
+
 
 class Settings(_SettingsBase):
     """Application settings — all fields generated from config_fields.py."""
@@ -47,7 +59,7 @@ class Settings(_SettingsBase):
     verbose_client_errors: bool = False
 
     # ── auth ────────────────────────────────────────────────────────
-    proxy_api_key: str | None = None
+    client_api_key: str | None = None
     admin_api_key: str | None = None
     auth_mode: AuthMode = AuthMode.BOTH
     localhost_auth_bypass: bool = True

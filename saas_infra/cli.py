@@ -100,7 +100,7 @@ def create(
                 "project_id": instance.project_id,
                 "url": instance.url,
                 "status": instance.status.value,
-                "proxy_api_key": result.proxy_api_key,
+                "client_api_key": result.client_api_key,
                 "admin_api_key": result.admin_api_key,
             }
         )

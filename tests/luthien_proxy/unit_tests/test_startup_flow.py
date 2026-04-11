@@ -206,7 +206,7 @@ class TestPolicySourceStartup:
         """POLICY_SOURCE env var must be reflected in the config returned by load_config_from_env."""
         from luthien_proxy.settings import Settings
 
-        monkeypatch.setenv("PROXY_API_KEY", "test-proxy-key")
+        monkeypatch.setenv("CLIENT_API_KEY", "test-proxy-key")
         monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
         monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
         monkeypatch.setenv("POLICY_SOURCE", "file-fallback-db")

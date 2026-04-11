@@ -143,26 +143,27 @@ Copy `.env.example` to `.env` and edit as needed. Most fields are optional — t
 
 ### Authentication
 
-Luthien has three distinct API keys that control different auth boundaries. The default `luthien onboard` flow only sets `ADMIN_API_KEY` — the other two are opt-in.
+From a client's point of view, Luthien is just an Anthropic endpoint. Point your client at `http://localhost:8000` (set `ANTHROPIC_BASE_URL`) and use your normal `ANTHROPIC_API_KEY` or Claude Pro/Max OAuth session — no Luthien-specific key, header, or flow. This is **passthrough**: the gateway forwards your credentials upstream to Anthropic and bills against your own account.
+
+The gateway has two admin-side keys — both optional for single-user local development:
 
 | Env var | What it controls | When to set it |
 |---|---|---|
 | `ADMIN_API_KEY` | Admin dashboard + admin API (History, Policy Config, `/api/admin/*`). Localhost bypass applies by default (`LOCALHOST_AUTH_BYPASS=true`). | Set automatically by `luthien onboard`. Required for remote admin access. |
-| `PROXY_API_KEY` | Gateway ingress: the shared key clients present to talk to `/v1/messages`. Only consulted in `AUTH_MODE=proxy_key` or `both`. | Only if you want a shared gateway key for clients. If unset in `both` mode, clients fall back to passthrough (forwarding their own Anthropic credentials). If unset in `proxy_key` mode, the gateway refuses to start. |
-| `ANTHROPIC_API_KEY` | Gateway egress: the server-side Anthropic credential used when a request successfully authenticates with `PROXY_API_KEY`. | Only if you set `PROXY_API_KEY` and want proxy-keyed traffic billed to a shared Anthropic account. If unset, proxy-keyed requests fail with 500; passthrough requests are unaffected. |
+| `CLIENT_API_KEY` | A shared value the gateway will also accept as a client credential. When a client sends exactly this value as its `ANTHROPIC_API_KEY`, the gateway forwards the request using the server's own `ANTHROPIC_API_KEY` instead. Useful for operators who don't want to distribute their real Anthropic key. | Only if you want a single shared key that multiple machines can use without knowing the real Anthropic credential. If unset, clients simply use their own Anthropic credentials (the default passthrough path). |
 
-> :warning: **`ANTHROPIC_API_KEY` bills per token.** If set, requests that authenticate with `PROXY_API_KEY` are routed to Anthropic using this key at [per-token rates](https://docs.anthropic.com/en/docs/about-claude/models). Claude Pro/Max subscribers should leave it unset and rely on OAuth passthrough (the default).
+> :warning: **Server-side `ANTHROPIC_API_KEY` bills per token.** It is only consulted for requests that match `CLIENT_API_KEY`. Claude Pro/Max subscribers should leave both unset and rely on OAuth passthrough.
 
 #### What you get by default
 
-After `luthien onboard`, the gateway runs with `AUTH_MODE=both`, `ADMIN_API_KEY` set, and neither `PROXY_API_KEY` nor `ANTHROPIC_API_KEY` set. In this setup:
+After `luthien onboard`, the gateway runs with `AUTH_MODE=both`, `ADMIN_API_KEY` set, and neither `CLIENT_API_KEY` nor a server-side `ANTHROPIC_API_KEY` set. In this setup:
 
-1. Clients pass their own Anthropic OAuth token or API key and it is forwarded upstream (**passthrough** — no gateway key needed).
-2. The admin dashboard is reachable without the key from localhost (bypass). Remote access requires the `Authorization: Bearer <ADMIN_API_KEY>` header.
+1. Clients pass their own Anthropic OAuth token or API key (as `ANTHROPIC_API_KEY`) and it is forwarded upstream — **passthrough**, no gateway-specific credential needed.
+2. The admin dashboard is reachable without the admin key from localhost. Remote access requires `Authorization: Bearer <ADMIN_API_KEY>`.
 
-You only need `PROXY_API_KEY` / `ANTHROPIC_API_KEY` if you want a shared server-managed Anthropic credential for multiple clients. For a single Claude Pro/Max user on localhost, neither is required.
+Add `CLIENT_API_KEY` + server-side `ANTHROPIC_API_KEY` only if you want a shared, rotatable credential that hides the real Anthropic key from clients.
 
-> **Source-clone note**: `./scripts/start_gateway.sh` populates `.env` from `.env.local.example`, which seeds a dev `PROXY_API_KEY=sk-local-dev` for convenience, and the script itself defaults `PROXY_API_KEY` to `sk-luthien-dev-key` if unset in the environment. The source-clone path is meant for gateway development, not for users who want pure passthrough — use `luthien onboard` for that.
+> **Source-clone note**: `./scripts/start_gateway.sh` populates `.env` from `.env.local.example`, which seeds a dev `CLIENT_API_KEY=sk-local-dev` for convenience, and the script itself defaults `CLIENT_API_KEY` to `sk-luthien-dev-key` if unset. The source-clone path is meant for gateway development, not end users — use `luthien onboard` for that.
 
 #### Configuring keys manually
 
@@ -170,11 +171,10 @@ You only need `PROXY_API_KEY` / `ANTHROPIC_API_KEY` if you want a shared server-
 # Required for remote admin dashboard access; auto-generated by `luthien onboard`
 ADMIN_API_KEY=admin-dev-key
 
-# Optional — set to enable proxy-key auth for clients
-PROXY_API_KEY=sk-luthien-dev-key
+# Optional — clients that set ANTHROPIC_API_KEY to this value will be accepted
+CLIENT_API_KEY=sk-luthien-dev-key
 
-# Required if and only if PROXY_API_KEY is set AND you expect proxy-keyed traffic
-# to reach Anthropic (without this, proxy-keyed requests return 500)
+# Required only if CLIENT_API_KEY is set — used to forward matching requests upstream
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
 ```
 
@@ -298,8 +298,8 @@ docker compose down && ./scripts/quick_start.sh
 
 ### API requests failing
 
-1. **Check client credentials (default setup)**: Luthien's default mode is passthrough — clients forward their own Anthropic credentials upstream. For Claude Code, run `claude auth login` to ensure your Claude Pro/Max session is active. No `PROXY_API_KEY` is required in this mode.
-2. **Only if you explicitly set `PROXY_API_KEY`**: Clients presenting it must send `Authorization: Bearer <PROXY_API_KEY>` or `x-api-key: <PROXY_API_KEY>`, and `ANTHROPIC_API_KEY` must be set for upstream calls (otherwise the gateway returns 500).
+1. **Check client credentials (default setup)**: Luthien's default mode is passthrough — clients forward their own Anthropic credentials upstream. For Claude Code, run `claude auth login` to ensure your Claude Pro/Max session is active. No Luthien-specific credential is required.
+2. **Only if you explicitly set `CLIENT_API_KEY`**: Clients authenticate by putting that exact value in their `ANTHROPIC_API_KEY` env var (sent as `x-api-key` or `Authorization: Bearer`). The gateway then forwards the request using the server-side `ANTHROPIC_API_KEY`, so that must also be set (otherwise the gateway returns 500).
 3. **Check logs**: `luthien logs` (local mode) or `docker compose logs -f gateway` (Docker mode).
 4. **Dashboard login page appearing on localhost?** `LOCALHOST_AUTH_BYPASS` is normally on — if you see a login page, the bypass may have been disabled. Check `/config` or `.env` for `LOCALHOST_AUTH_BYPASS=true`, and ensure you're actually hitting the gateway from `127.0.0.1` / `::1`.
 

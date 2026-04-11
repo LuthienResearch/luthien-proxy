@@ -18,7 +18,7 @@ class TestDockerPullErrorHandling:
         config = MagicMock()
         config.repo_path = str(tmp_path)
         # Create .env.example so _ensure_docker_env doesn't fail
-        (tmp_path / ".env.example").write_text("PROXY_API_KEY=placeholder\n")
+        (tmp_path / ".env.example").write_text("CLIENT_API_KEY=placeholder\n")
         return config
 
     @patch("luthien_cli.commands.onboard.click.confirm", return_value=False)

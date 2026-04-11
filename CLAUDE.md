@@ -117,7 +117,7 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
   - `config_fields.py`, `config_registry.py`, `settings.py`: gateway config system (see "Configuration System" below). `settings.py` is auto-generated — do not edit by hand.
   - `policy_manager.py`: loads the active policy from YAML or DB and hot-swaps at runtime
   - `policy_composition.py`: `compose_policy()` helper for wrapping policies in a `MultiSerialPolicy` chain
-  - `credential_manager.py`: validates client credentials (proxy_key / passthrough / both) and caches results
+  - `credential_manager.py`: validates client credentials (client_key / passthrough / both) and caches results
   - `telemetry.py`: OpenTelemetry tracing setup (distinct from `observability/`, which handles event emission)
   - `pipeline/`: request processing pipeline — request entry point, client format detection, policy-context injection, stream protocol validation
   - `policies/`: concrete policy implementations; `policies/presets/` holds reusable rule presets (e.g. `block_dangerous_commands`, `no_yapping`)
@@ -227,7 +227,7 @@ All gateway configuration is defined in `src/luthien_proxy/config_fields.py` —
 
 - Copy `.env.example` to `.env`; never commit secrets.
 - Key env vars: `DATABASE_URL`, `POLICY_CONFIG`, `ADMIN_API_KEY`. (`REDIS_URL` only needed for Docker Compose deployments.)
-  - `PROXY_API_KEY` and `ANTHROPIC_API_KEY` are optional and only apply in specific auth modes — see [`dev/context/authentication.md`](dev/context/authentication.md).
+  - `CLIENT_API_KEY` and `ANTHROPIC_API_KEY` are optional and only apply in specific auth modes — see [`dev/context/authentication.md`](dev/context/authentication.md).
 - Policy env vars:
   - `POLICY_SOURCE` — policy loading strategy: `db`, `file`, `db-fallback-file` (default), or `file-fallback-db`.
   - `POLICY_CONFIG` — path to the policy YAML file (used when `POLICY_SOURCE` resolves to file).

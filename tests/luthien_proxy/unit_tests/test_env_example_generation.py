@@ -70,7 +70,7 @@ def test_env_example_file_is_non_empty() -> None:
     content = ENV_EXAMPLE.read_text()
     assert content.strip(), ".env.example is empty — run `uv run python scripts/generate_env_example.py > .env.example`"
     # Cheap sanity: all three auth-related fields plus AUTH_MODE should be present.
-    for key in ("PROXY_API_KEY", "ADMIN_API_KEY", "ANTHROPIC_API_KEY", "AUTH_MODE"):
+    for key in ("CLIENT_API_KEY", "ADMIN_API_KEY", "ANTHROPIC_API_KEY", "AUTH_MODE"):
         assert key in content, f".env.example is missing an entry for {key}"
 
 
@@ -128,8 +128,8 @@ def test_bool_default_renders_lowercase(generator_output: str) -> None:
 
 def test_none_default_renders_empty(generator_output: str) -> None:
     """Fields with no default render as bare ``# FIELD=`` — no literal ``None``."""
-    assert "# PROXY_API_KEY=" in generator_output
-    assert "# PROXY_API_KEY=None" not in generator_output
+    assert "# CLIENT_API_KEY=" in generator_output
+    assert "# CLIENT_API_KEY=None" not in generator_output
 
 
 def test_int_default_renders_as_decimal(generator_output: str) -> None:

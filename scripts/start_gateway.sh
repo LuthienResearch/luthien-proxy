@@ -26,7 +26,7 @@ fi
 
 # Set defaults
 PORT=${GATEWAY_PORT:-8000}
-API_KEY=${PROXY_API_KEY:-sk-luthien-dev-key}
+API_KEY=${CLIENT_API_KEY:-sk-luthien-dev-key}
 
 # Validate required API keys
 if [[ -z "${ANTHROPIC_API_KEY:-}" ]] || [[ "$ANTHROPIC_API_KEY" = "your_anthropic_api_key_here" ]]; then
@@ -37,8 +37,8 @@ echo "Starting V2 Gateway..."
 echo "  Port: $PORT"
 echo "  API Key: ${API_KEY:0:12}..."
 
-# Export PROXY_API_KEY for the V2 gateway
-export PROXY_API_KEY="$API_KEY"
+# Export CLIENT_API_KEY for the V2 gateway
+export CLIENT_API_KEY="$API_KEY"
 
 # Set PYTHONPATH to find luthien_proxy module
 PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$(pwd)/src"

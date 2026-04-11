@@ -86,7 +86,7 @@ class TestProvisioningResult:
         result = ProvisioningResult(
             success=True,
             instance=inst,
-            proxy_api_key="key123",
+            client_api_key="key123",
             admin_api_key="admin456",
         )
         assert result.success

@@ -83,7 +83,7 @@ async def run_overseer(args: argparse.Namespace) -> None:
     if auth_token:
         api_key = None
     else:
-        api_key = args.api_key or os.environ.get("PROXY_API_KEY", DEFAULT_API_KEY)
+        api_key = args.api_key or os.environ.get("CLIENT_API_KEY", DEFAULT_API_KEY)
     compose_project = args.compose_project or os.environ.get("COMPOSE_PROJECT_NAME")
 
     auth_desc = "OAuth token" if auth_token else "API key (set)"

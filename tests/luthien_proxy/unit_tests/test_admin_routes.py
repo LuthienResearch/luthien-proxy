@@ -264,7 +264,7 @@ class TestSendChatRoute:
     async def test_successful_chat_request(self, mock_client_class, mock_get_settings):
         """Test successful test chat request."""
         mock_settings = MagicMock()
-        mock_settings.proxy_api_key = "test-proxy-key"
+        mock_settings.client_api_key = "test-proxy-key"
         mock_settings.gateway_port = 8000
         mock_get_settings.return_value = mock_settings
 
@@ -302,10 +302,10 @@ class TestSendChatRoute:
 
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.get_settings")
-    async def test_missing_proxy_api_key_and_no_custom(self, mock_get_settings):
+    async def test_missing_client_api_key_and_no_custom(self, mock_get_settings):
         """Test send_chat returns error when no API key is available."""
         mock_settings = MagicMock()
-        mock_settings.proxy_api_key = None
+        mock_settings.client_api_key = None
         mock_get_settings.return_value = mock_settings
 
         request = ChatRequest(model="gpt-4o", message="Hello!")
@@ -320,10 +320,10 @@ class TestSendChatRoute:
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.get_settings")
     @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
-    async def test_custom_key_works_without_proxy_key(self, mock_client_class, mock_get_settings):
-        """Custom api_key works even when PROXY_API_KEY is not configured."""
+    async def test_custom_key_works_without_client_key(self, mock_client_class, mock_get_settings):
+        """Custom api_key works even when CLIENT_API_KEY is not configured."""
         mock_settings = MagicMock()
-        mock_settings.proxy_api_key = None
+        mock_settings.client_api_key = None
         mock_settings.gateway_port = 8000
         mock_get_settings.return_value = mock_settings
 
@@ -354,7 +354,7 @@ class TestSendChatRoute:
     async def test_proxy_error_response(self, mock_client_class, mock_get_settings):
         """Test send_chat handles proxy error responses."""
         mock_settings = MagicMock()
-        mock_settings.proxy_api_key = "test-proxy-key"
+        mock_settings.client_api_key = "test-proxy-key"
         mock_settings.gateway_port = 8000
         mock_get_settings.return_value = mock_settings
 
@@ -384,7 +384,7 @@ class TestSendChatRoute:
     async def test_timeout_exception(self, mock_client_class, mock_get_settings):
         """Test send_chat handles timeout exceptions."""
         mock_settings = MagicMock()
-        mock_settings.proxy_api_key = "test-proxy-key"
+        mock_settings.client_api_key = "test-proxy-key"
         mock_get_settings.return_value = mock_settings
 
         mock_client = AsyncMock()
@@ -409,7 +409,7 @@ class TestSendChatRoute:
     async def test_unexpected_exception_does_not_leak_details(self, mock_client_class, mock_get_settings):
         """Test send_chat returns generic error without leaking internal details."""
         mock_settings = MagicMock()
-        mock_settings.proxy_api_key = "test-proxy-key"
+        mock_settings.client_api_key = "test-proxy-key"
         mock_settings.gateway_port = 8000
         mock_settings.verbose_client_errors = False
         mock_get_settings.return_value = mock_settings
@@ -440,7 +440,7 @@ class TestSendChatRoute:
         where the external port mapping is not reachable from within the container.
         """
         mock_settings = MagicMock()
-        mock_settings.proxy_api_key = "test-proxy-key"
+        mock_settings.client_api_key = "test-proxy-key"
         mock_settings.gateway_port = 9999
         mock_get_settings.return_value = mock_settings
 
@@ -468,7 +468,7 @@ class TestSendChatRoute:
     async def test_real_llm_call_by_default(self, mock_client_class, mock_get_settings):
         """Default use_mock=False does not include mock_response (real LLM call attempted)."""
         mock_settings = MagicMock()
-        mock_settings.proxy_api_key = "test-proxy-key"
+        mock_settings.client_api_key = "test-proxy-key"
         mock_settings.gateway_port = 8000
         mock_get_settings.return_value = mock_settings
 
@@ -494,7 +494,7 @@ class TestSendChatRoute:
     async def test_mock_response_sent_when_use_mock_true(self, mock_get_settings):
         """When use_mock=True, function returns directly without calling gateway."""
         mock_settings = MagicMock()
-        mock_settings.proxy_api_key = "test-proxy-key"
+        mock_settings.client_api_key = "test-proxy-key"
         mock_settings.gateway_port = 8000
         mock_get_settings.return_value = mock_settings
 
@@ -511,7 +511,7 @@ class TestSendChatRoute:
     async def test_mock_mode_works_without_any_api_key(self, mock_get_settings):
         """Mock mode bypasses API key validation entirely."""
         mock_settings = MagicMock()
-        mock_settings.proxy_api_key = None
+        mock_settings.client_api_key = None
         mock_settings.gateway_port = 8000
         mock_get_settings.return_value = mock_settings
 
@@ -525,10 +525,10 @@ class TestSendChatRoute:
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.get_settings")
     @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
-    async def test_custom_api_key_overrides_proxy_key(self, mock_client_class, mock_get_settings):
+    async def test_custom_api_key_overrides_client_key(self, mock_client_class, mock_get_settings):
         """When api_key is provided, it's used instead of the server's proxy key."""
         mock_settings = MagicMock()
-        mock_settings.proxy_api_key = "server-proxy-key"
+        mock_settings.client_api_key = "server-proxy-key"
         mock_settings.gateway_port = 8000
         mock_get_settings.return_value = mock_settings
 
@@ -552,10 +552,10 @@ class TestSendChatRoute:
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.get_settings")
     @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
-    async def test_none_api_key_uses_proxy_key(self, mock_client_class, mock_get_settings):
+    async def test_none_api_key_uses_client_key(self, mock_client_class, mock_get_settings):
         """When api_key is None (default), the server's proxy key is used."""
         mock_settings = MagicMock()
-        mock_settings.proxy_api_key = "server-proxy-key"
+        mock_settings.client_api_key = "server-proxy-key"
         mock_settings.gateway_port = 8000
         mock_get_settings.return_value = mock_settings
 
@@ -579,10 +579,10 @@ class TestSendChatRoute:
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.get_settings")
     @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
-    async def test_empty_api_key_uses_proxy_key(self, mock_client_class, mock_get_settings):
+    async def test_empty_api_key_uses_client_key(self, mock_client_class, mock_get_settings):
         """An empty string api_key falls back to the server's proxy key."""
         mock_settings = MagicMock()
-        mock_settings.proxy_api_key = "server-proxy-key"
+        mock_settings.client_api_key = "server-proxy-key"
         mock_settings.gateway_port = 8000
         mock_get_settings.return_value = mock_settings
 
@@ -606,10 +606,10 @@ class TestSendChatRoute:
     @pytest.mark.asyncio
     @patch("luthien_proxy.admin.routes.get_settings")
     @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
-    async def test_whitespace_api_key_uses_proxy_key(self, mock_client_class, mock_get_settings):
+    async def test_whitespace_api_key_uses_client_key(self, mock_client_class, mock_get_settings):
         """A whitespace-only api_key falls back to the server's proxy key."""
         mock_settings = MagicMock()
-        mock_settings.proxy_api_key = "server-proxy-key"
+        mock_settings.client_api_key = "server-proxy-key"
         mock_settings.gateway_port = 8000
         mock_get_settings.return_value = mock_settings
 

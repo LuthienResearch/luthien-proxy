@@ -32,10 +32,10 @@ class TestConfigureLocalMode:
         configure_local_mode()
         assert os.environ["POLICY_SOURCE"] == "file"
 
-    def test_does_not_set_proxy_api_key(self, monkeypatch):
-        monkeypatch.delenv("PROXY_API_KEY", raising=False)
+    def test_does_not_set_client_api_key(self, monkeypatch):
+        monkeypatch.delenv("CLIENT_API_KEY", raising=False)
         configure_local_mode()
-        assert "PROXY_API_KEY" not in os.environ
+        assert "CLIENT_API_KEY" not in os.environ
 
     def test_does_not_set_admin_api_key(self, monkeypatch):
         monkeypatch.delenv("ADMIN_API_KEY", raising=False)

@@ -63,16 +63,16 @@ class ProvisioningResult:
     success: bool
     instance: Optional[InstanceInfo] = None
     error: Optional[str] = None
-    proxy_api_key: Optional[str] = None
+    client_api_key: Optional[str] = None
     admin_api_key: Optional[str] = None
 
     @property
     def credentials_message(self) -> str:
         """Format credentials for display (only shown once at creation)."""
-        if not self.success or not self.proxy_api_key:
+        if not self.success or not self.client_api_key:
             return ""
         return (
             f"\nCredentials (save these - they won't be shown again):\n"
-            f"  PROXY_API_KEY: {self.proxy_api_key}\n"
+            f"  CLIENT_API_KEY: {self.client_api_key}\n"
             f"  ADMIN_API_KEY: {self.admin_api_key}"
         )

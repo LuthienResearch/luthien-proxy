@@ -7,7 +7,7 @@ set -e
 
 # Configuration
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:8000}"
-API_KEY="${PROXY_API_KEY:-sk-luthien-dev-key}"
+API_KEY="${CLIENT_API_KEY:-sk-luthien-dev-key}"
 # Real Anthropic key for passthrough auth test (optional, from .env)
 ANTHROPIC_KEY="${ANTHROPIC_API_KEY:-}"
 
@@ -118,10 +118,10 @@ test_endpoint "Invalid API key (should fail)" \
 echo ""
 echo "=== Bearer Token Auth (PR #222 regression test) ==="
 
-# Verify gateway is in BOTH mode (not proxy_key) by checking the error message
+# Verify gateway is in BOTH mode (not client_key) by checking the error message
 # for a fake Bearer token. BOTH mode says "Invalid API key or credential";
-# proxy_key mode says "Invalid API key". This is the exact bug from PR #222.
-test_endpoint "Auth mode is BOTH (not proxy_key)" \
+# client_key mode says "Invalid API key". This is the exact bug from PR #222.
+test_endpoint "Auth mode is BOTH (not client_key)" \
     "curl -s $GATEWAY_URL/v1/messages -H 'Content-Type: application/json' -H 'Authorization: Bearer fake-token-to-test-auth-mode' -H 'anthropic-version: 2023-06-01' -d '{\"model\":\"claude-sonnet-4-5\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":10}'" \
     "jq -e '.detail == \"Invalid API key or credential\"'"
 

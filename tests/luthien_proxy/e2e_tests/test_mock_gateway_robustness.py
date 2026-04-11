@@ -232,7 +232,7 @@ async def test_invalid_auth_token_returns_401(
 ):
     """Gateway rejects an invalid Bearer token.
 
-    In AUTH_MODE=proxy_key this returns 401. In AUTH_MODE=both (default) the
+    In AUTH_MODE=client_key this returns 401. In AUTH_MODE=both (default) the
     gateway treats unknown tokens as passthrough keys and forwards the request,
     so the mock server returns 200. Either way the gateway must not crash.
     """
@@ -248,7 +248,7 @@ async def test_invalid_auth_token_returns_401(
     assert response.status_code in (200, 401, 502), (
         f"Unexpected status {response.status_code}. "
         "In AUTH_MODE=both (default) unknown tokens are treated as passthrough keys "
-        "(returns 200 via mock server). Use AUTH_MODE=proxy_key for strict enforcement."
+        "(returns 200 via mock server). Use AUTH_MODE=client_key for strict enforcement."
     )
 
 

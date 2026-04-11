@@ -400,7 +400,7 @@ class TestCoerce:
         meta = CONFIG_FIELDS_BY_NAME["auth_mode"]
         assert coerce_value(meta, "passthrough") is AuthMode.PASSTHROUGH
         assert coerce_value(meta, "both") is AuthMode.BOTH
-        assert coerce_value(meta, AuthMode.PROXY_KEY) is AuthMode.PROXY_KEY
+        assert coerce_value(meta, AuthMode.CLIENT_KEY) is AuthMode.CLIENT_KEY
 
     def test_enum_invalid_value_raises(self):
         meta = CONFIG_FIELDS_BY_NAME["auth_mode"]

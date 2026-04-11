@@ -46,7 +46,7 @@ async def test_missing_auth_header_returns_401(gateway_healthy, gateway_url):
 
 @pytest.mark.asyncio
 async def test_wrong_api_key_returns_401(mock_anthropic: MockAnthropicServer, gateway_healthy, gateway_url):
-    """A request with an incorrect API key is rejected (proxy_key) or treated as passthrough (both)."""
+    """A request with an incorrect API key is rejected (client_key) or treated as passthrough (both)."""
     # AUTH_MODE=both treats unrecognised keys as passthrough API keys forwarded to the backend
     if AUTH_MODE == "both":
         mock_anthropic.enqueue(text_response("passthrough response"))
