@@ -142,6 +142,31 @@ async def request_validation_error_handler(request: Request, exc: Exception) -> 
     return JSONResponse(status_code=422, content={"detail": validation_exc.errors()})
 
 
+class LatencyMiddleware(BaseHTTPMiddleware):
+    """Record TTFB and in-flight gauge for /v1/messages requests.
+
+    NOTE: BaseHTTPMiddleware.dispatch returns at TTFB (first byte), not
+    stream completion. For non-streaming requests this measures full latency;
+    for streaming it measures only time-to-first-byte. Both the histogram
+    and gauge reflect this asymmetry.
+    Pure-ASGI middleware would be needed for true stream-duration metrics.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path != "/v1/messages":
+            return await call_next(request)
+        active_requests.add(1)
+        t0 = time.perf_counter()
+        response = None
+        try:
+            response = await call_next(request)
+            return response
+        finally:
+            status = str(response.status_code) if response is not None else "error"
+            request_duration.record(time.perf_counter() - t0, {"status": status})
+            active_requests.add(-1)
+
+
 def create_app(
     api_key: str | None,
     admin_key: str | None,
@@ -389,25 +414,7 @@ def create_app(
         # No auth required; standard for Prometheus scraping
         return Response(generate_latest(REGISTRY), media_type=CONTENT_TYPE_LATEST)
 
-    class _LatencyMiddleware(BaseHTTPMiddleware):
-        # NOTE: BaseHTTPMiddleware.dispatch returns at TTFB (first byte), not
-        # stream completion. Both the histogram and gauge reflect TTFB timing.
-        # Pure-ASGI middleware would be needed for true stream-duration metrics.
-        async def dispatch(self, request: Request, call_next):
-            if request.url.path != "/v1/messages":
-                return await call_next(request)
-            active_requests.add(1)
-            t0 = time.perf_counter()
-            response = None
-            try:
-                response = await call_next(request)
-                return response
-            finally:
-                status = str(response.status_code) if response is not None else "error"
-                request_duration.record(time.perf_counter() - t0, {"status": status})
-                active_requests.add(-1)
-
-    app.add_middleware(_LatencyMiddleware)
+    app.add_middleware(LatencyMiddleware)
 
     # Format HTTPExceptions and validation errors as Anthropic errors on /v1/messages paths
     app.add_exception_handler(FastAPIHTTPException, http_exception_handler)

@@ -12,8 +12,8 @@ load-balances to, producing incomplete numbers. Current scripts run single-worke
 Exposed metrics:
   luthien_requests_completed_total{streaming} — completed request counter
   luthien_tokens_total{type}                  — cumulative token counter (input/output)
-  luthien_request_ttfb_seconds{status}        — time-to-first-byte histogram
-  luthien_active_requests                     — in-flight request gauge (TTFB-scoped)
+  luthien_request_ttfb_seconds{status}        — latency histogram (full for non-streaming, TTFB for streaming)
+  luthien_active_requests                     — in-flight gauge (TTFB-scoped for streaming)
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ token_counter = _meter.create_counter(
 
 request_duration = _meter.create_histogram(
     "luthien_request_ttfb_seconds",
-    description="Time-to-first-byte for LLM requests in seconds (BaseHTTPMiddleware measures TTFB, not full streaming duration)",
+    description="Request latency in seconds: full response time for non-streaming, TTFB only for streaming (BaseHTTPMiddleware limitation)",
     unit="s",
 )
 

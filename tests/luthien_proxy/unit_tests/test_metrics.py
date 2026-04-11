@@ -1,6 +1,5 @@
 # ABOUTME: Unit tests for Prometheus metrics instruments and MetricsAwareUsageCollector
 
-import time
 from unittest.mock import MagicMock, patch
 
 from starlette.testclient import TestClient
@@ -84,45 +83,87 @@ class TestMetricsAwareUsageCollector:
         assert snapshot2["requests_completed"] == 0
 
 
-class TestLatencyMiddlewareErrorPath:
-    def test_error_status_when_call_next_raises(self):
+class TestLatencyMiddleware:
+    def _build_app(self, handler):
         from starlette.applications import Starlette
         from starlette.middleware import Middleware
-        from starlette.middleware.base import BaseHTTPMiddleware
         from starlette.routing import Route
 
-        mock_duration = MagicMock()
-        mock_active = MagicMock()
+        from luthien_proxy.main import LatencyMiddleware
 
-        class _TestMiddleware(BaseHTTPMiddleware):
-            async def dispatch(self, request, call_next):
-                if request.url.path != "/v1/messages":
-                    return await call_next(request)
-                mock_active.add(1)
-                t0 = time.perf_counter()
-                response = None
-                try:
-                    response = await call_next(request)
-                    return response
-                finally:
-                    status = str(response.status_code) if response is not None else "error"
-                    mock_duration.record(time.perf_counter() - t0, {"status": status})
-                    mock_active.add(-1)
+        return Starlette(
+            routes=[Route("/v1/messages", handler, methods=["POST"])],
+            middleware=[Middleware(LatencyMiddleware)],
+        )
 
+    def test_error_status_when_handler_raises(self):
         async def boom(request):
             raise RuntimeError("boom")
 
-        app = Starlette(
-            routes=[Route("/v1/messages", boom, methods=["POST"])],
-            middleware=[Middleware(_TestMiddleware)],
-        )
+        app = self._build_app(boom)
+        mock_duration = MagicMock()
+        mock_active = MagicMock()
 
-        client = TestClient(app, raise_server_exceptions=False)
-        resp = client.post("/v1/messages")
+        with (
+            patch("luthien_proxy.main.request_duration", mock_duration),
+            patch("luthien_proxy.main.active_requests", mock_active),
+        ):
+            client = TestClient(app, raise_server_exceptions=False)
+            resp = client.post("/v1/messages")
+
         assert resp.status_code == 500
-
         mock_active.add.assert_any_call(1)
         mock_active.add.assert_any_call(-1)
         mock_duration.record.assert_called_once()
-        recorded_attrs = mock_duration.record.call_args[0][1]
-        assert recorded_attrs["status"] == "error"
+        assert mock_duration.record.call_args[0][1]["status"] == "error"
+
+    def test_success_records_status_200(self):
+        from starlette.responses import JSONResponse
+
+        async def ok(request):
+            return JSONResponse({"ok": True})
+
+        app = self._build_app(ok)
+        mock_duration = MagicMock()
+        mock_active = MagicMock()
+
+        with (
+            patch("luthien_proxy.main.request_duration", mock_duration),
+            patch("luthien_proxy.main.active_requests", mock_active),
+        ):
+            client = TestClient(app)
+            resp = client.post("/v1/messages")
+
+        assert resp.status_code == 200
+        mock_active.add.assert_any_call(1)
+        mock_active.add.assert_any_call(-1)
+        assert mock_duration.record.call_args[0][1]["status"] == "200"
+
+    def test_non_messages_path_skips_metrics(self):
+        from starlette.applications import Starlette
+        from starlette.middleware import Middleware
+        from starlette.responses import JSONResponse
+        from starlette.routing import Route
+
+        from luthien_proxy.main import LatencyMiddleware
+
+        async def ok(request):
+            return JSONResponse({"ok": True})
+
+        app = Starlette(
+            routes=[Route("/health", ok, methods=["GET"])],
+            middleware=[Middleware(LatencyMiddleware)],
+        )
+        mock_duration = MagicMock()
+        mock_active = MagicMock()
+
+        with (
+            patch("luthien_proxy.main.request_duration", mock_duration),
+            patch("luthien_proxy.main.active_requests", mock_active),
+        ):
+            client = TestClient(app)
+            resp = client.get("/health")
+
+        assert resp.status_code == 200
+        mock_duration.record.assert_not_called()
+        mock_active.add.assert_not_called()
