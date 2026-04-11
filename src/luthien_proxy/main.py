@@ -518,7 +518,7 @@ def configure_local_mode() -> None:
     db_path = os.path.join(data_dir, "local.db")
     os.environ["DATABASE_URL"] = f"sqlite:///{db_path}"
     os.environ["REDIS_URL"] = ""
-    os.environ["POLICY_CONFIG"] = "config/policy_config.yaml"
+    os.environ["POLICY_CONFIG"] = os.path.abspath("config/policy_config.yaml")
     os.environ["POLICY_SOURCE"] = "file"
 
 
@@ -588,7 +588,11 @@ def auto_provision_defaults() -> dict[str, str]:
         provisioned["ADMIN_API_KEY"] = value
 
     if not os.environ.get("POLICY_CONFIG"):
-        value = "config/railway_policy_config.yaml" if on_railway else "config/policy_config.yaml"
+        value = (
+            os.path.abspath("config/railway_policy_config.yaml")
+            if on_railway
+            else os.path.abspath("config/policy_config.yaml")
+        )
         os.environ["POLICY_CONFIG"] = value
         provisioned["POLICY_CONFIG"] = value
 

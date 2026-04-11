@@ -151,8 +151,10 @@ class TestAutoProvisionDefaults:
 
         result = auto_provision_defaults()
 
-        assert result["POLICY_CONFIG"] == "config/policy_config.yaml"
-        assert os.environ["POLICY_CONFIG"] == "config/policy_config.yaml"
+        assert result["POLICY_CONFIG"].endswith("config/policy_config.yaml")
+        assert result["POLICY_CONFIG"].startswith("/")
+        assert os.environ["POLICY_CONFIG"].endswith("config/policy_config.yaml")
+        assert os.environ["POLICY_CONFIG"].startswith("/")
 
     def test_provisions_policy_source_when_missing(self, monkeypatch):
         monkeypatch.delenv("POLICY_SOURCE", raising=False)
@@ -237,7 +239,8 @@ class TestAutoProvisionDefaultsRailway:
 
         result = auto_provision_defaults()
 
-        assert result["POLICY_CONFIG"] == "config/railway_policy_config.yaml"
+        assert result["POLICY_CONFIG"].endswith("config/railway_policy_config.yaml")
+        assert result["POLICY_CONFIG"].startswith("/")
 
     def test_railway_disables_localhost_auth_bypass(self, monkeypatch, tmp_path):
         self._clear_env(monkeypatch)
@@ -286,7 +289,8 @@ class TestAutoProvisionDefaultsRailway:
 
         result = auto_provision_defaults()
 
-        assert result["POLICY_CONFIG"] == "config/policy_config.yaml"
+        assert result["POLICY_CONFIG"].endswith("config/policy_config.yaml")
+        assert result["POLICY_CONFIG"].startswith("/")
 
 
 @pytest.fixture
