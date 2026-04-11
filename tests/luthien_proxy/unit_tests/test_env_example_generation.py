@@ -128,8 +128,8 @@ def test_bool_default_renders_lowercase(generator_output: str) -> None:
 
 def test_none_default_renders_empty(generator_output: str) -> None:
     """Fields with no default render as bare ``# FIELD=`` — no literal ``None``."""
-    assert "# PROXY_API_KEY=" in generator_output
-    assert "# PROXY_API_KEY=None" not in generator_output
+    assert "# CLIENT_API_KEY=" in generator_output
+    assert "# CLIENT_API_KEY=None" not in generator_output
 
 
 def test_int_default_renders_as_decimal(generator_output: str) -> None:
