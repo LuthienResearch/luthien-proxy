@@ -39,3 +39,19 @@ policy:
 #     # judge_instructions: "You are a security analyst. Evaluate tool calls for risk..."
 #     # Optional: Customize blocked message template
 #     # Variables: {tool_name}, {tool_arguments}, {probability}, {explanation}
+
+# Supply Chain Advisory Policy - warn (do NOT block) on known-vulnerable
+# packages in pip/npm/poetry/uv/etc. install commands and tool_result output.
+# Best-effort CVE warning for cooperative LLMs only — NOT a security boundary
+# (does not parse `sh -c`, chained commands, eval, etc.). Run OSV-Scanner
+# inside the sandbox for hardened supply-chain defense.
+# policy:
+#   class: "luthien_proxy.policies.supply_chain_advisory_policy:SupplyChainAdvisoryPolicy"
+#   config:
+#     advisory_severity_threshold: "HIGH"  # LOW | MEDIUM | HIGH | CRITICAL
+#     warn_on_osv_error: true              # inject "OSV unreachable" advisories
+#     max_concurrent_lookups: 10
+#     cache_ttl_seconds: 86400             # 1 day for successful lookups
+#     error_cache_ttl_seconds: 60          # 1 minute for failed lookups
+#     bash_tool_names: ["Bash"]
+#     # hard_block_versions: []            # reserved for a future release
