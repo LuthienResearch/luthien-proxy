@@ -22,6 +22,7 @@ from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
 from luthien_proxy.main import create_app
+from luthien_proxy.settings import clear_settings_cache
 from luthien_proxy.utils.db import DatabasePool
 from luthien_proxy.utils.migration_check import check_migrations
 
@@ -65,6 +66,11 @@ def gateway_url(mock_server):
         old_env[k] = os.environ.get(k)
         os.environ[k] = v
 
+    # Flush cached settings so create_app() picks up the env vars set above.
+    # Without this, get_settings() may return a stale instance that lacks
+    # ANTHROPIC_API_KEY, causing credential resolution to fail. Module-scoped
+    # fixtures run before function-scoped autouse fixtures can clear the cache.
+    clear_settings_cache()
     app = create_app(
         api_key=_API_KEY,
         admin_key=_ADMIN_KEY,
@@ -100,6 +106,7 @@ def gateway_url(mock_server):
             os.environ.pop(k, None)
         else:
             os.environ[k] = v
+    clear_settings_cache()
 
 
 @pytest.mark.asyncio

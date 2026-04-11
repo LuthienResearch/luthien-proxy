@@ -94,6 +94,7 @@ def sqlite_gateway_url(mock_anthropic):
             os.environ.pop(k, None)
         else:
             os.environ[k] = v
+    clear_settings_cache()
 
 
 # --- Fixture overrides ---
