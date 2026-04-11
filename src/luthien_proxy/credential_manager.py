@@ -55,25 +55,42 @@ class AuthMode(str, Enum):
 
 
 # Legacy auth_mode values that pre-date PR #524's rename. Tolerated on read so
-# that a Postgres gateway restarted before migration 013 has applied doesn't
-# crash-loop — SQLite migrates in-process, but Postgres migrations run in a
-# separate service and can lag a gateway restart.
-_LEGACY_AUTH_MODE_ALIASES: dict[str, AuthMode] = {
+# that a Postgres gateway restarted before migration 013 has applied (or an
+# operator who missed renaming AUTH_MODE in their environment) doesn't
+# crash-loop. Symmetrically applied to DB rows and the AUTH_MODE env var.
+# TODO(post-v0.2): remove this dict and parse_auth_mode's fallback branch
+# once all deployments have migrated past PR #535. The regression tests
+# (test_tolerates_legacy_proxy_key_row, test_legacy_proxy_key_alias,
+# test_auth_mode_env_var_legacy_proxy_key_is_tolerated) should be deleted
+# at the same time.
+LEGACY_AUTH_MODE_ALIASES: dict[str, AuthMode] = {
     "proxy_key": AuthMode.CLIENT_KEY,
 }
 
 
-def _parse_auth_mode(raw: str) -> AuthMode:
-    """Parse a stored auth_mode value, tolerating pre-#524 aliases."""
+def parse_auth_mode(raw: str, source: str = "auth_config.auth_mode") -> AuthMode:
+    """Parse an auth_mode value, tolerating pre-#524 aliases with a warning.
+
+    Args:
+        raw: The raw string to parse.
+        source: Human-readable description of where `raw` came from; included
+            in the deprecation warning so operators know what to fix.
+
+    Raises:
+        ValueError: if `raw` is neither a current `AuthMode` value nor a
+            legacy alias.
+    """
     try:
         return AuthMode(raw)
     except ValueError:
-        alias = _LEGACY_AUTH_MODE_ALIASES.get(raw)
+        alias = LEGACY_AUTH_MODE_ALIASES.get(raw)
         if alias is not None:
             logger.warning(
-                "auth_config.auth_mode='%s' is a pre-PR-#524 value; "
-                "treating as '%s'. Run migration 013 to rewrite the stored value.",
+                "%s=%r is a pre-PR-#524 value; treating as %r. "
+                "Rename to '%s' — the legacy alias will be removed in a follow-up release.",
+                source,
                 raw,
+                alias.value,
                 alias.value,
             )
             return alias
@@ -153,7 +170,7 @@ class CredentialManager:
         if raw_row:
             row: dict[str, Any] = dict(raw_row)
             self._config = AuthConfig(
-                auth_mode=_parse_auth_mode(row["auth_mode"]),
+                auth_mode=parse_auth_mode(row["auth_mode"]),
                 validate_credentials=bool(row["validate_credentials"]),
                 valid_cache_ttl_seconds=row["valid_cache_ttl_seconds"],
                 invalid_cache_ttl_seconds=row["invalid_cache_ttl_seconds"],
@@ -186,7 +203,7 @@ class CredentialManager:
         so concurrent readers always see a consistent snapshot (no torn reads).
 
         Note: the write path uses `AuthMode(auth_mode)` directly, not the
-        legacy-tolerant `_parse_auth_mode()` used by `initialize()`. This is
+        legacy-tolerant `parse_auth_mode()` used by `initialize()`. This is
         intentional — the admin API already validates the incoming value at
         `admin/routes.py` before calling this method, and writing a pre-#524
         alias like `'proxy_key'` back into the DB would undo migration 013.

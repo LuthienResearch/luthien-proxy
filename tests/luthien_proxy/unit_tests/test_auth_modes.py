@@ -4,6 +4,8 @@
 
 """Tests for AuthMode configuration and gateway enforcement."""
 
+import logging
+import os
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -111,6 +113,40 @@ class TestAuthModeConfig:
         config = load_config_from_env(settings=Settings(_env_file=None))  # type: ignore[call-arg]
 
         assert config["auth_mode"] == AuthMode.PASSTHROUGH
+
+    def test_auth_mode_env_var_legacy_proxy_key_is_tolerated(self, monkeypatch, caplog):
+        """Legacy AUTH_MODE=proxy_key (pre-#524) is coerced to CLIENT_KEY with a warning.
+
+        Mirrors the DB-row tolerance: an operator who upgrades the gateway
+        image but misses one env var should get a running gateway and a clear
+        warning, not a cryptic Pydantic ValidationError. The legacy alias is
+        removed in a follow-up release.
+
+        Note: this test does NOT pass a pre-constructed Settings because the
+        env-var coercion has to run before Settings is validated. Letting
+        `load_config_from_env` build its own Settings exercises the real
+        startup path.
+        """
+        monkeypatch.setenv("CLIENT_API_KEY", "test-proxy-key")
+        monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
+        monkeypatch.setenv("AUTH_MODE", "proxy_key")
+
+        # Force get_settings() to rebuild so it picks up the monkeypatched env.
+        from luthien_proxy.settings import clear_settings_cache
+
+        clear_settings_cache()
+
+        with caplog.at_level("WARNING", logger="luthien_proxy.credential_manager"):
+            config = load_config_from_env()
+
+        assert config["auth_mode"] == AuthMode.CLIENT_KEY
+        assert os.environ["AUTH_MODE"] == "client_key"
+        warnings = [
+            r for r in caplog.records if r.name == "luthien_proxy.credential_manager" and r.levelno == logging.WARNING
+        ]
+        assert warnings, "expected a warning when AUTH_MODE=proxy_key is read"
+        assert any("AUTH_MODE env var" in r.getMessage() for r in warnings)
 
     def test_auth_mode_flows_into_create_app(self, policy_config_file, mock_db_pool, mock_redis_client):
         """create_app with auth_mode=CLIENT_KEY initialises a CredentialManager."""

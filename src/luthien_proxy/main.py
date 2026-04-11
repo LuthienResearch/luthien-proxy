@@ -24,7 +24,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from luthien_proxy.admin import router as admin_router
 from luthien_proxy.config_fields import CONFIG_FIELDS, CONFIG_FIELDS_BY_NAME
 from luthien_proxy.config_registry import ConfigRegistry, coerce_value
-from luthien_proxy.credential_manager import AuthMode, CredentialManager
+from luthien_proxy.credential_manager import AuthMode, CredentialManager, parse_auth_mode
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.exceptions import BackendAPIError
@@ -476,6 +476,34 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
         ValueError: If required environment variables are missing or invalid.
     """
     errors: list[str] = []
+
+    # Symmetric with parse_auth_mode() on the DB path: tolerate a pre-#524
+    # AUTH_MODE env var (e.g. 'proxy_key') with a warning so an operator who
+    # missed one env var on upgrade gets a clear message and a running gateway
+    # instead of a cryptic Pydantic ValidationError.
+    # TODO(post-v0.2): remove legacy AUTH_MODE / PROXY_API_KEY tolerance once
+    # all deployments have migrated past PR #535.
+    raw_env_auth_mode = os.environ.get("AUTH_MODE")
+    if raw_env_auth_mode:
+        try:
+            coerced = parse_auth_mode(raw_env_auth_mode, source="AUTH_MODE env var")
+        except ValueError:
+            # Fall through to Pydantic so the existing error-aggregation path
+            # surfaces the invalid value alongside any other config errors.
+            pass
+        else:
+            if coerced.value != raw_env_auth_mode:
+                os.environ["AUTH_MODE"] = coerced.value
+
+    # A leftover PROXY_API_KEY in the environment is silently dropped by
+    # pydantic (extra='ignore'), which would leave the gateway running on
+    # passthrough while the operator still thinks shared-key auth is active.
+    # Warn loudly and point at the new name.
+    if os.environ.get("PROXY_API_KEY") and not os.environ.get("CLIENT_API_KEY"):
+        logger.warning(
+            "PROXY_API_KEY is set in the environment but is no longer read. "
+            "Rename to CLIENT_API_KEY — see changelog for PR #535."
+        )
 
     try:
         if settings is None:
