@@ -3,13 +3,40 @@
 Reads header templates from the UPSTREAM_HEADERS environment variable (JSON)
 and expands per-request context variables before forwarding to the backend.
 
-Supported template variables:
+Supported template variables::
+
     ${session_id}    — Claude Code session UUID (from metadata.user_id)
     ${request_path}  — HTTP request path (e.g. /v1/messages)
     ${env.VARNAME}   — Any environment variable
 
-Example:
+Example::
+
     UPSTREAM_HEADERS='{"Helicone-Auth":"Bearer ${env.HELICONE_API_KEY}","Helicone-Session-Id":"${session_id}"}'
+
+Design notes:
+
+    **Config system bypass (intentional):** This feature reads from the
+    ``UPSTREAM_HEADERS`` env var directly via ``os.environ`` rather than going
+    through the ``config_fields.py`` / ``settings.py`` config system. The config
+    system is designed for scalar values (str, int, bool) with per-field env
+    vars. A JSON blob of arbitrary header templates doesn't fit that model
+    cleanly. If this feature is later promoted to a first-class config field,
+    the ``lru_cache`` on ``_load_header_templates()`` will need to be replaced
+    with a config-registry-aware loader.
+
+    **Restart required:** The ``lru_cache`` means UPSTREAM_HEADERS is read on
+    the first request and cached for the process lifetime. Changes require a
+    gateway restart.
+
+Security:
+
+    **Env var expansion surface:** The ``${env.VARNAME}`` syntax expands any
+    environment variable into an outbound header value. This means anyone who
+    can set the ``UPSTREAM_HEADERS`` value can route any env var (including
+    ``ANTHROPIC_API_KEY``, ``ADMIN_API_KEY``, etc.) into upstream request
+    headers. This is acceptable when the upstream is trusted (e.g., Helicone,
+    Anthropic API) because server-side access is already required to set the
+    env var. Do NOT use this feature to forward headers to untrusted upstreams.
 """
 
 from __future__ import annotations
