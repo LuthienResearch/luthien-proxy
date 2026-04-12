@@ -17,7 +17,7 @@ import logging
 import re
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -338,7 +338,7 @@ def build_substitute_command(name: str, version: str, cve_ids: list[str]) -> str
         f"See https://osv.dev/vulnerability/{first_cve}"
     )
 
-    return f"sh -c 'printf \"%s\\n\" \"{msg}\" >&2; exit 42'"
+    return f'sh -c \'printf "%s\\n" "{msg}" >&2; exit 42\''
 
 
 def _shell_safe(s: str) -> str:

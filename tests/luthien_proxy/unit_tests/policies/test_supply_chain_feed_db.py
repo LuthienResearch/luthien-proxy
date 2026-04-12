@@ -28,9 +28,7 @@ async def pool():
 @pytest.mark.asyncio
 async def test_create_schema_creates_tables(pool):
     """Schema creation should produce both tables."""
-    rows = await pool.fetch(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'supply_chain_feed%'"
-    )
+    rows = await pool.fetch("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'supply_chain_feed%'")
     names = {str(r["name"]) for r in rows}
     assert "supply_chain_feed" in names
     assert "supply_chain_feed_cursor" in names

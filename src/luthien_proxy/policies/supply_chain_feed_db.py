@@ -92,9 +92,7 @@ async def load_all_entries(
     pool: "PoolProtocol",
 ) -> "Sequence[Mapping[str, object]]":
     """Load all entries from supply_chain_feed table."""
-    return await pool.fetch(
-        "SELECT ecosystem, name, version, cve_id FROM supply_chain_feed"
-    )
+    return await pool.fetch("SELECT ecosystem, name, version, cve_id FROM supply_chain_feed")
 
 
 async def get_cursor(pool: "PoolProtocol", ecosystem: str) -> datetime | None:

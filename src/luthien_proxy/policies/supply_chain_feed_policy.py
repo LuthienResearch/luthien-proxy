@@ -46,7 +46,6 @@ from luthien_proxy.policies.supply_chain_feed_utils import (
     build_substrate_strings,
     bulk_zip_url,
     check_blocklist,
-    individual_vuln_url,
     listing_api_url,
     parse_bulk_zip,
     parse_listing_page,
@@ -96,9 +95,11 @@ class SupplyChainFeedPolicy(BasePolicy, AnthropicHookPolicy):
 
     @property
     def short_policy_name(self) -> str:
+        """Short human-readable name for the policy."""
         return "SupplyChainFeed"
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
+        """Initialize with optional config dict (currently unused)."""
         # In-memory blocklist — populated by on_policy_loaded via _load_index_from_db
         # and refreshed by the background task. Protected by _index_lock.
         self._index: dict[tuple[str, str, str], list[str]] = {}
@@ -292,9 +293,8 @@ class SupplyChainFeedPolicy(BasePolicy, AnthropicHookPolicy):
     def _stream_state(self, context: "PolicyContext") -> _StreamState:
         return context.get_request_state(self, _StreamState, _StreamState)
 
-    async def on_anthropic_request(
-        self, request: "AnthropicRequest", context: "PolicyContext"
-    ) -> "AnthropicRequest":
+    async def on_anthropic_request(self, request: "AnthropicRequest", context: "PolicyContext") -> "AnthropicRequest":
+        """Passthrough — no request modifications."""
         return request
 
     async def on_anthropic_response(
@@ -310,7 +310,8 @@ class SupplyChainFeedPolicy(BasePolicy, AnthropicHookPolicy):
         for block in content:
             if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "bash":
                 input_data = block.get("input", {})
-                command = input_data.get("command", "") if isinstance(input_data, dict) else ""
+                raw_cmd = input_data.get("command", "") if isinstance(input_data, dict) else ""
+                command = str(raw_cmd) if raw_cmd else ""
                 if command:
                     hit = check_blocklist(command, self._index, self._substrate_strings)
                     if hit:
@@ -335,6 +336,7 @@ class SupplyChainFeedPolicy(BasePolicy, AnthropicHookPolicy):
     async def on_anthropic_stream_event(
         self, event: MessageStreamEvent, context: "PolicyContext"
     ) -> list[MessageStreamEvent]:
+        """Buffer bash tool_use events; check and substitute on block_stop."""
         if isinstance(event, RawContentBlockStartEvent):
             return self._handle_block_start(event, context)
         elif isinstance(event, RawContentBlockDeltaEvent):
@@ -375,9 +377,7 @@ class SupplyChainFeedPolicy(BasePolicy, AnthropicHookPolicy):
                 return [cast(MessageStreamEvent, e) for e in flushed]
         return [event]
 
-    def _handle_block_stop(
-        self, event: RawContentBlockStopEvent, context: "PolicyContext"
-    ) -> list[MessageStreamEvent]:
+    def _handle_block_stop(self, event: RawContentBlockStopEvent, context: "PolicyContext") -> list[MessageStreamEvent]:
         """On block stop, check the buffered command and decide: substitute or pass through."""
         state = self._stream_state(context)
         if event.index not in state.buffered:
@@ -409,9 +409,7 @@ class SupplyChainFeedPolicy(BasePolicy, AnthropicHookPolicy):
             return str(data.get("command", ""))
         return ""
 
-    def _reconstruct_passthrough(
-        self, buffered: _BufferedToolUse, index: int
-    ) -> list[Any]:
+    def _reconstruct_passthrough(self, buffered: _BufferedToolUse, index: int) -> list[Any]:
         """Reconstruct the original events from a buffered tool_use."""
         tool_use_block = ToolUseBlock(type="tool_use", id=buffered.id, name=buffered.name, input={})
         start = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=tool_use_block)

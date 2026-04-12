@@ -22,7 +22,7 @@ from fastapi import HTTPException
 from redis.asyncio import Redis
 
 from luthien_proxy.config import _import_policy_class, _instantiate_policy, load_policy_from_yaml
-from luthien_proxy.policy_core.base_policy import BasePolicy
+from luthien_proxy.policy_core.base_policy import BasePolicy, PolicyLoadContext
 from luthien_proxy.utils import db
 from luthien_proxy.utils.constants import REDIS_LOCK_TIMEOUT_SECONDS
 
@@ -103,6 +103,10 @@ class PolicyManager:
                 "No policy configured. Set POLICY_SOURCE and/or POLICY_CONFIG, "
                 "or configure a policy via the admin API first."
             )
+
+        # Give the policy access to gateway services (db_pool, scheduler)
+        load_ctx = PolicyLoadContext(db_pool=self.db)
+        await self._current_policy.on_policy_loaded(load_ctx)
 
         self._current_policy = self._maybe_compose_dogfood(self._current_policy)
 

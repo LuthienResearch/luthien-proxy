@@ -33,7 +33,6 @@ from luthien_proxy.policies.supply_chain_feed_utils import (
     VulnEntry,
     build_blocklist_index,
     build_substrate_strings,
-    parse_bulk_zip,
 )
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.utils.db import DatabasePool
@@ -104,15 +103,13 @@ class TestStreamingShapeCorrectness:
 
         # Stream: start(1) -> delta(1, command) -> stop(1)
         events: list[MessageStreamEvent] = []
-        events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _tool_use_start(1)), ctx
-        ))
-        events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _input_delta(1, '{"command": "pip install calibreweb==0.6.17"}')), ctx
-        ))
-        events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _block_stop(1)), ctx
-        ))
+        events.extend(await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_use_start(1)), ctx))
+        events.extend(
+            await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, _input_delta(1, '{"command": "pip install calibreweb==0.6.17"}')), ctx
+            )
+        )
+        events.extend(await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(1)), ctx))
 
         # Should get 3 events: start, delta, stop — all at index 1
         assert len(events) == 3
@@ -126,15 +123,13 @@ class TestStreamingShapeCorrectness:
         ctx = _ctx()
 
         events: list[MessageStreamEvent] = []
-        events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _tool_use_start(0)), ctx
-        ))
-        events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _input_delta(0, '{"command": "npm install axios@1.6.8"}')), ctx
-        ))
-        events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _block_stop(0)), ctx
-        ))
+        events.extend(await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_use_start(0)), ctx))
+        events.extend(
+            await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, _input_delta(0, '{"command": "npm install axios@1.6.8"}')), ctx
+            )
+        )
+        events.extend(await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx))
 
         assert len(events) == 3
         # start, delta, stop
@@ -151,26 +146,26 @@ class TestStreamingShapeCorrectness:
         all_events: list[MessageStreamEvent] = []
 
         # First tool_use at index 0
-        all_events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _tool_use_start(0, tool_id="t1")), ctx
-        ))
-        all_events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _input_delta(0, '{"command": "pip install calibreweb==0.6.17"}')), ctx
-        ))
-        all_events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _block_stop(0)), ctx
-        ))
+        all_events.extend(
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_use_start(0, tool_id="t1")), ctx)
+        )
+        all_events.extend(
+            await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, _input_delta(0, '{"command": "pip install calibreweb==0.6.17"}')), ctx
+            )
+        )
+        all_events.extend(await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx))
 
         # Second tool_use at index 2
-        all_events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _tool_use_start(2, tool_id="t2")), ctx
-        ))
-        all_events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _input_delta(2, '{"command": "npm install axios@1.6.8"}')), ctx
-        ))
-        all_events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _block_stop(2)), ctx
-        ))
+        all_events.extend(
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_use_start(2, tool_id="t2")), ctx)
+        )
+        all_events.extend(
+            await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, _input_delta(2, '{"command": "npm install axios@1.6.8"}')), ctx
+            )
+        )
+        all_events.extend(await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(2)), ctx))
 
         assert len(all_events) == 6
 
@@ -191,31 +186,23 @@ class TestStreamingShapeCorrectness:
         all_events: list[MessageStreamEvent] = []
 
         # text at 0
-        all_events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _text_start(0)), ctx
-        ))
-        all_events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _text_delta(0, "hello")), ctx
-        ))
-        all_events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _block_stop(0)), ctx
-        ))
+        all_events.extend(await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _text_start(0)), ctx))
+        all_events.extend(
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _text_delta(0, "hello")), ctx)
+        )
+        all_events.extend(await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx))
 
         # flagged bash at 1
-        all_events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _tool_use_start(1)), ctx
-        ))
-        all_events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _input_delta(1, '{"command": "pip install calibreweb==0.6.17"}')), ctx
-        ))
-        all_events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _block_stop(1)), ctx
-        ))
+        all_events.extend(await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_use_start(1)), ctx))
+        all_events.extend(
+            await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, _input_delta(1, '{"command": "pip install calibreweb==0.6.17"}')), ctx
+            )
+        )
+        all_events.extend(await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(1)), ctx))
 
         # Extract content_block_start indices
-        start_indices = [
-            e.index for e in all_events if isinstance(e, RawContentBlockStartEvent)
-        ]
+        start_indices = [e.index for e in all_events if isinstance(e, RawContentBlockStartEvent)]
         assert start_indices == [0, 1]  # monotonically increasing
 
     @pytest.mark.asyncio
@@ -225,15 +212,13 @@ class TestStreamingShapeCorrectness:
         ctx = _ctx()
 
         events: list[MessageStreamEvent] = []
-        events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _tool_use_start(0)), ctx
-        ))
-        events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _input_delta(0, '{"command": "pip install calibreweb==0.6.17"}')), ctx
-        ))
-        events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _block_stop(0)), ctx
-        ))
+        events.extend(await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_use_start(0)), ctx))
+        events.extend(
+            await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, _input_delta(0, '{"command": "pip install calibreweb==0.6.17"}')), ctx
+            )
+        )
+        events.extend(await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx))
 
         # The delta event should contain the substitute
         delta_event = events[1]
@@ -258,15 +243,11 @@ class TestDefensiveFlush:
         ctx = _ctx()
 
         # Start buffering a bash tool_use
-        await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _tool_use_start(0)), ctx
-        )
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_use_start(0)), ctx)
 
         # Send a text_delta at the same index (unexpected)
         text_delta = _text_delta(0, "unexpected")
-        events = await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, text_delta), ctx
-        )
+        events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta), ctx)
 
         # Should get: flushed start + flushed delta + the unexpected event
         assert len(events) == 3
@@ -292,15 +273,13 @@ class TestPassthrough:
         ctx = _ctx()
 
         events: list[MessageStreamEvent] = []
-        events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _tool_use_start(0)), ctx
-        ))
-        events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _input_delta(0, '{"command": "pip install requests==2.31.0"}')), ctx
-        ))
-        events.extend(await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, _block_stop(0)), ctx
-        ))
+        events.extend(await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_use_start(0)), ctx))
+        events.extend(
+            await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, _input_delta(0, '{"command": "pip install requests==2.31.0"}')), ctx
+            )
+        )
+        events.extend(await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx))
 
         # Should reconstruct original: start, delta, stop
         assert len(events) == 3
@@ -433,6 +412,7 @@ class TestBackgroundTask:
             await policy._poll_ecosystem("PyPI")
 
         from luthien_proxy.policies.supply_chain_feed_db import get_cursor as gc
+
         cursor = await gc(db_pool, "PyPI")
         assert cursor is None
 
@@ -478,9 +458,12 @@ class TestLifecycle:
 
         # Pre-populate DB
         pub = datetime(2025, 1, 1, tzinfo=timezone.utc)
-        await upsert_entries(pool, [
-            ("PyPI", "calibreweb", "0.6.17", "GHSA-8ppf", "CRITICAL", pub, pub),
-        ])
+        await upsert_entries(
+            pool,
+            [
+                ("PyPI", "calibreweb", "0.6.17", "GHSA-8ppf", "CRITICAL", pub, pub),
+            ],
+        )
 
         policy = SupplyChainFeedPolicy()
 

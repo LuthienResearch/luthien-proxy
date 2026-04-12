@@ -80,7 +80,7 @@ docstring-code-format = true
 convention = "google"
 
 [tool.pytest.ini_options]
-addopts = "-q -ra -m 'not e2e and not integration and not mock_e2e and not sqlite_e2e' --import-mode=importlib --cov=src/luthien_proxy --cov-report=term-missing --timeout=3 --timeout-method=signal"
+addopts = "-q -ra -m 'not e2e and not integration and not mock_e2e and not sqlite_e2e and not osv_live' --import-mode=importlib --cov=src/luthien_proxy --cov-report=term-missing --timeout=3 --timeout-method=signal"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 filterwarnings = [
@@ -104,6 +104,7 @@ markers = [
     "uat_unimplemented: UAT - Unimplemented policy error handling (LLM03 Trello)",
     "uat_api_key: UAT - API Key Error Messaging format (LLM04 Trello)",
     "uat_stability: UAT - Policy Setup Stability (LLM05 Trello)",
+    "osv_live: marks tests that hit real OSV GCS endpoints (excluded from default run)",
 ]
 timeout_func_only = false
 
