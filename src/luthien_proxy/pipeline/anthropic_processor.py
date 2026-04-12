@@ -32,8 +32,9 @@ from anthropic.lib.streaming import MessageStreamEvent
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
-from opentelemetry import trace
+from opentelemetry import context as otel_context, trace
 from opentelemetry.context import get_current
+from opentelemetry.propagate import extract as otel_extract
 from opentelemetry.trace import Span
 
 from luthien_proxy.credential_manager import CredentialManager
@@ -363,7 +364,10 @@ async def process_anthropic_request(
     if usage_collector:
         usage_collector.record_accepted()
 
-    with tracer.start_as_current_span("anthropic_transaction_processing") as root_span:
+    # Extract inbound trace context (traceparent header) so Luthien spans
+    # link into the caller's distributed trace (e.g. Claude Code → Datadog).
+    inbound_ctx = otel_extract(dict(request.headers))
+    with tracer.start_as_current_span("anthropic_transaction_processing", context=inbound_ctx) as root_span:
         root_span.set_attribute("luthien.transaction_id", call_id)
         root_span.set_attribute("luthien.client_format", "anthropic_native")
         root_span.set_attribute("luthien.endpoint", "/v1/messages")
