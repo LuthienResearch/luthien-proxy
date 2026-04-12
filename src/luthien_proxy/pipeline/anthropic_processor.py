@@ -411,9 +411,12 @@ async def process_anthropic_request(
             request_path=raw_http_request.path,
         )
         if upstream:
+            # Remove any upstream headers that collide with reserved client headers
+            # (case-insensitive, since HTTP headers are case-insensitive).
             if forwarded_headers:
-                upstream.update(forwarded_headers)  # anthropic-beta takes precedence
-            forwarded_headers = upstream
+                reserved = {k.lower() for k in forwarded_headers}
+                upstream = {k: v for k, v in upstream.items() if k.lower() not in reserved}
+            forwarded_headers = {**(upstream or {}), **(forwarded_headers or {})}
 
         # Create policy cache factory if database is available. The cap is
         # configured once here so every policy's cache honors the same limit;
