@@ -1,0 +1,72 @@
+{
+  "schema_version": "1.7.3",
+  "id": "GHSA-xp7p-3gx7-j6wx",
+  "published": "2022-01-21T23:44:15Z",
+  "modified": "2025-02-18T05:41:43.561679Z",
+  "aliases": [
+    "CVE-2021-4171"
+  ],
+  "summary": "calibre-web is vulnerable to Business Logic Errors",
+  "details": "calibre-web is vulnerable to Business Logic Errors",
+  "affected": [
+    {
+      "package": {
+        "name": "calibreweb",
+        "ecosystem": "PyPI",
+        "purl": "pkg:pypi/calibreweb"
+      },
+      "ranges": [
+        {
+          "type": "ECOSYSTEM",
+          "events": [
+            {
+              "introduced": "0"
+            },
+            {
+              "fixed": "0.6.15"
+            }
+          ]
+        }
+      ],
+      "versions": [
+        "0.6.12",
+        "0.6.13",
+        "0.6.14"
+      ],
+      "database_specific": {
+        "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2022/01/GHSA-xp7p-3gx7-j6wx/GHSA-xp7p-3gx7-j6wx.json"
+      }
+    }
+  ],
+  "references": [
+    {
+      "type": "ADVISORY",
+      "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-4171"
+    },
+    {
+      "type": "WEB",
+      "url": "https://github.com/janeczku/calibre-web/commit/3e0d8763c377d2146462811e3e4ccf13f0d312ce"
+    },
+    {
+      "type": "PACKAGE",
+      "url": "https://github.com/janeczku/calibre-web"
+    },
+    {
+      "type": "WEB",
+      "url": "https://huntr.dev/bounties/1117f439-133c-4563-afb2-6cd80607bd5c"
+    }
+  ],
+  "database_specific": {
+    "cwe_ids": [],
+    "github_reviewed": true,
+    "github_reviewed_at": "2022-01-19T15:03:22Z",
+    "nvd_published_at": "2022-01-17T10:15:00Z",
+    "severity": "CRITICAL"
+  },
+  "severity": [
+    {
+      "type": "CVSS_V3",
+      "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "schema_version": "1.7.3",
+  "id": "GHSA-8ppf-x4gr-2x7g",
+  "published": "2022-05-17T00:01:46Z",
+  "modified": "2023-11-08T04:09:19.907660Z",
+  "aliases": [
+    "CVE-2022-30765"
+  ],
+  "summary": "SQL injection in calibreweb",
+  "details": "Calibre-Web before 0.6.18 allows user table SQL Injection.",
+  "affected": [
+    {
+      "package": {
+        "name": "calibreweb",
+        "ecosystem": "PyPI",
+        "purl": "pkg:pypi/calibreweb"
+      },
+      "ranges": [
+        {
+          "type": "ECOSYSTEM",
+          "events": [
+            {
+              "introduced": "0"
+            },
+            {
+              "fixed": "0.6.18"
+            }
+          ]
+        }
+      ],
+      "versions": [
+        "0.6.12",
+        "0.6.13",
+        "0.6.14",
+        "0.6.15",
+        "0.6.16",
+        "0.6.17"
+      ],
+      "database_specific": {
+        "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2022/05/GHSA-8ppf-x4gr-2x7g/GHSA-8ppf-x4gr-2x7g.json"
+      }
+    }
+  ],
+  "references": [
+    {
+      "type": "ADVISORY",
+      "url": "https://nvd.nist.gov/vuln/detail/CVE-2022-30765"
+    },
+    {
+      "type": "PACKAGE",
+      "url": "https://github.com/janeczku/calibre-web"
+    },
+    {
+      "type": "WEB",
+      "url": "https://github.com/janeczku/calibre-web/blob/master/SECURITY.md"
+    },
+    {
+      "type": "WEB",
+      "url": "https://github.com/janeczku/calibre-web/releases/tag/0.6.18"
+    }
+  ],
+  "database_specific": {
+    "cwe_ids": [
+      "CWE-89"
+    ],
+    "github_reviewed": true,
+    "github_reviewed_at": "2022-05-25T20:14:09Z",
+    "nvd_published_at": "2022-05-16T02:15:00Z",
+    "severity": "CRITICAL"
+  },
+  "severity": [
+    {
+      "type": "CVSS_V3",
+      "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+    }
+  ]
+}

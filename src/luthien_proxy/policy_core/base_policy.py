@@ -8,6 +8,7 @@ automatic get_config() for Pydantic-based configs.
 from __future__ import annotations
 
 from collections.abc import MutableMapping, MutableSequence, MutableSet
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel
@@ -15,8 +16,22 @@ from pydantic import BaseModel
 if TYPE_CHECKING:
     from luthien_proxy.policy_core.policy_context import PolicyContext
     from luthien_proxy.types import RawHttpRequest
+    from luthien_proxy.utils.db import DatabasePool
 
 T = TypeVar("T", bound=BaseModel)
+
+
+@dataclass
+class PolicyLoadContext:
+    """Gateway services available to policies after construction.
+
+    Passed to ``on_policy_loaded()`` by ``PolicyManager.initialize()``.
+    Policies that need shared infrastructure (db_pool, scheduler) read
+    from here. Fields are optional — policies must handle ``None``.
+    """
+
+    db_pool: "DatabasePool | None" = None
+    scheduler: Any = None
 
 
 class BasePolicy:
@@ -37,6 +52,14 @@ class BasePolicy:
     Policies should inherit from this class and implement AnthropicExecutionInterface
     to define the policy execution behavior.
     """
+
+    async def on_policy_loaded(self, context: PolicyLoadContext) -> None:
+        """Called by PolicyManager after construction with gateway services.
+
+        Policies that need shared infrastructure (db_pool, scheduler) override
+        this method. Default implementation is a no-op.
+        """
+        pass
 
     def freeze_configured_state(self) -> None:
         """Validate configured instance shape.
@@ -151,4 +174,4 @@ class BasePolicy:
         return passthrough or fallback_key
 
 
-__all__ = ["BasePolicy"]
+__all__ = ["BasePolicy", "PolicyLoadContext"]
