@@ -237,6 +237,23 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         category="telemetry",
     ),
 
+    # ── webhook ───────────────────────────────────────────────────────────
+    ConfigFieldMeta(
+        "webhook_url", "WEBHOOK_URL", str, "",
+        "Endpoint URL to POST conversation completion events to (leave empty to disable)",
+        category="webhook",
+    ),
+    ConfigFieldMeta(
+        "webhook_max_retries", "WEBHOOK_MAX_RETRIES", int, 3,
+        "Number of retry attempts for failed webhook deliveries",
+        category="webhook",
+    ),
+    ConfigFieldMeta(
+        "webhook_retry_delay_seconds", "WEBHOOK_RETRY_DELAY_SECONDS", float, 1.0,
+        "Base delay in seconds between webhook retry attempts (doubles each retry)",
+        category="webhook",
+    ),
+
     # ── sentry ────────────────────────────────────────────────────────────
     ConfigFieldMeta(
         "sentry_enabled", "SENTRY_ENABLED", bool, False,
@@ -275,6 +292,7 @@ CONFIG_CATEGORIES: tuple[str, ...] = (
     "security",
     "observability",
     "telemetry",
+    "webhook",
     "sentry",
 )
 

@@ -65,6 +65,7 @@ from luthien_proxy.utils.credential_cache import (
 from luthien_proxy.utils.migration_check import check_migrations
 from luthien_proxy.utils.url import sanitize_url_for_logging
 from luthien_proxy.version import PROXY_DISPLAY_VERSION
+from luthien_proxy.webhook.sender import WebhookSender
 
 # Configure OpenTelemetry tracing and logging EARLY (before app creation)
 # This ensures the tracer provider is set up before any spans are created
@@ -280,6 +281,18 @@ def create_app(
         else:
             logger.info("Usage telemetry disabled")
 
+        # Initialize webhook sender
+        _webhook_url = settings.webhook_url or None
+        _webhook_sender = WebhookSender(
+            url=_webhook_url,
+            max_retries=settings.webhook_max_retries,
+            retry_delay_seconds=settings.webhook_retry_delay_seconds,
+        )
+        if _webhook_sender.enabled:
+            logger.info("Webhook event export enabled (url=%s)", _webhook_url)
+        else:
+            logger.info("Webhook event export disabled (set WEBHOOK_URL to enable)")
+
         # Create Dependencies container with all services
         _dependencies = Dependencies(
             db_pool=db_pool,
@@ -294,6 +307,7 @@ def create_app(
             enable_request_logging=_enable_request_logging,
             usage_collector=_usage_collector,
             config_registry=_config_registry,
+            webhook_sender=_webhook_sender,
         )
 
         # Store dependencies container in app state
