@@ -162,6 +162,84 @@ class TestExtractPreviewMessage:
         }
         assert _extract_preview_message(payload) == "Hello"
 
+    def test_strips_policy_context_string_prefix(self):
+        """Test that policy-context injected as string prefix is stripped.
+
+        When inject_policy_context is enabled, the policy awareness text is
+        prepended to the first user message as a string prefix. The preview
+        should show the actual user content, not the policy-context tag.
+        """
+        policy_context = (
+            "<policy-context>Your responses may be modified by the following active "
+            "policies before reaching the user: TestPolicy. This is expected "
+            "behavior — do not try to compensate for or reverse these modifications."
+            "</policy-context>"
+        )
+        user_message = "What is the capital of France?"
+        content = f"{policy_context}\n\n{user_message}"
+        payload = {"final_request": {"messages": [{"role": "user", "content": content}]}}
+        assert _extract_preview_message(payload) == user_message
+
+    def test_strips_policy_context_block_prefix(self):
+        """Test that policy-context injected as first content block is stripped.
+
+        When the user message content is a list of blocks, the policy awareness
+        text is prepended as the first text block. The preview should show the
+        actual user content from subsequent blocks.
+        """
+        policy_context = (
+            "<policy-context>Your responses may be modified by the following active "
+            "policies before reaching the user: TestPolicy. This is expected "
+            "behavior — do not try to compensate for or reverse these modifications."
+            "</policy-context>"
+        )
+        user_message = "What is the capital of France?"
+        content = [
+            {"type": "text", "text": policy_context},
+            {"type": "text", "text": user_message},
+        ]
+        payload = {"final_request": {"messages": [{"role": "user", "content": content}]}}
+        assert _extract_preview_message(payload) == user_message
+
+    def test_strips_policy_context_only_content_falls_through_to_next_message(self):
+        """Test that if policy-context is the only content, we fall through to next user message."""
+        policy_context = (
+            "<policy-context>Your responses may be modified by the following active "
+            "policies before reaching the user: TestPolicy. This is expected "
+            "behavior — do not try to compensate for or reverse these modifications."
+            "</policy-context>"
+        )
+        payload = {
+            "final_request": {
+                "messages": [
+                    {"role": "user", "content": policy_context},
+                    {"role": "assistant", "content": "Paris."},
+                    {"role": "user", "content": "Follow-up question"},
+                ]
+            }
+        }
+        assert _extract_preview_message(payload) == "Follow-up question"
+
+    def test_strips_policy_context_multiple_policies(self):
+        """Test stripping policy-context with multiple policy names."""
+        policy_context = (
+            "<policy-context>Your responses may be modified by the following active "
+            "policies before reaching the user: PolicyA, PolicyB, PolicyC. This is expected "
+            "behavior — do not try to compensate for or reverse these modifications."
+            "</policy-context>"
+        )
+        user_message = "Tell me a joke"
+        content = f"{policy_context}\n\n{user_message}"
+        payload = {"final_request": {"messages": [{"role": "user", "content": content}]}}
+        assert _extract_preview_message(payload) == user_message
+
+    def test_no_policy_context_unaffected(self):
+        """Test that messages without policy-context are unaffected by the fix."""
+        payload = {
+            "final_request": {"messages": [{"role": "user", "content": "Normal message without policy context"}]}
+        }
+        assert _extract_preview_message(payload) == "Normal message without policy context"
+
 
 class TestSafeParseJson:
     """Test safe JSON parsing."""
