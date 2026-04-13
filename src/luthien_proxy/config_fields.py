@@ -183,6 +183,11 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         category="observability",
     ),
     ConfigFieldMeta(
+        "otel_exporter_protocol", "OTEL_EXPORTER_OTLP_PROTOCOL", str, "http/protobuf",
+        "OTLP exporter protocol: 'http/protobuf' (default, works behind HTTP LBs) or 'grpc'",
+        category="observability",
+    ),
+    ConfigFieldMeta(
         "tempo_url", "TEMPO_URL", str, "http://localhost:3200",
         "Tempo HTTP API URL for trace queries",
         category="observability",
