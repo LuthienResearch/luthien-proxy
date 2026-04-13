@@ -344,49 +344,84 @@ def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None
     return None
 
 
-async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0) -> SessionListResponse:
+async def fetch_session_list(
+    limit: int,
+    db_pool: DatabasePool,
+    offset: int = 0,
+    user_id: str | None = None,
+) -> SessionListResponse:
     """Fetch list of recent sessions with summaries.
 
     Args:
         limit: Maximum number of sessions to return
         db_pool: Database connection pool
         offset: Number of sessions to skip for pagination
+        user_id: Optional user identity filter — only return sessions for this user
 
     Returns:
         List of session summaries ordered by most recent activity
     """
     if db_pool.is_sqlite:
-        return await _fetch_session_list_sqlite(limit, db_pool, offset)
-    return await _fetch_session_list_pg(limit, db_pool, offset)
+        return await _fetch_session_list_sqlite(limit, db_pool, offset, user_id=user_id)
+    return await _fetch_session_list_pg(limit, db_pool, offset, user_id=user_id)
 
 
-async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int = 0) -> SessionListResponse:
+async def _fetch_session_list_pg(
+    limit: int,
+    db_pool: DatabasePool,
+    offset: int = 0,
+    user_id: str | None = None,
+) -> SessionListResponse:
     """PostgreSQL version using PG-specific features (FILTER, DISTINCT ON, array_agg)."""
-    async with db_pool.connection() as conn:
-        total_count = await conn.fetchval(
-            """
-            SELECT COUNT(DISTINCT session_id)
-            FROM conversation_events
-            WHERE session_id IS NOT NULL
-            """
-        )
+    # Build optional user_id filter clause for conversation_calls join
+    user_filter_clause = "AND cc.user_id = $3" if user_id is not None else ""
+    count_user_filter = "AND cc.user_id = $1" if user_id is not None else ""
 
-        rows = await conn.fetch(
-            """
-            WITH session_stats AS (
-                SELECT
-                    session_id,
-                    MIN(created_at) as first_ts,
-                    MAX(created_at) as last_ts,
-                    COUNT(*) as total_events,
-                    COUNT(DISTINCT call_id) as turn_count,
-                    COUNT(*) FILTER (
-                        WHERE event_type LIKE 'policy.%'
-                        AND event_type NOT LIKE 'policy.judge.evaluation%'
-                    ) as policy_interventions
+    async with db_pool.connection() as conn:
+        if user_id is not None:
+            total_count = await conn.fetchval(
+                f"""
+                SELECT COUNT(DISTINCT ce.session_id)
+                FROM conversation_events ce
+                JOIN conversation_calls cc ON ce.call_id = cc.call_id
+                WHERE ce.session_id IS NOT NULL
+                {count_user_filter}
+                """,
+                user_id,
+            )
+        else:
+            total_count = await conn.fetchval(
+                """
+                SELECT COUNT(DISTINCT session_id)
                 FROM conversation_events
                 WHERE session_id IS NOT NULL
-                GROUP BY session_id
+                """
+            )
+
+        query_args: list = [limit, offset]
+        if user_id is not None:
+            query_args.append(user_id)
+
+        rows = await conn.fetch(
+            f"""
+            WITH session_stats AS (
+                SELECT
+                    ce.session_id,
+                    MIN(ce.created_at) as first_ts,
+                    MAX(ce.created_at) as last_ts,
+                    COUNT(*) as total_events,
+                    COUNT(DISTINCT ce.call_id) as turn_count,
+                    COUNT(*) FILTER (
+                        WHERE ce.event_type LIKE 'policy.%%'
+                        AND ce.event_type NOT LIKE 'policy.judge.evaluation%%'
+                    ) as policy_interventions,
+                    -- Take first non-null user_id across all calls in this session
+                    MIN(cc.user_id) as user_id
+                FROM conversation_events ce
+                LEFT JOIN conversation_calls cc ON ce.call_id = cc.call_id
+                WHERE ce.session_id IS NOT NULL
+                {user_filter_clause}
+                GROUP BY ce.session_id
             ),
             session_models AS (
                 SELECT DISTINCT
@@ -416,6 +451,7 @@ async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int 
                 s.total_events,
                 s.turn_count,
                 s.policy_interventions,
+                s.user_id,
                 COALESCE(
                     array_agg(DISTINCT m.model) FILTER (WHERE m.model IS NOT NULL),
                     ARRAY[]::text[]
@@ -426,12 +462,11 @@ async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int 
             LEFT JOIN session_first_message f ON s.session_id = f.session_id
             GROUP BY s.session_id, s.first_ts, s.last_ts,
                      s.total_events, s.turn_count, s.policy_interventions,
-                     f.request_payload
+                     s.user_id, f.request_payload
             ORDER BY s.last_ts DESC
             LIMIT $1 OFFSET $2
             """,
-            limit,
-            offset,
+            *query_args,
         )
 
     sessions = [
@@ -444,6 +479,7 @@ async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int 
             policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
             models_used=list(row["models"]) if row["models"] else [],  # type: ignore[arg-type]
             preview_message=_extract_preview_message(cast(_PreviewPayload, row["request_payload"])),
+            user_id=str(row["user_id"]) if row["user_id"] else None,
         )
         for row in rows
     ]
@@ -454,43 +490,70 @@ async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int 
     return SessionListResponse(sessions=sessions, total=total, offset=offset, has_more=has_more)
 
 
-async def _fetch_session_list_sqlite(limit: int, db_pool: DatabasePool, offset: int = 0) -> SessionListResponse:
+async def _fetch_session_list_sqlite(
+    limit: int,
+    db_pool: DatabasePool,
+    offset: int = 0,
+    user_id: str | None = None,
+) -> SessionListResponse:
     """SQLite version: 3 queries total (vs PostgreSQL's 2).
 
     Avoids N+1 by batching models and previews for the whole page in one
     query each, then merging in Python. PostgreSQL uses array_agg/DISTINCT ON
     in a single CTE; SQLite lacks those, so we use IN (session_ids) instead.
     """
+    # Build optional user_id filter clause for conversation_calls join
+    user_filter_clause = "AND cc.user_id = $3" if user_id is not None else ""
+    count_user_filter = "AND cc.user_id = $1" if user_id is not None else ""
+
     async with db_pool.connection() as conn:
-        total_count = await conn.fetchval(
-            """
-            SELECT COUNT(DISTINCT session_id)
-            FROM conversation_events
-            WHERE session_id IS NOT NULL
-            """
-        )
+        if user_id is not None:
+            total_count = await conn.fetchval(
+                f"""
+                SELECT COUNT(DISTINCT ce.session_id)
+                FROM conversation_events ce
+                JOIN conversation_calls cc ON ce.call_id = cc.call_id
+                WHERE ce.session_id IS NOT NULL
+                {count_user_filter}
+                """,
+                user_id,
+            )
+        else:
+            total_count = await conn.fetchval(
+                """
+                SELECT COUNT(DISTINCT session_id)
+                FROM conversation_events
+                WHERE session_id IS NOT NULL
+                """
+            )
+
+        query_args: list = [limit, offset]
+        if user_id is not None:
+            query_args.append(user_id)
 
         rows = await conn.fetch(
-            """
+            f"""
             SELECT
-                session_id,
-                MIN(created_at) as first_ts,
-                MAX(created_at) as last_ts,
+                ce.session_id,
+                MIN(ce.created_at) as first_ts,
+                MAX(ce.created_at) as last_ts,
                 COUNT(*) as total_events,
-                COUNT(DISTINCT call_id) as turn_count,
+                COUNT(DISTINCT ce.call_id) as turn_count,
                 SUM(CASE
-                    WHEN event_type LIKE 'policy.%'
-                    AND event_type NOT LIKE 'policy.judge.evaluation%'
+                    WHEN ce.event_type LIKE 'policy.%'
+                    AND ce.event_type NOT LIKE 'policy.judge.evaluation%'
                     THEN 1 ELSE 0
-                END) as policy_interventions
-            FROM conversation_events
-            WHERE session_id IS NOT NULL
-            GROUP BY session_id
+                END) as policy_interventions,
+                MIN(cc.user_id) as user_id
+            FROM conversation_events ce
+            LEFT JOIN conversation_calls cc ON ce.call_id = cc.call_id
+            WHERE ce.session_id IS NOT NULL
+            {user_filter_clause}
+            GROUP BY ce.session_id
             ORDER BY last_ts DESC
             LIMIT $1 OFFSET $2
             """,
-            limit,
-            offset,
+            *query_args,
         )
 
         total = int(total_count) if total_count is not None else 0  # type: ignore[arg-type]
@@ -554,6 +617,7 @@ async def _fetch_session_list_sqlite(limit: int, db_pool: DatabasePool, offset: 
             policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
             models_used=models_by_session.get(str(row["session_id"]), []),
             preview_message=preview_by_session.get(str(row["session_id"])),
+            user_id=str(row["user_id"]) if row["user_id"] else None,
         )
         for row in rows
     ]
