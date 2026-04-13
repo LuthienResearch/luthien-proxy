@@ -93,6 +93,11 @@ class Settings(_SettingsBase):
     archive_s3_bucket: str | None = None
     archive_s3_prefix: str = "luthien-archive/"
 
+    # ── webhook ─────────────────────────────────────────────────────
+    webhook_url: str = ""
+    webhook_max_retries: int = 3
+    webhook_retry_delay_seconds: float = 1.0
+
     # ── sentry ──────────────────────────────────────────────────────
     sentry_enabled: bool = False
     sentry_dsn: str = ""
