@@ -45,6 +45,8 @@ from luthien_proxy.pipeline.upstream_headers import validate_upstream_headers_at
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.rate_limit import TokenBucketRateLimiter
 from luthien_proxy.request_log import router as request_log_router
+from luthien_proxy.retention.archiver import S3ConversationArchiver
+from luthien_proxy.retention.purger import ConversationPurger
 from luthien_proxy.session import login_page_router
 from luthien_proxy.session import router as session_router
 from luthien_proxy.settings import Settings, clear_settings_cache, get_settings
@@ -306,6 +308,24 @@ def create_app(
         else:
             logger.info("Rate limiting disabled (RATE_LIMIT_RPM=0)")
 
+        _purger: ConversationPurger | None = None
+        _retention_days = settings.conversation_retention_days
+        if _retention_days is not None and _retention_days > 0:
+            _s3_bucket = settings.archive_s3_bucket
+            _archiver: S3ConversationArchiver | None = None
+            if _s3_bucket:
+                _s3_prefix = settings.archive_s3_prefix
+                _archiver = S3ConversationArchiver(bucket=_s3_bucket, prefix=_s3_prefix)
+                logger.info(
+                    "Conversation archival enabled: s3://%s/%s",
+                    _s3_bucket,
+                    _s3_prefix,
+                )
+            _purger = ConversationPurger(db_pool=db_pool, retention_days=_retention_days, archiver=_archiver)
+            _purger.start()
+        else:
+            logger.info("Conversation retention disabled (CONVERSATION_RETENTION_DAYS not set)")
+
         _dependencies = Dependencies(
             db_pool=db_pool,
             redis_client=redis_client,
@@ -330,6 +350,8 @@ def create_app(
         yield
 
         # Shutdown
+        if _purger is not None:
+            await _purger.stop()
         if _telemetry_sender is not None:
             await _telemetry_sender.stop()
         await _inference_provider_registry.close()
