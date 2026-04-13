@@ -22,6 +22,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import time
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Literal, TypedDict, TypeGuard, cast
@@ -73,6 +74,7 @@ from luthien_proxy.usage_telemetry.collector import UsageCollector
 from luthien_proxy.utils import db
 from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
 from luthien_proxy.utils.policy_cache import PolicyCache
+from luthien_proxy.webhook.sender import WebhookSender
 
 
 class _ErrorDetail(TypedDict):
@@ -337,6 +339,7 @@ async def process_anthropic_request(
     usage_collector: UsageCollector | None = None,
     user_credential: Credential | None = None,
     credential_manager: CredentialManager | None = None,
+    webhook_sender: WebhookSender | None = None,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Process an Anthropic API request through the native pipeline.
 
@@ -352,6 +355,7 @@ async def process_anthropic_request(
         usage_collector: Optional usage telemetry collector for counting requests
         user_credential: The credential extracted from the incoming request
         credential_manager: Shared credential manager for auth provider resolution
+        webhook_sender: Optional webhook sender for conversation completion events
 
     Returns:
         StreamingResponse or JSONResponse depending on stream parameter
@@ -364,6 +368,7 @@ async def process_anthropic_request(
         raise TypeError(f"Policy must implement AnthropicExecutionInterface, got {type(policy).__name__}.")
 
     call_id = str(uuid.uuid4())
+    request_start_time = time.monotonic()
     request_log_recorder = create_recorder(db_pool, call_id, enable_request_logging)
 
     if usage_collector:
@@ -464,6 +469,8 @@ async def process_anthropic_request(
             request_log_recorder=request_log_recorder,
             extra_headers=forwarded_headers,
             usage_collector=usage_collector,
+            webhook_sender=webhook_sender,
+            request_start_time=request_start_time,
         )
 
         # Propagate policy summaries if set
@@ -596,6 +603,8 @@ async def _execute_anthropic_policy(
     request_log_recorder: RequestLogRecorder,
     extra_headers: dict[str, str] | None = None,
     usage_collector: UsageCollector | None = None,
+    webhook_sender: WebhookSender | None = None,
+    request_start_time: float | None = None,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Execute an Anthropic policy using the hook-based runtime."""
     io = _AnthropicPolicyIO(
@@ -621,6 +630,8 @@ async def _execute_anthropic_policy(
             request_log_recorder=request_log_recorder,
             emitter=emitter,
             usage_collector=usage_collector,
+            webhook_sender=webhook_sender,
+            request_start_time=request_start_time,
         )
 
     return await _handle_execution_non_streaming(
@@ -631,6 +642,8 @@ async def _execute_anthropic_policy(
         call_id=call_id,
         request_log_recorder=request_log_recorder,
         usage_collector=usage_collector,
+        webhook_sender=webhook_sender,
+        request_start_time=request_start_time,
     )
 
 
@@ -643,6 +656,8 @@ async def _handle_execution_streaming(
     request_log_recorder: RequestLogRecorder,
     emitter: EventEmitterProtocol,
     usage_collector: UsageCollector | None = None,
+    webhook_sender: WebhookSender | None = None,
+    request_start_time: float | None = None,
 ) -> FastAPIStreamingResponse:
     """Handle streaming response flow for execution-oriented policies."""
     parent_context = get_current()
@@ -775,6 +790,23 @@ async def _handle_execution_streaming(
                                 input_tokens=usage.get("input_tokens", 0),
                                 output_tokens=usage.get("output_tokens", 0),
                             )
+                    if webhook_sender and webhook_sender.enabled and final_status == 200:
+                        _input_tokens = 0
+                        _output_tokens = 0
+                        if reconstructed is not None and "usage" in reconstructed:
+                            _usage = reconstructed["usage"]
+                            _input_tokens = _usage.get("input_tokens", 0)
+                            _output_tokens = _usage.get("output_tokens", 0)
+                        _duration_ms = int((time.monotonic() - request_start_time) * 1000) if request_start_time else 0
+                        webhook_sender.fire_and_forget(
+                            session_id=policy_ctx.session_id,
+                            transaction_id=call_id,
+                            model=io.request.get("model", "unknown"),
+                            input_tokens=_input_tokens,
+                            output_tokens=_output_tokens,
+                            duration_ms=_duration_ms,
+                            is_streaming=True,
+                        )
 
     return FastAPIStreamingResponse(
         streaming_with_spans(),
@@ -795,6 +827,8 @@ async def _handle_execution_non_streaming(
     call_id: str,
     request_log_recorder: RequestLogRecorder,
     usage_collector: UsageCollector | None = None,
+    webhook_sender: WebhookSender | None = None,
+    request_start_time: float | None = None,
 ) -> JSONResponse:
     """Handle non-streaming response flow for execution-oriented policies."""
     final_response: AnthropicResponse | None = None
@@ -876,6 +910,19 @@ async def _handle_execution_non_streaming(
                     input_tokens=usage.get("input_tokens", 0),
                     output_tokens=usage.get("output_tokens", 0),
                 )
+
+        if webhook_sender and webhook_sender.enabled:
+            _ns_usage = final_response.get("usage") or {}
+            _duration_ms = int((time.monotonic() - request_start_time) * 1000) if request_start_time else 0
+            webhook_sender.fire_and_forget(
+                session_id=policy_ctx.session_id,
+                transaction_id=call_id,
+                model=final_response.get("model") or io.request.get("model", "unknown"),
+                input_tokens=_ns_usage.get("input_tokens", 0),
+                output_tokens=_ns_usage.get("output_tokens", 0),
+                duration_ms=_duration_ms,
+                is_streaming=False,
+            )
 
         return JSONResponse(
             content=final_response_payload,
