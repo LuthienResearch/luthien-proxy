@@ -41,6 +41,8 @@ from luthien_proxy.observability.redis_event_publisher import RedisEventPublishe
 from luthien_proxy.observability.sentry import init_sentry
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.request_log import router as request_log_router
+from luthien_proxy.retention.archiver import S3ConversationArchiver
+from luthien_proxy.retention.purger import ConversationPurger
 from luthien_proxy.session import login_page_router
 from luthien_proxy.session import router as session_router
 from luthien_proxy.settings import Settings, clear_settings_cache, get_settings
@@ -279,6 +281,25 @@ def create_app(
         else:
             logger.info("Usage telemetry disabled")
 
+        # Initialize conversation retention purger
+        _purger: ConversationPurger | None = None
+        _retention_days = get_settings().conversation_retention_days
+        if _retention_days is not None and _retention_days > 0:
+            _s3_bucket = get_settings().archive_s3_bucket
+            _archiver: S3ConversationArchiver | None = None
+            if _s3_bucket:
+                _s3_prefix = get_settings().archive_s3_prefix
+                _archiver = S3ConversationArchiver(bucket=_s3_bucket, prefix=_s3_prefix)
+                logger.info(
+                    "Conversation archival enabled: s3://%s/%s",
+                    _s3_bucket,
+                    _s3_prefix,
+                )
+            _purger = ConversationPurger(db_pool=db_pool, retention_days=_retention_days, archiver=_archiver)
+            _purger.start()
+        else:
+            logger.info("Conversation retention disabled (CONVERSATION_RETENTION_DAYS not set)")
+
         # Create Dependencies container with all services
         _dependencies = Dependencies(
             db_pool=db_pool,
@@ -302,6 +323,8 @@ def create_app(
         yield
 
         # Shutdown
+        if _purger is not None:
+            await _purger.stop()
         if _telemetry_sender is not None:
             await _telemetry_sender.stop()
         await _credential_manager.close()
