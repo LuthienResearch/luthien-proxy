@@ -1,17 +1,22 @@
-"""Session ID extraction from client requests.
+"""Session ID and user identity extraction from client requests.
 
-Extracts session identifiers from incoming requests to enable tracking
-conversations across multiple API calls.
+Extracts session identifiers and user identities from incoming requests to enable
+tracking conversations across multiple API calls and attributing requests to users.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 from typing import Any
 
 # Header name for clients to provide session ID (used by Claude Code and other integrations)
 SESSION_ID_HEADER = "x-session-id"
+
+# Header name for clients or upstream proxies to provide user identity.
+# Takes precedence over JWT sub claim extraction.
+USER_ID_HEADER = "x-luthien-user-id"
 
 # Pattern to extract session UUID from Anthropic metadata.user_id
 # Format: user_<hash>_account__session_<uuid>
@@ -75,8 +80,67 @@ def extract_session_id_from_headers(headers: dict[str, str]) -> str | None:
     return value if value else None
 
 
+def extract_user_id_from_headers(headers: dict[str, str]) -> str | None:
+    """Extract user identity from the X-Luthien-User-Id request header.
+
+    Clients or upstream proxies can set this header to identify the user making
+    the request. This takes precedence over JWT sub claim extraction.
+
+    Args:
+        headers: Request headers (keys should be lowercase)
+
+    Returns:
+        User ID string if header present and non-empty, None otherwise
+    """
+    value = headers.get(USER_ID_HEADER)
+    # Normalize empty strings to None for consistent handling
+    return value if value else None
+
+
+def extract_user_id_from_bearer_token(token: str | None) -> str | None:
+    """Extract user identity from the ``sub`` claim of a Bearer JWT token.
+
+    Decodes the JWT payload without signature verification — this is used for
+    identity attribution only, not authentication. Malformed or opaque tokens
+    (e.g. Anthropic API keys) return None gracefully.
+
+    Args:
+        token: Raw Bearer token string (without "Bearer " prefix), or None
+
+    Returns:
+        The ``sub`` claim string if present and valid, None otherwise
+    """
+    if not token:
+        return None
+
+    # JWTs have exactly three dot-separated parts
+    parts = token.split(".")
+    if len(parts) != 3:
+        return None
+
+    payload_b64 = parts[1]
+    try:
+        # Add padding back — JWT base64url strips trailing '='
+        padding = 4 - len(payload_b64) % 4
+        if padding != 4:
+            payload_b64 += "=" * padding
+        payload_bytes = base64.urlsafe_b64decode(payload_b64)
+        payload = json.loads(payload_bytes)
+    except Exception:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    sub = payload.get("sub")
+    return sub if isinstance(sub, str) and sub else None
+
+
 __all__ = [
     "SESSION_ID_HEADER",
+    "USER_ID_HEADER",
     "extract_session_id_from_anthropic_body",
     "extract_session_id_from_headers",
+    "extract_user_id_from_bearer_token",
+    "extract_user_id_from_headers",
 ]

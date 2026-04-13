@@ -6,7 +6,7 @@ These tests focus on the HTTP layer - ensuring routes properly:
 - Return correct response models
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -65,7 +65,7 @@ class TestListSessionsRoute:
             assert result.has_more is True
             assert len(result.sessions) == 1
             assert result.sessions[0].session_id == "session-1"
-            mock_fetch.assert_called_once_with(50, mock_db_pool, 0)
+            mock_fetch.assert_called_once_with(50, mock_db_pool, 0, user_id=ANY)
 
     @pytest.mark.asyncio
     async def test_list_sessions_custom_limit(self):
@@ -78,7 +78,7 @@ class TestListSessionsRoute:
             return_value=SessionListResponse(sessions=[], total=0),
         ) as mock_fetch:
             await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=100, offset=0)
-            mock_fetch.assert_called_once_with(100, mock_db_pool, 0)
+            mock_fetch.assert_called_once_with(100, mock_db_pool, 0, user_id=ANY)
 
     @pytest.mark.asyncio
     async def test_list_sessions_with_offset(self):
@@ -100,7 +100,7 @@ class TestListSessionsRoute:
 
             assert result.offset == 50
             assert result.has_more is True
-            mock_fetch.assert_called_once_with(50, mock_db_pool, 50)
+            mock_fetch.assert_called_once_with(50, mock_db_pool, 50, user_id=ANY)
 
     @pytest.mark.asyncio
     async def test_list_sessions_empty(self):
