@@ -1,7 +1,7 @@
 """Service layer for conversation history functionality.
 
 Provides pure business logic for:
-- Fetching session lists with summaries
+- Fetching session lists with summaries (with optional server-side search/filter)
 - Fetching full session details with conversation turns
 - Exporting sessions to markdown format
 """
@@ -23,6 +23,7 @@ from .models import (
     PolicyAnnotation,
     SessionDetail,
     SessionListResponse,
+    SessionSearchParams,
     SessionSummary,
 )
 
@@ -344,35 +345,157 @@ def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None
     return None
 
 
-async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0) -> SessionListResponse:
+async def fetch_session_list(
+    limit: int,
+    db_pool: DatabasePool,
+    offset: int = 0,
+    search: SessionSearchParams | None = None,
+) -> SessionListResponse:
     """Fetch list of recent sessions with summaries.
 
     Args:
         limit: Maximum number of sessions to return
         db_pool: Database connection pool
         offset: Number of sessions to skip for pagination
+        search: Optional search/filter parameters. When None or empty, returns
+            all sessions (original behavior, fully backward compatible).
 
     Returns:
         List of session summaries ordered by most recent activity
     """
+    if search is None:
+        search = SessionSearchParams()
     if db_pool.is_sqlite:
-        return await _fetch_session_list_sqlite(limit, db_pool, offset)
-    return await _fetch_session_list_pg(limit, db_pool, offset)
+        return await _fetch_session_list_sqlite(limit, db_pool, offset, search)
+    return await _fetch_session_list_pg(limit, db_pool, offset, search)
 
 
-async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int = 0) -> SessionListResponse:
-    """PostgreSQL version using PG-specific features (FILTER, DISTINCT ON, array_agg)."""
+async def _fetch_session_list_pg(
+    limit: int,
+    db_pool: DatabasePool,
+    offset: int = 0,
+    search: SessionSearchParams | None = None,
+) -> SessionListResponse:
+    """PostgreSQL version using PG-specific features (FILTER, DISTINCT ON, array_agg).
+
+    Supports server-side filtering via search params:
+    - user: prefix match on session_id (LIKE 'value%')
+    - model: exact match on model_name from conversation_calls
+    - from_time/to_time: time range on session last activity
+    - q: full-text search using tsvector GIN index on conversation_events
+    - policy_intervention: only sessions with at least one policy intervention
+    """
+    if search is None:
+        search = SessionSearchParams()
+
+    # Build dynamic WHERE clauses and parameter list
+    # Base param index starts at 3 (after $1=limit, $2=offset)
+    where_clauses: list[str] = ["session_id IS NOT NULL"]
+    params: list[Any] = []
+    param_idx = 1  # Will be used for filter params (limit/offset added at end)
+
+    if search.user is not None:
+        # Escape LIKE special chars in the user-supplied prefix before appending %
+        escaped_user = search.user.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        where_clauses.append(f"session_id LIKE ${param_idx}::text ESCAPE '\\'")
+        params.append(escaped_user + "%")
+        param_idx += 1
+
+    if search.from_time is not None:
+        # from_time filters on session last activity (last_ts in the CTE)
+        # We apply it as a pre-filter on the raw events table for efficiency
+        where_clauses.append(f"created_at >= ${param_idx}")
+        params.append(search.from_time)
+        param_idx += 1
+
+    if search.to_time is not None:
+        where_clauses.append(f"created_at <= ${param_idx}")
+        params.append(search.to_time)
+        param_idx += 1
+
+    # Full-text search: filter to sessions that have at least one matching event
+    fts_subquery = ""
+    if search.q is not None:
+        fts_subquery = f"""
+            , fts_sessions AS (
+                SELECT DISTINCT session_id
+                FROM conversation_events
+                WHERE session_id IS NOT NULL
+                AND search_vector @@ plainto_tsquery('english', ${param_idx})
+            )"""
+        params.append(search.q)
+        param_idx += 1
+
+    # Model filter: filter to sessions that used the specified model
+    model_filter_subquery = ""
+    if search.model is not None:
+        model_filter_subquery = f"""
+            , model_filter_sessions AS (
+                SELECT DISTINCT session_id
+                FROM conversation_events
+                WHERE session_id IS NOT NULL
+                AND event_type = 'transaction.request_recorded'
+                AND payload->>'final_model' = ${param_idx}
+            )"""
+        params.append(search.model)
+        param_idx += 1
+
+    where_sql = " AND ".join(where_clauses)
+
+    # Additional JOIN conditions for FTS and model filter
+    fts_join = ""
+    if search.q is not None:
+        fts_join = "INNER JOIN fts_sessions fts ON s.session_id = fts.session_id"
+
+    model_join = ""
+    if search.model is not None:
+        model_join = "INNER JOIN model_filter_sessions mf ON s.session_id = mf.session_id"
+
+    # Policy intervention HAVING clause
+    having_clause = ""
+    if search.policy_intervention:
+        having_clause = "HAVING COUNT(*) FILTER (WHERE event_type LIKE 'policy.%' AND event_type NOT LIKE 'policy.judge.evaluation%') > 0"
+
+    # Limit and offset are always the last two params
+    limit_param = f"${param_idx}"
+    offset_param = f"${param_idx + 1}"
+    params.extend([limit, offset])
+
     async with db_pool.connection() as conn:
+        # Count query — must apply same filters
+        count_where = where_sql
+        count_fts_join = fts_join
+        count_model_join = model_join
+        count_having = having_clause
+
+        # Build count query with same CTEs (minus limit/offset params)
+        count_params = params[:-2]  # exclude limit/offset
+        count_limit_idx = param_idx  # not used in count
+        _ = count_limit_idx  # suppress unused warning
+
         total_count = await conn.fetchval(
-            """
-            SELECT COUNT(DISTINCT session_id)
-            FROM conversation_events
-            WHERE session_id IS NOT NULL
-            """
+            f"""
+            WITH session_stats AS (
+                SELECT
+                    session_id,
+                    COUNT(*) FILTER (
+                        WHERE event_type LIKE 'policy.%'
+                        AND event_type NOT LIKE 'policy.judge.evaluation%'
+                    ) as policy_interventions
+                FROM conversation_events
+                WHERE {count_where}
+                GROUP BY session_id
+                {count_having}
+            ){fts_subquery}{model_filter_subquery}
+            SELECT COUNT(*) FROM session_stats s
+            {count_fts_join}
+            {count_model_join}
+            """,
+            *count_params,
         )
 
         rows = await conn.fetch(
-            """
+            f"""
             WITH session_stats AS (
                 SELECT
                     session_id,
@@ -385,8 +508,9 @@ async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int 
                         AND event_type NOT LIKE 'policy.judge.evaluation%'
                     ) as policy_interventions
                 FROM conversation_events
-                WHERE session_id IS NOT NULL
+                WHERE {where_sql}
                 GROUP BY session_id
+                {having_clause}
             ),
             session_models AS (
                 SELECT DISTINCT
@@ -408,7 +532,7 @@ async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int 
                 -- COALESCE to 2 so requests without max_tokens are not skipped.
                 AND COALESCE((payload->'final_request'->>'max_tokens')::int, 2) > 1
                 ORDER BY session_id, created_at ASC
-            )
+            ){fts_subquery}{model_filter_subquery}
             SELECT
                 s.session_id,
                 s.first_ts,
@@ -424,14 +548,15 @@ async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int 
             FROM session_stats s
             LEFT JOIN session_models m ON s.session_id = m.session_id
             LEFT JOIN session_first_message f ON s.session_id = f.session_id
+            {fts_join}
+            {model_join}
             GROUP BY s.session_id, s.first_ts, s.last_ts,
                      s.total_events, s.turn_count, s.policy_interventions,
                      f.request_payload
             ORDER BY s.last_ts DESC
-            LIMIT $1 OFFSET $2
+            LIMIT {limit_param} OFFSET {offset_param}
             """,
-            limit,
-            offset,
+            *params,
         )
 
     sessions = [
@@ -454,24 +579,106 @@ async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int 
     return SessionListResponse(sessions=sessions, total=total, offset=offset, has_more=has_more)
 
 
-async def _fetch_session_list_sqlite(limit: int, db_pool: DatabasePool, offset: int = 0) -> SessionListResponse:
+async def _fetch_session_list_sqlite(
+    limit: int,
+    db_pool: DatabasePool,
+    offset: int = 0,
+    search: SessionSearchParams | None = None,
+) -> SessionListResponse:
     """SQLite version: 3 queries total (vs PostgreSQL's 2).
 
     Avoids N+1 by batching models and previews for the whole page in one
     query each, then merging in Python. PostgreSQL uses array_agg/DISTINCT ON
     in a single CTE; SQLite lacks those, so we use IN (session_ids) instead.
+
+    Full-text search (q param) uses LIKE '%q%' on payload JSON text.
+    This is non-performant for large datasets — use PostgreSQL for production.
     """
+    if search is None:
+        search = SessionSearchParams()
+
+    # Build dynamic WHERE clauses for SQLite.
+    # Use $N placeholders — the DatabasePool translates them to ? for SQLite.
+    where_clauses: list[str] = ["session_id IS NOT NULL"]
+    params: list[Any] = []
+    param_idx = 1
+
+    if search.user is not None:
+        # Escape LIKE special chars in the user-supplied prefix before appending %
+        escaped_user = search.user.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        where_clauses.append(f"session_id LIKE ${param_idx} ESCAPE '\\'")
+        params.append(escaped_user + "%")
+        param_idx += 1
+
+    if search.from_time is not None:
+        where_clauses.append(f"created_at >= ${param_idx}")
+        params.append(search.from_time.isoformat())
+        param_idx += 1
+
+    if search.to_time is not None:
+        where_clauses.append(f"created_at <= ${param_idx}")
+        params.append(search.to_time.isoformat())
+        param_idx += 1
+
+    # Full-text search via LIKE on payload JSON text (SQLite fallback).
+    # Non-performant for large datasets — use PostgreSQL for production.
+    if search.q is not None:
+        where_clauses.append(f"payload LIKE ${param_idx}")
+        params.append(f"%{search.q}%")
+        param_idx += 1
+
+    # Policy intervention filter
+    having_clause = ""
+    if search.policy_intervention:
+        having_clause = """HAVING SUM(CASE
+                    WHEN event_type LIKE 'policy.%'
+                    AND event_type NOT LIKE 'policy.judge.evaluation%'
+                    THEN 1 ELSE 0
+                END) > 0"""
+
+    where_sql = " AND ".join(where_clauses)
+
+    # Model filter subquery (applied as IN filter on session_id)
+    model_filter_sql = ""
+    model_params: list[Any] = []
+    if search.model is not None:
+        model_filter_sql = f"""AND session_id IN (
+                SELECT DISTINCT session_id
+                FROM conversation_events
+                WHERE session_id IS NOT NULL
+                AND event_type = 'transaction.request_recorded'
+                AND json_extract(payload, '$.final_model') = ${param_idx}
+            )"""
+        model_params.append(search.model)
+        param_idx += 1
+
     async with db_pool.connection() as conn:
+        count_params = list(params) + model_params
         total_count = await conn.fetchval(
-            """
+            f"""
             SELECT COUNT(DISTINCT session_id)
-            FROM conversation_events
-            WHERE session_id IS NOT NULL
-            """
+            FROM (
+                SELECT session_id,
+                    SUM(CASE
+                        WHEN event_type LIKE 'policy.%'
+                        AND event_type NOT LIKE 'policy.judge.evaluation%'
+                        THEN 1 ELSE 0
+                    END) as policy_interventions
+                FROM conversation_events
+                WHERE {where_sql}
+                {model_filter_sql}
+                GROUP BY session_id
+                {having_clause}
+            ) filtered
+            """,
+            *count_params,
         )
 
+        limit_param = f"${param_idx}"
+        offset_param = f"${param_idx + 1}"
+        row_params = list(params) + model_params + [limit, offset]
         rows = await conn.fetch(
-            """
+            f"""
             SELECT
                 session_id,
                 MIN(created_at) as first_ts,
@@ -484,13 +691,14 @@ async def _fetch_session_list_sqlite(limit: int, db_pool: DatabasePool, offset: 
                     THEN 1 ELSE 0
                 END) as policy_interventions
             FROM conversation_events
-            WHERE session_id IS NOT NULL
+            WHERE {where_sql}
+            {model_filter_sql}
             GROUP BY session_id
+            {having_clause}
             ORDER BY last_ts DESC
-            LIMIT $1 OFFSET $2
+            LIMIT {limit_param} OFFSET {offset_param}
             """,
-            limit,
-            offset,
+            *row_params,
         )
 
         total = int(total_count) if total_count is not None else 0  # type: ignore[arg-type]
