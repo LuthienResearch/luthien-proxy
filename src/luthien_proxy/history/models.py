@@ -4,8 +4,10 @@ Defines Pydantic models for:
 - Session summaries and listings
 - Conversation turns with typed messages
 - Policy annotations for interventions
+- Search parameters for server-side session filtering
 """
 
+from datetime import datetime
 from enum import Enum
 from typing import Any
 
@@ -100,6 +102,44 @@ class SessionDetail(BaseModel):
     models_used: list[str]
 
 
+class SessionSearchParams(BaseModel):
+    """Search/filter parameters for the session list endpoint.
+
+    All fields are optional. When all are None/False, no filtering is applied
+    and the endpoint behaves identically to the original unfiltered list.
+
+    Attributes:
+        user: Filter by session_id prefix (case-sensitive LIKE 'value%').
+            Maps to session_id for now; will be updated to user_id once
+            PR #554 (user identity extraction) lands.
+        model: Filter by model name (exact match, e.g. 'claude-opus-4-6').
+        from_time: ISO 8601 lower bound on session last activity (inclusive).
+        to_time: ISO 8601 upper bound on session last activity (inclusive).
+        q: Full-text search on user message and assistant response text.
+            PostgreSQL uses tsvector/GIN index; SQLite uses LIKE (slow for large datasets).
+        policy_intervention: If True, only return sessions with at least one
+            policy intervention. If None or False, no filter applied.
+    """
+
+    user: str | None = None
+    model: str | None = None
+    from_time: datetime | None = None
+    to_time: datetime | None = None
+    q: str | None = None
+    policy_intervention: bool | None = None
+
+    def is_empty(self) -> bool:
+        """Return True if no filters are set (all fields are None or False)."""
+        return (
+            self.user is None
+            and self.model is None
+            and self.from_time is None
+            and self.to_time is None
+            and self.q is None
+            and not self.policy_intervention
+        )
+
+
 __all__ = [
     "MessageType",
     "PolicyAnnotation",
@@ -108,4 +148,5 @@ __all__ = [
     "SessionSummary",
     "SessionListResponse",
     "SessionDetail",
+    "SessionSearchParams",
 ]
