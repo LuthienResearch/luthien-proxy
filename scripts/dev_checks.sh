@@ -156,11 +156,54 @@ echo "== Ruff docstrings (report-only) =="
 run_ruff_docstrings() { uv run ruff check --select D --exit-zero || true; }
 step "ruff_docstrings" run_ruff_docstrings
 
-echo "== Pyright (basic) =="
-step "pyright" uv run pyright
+echo "== Pyright + Tests (parallel) =="
+# Pyright and pytest are independent; running them concurrently saves ~10s.
+# Each writes to its own log and we surface output sequentially so it's readable.
+PYRIGHT_LOG="$(mktemp)"
+PYTEST_LOG="$(mktemp)"
+trap 'rm -f "$PYRIGHT_LOG" "$PYTEST_LOG"' EXIT
 
-echo "== Tests =="
-step "pytest" uv run -m pytest -q
+pyright_start=$(date +%s.%N)
+(uv run pyright > "$PYRIGHT_LOG" 2>&1) &
+PYRIGHT_PID=$!
+
+pytest_start=$(date +%s.%N)
+(uv run -m pytest -q > "$PYTEST_LOG" 2>&1) &
+PYTEST_PID=$!
+
+set +e
+wait "$PYRIGHT_PID"; PYRIGHT_RC=$?
+pyright_end=$(date +%s.%N)
+wait "$PYTEST_PID"; PYTEST_RC=$?
+pytest_end=$(date +%s.%N)
+set -e
+
+echo ""
+echo "── Pyright output ──"
+cat "$PYRIGHT_LOG"
+echo ""
+echo "── Pytest output ──"
+cat "$PYTEST_LOG"
+
+if [[ -n "$TIMING_FILE" ]]; then
+    pyright_dur=$(awk -v s="$pyright_start" -v e="$pyright_end" 'BEGIN { printf "%.3f", e - s }')
+    pytest_dur=$(awk -v s="$pytest_start" -v e="$pytest_end" 'BEGIN { printf "%.3f", e - s }')
+    printf '{"run_id":"%s","step":"pyright","duration_s":%s,"exit_code":%d,"ts":"%s"}\n' \
+        "$RUN_ID" "$pyright_dur" "$PYRIGHT_RC" "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" \
+        >> "$TIMING_FILE"
+    printf '{"run_id":"%s","step":"pytest","duration_s":%s,"exit_code":%d,"ts":"%s"}\n' \
+        "$RUN_ID" "$pytest_dur" "$PYTEST_RC" "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" \
+        >> "$TIMING_FILE"
+fi
+
+if [[ $PYRIGHT_RC -ne 0 ]]; then
+    echo "Pyright failed (exit $PYRIGHT_RC)."
+    exit "$PYRIGHT_RC"
+fi
+if [[ $PYTEST_RC -ne 0 ]]; then
+    echo "Pytest failed (exit $PYTEST_RC)."
+    exit "$PYTEST_RC"
+fi
 
 echo "== Radon complexity (report-only) =="
 run_radon() { uv run radon cc -s -a src || true; }
