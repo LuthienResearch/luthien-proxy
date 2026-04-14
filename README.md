@@ -2,6 +2,10 @@
 
 ### Claude Code builds. You stay in control.
 
+```bash
+curl -fsSL https://luthien.cc/install.sh | bash  # local install, no Docker needed
+```
+
 [What does it look like?](#what-does-it-look-like) | [What can it do?](#what-can-it-do) | [How does it work?](#how-does-it-work) | [Quick start](#quick-start)
 
 Open-source proxy that sits between Claude Code and the Anthropic API.
@@ -102,11 +106,7 @@ Luthien sits in line as a transparent proxy. Every request and response flows th
 
 ## Quick Start
 
-```bash
-curl -fsSL https://luthien.cc/install.sh | bash
-```
-
-No Docker required. This installs [`uv`](https://docs.astral.sh/uv/) (if needed) and the Luthien CLI, sets up the gateway with SQLite, walks you through configuration, and starts the proxy.
+No Docker required. The install command at the top of this page installs [`uv`](https://docs.astral.sh/uv/) (if needed) and the Luthien CLI, sets up the gateway with SQLite, walks you through configuration, and starts the proxy.
 
 > **Claude Pro/Max users**: You don't need an API key. Luthien passes your existing Claude subscription credentials through to the Anthropic API — no extra cost, no configuration needed.
 
