@@ -365,392 +365,257 @@ async def fetch_session_list(
     """
     if search is None:
         search = SessionSearchParams()
-    if db_pool.is_sqlite:
-        return await _fetch_session_list_sqlite(limit, db_pool, offset, search)
-    return await _fetch_session_list_pg(limit, db_pool, offset, search)
 
-
-async def _fetch_session_list_pg(
-    limit: int,
-    db_pool: DatabasePool,
-    offset: int = 0,
-    search: SessionSearchParams | None = None,
-) -> SessionListResponse:
-    """PostgreSQL version using PG-specific features (FILTER, DISTINCT ON, array_agg).
-
-    Supports server-side filtering via search params:
-    - user: prefix match on session_id (LIKE 'value%')
-    - model: exact match on model_name from conversation_calls
-    - from_time/to_time: time range on session last activity
-    - q: full-text search using tsvector GIN index on conversation_events
-    - policy_intervention: only sessions with at least one policy intervention
-    """
-    if search is None:
-        search = SessionSearchParams()
-
-    # Build dynamic WHERE clauses and parameter list
-    # Base param index starts at 3 (after $1=limit, $2=offset)
-    where_clauses: list[str] = ["session_id IS NOT NULL"]
-    params: list[Any] = []
-    param_idx = 1  # Will be used for filter params (limit/offset added at end)
-
-    if search.user is not None:
-        # Escape LIKE special chars in the user-supplied prefix before appending %
-        escaped_user = search.user.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        where_clauses.append(f"session_id LIKE ${param_idx}::text ESCAPE '\\'")
-        params.append(escaped_user + "%")
-        param_idx += 1
-
-    if search.from_time is not None:
-        # from_time filters on session last activity (last_ts in the CTE)
-        # We apply it as a pre-filter on the raw events table for efficiency
-        where_clauses.append(f"created_at >= ${param_idx}")
-        params.append(search.from_time)
-        param_idx += 1
-
-    if search.to_time is not None:
-        where_clauses.append(f"created_at <= ${param_idx}")
-        params.append(search.to_time)
-        param_idx += 1
-
-    # Full-text search: filter to sessions that have at least one matching event
-    fts_subquery = ""
-    if search.q is not None:
-        fts_subquery = f"""
-            , fts_sessions AS (
-                SELECT DISTINCT session_id
-                FROM conversation_events
-                WHERE session_id IS NOT NULL
-                AND search_vector @@ plainto_tsquery('english', ${param_idx})
-            )"""
-        params.append(search.q)
-        param_idx += 1
-
-    # Model filter: filter to sessions that used the specified model
-    model_filter_subquery = ""
-    if search.model is not None:
-        model_filter_subquery = f"""
-            , model_filter_sessions AS (
-                SELECT DISTINCT session_id
-                FROM conversation_events
-                WHERE session_id IS NOT NULL
-                AND event_type = 'transaction.request_recorded'
-                AND payload->>'final_model' = ${param_idx}
-            )"""
-        params.append(search.model)
-        param_idx += 1
-
-    where_sql = " AND ".join(where_clauses)
-
-    # Additional JOIN conditions for FTS and model filter
-    fts_join = ""
-    if search.q is not None:
-        fts_join = "INNER JOIN fts_sessions fts ON s.session_id = fts.session_id"
-
-    model_join = ""
-    if search.model is not None:
-        model_join = "INNER JOIN model_filter_sessions mf ON s.session_id = mf.session_id"
-
-    # Policy intervention HAVING clause
-    having_clause = ""
-    if search.policy_intervention:
-        having_clause = "HAVING COUNT(*) FILTER (WHERE event_type LIKE 'policy.%' AND event_type NOT LIKE 'policy.judge.evaluation%') > 0"
-
-    # Limit and offset are always the last two params
-    limit_param = f"${param_idx}"
-    offset_param = f"${param_idx + 1}"
-    params.extend([limit, offset])
-
-    async with db_pool.connection() as conn:
-        # Count query — must apply same filters
-        count_where = where_sql
-        count_fts_join = fts_join
-        count_model_join = model_join
-        count_having = having_clause
-
-        # Build count query with same CTEs (minus limit/offset params)
-        count_params = params[:-2]  # exclude limit/offset
-        count_limit_idx = param_idx  # not used in count
-        _ = count_limit_idx  # suppress unused warning
-
-        total_count = await conn.fetchval(
-            f"""
-            WITH session_stats AS (
-                SELECT
-                    session_id,
-                    COUNT(*) FILTER (
-                        WHERE event_type LIKE 'policy.%'
-                        AND event_type NOT LIKE 'policy.judge.evaluation%'
-                    ) as policy_interventions
-                FROM conversation_events
-                WHERE {count_where}
-                GROUP BY session_id
-                {count_having}
-            ){fts_subquery}{model_filter_subquery}
-            SELECT COUNT(*) FROM session_stats s
-            {count_fts_join}
-            {count_model_join}
-            """,
-            *count_params,
-        )
-
-        rows = await conn.fetch(
-            f"""
-            WITH session_stats AS (
-                SELECT
-                    session_id,
-                    MIN(created_at) as first_ts,
-                    MAX(created_at) as last_ts,
-                    COUNT(*) as total_events,
-                    COUNT(DISTINCT call_id) as turn_count,
-                    COUNT(*) FILTER (
-                        WHERE event_type LIKE 'policy.%'
-                        AND event_type NOT LIKE 'policy.judge.evaluation%'
-                    ) as policy_interventions
-                FROM conversation_events
-                WHERE {where_sql}
-                GROUP BY session_id
-                {having_clause}
-            ),
-            session_models AS (
-                SELECT DISTINCT
-                    session_id,
-                    payload->>'final_model' as model
-                FROM conversation_events
-                WHERE session_id IS NOT NULL
-                AND event_type = 'transaction.request_recorded'
-                AND payload->>'final_model' IS NOT NULL
-            ),
-            session_first_message AS (
-                SELECT DISTINCT ON (session_id)
-                    session_id,
-                    payload as request_payload
-                FROM conversation_events
-                WHERE session_id IS NOT NULL
-                AND event_type = 'transaction.request_recorded'
-                -- Skip probe requests: max_tokens=1 means internal probe (token counting, quota).
-                -- COALESCE to 2 so requests without max_tokens are not skipped.
-                AND COALESCE((payload->'final_request'->>'max_tokens')::int, 2) > 1
-                ORDER BY session_id, created_at ASC
-            ){fts_subquery}{model_filter_subquery}
-            SELECT
-                s.session_id,
-                s.first_ts,
-                s.last_ts,
-                s.total_events,
-                s.turn_count,
-                s.policy_interventions,
-                COALESCE(
-                    array_agg(DISTINCT m.model) FILTER (WHERE m.model IS NOT NULL),
-                    ARRAY[]::text[]
-                ) as models,
-                f.request_payload
-            FROM session_stats s
-            LEFT JOIN session_models m ON s.session_id = m.session_id
-            LEFT JOIN session_first_message f ON s.session_id = f.session_id
-            {fts_join}
-            {model_join}
-            GROUP BY s.session_id, s.first_ts, s.last_ts,
-                     s.total_events, s.turn_count, s.policy_interventions,
-                     f.request_payload
-            ORDER BY s.last_ts DESC
-            LIMIT {limit_param} OFFSET {offset_param}
-            """,
-            *params,
-        )
-
-    sessions = [
-        SessionSummary(
-            session_id=str(row["session_id"]),
-            first_timestamp=parse_db_ts(row["first_ts"]).isoformat(),
-            last_timestamp=parse_db_ts(row["last_ts"]).isoformat(),
-            turn_count=int(row["turn_count"]),  # type: ignore[arg-type]
-            total_events=int(row["total_events"]),  # type: ignore[arg-type]
-            policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
-            models_used=list(row["models"]) if row["models"] else [],  # type: ignore[arg-type]
-            preview_message=_extract_preview_message(cast(_PreviewPayload, row["request_payload"])),
-        )
-        for row in rows
-    ]
-
-    total = int(total_count) if total_count is not None else 0  # type: ignore[arg-type]
-    has_more = offset + len(sessions) < total
-
-    return SessionListResponse(sessions=sessions, total=total, offset=offset, has_more=has_more)
-
-
-async def _fetch_session_list_sqlite(
-    limit: int,
-    db_pool: DatabasePool,
-    offset: int = 0,
-    search: SessionSearchParams | None = None,
-) -> SessionListResponse:
-    """SQLite version: 3 queries total (vs PostgreSQL's 2).
-
-    Avoids N+1 by batching models and previews for the whole page in one
-    query each, then merging in Python. PostgreSQL uses array_agg/DISTINCT ON
-    in a single CTE; SQLite lacks those, so we use IN (session_ids) instead.
-
-    Full-text search (q param) uses LIKE '%q%' on payload JSON text.
-    This is non-performant for large datasets — use PostgreSQL for production.
-    """
-    if search is None:
-        search = SessionSearchParams()
-
-    # Build dynamic WHERE clauses for SQLite.
-    # Use $N placeholders — the DatabasePool translates them to ? for SQLite.
-    where_clauses: list[str] = ["session_id IS NOT NULL"]
+    if not getattr(fetch_session_list, "_shared_impl_active", False):
+        if db_pool.is_sqlite:
+            return await _fetch_session_list_sqlite(limit, db_pool, offset, search)
+        return await _fetch_session_list_pg(limit, db_pool, offset, search)
     params: list[Any] = []
     param_idx = 1
 
-    if search.user is not None:
-        # Escape LIKE special chars in the user-supplied prefix before appending %
-        escaped_user = search.user.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        where_clauses.append(f"session_id LIKE ${param_idx} ESCAPE '\\'")
-        params.append(escaped_user + "%")
+    def add_param(value: Any) -> str:
+        nonlocal param_idx
+        placeholder = f"${param_idx}"
+        params.append(value)
         param_idx += 1
+        return placeholder
+
+    def escape_like(value: str) -> str:
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+    model_expr = "payload->>'final_model'" if db_pool.is_postgres else "json_extract(payload, '$.final_model')"
+    max_tokens_expr = (
+        "payload->'final_request'->>'max_tokens'"
+        if db_pool.is_postgres
+        else "json_extract(payload, '$.final_request.max_tokens')"
+    )
+    policy_count_expr = (
+        "COUNT(*) FILTER (WHERE ce.event_type LIKE 'policy.%' AND ce.event_type NOT LIKE 'policy.judge.evaluation%')"
+        if db_pool.is_postgres
+        else "SUM(CASE WHEN ce.event_type LIKE 'policy.%' AND ce.event_type NOT LIKE 'policy.judge.evaluation%' THEN 1 ELSE 0 END)"
+    )
+
+    qualifying_where = ["ce.session_id IS NOT NULL"]
+    qualifying_having: list[str] = []
+
+    if search.user is not None:
+        qualifying_where.append(f"ce.session_id LIKE {add_param(escape_like(search.user) + '%')} ESCAPE '\\'")
+
+    if search.model is not None:
+        model_placeholder = add_param(search.model)
+        qualifying_where.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM conversation_events ce_model
+                WHERE ce_model.session_id = ce.session_id
+                AND ce_model.event_type = 'transaction.request_recorded'
+                AND ce_model.session_id IS NOT NULL
+                AND """
+            + f"{model_expr.replace('payload', 'ce_model.payload')} = {model_placeholder}"
+            + """
+            )
+            """.strip()
+        )
+
+    if search.q is not None:
+        if db_pool.is_postgres:
+            q_placeholder = add_param(search.q)
+            qualifying_where.append(
+                f"""
+                EXISTS (
+                    SELECT 1
+                    FROM conversation_events ce_search
+                    WHERE ce_search.session_id = ce.session_id
+                    AND ce_search.session_id IS NOT NULL
+                    AND ce_search.search_vector @@ plainto_tsquery('english', {q_placeholder})
+                )
+                """.strip()
+            )
+        else:
+            escaped_q = f"%{escape_like(search.q)}%"
+            request_content_placeholder = add_param(escaped_q)
+            request_block_placeholder = add_param(escaped_q)
+            response_content_placeholder = add_param(escaped_q)
+            qualifying_where.append(
+                f"""
+                EXISTS (
+                    SELECT 1
+                    FROM conversation_events ce_search
+                    WHERE ce_search.session_id = ce.session_id
+                    AND ce_search.session_id IS NOT NULL
+                    AND ce_search.event_type = 'transaction.request_recorded'
+                    AND (
+                        EXISTS (
+                            SELECT 1
+                            FROM json_tree(ce_search.payload, '$.final_request.messages') jt
+                            WHERE jt.type = 'text'
+                            AND (
+                                (
+                                    jt.fullkey GLOB '$.final_request.messages[*].content'
+                                    AND jt.value LIKE {request_content_placeholder} ESCAPE '\\'
+                                    AND EXISTS (
+                                        SELECT 1
+                                        FROM json_tree(ce_search.payload, '$.final_request.messages') role_node
+                                        WHERE role_node.fullkey = substr(jt.fullkey, 1, length(jt.fullkey) - length('.content')) || '.role'
+                                        AND role_node.value = 'user'
+                                    )
+                                )
+                                OR (
+                                    jt.fullkey GLOB '$.final_request.messages[*].content[*].text'
+                                    AND jt.value LIKE {request_block_placeholder} ESCAPE '\\'
+                                    AND EXISTS (
+                                        SELECT 1
+                                        FROM json_tree(ce_search.payload, '$.final_request.messages') role_node
+                                        WHERE role_node.fullkey = substr(jt.fullkey, 1, instr(jt.fullkey, '.content') - 1) || '.role'
+                                        AND role_node.value = 'user'
+                                    )
+                                )
+                            )
+                        )
+                        OR (
+                            EXISTS (
+                                SELECT 1
+                                FROM json_tree(ce_search.payload, '$.final_response') jt
+                                WHERE jt.type = 'text'
+                                AND jt.value LIKE {response_content_placeholder} ESCAPE '\\'
+                                AND (
+                                    jt.fullkey = '$.final_response.content'
+                                    OR jt.fullkey GLOB '$.final_response.content[*].text'
+                                )
+                            )
+                        )
+                    )
+                )
+                """.strip()
+            )
 
     if search.from_time is not None:
-        where_clauses.append(f"created_at >= ${param_idx}")
-        params.append(search.from_time.isoformat())
-        param_idx += 1
+        qualifying_having.append(
+            f"MAX(ce.created_at) >= {add_param(search.from_time if db_pool.is_postgres else search.from_time.isoformat())}"
+        )
 
     if search.to_time is not None:
-        where_clauses.append(f"created_at <= ${param_idx}")
-        params.append(search.to_time.isoformat())
-        param_idx += 1
+        qualifying_having.append(
+            f"MIN(ce.created_at) <= {add_param(search.to_time if db_pool.is_postgres else search.to_time.isoformat())}"
+        )
 
-    # Full-text search via LIKE on payload JSON text (SQLite fallback).
-    # Non-performant for large datasets — use PostgreSQL for production.
-    if search.q is not None:
-        where_clauses.append(f"payload LIKE ${param_idx}")
-        params.append(f"%{search.q}%")
-        param_idx += 1
+    qualifying_where_sql = " AND ".join(qualifying_where)
+    qualifying_having_sql = f"HAVING {' AND '.join(qualifying_having)}" if qualifying_having else ""
+    policy_having_sql = f"HAVING {policy_count_expr} > 0" if search.policy_intervention else ""
 
-    # Policy intervention filter
-    having_clause = ""
-    if search.policy_intervention:
-        having_clause = """HAVING SUM(CASE
-                    WHEN event_type LIKE 'policy.%'
-                    AND event_type NOT LIKE 'policy.judge.evaluation%'
-                    THEN 1 ELSE 0
-                END) > 0"""
+    common_ctes = f"""
+        WITH qualifying_sessions AS (
+            SELECT ce.session_id
+            FROM conversation_events ce
+            WHERE {qualifying_where_sql}
+            GROUP BY ce.session_id
+            {qualifying_having_sql}
+        ),
+        session_stats AS (
+            SELECT
+                ce.session_id,
+                MIN(ce.created_at) as first_ts,
+                MAX(ce.created_at) as last_ts,
+                COUNT(*) as total_events,
+                COUNT(DISTINCT ce.call_id) as turn_count,
+                {policy_count_expr} as policy_interventions
+            FROM conversation_events ce
+            INNER JOIN qualifying_sessions qs ON qs.session_id = ce.session_id
+            GROUP BY ce.session_id
+            {policy_having_sql}
+        )
+    """
 
-    where_sql = " AND ".join(where_clauses)
-
-    # Model filter subquery (applied as IN filter on session_id)
-    model_filter_sql = ""
-    model_params: list[Any] = []
-    if search.model is not None:
-        model_filter_sql = f"""AND session_id IN (
-                SELECT DISTINCT session_id
-                FROM conversation_events
-                WHERE session_id IS NOT NULL
-                AND event_type = 'transaction.request_recorded'
-                AND json_extract(payload, '$.final_model') = ${param_idx}
-            )"""
-        model_params.append(search.model)
-        param_idx += 1
+    count_params = list(params)
+    limit_placeholder = add_param(limit)
+    offset_placeholder = add_param(offset)
+    row_params = list(params)
 
     async with db_pool.connection() as conn:
-        count_params = list(params) + model_params
         total_count = await conn.fetchval(
             f"""
-            SELECT COUNT(DISTINCT session_id)
-            FROM (
-                SELECT session_id,
-                    SUM(CASE
-                        WHEN event_type LIKE 'policy.%'
-                        AND event_type NOT LIKE 'policy.judge.evaluation%'
-                        THEN 1 ELSE 0
-                    END) as policy_interventions
-                FROM conversation_events
-                WHERE {where_sql}
-                {model_filter_sql}
-                GROUP BY session_id
-                {having_clause}
-            ) filtered
+            {common_ctes}
+            SELECT COUNT(*) FROM session_stats
             """,
             *count_params,
         )
 
-        limit_param = f"${param_idx}"
-        offset_param = f"${param_idx + 1}"
-        row_params = list(params) + model_params + [limit, offset]
         rows = await conn.fetch(
             f"""
+            {common_ctes}
             SELECT
                 session_id,
-                MIN(created_at) as first_ts,
-                MAX(created_at) as last_ts,
-                COUNT(*) as total_events,
-                COUNT(DISTINCT call_id) as turn_count,
-                SUM(CASE
-                    WHEN event_type LIKE 'policy.%'
-                    AND event_type NOT LIKE 'policy.judge.evaluation%'
-                    THEN 1 ELSE 0
-                END) as policy_interventions
-            FROM conversation_events
-            WHERE {where_sql}
-            {model_filter_sql}
-            GROUP BY session_id
-            {having_clause}
+                first_ts,
+                last_ts,
+                total_events,
+                turn_count,
+                policy_interventions
+            FROM session_stats
             ORDER BY last_ts DESC
-            LIMIT {limit_param} OFFSET {offset_param}
+            LIMIT {limit_placeholder} OFFSET {offset_placeholder}
             """,
             *row_params,
         )
 
         total = int(total_count) if total_count is not None else 0  # type: ignore[arg-type]
-
         if not rows:
             return SessionListResponse(sessions=[], total=total, offset=offset, has_more=False)
 
         session_ids = [str(row["session_id"]) for row in rows]
-        placeholders = ", ".join(f"${i + 1}" for i in range(len(session_ids)))
+        session_id_placeholders = ", ".join(f"${i + 1}" for i in range(len(session_ids)))
 
-        # One query for all models on this page
         model_rows = await conn.fetch(
             f"""
-            SELECT session_id, json_extract(payload, '$.final_model') as model
+            SELECT session_id, {model_expr} as model
             FROM conversation_events
-            WHERE session_id IN ({placeholders})
+            WHERE session_id IN ({session_id_placeholders})
             AND event_type = 'transaction.request_recorded'
-            AND json_extract(payload, '$.final_model') IS NOT NULL
+            AND {model_expr} IS NOT NULL
             """,
             *session_ids,
         )
 
-        # One query for first qualifying preview per session on this page
         preview_rows = await conn.fetch(
             f"""
             SELECT session_id, payload as request_payload
             FROM conversation_events
-            WHERE session_id IN ({placeholders})
+            WHERE session_id IN ({session_id_placeholders})
             AND event_type = 'transaction.request_recorded'
-            AND COALESCE(
-                CAST(json_extract(payload, '$.final_request.max_tokens') AS INTEGER),
-                2
-            ) > 1
+            AND COALESCE(CAST({max_tokens_expr} AS INTEGER), 2) > 1
             ORDER BY session_id, created_at ASC
             """,
             *session_ids,
         )
 
-    # Build per-session lookup maps from the bulk results
     models_by_session: dict[str, list[str]] = {}
-    for r in model_rows:
-        sid = str(r["session_id"])
-        model = str(r["model"])
+    for row in rows:
+        if "models" not in row:
+            continue
+        raw_models = row["models"]
+        if isinstance(raw_models, list | tuple) and raw_models:
+            models_by_session[str(row["session_id"])] = [str(model) for model in raw_models]
+
+    for model_row in model_rows:
+        if "model" not in model_row:
+            continue
+        sid = str(model_row["session_id"])
+        model = str(model_row["model"])
         session_models = models_by_session.setdefault(sid, [])
         if model not in session_models:
             session_models.append(model)
 
-    preview_by_session: dict[str, str | None] = {}
-    for r in preview_rows:
-        sid = str(r["session_id"])
+    preview_by_session: dict[str, str | None] = {
+        str(row["session_id"]): _extract_preview_message(cast(_PreviewPayload, row["request_payload"]))
+        for row in rows
+        if "request_payload" in row
+    }
+    for preview_row in preview_rows:
+        if "request_payload" not in preview_row:
+            continue
+        sid = str(preview_row["session_id"])
         if sid not in preview_by_session:
-            preview_by_session[sid] = _extract_preview_message(cast(_PreviewPayload, r["request_payload"]))
+            preview_by_session[sid] = _extract_preview_message(cast(_PreviewPayload, preview_row["request_payload"]))
 
     sessions = [
         SessionSummary(
@@ -768,6 +633,36 @@ async def _fetch_session_list_sqlite(
 
     has_more = offset + len(sessions) < total
     return SessionListResponse(sessions=sessions, total=total, offset=offset, has_more=has_more)
+
+
+async def _fetch_session_list_pg(
+    limit: int,
+    db_pool: DatabasePool,
+    offset: int = 0,
+    search: SessionSearchParams | None = None,
+) -> SessionListResponse:
+    """Backward-compatible wrapper around the shared fetch_session_list path."""
+    previous = getattr(fetch_session_list, "_shared_impl_active", False)
+    setattr(fetch_session_list, "_shared_impl_active", True)
+    try:
+        return await fetch_session_list(limit, db_pool, offset, search)
+    finally:
+        setattr(fetch_session_list, "_shared_impl_active", previous)
+
+
+async def _fetch_session_list_sqlite(
+    limit: int,
+    db_pool: DatabasePool,
+    offset: int = 0,
+    search: SessionSearchParams | None = None,
+) -> SessionListResponse:
+    """Backward-compatible wrapper around the shared fetch_session_list path."""
+    previous = getattr(fetch_session_list, "_shared_impl_active", False)
+    setattr(fetch_session_list, "_shared_impl_active", True)
+    try:
+        return await fetch_session_list(limit, db_pool, offset, search)
+    finally:
+        setattr(fetch_session_list, "_shared_impl_active", previous)
 
 
 async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> SessionDetail:
