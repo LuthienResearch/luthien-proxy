@@ -13,6 +13,7 @@ import pytest
 
 from luthien_proxy.history.service import fetch_session_list
 from luthien_proxy.utils.db import DatabasePool
+from luthien_proxy.utils.db_sqlite import SqliteConnection
 
 
 @pytest.fixture
@@ -23,14 +24,9 @@ async def sqlite_pool() -> DatabasePool:
     migrations_dir = Path(__file__).parent.parent.parent.parent.parent / "migrations" / "sqlite"
 
     async with pool.connection() as conn:
+        assert isinstance(conn, SqliteConnection)
         for migration_file in sorted(migrations_dir.glob("*.sql")):
-            sql = migration_file.read_text()
-            for statement in sql.split(";"):
-                statement = statement.strip()
-                if statement and not all(
-                    line.strip().startswith("--") or not line.strip() for line in statement.split("\n")
-                ):
-                    await conn.execute(statement)
+            await conn.executescript(migration_file.read_text())
 
     yield pool
 

@@ -9,6 +9,7 @@ import asyncpg
 
 from luthien_proxy.settings import get_settings
 from luthien_proxy.utils.db import DatabasePool
+from luthien_proxy.utils.db_sqlite import SqliteConnection
 
 logger = logging.getLogger(__name__)
 
@@ -127,18 +128,17 @@ async def _apply_sqlite_migrations(
                         )
                 continue
 
-            # Apply migration — split on ";" is naive (breaks on semicolons in
-            # string literals) but sufficient for our DDL-only migration files.
-            # SQLite DDL auto-commits, so transaction wrapping won't help with
-            # partial failures. A multi-statement migration that fails mid-way
-            # will leave partial schema with no _migrations record.
+            # Apply the migration using SQLite's native multi-statement parser.
+            # executescript() understands trigger BEGIN...END blocks, so
+            # semicolons inside trigger bodies don't get split into broken
+            # fragments. SQLite DDL auto-commits; a multi-statement migration
+            # that fails mid-way will leave partial schema with no _migrations
+            # record.
             sql = mf.read_text()
-            for statement in sql.split(";"):
-                statement = statement.strip()
-                if statement and not all(
-                    line.strip().startswith("--") or not line.strip() for line in statement.split("\n")
-                ):
-                    await conn.execute(statement)
+            if isinstance(conn, SqliteConnection):
+                await conn.executescript(sql)
+            else:
+                await conn.execute(sql)
 
             content_hash = compute_file_hash(mf)
             await conn.execute(
