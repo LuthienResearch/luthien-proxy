@@ -30,8 +30,9 @@ def _translate_params(query: str, args: tuple[object, ...]) -> tuple[str, tuple[
     # Strip PostgreSQL type casts (::jsonb, ::text, ::float, ::int[], etc.)
     translated = re.sub(r"::\w+(\[\])?", "", translated)
 
-    # LEAST(a, b) → MIN(a, b)
+    # LEAST(a, b) → MIN(a, b), GREATEST(a, b) → MAX(a, b)
     translated = translated.replace("LEAST(", "MIN(")
+    translated = translated.replace("GREATEST(", "MAX(")
 
     # to_timestamp(?) → datetime(?, 'unixepoch')
     translated = re.sub(r"to_timestamp\(\?\)", "datetime(?, 'unixepoch')", translated)

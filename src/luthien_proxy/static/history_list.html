@@ -749,7 +749,7 @@
 
                     const hasPreview = !!session.preview_message;
                     html += `
-                        <div class="session-card" onclick="viewSession('${escapeHtml(session.session_id)}')">
+                        <div class="session-card" data-session-id="${escapeHtml(session.session_id)}">
                             <div class="session-main">
                                 <div class="session-preview${hasPreview ? '' : ' session-preview-empty'}">${escapeHtml(previewText)}</div>
                                 <div class="session-meta">${metaParts.join(' · ')} · ${interventionsHtml}${userBadge ? ' · ' + userBadge : ''}</div>
@@ -764,7 +764,13 @@
             }
 
             container.innerHTML = html;
-            // Wire up user-badge clicks via event delegation (avoids inline onclick).
+            // Wire up clicks via event delegation (avoids inline onclick XSS).
+            container.querySelectorAll('.session-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    const sid = card.dataset.sessionId;
+                    if (sid) viewSession(sid);
+                });
+            });
             container.querySelectorAll('.user-badge').forEach(badge => {
                 badge.addEventListener('click', (ev) => {
                     const hash = badge.dataset.userHash;
@@ -869,7 +875,7 @@
         function escapeHtml(str) {
             const div = document.createElement('div');
             div.textContent = str;
-            return div.innerHTML;
+            return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
 
         // Wire up user filter once, then kick off initial loads.

@@ -14,7 +14,12 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_conversation_events_session_type
 ALTER TABLE session_summaries ADD COLUMN IF NOT EXISTS models_used TEXT;
 ALTER TABLE session_summaries ADD COLUMN IF NOT EXISTS preview_message TEXT;
 
--- Backfill models_used from conversation_events
+-- Backfill models_used from conversation_events.
+-- preview_message is intentionally NOT backfilled here: extracting the first
+-- non-probe user message from JSON payloads is expensive and fragile in SQL.
+-- The drain loop populates preview_message incrementally for new events;
+-- existing sessions will show "(no message preview)" until they receive
+-- a new event.
 UPDATE session_summaries ss
 SET models_used = sub.models
 FROM (

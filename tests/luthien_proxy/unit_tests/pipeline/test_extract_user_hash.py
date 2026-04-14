@@ -64,3 +64,22 @@ def test_unrecognized_user_id_format_falls_back_to_credential():
     result = extract_user_hash(body, cred)
     expected = hashlib.sha256("sk-ant-fallback".encode()).hexdigest()[:16]
     assert result == expected
+
+
+def test_adversarial_user_id_rejects_special_chars():
+    """Adversarial metadata.user_id with XSS payload must not be captured as user_hash."""
+    body = {
+        "metadata": {
+            "user_id": 'user_"><script>alert(1)</script>_account__session_x'
+        }
+    }
+    cred = Credential(value="sk-ant-safe", credential_type=CredentialType.API_KEY)
+    result = extract_user_hash(body, cred)
+    expected = hashlib.sha256("sk-ant-safe".encode()).hexdigest()[:16]
+    assert result == expected
+
+
+def test_api_key_mode_with_dashes_in_hash():
+    """Hash part may contain dashes — should still match."""
+    body = {"metadata": {"user_id": "user_abc-123-def_account__session_550e8400"}}
+    assert extract_user_hash(body, None) == "abc-123-def"

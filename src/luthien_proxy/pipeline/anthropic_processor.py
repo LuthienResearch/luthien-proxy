@@ -422,9 +422,7 @@ async def process_anthropic_request(
                         await conn.execute(
                             """INSERT INTO user_labels (user_hash, display_name, created_at, updated_at)
                                VALUES ($1, $2, $3, $3)
-                               ON CONFLICT (user_hash) DO UPDATE SET
-                                   display_name = EXCLUDED.display_name,
-                                   updated_at = EXCLUDED.updated_at""",
+                               ON CONFLICT (user_hash) DO NOTHING""",
                             user_hash,
                             luthien_user,
                             datetime.now(timezone.utc),

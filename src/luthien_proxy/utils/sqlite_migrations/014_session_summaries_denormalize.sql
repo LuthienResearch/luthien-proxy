@@ -9,7 +9,8 @@ CREATE INDEX IF NOT EXISTS idx_conversation_events_session_type
 ALTER TABLE session_summaries ADD COLUMN models_used TEXT;
 ALTER TABLE session_summaries ADD COLUMN preview_message TEXT;
 
--- Backfill models_used from conversation_events
+-- Backfill models_used from conversation_events.
+-- preview_message is intentionally NOT backfilled (see Postgres migration for rationale).
 UPDATE session_summaries
 SET models_used = (
     SELECT GROUP_CONCAT(DISTINCT json_extract(payload, '$.final_model'))

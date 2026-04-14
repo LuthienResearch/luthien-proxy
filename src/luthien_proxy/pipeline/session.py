@@ -80,7 +80,10 @@ def extract_session_id_from_headers(headers: dict[str, str]) -> str | None:
 
 # Pattern to extract user hash from API key mode metadata.user_id
 # Format: user_<hash>_account__session_<uuid>
-_USER_HASH_PATTERN = re.compile(r"^user_(.+?)_account__")
+# Restrict capture group to alphanumeric + underscore + dash to prevent
+# adversarial metadata.user_id values from injecting XSS payloads into
+# the stored user_hash, which is rendered in the admin history UI.
+_USER_HASH_PATTERN = re.compile(r"^user_([A-Za-z0-9_-]+?)_account__")
 
 # Number of hex characters to keep from SHA-256 digest (64 bits of entropy)
 _CREDENTIAL_HASH_LENGTH = 16

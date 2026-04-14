@@ -264,7 +264,8 @@ async def export_session_jsonl_endpoint(
     try:
         session = await fetch_session_detail(session_id, db_pool)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from None
+        logger.warning(f"Session not found for JSONL export: {repr(e)}")
+        raise HTTPException(status_code=404, detail="Session not found.") from None
 
     jsonl = export_session_jsonl(session)
 
