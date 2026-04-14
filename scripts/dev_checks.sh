@@ -5,7 +5,7 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 TIMING_FILE=""
-FAST_MODE=0
+SKIP_REPORTS=0
 for arg in "$@"; do
     case "$arg" in
         --timing)
@@ -14,19 +14,26 @@ for arg in "$@"; do
         --timing=*)
             TIMING_FILE="${arg#--timing=}"
             ;;
+        --skip-reports)
+            SKIP_REPORTS=1
+            ;;
         --fast)
-            FAST_MODE=1
+            # --fast is shorthand for the current fastest inner-loop combo.
+            # Today that's just --skip-reports. Additional knobs may be added
+            # here in the future without breaking --skip-reports' meaning.
+            SKIP_REPORTS=1
             ;;
         --help|-h)
             cat <<'USAGE'
-Usage: dev_checks.sh [--timing[=PATH]] [--fast]
+Usage: dev_checks.sh [--timing[=PATH]] [--skip-reports] [--fast]
 
   --timing[=PATH]  Record per-step wall-clock timings as JSONL
                    (default path: .dev_checks_timings.jsonl).
-  --fast           Inner-loop mode: skip coverage in pytest and skip
-                   report-only steps (ruff docstrings, radon). Gating
-                   checks (ruff, pyright, pytest) still run. Typical
-                   savings: ~20s (~45s -> ~25s).
+  --skip-reports   Skip report-only steps (ruff docstrings, radon) and
+                   pytest coverage. Gating checks (ruff, pyright, pytest)
+                   still run. Saves ~13s.
+  --fast           Alias for --skip-reports (may enable more inner-loop
+                   shortcuts in the future).
 USAGE
             exit 0
             ;;
@@ -130,7 +137,7 @@ fi
 echo "== Ruff lint (E/F/I/D gating) =="
 step "ruff_check" uv run ruff check
 
-if [[ $FAST_MODE -eq 0 ]]; then
+if [[ $SKIP_REPORTS -eq 0 ]]; then
     echo "== Ruff docstrings (report-only) =="
     run_ruff_docstrings() { uv run ruff check --select D --exit-zero || true; }
     step "ruff_docstrings" run_ruff_docstrings
@@ -148,7 +155,7 @@ pyright_start=$(date +%s.%N)
 PYRIGHT_PID=$!
 
 pytest_start=$(date +%s.%N)
-if [[ $FAST_MODE -eq 1 ]]; then
+if [[ $SKIP_REPORTS -eq 1 ]]; then
     (uv run -m pytest -q --no-cov > "$PYTEST_LOG" 2>&1) &
 else
     (uv run -m pytest -q > "$PYTEST_LOG" 2>&1) &
@@ -189,7 +196,7 @@ if [[ $PYTEST_RC -ne 0 ]]; then
     exit "$PYTEST_RC"
 fi
 
-if [[ $FAST_MODE -eq 0 ]]; then
+if [[ $SKIP_REPORTS -eq 0 ]]; then
     echo "== Radon complexity (report-only) =="
     run_radon() { uv run radon cc -s -a src || true; }
     step "radon" run_radon
