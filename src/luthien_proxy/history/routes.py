@@ -39,7 +39,11 @@ api_router = APIRouter(prefix="/api/history", tags=["history-api"])
 class UserLabelRequest(BaseModel):
     """Request body for setting a user display name."""
 
-    display_name: str = Field(..., description="Human-readable display name for the user")
+    display_name: str = Field(
+        ...,
+        max_length=255,
+        description="Human-readable display name for the user",
+    )
 
 
 # Static directory for HTML templates
@@ -111,15 +115,24 @@ async def list_sessions(
 async def list_users(
     _: str = Depends(verify_admin_token),
     db_pool: DatabasePool = Depends(get_db_pool),
+    limit: int = Query(default=500, ge=1, le=5000, description="Max users to return"),
+    offset: int = Query(default=0, ge=0, description="Users to skip for pagination"),
 ) -> dict:
     """List distinct user hashes with any assigned labels.
 
-    Returns all distinct user_hash values from conversation_calls,
-    plus a labels mapping from user_hash to display_name.
+    Returns distinct user_hash values from conversation_calls (paginated),
+    plus a labels mapping from user_hash to display_name for the returned page.
     """
     async with db_pool.connection() as conn:
         rows = await conn.fetch(
-            "SELECT DISTINCT user_hash FROM conversation_calls WHERE user_hash IS NOT NULL ORDER BY user_hash"
+            """
+            SELECT DISTINCT user_hash FROM conversation_calls
+            WHERE user_hash IS NOT NULL
+            ORDER BY user_hash
+            LIMIT $1 OFFSET $2
+            """,
+            limit,
+            offset,
         )
         label_rows = await conn.fetch("SELECT user_hash, display_name FROM user_labels")
     labels = {str(row["user_hash"]): str(row["display_name"]) for row in label_rows}

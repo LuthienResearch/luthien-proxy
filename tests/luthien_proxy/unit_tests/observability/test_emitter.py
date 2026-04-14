@@ -391,7 +391,6 @@ class TestBoundedEventEmitter:
             max_queue_size=100,
             drain_interval_ms=10,
         )
-        before = EventEmitter.dropped_db_writes
         emitter.start()
         try:
             # First event: will fail
@@ -402,7 +401,7 @@ class TestBoundedEventEmitter:
             emitter.record("tx-2", "test.event", {"i": 2})
             await asyncio.sleep(0.1)
 
-            assert EventEmitter.dropped_db_writes > before
+            assert emitter.dropped_db_writes > 0
             assert emitter._db_queue is not None
             assert emitter._db_queue.qsize() == 0
         finally:

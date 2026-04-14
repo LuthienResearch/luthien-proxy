@@ -23,6 +23,7 @@ import copy
 import json
 import logging
 import uuid
+from collections import OrderedDict
 from collections.abc import AsyncGenerator, AsyncIterator
 from datetime import datetime, timezone
 from typing import Literal, TypedDict, TypeGuard, cast
@@ -72,7 +73,8 @@ from luthien_proxy.utils import db
 from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
 from luthien_proxy.utils.policy_cache import PolicyCache
 
-_labeled_user_hashes: set[tuple[str, str]] = set()
+_LABEL_CACHE_MAX_SIZE = 10_000
+_labeled_user_hashes: OrderedDict[tuple[str, str], None] = OrderedDict()
 
 
 class _ErrorDetail(TypedDict):
@@ -414,9 +416,14 @@ async def process_anthropic_request(
                             luthien_user,
                             datetime.now(timezone.utc),
                         )
-                    _labeled_user_hashes.add(cache_key)
+                    _labeled_user_hashes[cache_key] = None
+                    while len(_labeled_user_hashes) > _LABEL_CACHE_MAX_SIZE:
+                        _labeled_user_hashes.popitem(last=False)
                 except Exception:
-                    logger.debug(f"[{call_id}] Failed to auto-label user {luthien_user}")
+                    logger.warning(
+                        f"[{call_id}] Failed to auto-label user {luthien_user}",
+                        exc_info=True,
+                    )
 
         if usage_collector:
             usage_collector.record_session(session_id)

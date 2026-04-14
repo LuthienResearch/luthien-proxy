@@ -311,7 +311,7 @@ class TestListUsersRoute:
         )
         db_pool = _make_db_pool_with_conn(conn)
 
-        result = await list_users(_=AUTH_TOKEN, db_pool=db_pool)
+        result = await list_users(_=AUTH_TOKEN, db_pool=db_pool, limit=500, offset=0)
 
         assert result["users"] == ["hash-a", "hash-b"]
         assert result["labels"] == {"hash-a": "Alice"}
@@ -322,10 +322,23 @@ class TestListUsersRoute:
         conn.fetch = AsyncMock(side_effect=[[], []])
         db_pool = _make_db_pool_with_conn(conn)
 
-        result = await list_users(_=AUTH_TOKEN, db_pool=db_pool)
+        result = await list_users(_=AUTH_TOKEN, db_pool=db_pool, limit=500, offset=0)
 
         assert result["users"] == []
         assert result["labels"] == {}
+
+    @pytest.mark.asyncio
+    async def test_pagination_forwards_limit_offset(self):
+        conn = MagicMock()
+        conn.fetch = AsyncMock(side_effect=[[], []])
+        db_pool = _make_db_pool_with_conn(conn)
+
+        await list_users(_=AUTH_TOKEN, db_pool=db_pool, limit=10, offset=20)
+
+        # First fetch is the DISTINCT user_hash query; verify limit/offset args
+        first_call = conn.fetch.call_args_list[0]
+        assert first_call.args[1] == 10
+        assert first_call.args[2] == 20
 
 
 class TestListUserLabelsRoute:

@@ -199,8 +199,6 @@ class EventEmitter:
     drain task in batches.  Stdout and event-publisher writes happen inline.
     """
 
-    dropped_db_writes: int = 0
-
     def __init__(
         self,
         db_pool: "DatabasePool | None" = None,
@@ -224,6 +222,7 @@ class EventEmitter:
         self._drain_task: asyncio.Task[None] | None = None
         self._batch_drained: asyncio.Event | None = None
         self.dropped_events: int = 0
+        self.dropped_db_writes: int = 0
         self._drop_log_interval_s: float = 10.0
         self._last_drop_log: float = 0.0
 
@@ -275,12 +274,19 @@ class EventEmitter:
         Prefer record() for fire-and-forget usage.  This async method is
         kept for backward compatibility and direct-await callers.
         """
+        # Clear the drain signal *before* enqueueing so we wait for a drain
+        # cycle that includes our event, not one that just finished.
+        if self._batch_drained is not None:
+            self._batch_drained.clear()
         self.record(transaction_id, event_type, data)
-        # If DB queue exists, wait for the drain loop to process
         if self._db_queue is not None and self._batch_drained is not None:
-            while not self._db_queue.empty():
-                self._batch_drained.clear()
-                await self._batch_drained.wait()
+            try:
+                await asyncio.wait_for(
+                    self._batch_drained.wait(),
+                    timeout=self._shutdown_drain_timeout_s,
+                )
+            except TimeoutError:
+                logger.warning(f"emit() timed out waiting for drain after {self._shutdown_drain_timeout_s}s")
 
     def record(
         self,
@@ -361,9 +367,9 @@ class EventEmitter:
             try:
                 await self._write_db_batch(batch)
             except Exception as e:
-                EventEmitter.dropped_db_writes += len(batch)
+                self.dropped_db_writes += len(batch)
                 logger.warning(
-                    f"Batch DB write failed ({len(batch)} events dropped, {EventEmitter.dropped_db_writes} total): {e}",
+                    f"Batch DB write failed ({len(batch)} events dropped, {self.dropped_db_writes} total): {e}",
                     exc_info=True,
                 )
             finally:
@@ -433,6 +439,22 @@ class EventEmitter:
             if sid is not None:
                 session_events.setdefault(sid, []).append(item)
 
+        # Fetch existing models for all sessions in this batch in one query
+        existing_models_by_session: dict[str, set[str]] = {}
+        session_ids = list(session_events.keys())
+        if session_ids:
+            placeholders = ",".join(f"${i + 1}" for i in range(len(session_ids)))
+            rows = await conn.fetch(
+                f"SELECT session_id, models_used FROM session_summaries WHERE session_id IN ({placeholders})",
+                *session_ids,
+            )
+            for row in rows:
+                csv = row["models_used"]
+                if csv:
+                    existing_models_by_session[str(row["session_id"])] = {
+                        m.strip() for m in str(csv).split(",") if m.strip()
+                    }
+
         for sid, events in session_events.items():
             event_count = len(events)
             call_ids = {e[0] for e in events}  # unique transaction_ids
@@ -447,14 +469,9 @@ class EventEmitter:
             models, preview = _extract_session_metadata(events)
 
             # Deduplicate new models against any already stored for this session
-            if models:
-                existing_csv = await conn.fetchval(
-                    "SELECT models_used FROM session_summaries WHERE session_id = $1",
-                    sid,
-                )
-                if existing_csv:
-                    existing_models = {m.strip() for m in str(existing_csv).split(",") if m.strip()}
-                    models = [m for m in models if m not in existing_models]
+            existing_models = existing_models_by_session.get(sid)
+            if existing_models:
+                models = [m for m in models if m not in existing_models]
             models_csv = ",".join(models) if models else None
 
             # Note: call_count may slightly overcount if a call_id spans
