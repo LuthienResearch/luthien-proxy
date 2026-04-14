@@ -22,6 +22,7 @@ from luthien_proxy.dependencies import (
     get_dependencies,
     get_emitter,
     get_usage_collector,
+    get_webhook_sender,
 )
 from luthien_proxy.llm import anthropic_client_cache
 from luthien_proxy.llm.anthropic_client import AnthropicClient
@@ -32,6 +33,7 @@ from luthien_proxy.policy_core.anthropic_execution_interface import (
 )
 from luthien_proxy.usage_telemetry.collector import UsageCollector
 from luthien_proxy.utils import db
+from luthien_proxy.webhook.sender import WebhookSender
 
 router = APIRouter(tags=["gateway"])
 security = HTTPBearer(auto_error=False)
@@ -186,6 +188,7 @@ async def anthropic_messages(
     db_pool: db.DatabasePool | None = Depends(get_db_pool),
     usage_collector: UsageCollector | None = Depends(get_usage_collector),
     credential_manager: CredentialManager | None = Depends(get_credential_manager),
+    webhook_sender: WebhookSender | None = Depends(get_webhook_sender),
 ):
     """Anthropic Messages API endpoint (native Anthropic path)."""
     anthropic_client, forwarding_credential = client_and_credential
@@ -200,6 +203,7 @@ async def anthropic_messages(
         usage_collector=usage_collector,
         user_credential=forwarding_credential,
         credential_manager=credential_manager,
+        webhook_sender=webhook_sender,
     )
 
 
