@@ -5,6 +5,7 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 TIMING_FILE=""
+FAST_MODE=0
 for arg in "$@"; do
     case "$arg" in
         --timing)
@@ -12,6 +13,22 @@ for arg in "$@"; do
             ;;
         --timing=*)
             TIMING_FILE="${arg#--timing=}"
+            ;;
+        --fast)
+            FAST_MODE=1
+            ;;
+        --help|-h)
+            cat <<'USAGE'
+Usage: dev_checks.sh [--timing[=PATH]] [--fast]
+
+  --timing[=PATH]  Record per-step wall-clock timings as JSONL
+                   (default path: .dev_checks_timings.jsonl).
+  --fast           Inner-loop mode: skip coverage in pytest and skip
+                   report-only steps (ruff docstrings, radon). Gating
+                   checks (ruff, pyright, pytest) still run. Typical
+                   savings: ~20s (~45s -> ~25s).
+USAGE
+            exit 0
             ;;
     esac
 done
@@ -153,9 +170,11 @@ fi
 echo "== Ruff lint (E/F/I/D gating) =="
 step "ruff_check" uv run ruff check
 
-echo "== Ruff docstrings (report-only) =="
-run_ruff_docstrings() { uv run ruff check --select D --exit-zero || true; }
-step "ruff_docstrings" run_ruff_docstrings
+if [[ $FAST_MODE -eq 0 ]]; then
+    echo "== Ruff docstrings (report-only) =="
+    run_ruff_docstrings() { uv run ruff check --select D --exit-zero || true; }
+    step "ruff_docstrings" run_ruff_docstrings
+fi
 
 echo "== Pyright + Tests (parallel) =="
 # Pyright and pytest are independent; running them concurrently saves ~10s.
@@ -197,7 +216,11 @@ pyright_start=$(now_epoch)
 PYRIGHT_PID=$!
 
 pytest_start=$(now_epoch)
-( set +e; uv run -m pytest -q > "$PYTEST_LOG" 2>&1; rc=$?; now_epoch > "$PYTEST_END_FILE"; exit "$rc" ) &
+if [[ $FAST_MODE -eq 1 ]]; then
+    ( set +e; uv run -m pytest -q --no-cov > "$PYTEST_LOG" 2>&1; rc=$?; now_epoch > "$PYTEST_END_FILE"; exit "$rc" ) &
+else
+    ( set +e; uv run -m pytest -q > "$PYTEST_LOG" 2>&1; rc=$?; now_epoch > "$PYTEST_END_FILE"; exit "$rc" ) &
+fi
 PYTEST_PID=$!
 
 set +e
@@ -236,9 +259,11 @@ if [[ $PYRIGHT_RC -ne 0 || $PYTEST_RC -ne 0 ]]; then
     exit "$PYRIGHT_RC"
 fi
 
-echo "== Radon complexity (report-only) =="
-run_radon() { uv run radon cc -s -a src || true; }
-step "radon" run_radon
+if [[ $FAST_MODE -eq 0 ]]; then
+    echo "== Radon complexity (report-only) =="
+    run_radon() { uv run radon cc -s -a src || true; }
+    step "radon" run_radon
+fi
 
 echo "== Clean tree check (post) =="
 if ! git diff --quiet 2>/dev/null; then
