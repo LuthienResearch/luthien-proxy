@@ -572,7 +572,16 @@ def configure_local_mode() -> None:
     db_path = os.path.join(data_dir, "local.db")
     os.environ["DATABASE_URL"] = f"sqlite:///{db_path}"
     os.environ["REDIS_URL"] = ""
-    os.environ["POLICY_CONFIG"] = "config/policy_config.yaml"
+    # Hardcoded to the managed install location — removes cwd dependency entirely.
+    # luthien_cli.local_process.start_gateway spawns this process with
+    # cwd=MANAGED_REPO_DIR (~/.luthien/luthien-proxy), but relying on that
+    # would be an implicit coupling. Use the known path directly instead.
+    # TODO: devs running `python -m luthien_proxy.main --local` from a source
+    # checkout will get this managed path, not the checkout's config/. Add a
+    # fallback to ./config/policy_config.yaml if the managed path doesn't exist.
+    os.environ["POLICY_CONFIG"] = os.path.join(
+        os.path.expanduser("~"), ".luthien", "luthien-proxy", "config", "policy_config.yaml"
+    )
     os.environ["POLICY_SOURCE"] = "file"
 
 
