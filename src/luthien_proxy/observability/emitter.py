@@ -17,6 +17,7 @@ import asyncio
 import base64
 import json
 import logging
+import re
 import sys
 import time
 from datetime import UTC, datetime
@@ -76,7 +77,7 @@ def _safe_serialize(obj: Any) -> Any:
 logger = logging.getLogger(__name__)
 
 _PREVIEW_MAX_LENGTH = 200
-_SYSTEM_REMINDER_RE = __import__("re").compile(r"<system-reminder>.*?</system-reminder>", __import__("re").DOTALL)
+_SYSTEM_REMINDER_RE = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
 
 
 def _extract_session_metadata(
@@ -122,9 +123,12 @@ def _extract_session_metadata(
                     content = msg.get("content")
                     if isinstance(content, list):
                         # Anthropic format: list of content blocks
-                        content = " ".join(
-                            b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
-                        )
+                        texts = [
+                            b["text"]
+                            for b in content
+                            if isinstance(b, dict) and b.get("type") == "text" and b.get("text")
+                        ]
+                        content = " ".join(texts)
                     if isinstance(content, str) and content.strip():
                         text = content.strip()
                         text = _SYSTEM_REMINDER_RE.sub("", text).strip()
@@ -218,6 +222,7 @@ class EventEmitter:
 
         self._db_queue: asyncio.Queue[DbQueueItem] | None = None
         self._drain_task: asyncio.Task[None] | None = None
+        self._batch_drained: asyncio.Event | None = None
         self.dropped_events: int = 0
         self._drop_log_interval_s: float = 10.0
         self._last_drop_log: float = 0.0
@@ -230,6 +235,7 @@ class EventEmitter:
         """Start the background drain loop.  Call after the event loop is running."""
         if self._db_pool is not None:
             self._db_queue = asyncio.Queue(maxsize=self._max_queue_size)
+            self._batch_drained = asyncio.Event()
             self._drain_task = asyncio.create_task(self._drain_loop())
             self._drain_task.add_done_callback(_log_task_exception)
 
@@ -271,9 +277,10 @@ class EventEmitter:
         """
         self.record(transaction_id, event_type, data)
         # If DB queue exists, wait for the drain loop to process
-        if self._db_queue is not None:
+        if self._db_queue is not None and self._batch_drained is not None:
             while not self._db_queue.empty():
-                await asyncio.sleep(0.01)
+                self._batch_drained.clear()
+                await self._batch_drained.wait()
 
     def record(
         self,
@@ -359,6 +366,9 @@ class EventEmitter:
                     f"Batch DB write failed ({len(batch)} events dropped, {EventEmitter.dropped_db_writes} total): {e}",
                     exc_info=True,
                 )
+            finally:
+                if self._batch_drained is not None:
+                    self._batch_drained.set()
 
     async def _write_db_batch(
         self,
@@ -435,6 +445,16 @@ class EventEmitter:
 
             # Extract models and preview from request events in this batch
             models, preview = _extract_session_metadata(events)
+
+            # Deduplicate new models against any already stored for this session
+            if models:
+                existing_csv = await conn.fetchval(
+                    "SELECT models_used FROM session_summaries WHERE session_id = $1",
+                    sid,
+                )
+                if existing_csv:
+                    existing_models = {m.strip() for m in str(existing_csv).split(",") if m.strip()}
+                    models = [m for m in models if m not in existing_models]
             models_csv = ",".join(models) if models else None
 
             # Note: call_count may slightly overcount if a call_id spans

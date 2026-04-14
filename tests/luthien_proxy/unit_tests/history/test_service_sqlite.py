@@ -1,6 +1,6 @@
 """Tests for SQLite-specific path in conversation history service.
 
-Tests the `_fetch_session_list_sqlite` code path using a real in-memory
+Tests the `fetch_session_list` code path using a real in-memory
 SQLite database with the schema applied.
 """
 
