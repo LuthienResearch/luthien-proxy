@@ -1,5 +1,7 @@
 # E2E Testing Guidelines
 
+> Canonical file — `CLAUDE.md` in this directory is a symlink to this file. Edit `AGENTS.md` only.
+
 ## Overview
 
 E2E tests verify the gateway behavior by making real HTTP requests through the running infrastructure. Tests are organized into three tiers with different markers and infrastructure requirements.

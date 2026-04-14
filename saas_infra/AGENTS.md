@@ -1,5 +1,7 @@
 # saas_infra — Railway Provisioning for Luthien Proxy
 
+> Canonical file — `CLAUDE.md` in this directory is a symlink to this file. Edit `AGENTS.md` only.
+
 ## What This Module Does
 
 Provisions isolated luthien-proxy instances on Railway. Each instance is a full Railway project containing Postgres, Redis, and a gateway service deployed from the luthien-proxy GitHub repo. The CLI (`python -m saas_infra.cli`) exposes create/list/status/delete/redeploy commands.

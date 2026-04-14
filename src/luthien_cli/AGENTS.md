@@ -1,5 +1,7 @@
 # luthien-cli
 
+> Canonical file — `CLAUDE.md` in this directory is a symlink to this file. Edit `AGENTS.md` only.
+
 CLI tool for managing luthien-proxy gateways. Installed via `uv tool install luthien-cli`.
 
 ## Versioning

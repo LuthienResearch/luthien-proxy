@@ -31,7 +31,7 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 - **Start with code**: For anything load-bearing, read the module in `src/luthien_proxy/` — architecture documents lag.
 - **Canonical docs**: `ARCHITECTURE.md` (has known staleness tracked on Trello), `dev-README.md`, inline docstrings.
-- **Common places to check**: README.md, CLAUDE.md, inline code comments.
+- **Common places to check**: README.md, AGENTS.md (aka CLAUDE.md — same file via symlink), inline code comments.
 - **Streaming behavior**: Emits conversation events via `storage/events.py` using a background queue for non-blocking persistence.
 
 ## Queue Shutdown for Stream Termination (2025-01-20, updated 2025-10-20)

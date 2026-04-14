@@ -1,5 +1,7 @@
 # Unit Testing Guidelines
 
+> Canonical file — `CLAUDE.md` in this directory is a symlink to this file. Edit `AGENTS.md` only.
+
 ## Structure
 
 - **Mirror source structure**: `src/luthien_proxy/policies/noop.py` → `tests/luthien_proxy/unit_tests/policies/test_noop.py`

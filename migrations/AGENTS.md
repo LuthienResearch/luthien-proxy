@@ -1,5 +1,7 @@
 # Migrations
 
+> Canonical file — `CLAUDE.md` in this directory is a symlink to this file. Edit `AGENTS.md` only.
+
 ## Structure
 
 Migrations live in two directories with matched numbering:
