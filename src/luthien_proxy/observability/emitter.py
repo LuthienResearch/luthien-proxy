@@ -221,6 +221,7 @@ class EventEmitter:
         self._db_queue: asyncio.Queue[DbQueueItem] | None = None
         self._drain_task: asyncio.Task[None] | None = None
         self._batch_drained: asyncio.Event | None = None
+        self._shutting_down: bool = False
         self.dropped_events: int = 0
         self.dropped_db_writes: int = 0
         self._drop_log_interval_s: float = 10.0
@@ -239,25 +240,27 @@ class EventEmitter:
             self._drain_task.add_done_callback(_log_task_exception)
 
     async def shutdown(self) -> None:
-        """Stop the drain loop and flush remaining events."""
-        if self._drain_task is not None:
-            self._drain_task.cancel()
-            try:
-                await self._drain_task
-            except asyncio.CancelledError:
-                pass
+        """Stop the drain loop and flush remaining events.
 
-        # Drain remaining items
-        if self._db_queue is not None and not self._db_queue.empty():
-            remaining = self._collect_batch(max_items=self._db_queue.qsize())
-            if remaining:
+        Sets a shutdown flag and waits for the drain loop to finish its
+        current batch and drain the queue. Avoids cancel() which would
+        drop events that were already collected from the queue but not
+        yet written to the DB.
+        """
+        self._shutting_down = True
+        if self._drain_task is not None:
+            try:
+                await asyncio.wait_for(
+                    self._drain_task,
+                    timeout=self._shutdown_drain_timeout_s,
+                )
+            except TimeoutError:
+                logger.warning(f"Drain loop did not finish within {self._shutdown_drain_timeout_s}s; cancelling")
+                self._drain_task.cancel()
                 try:
-                    await asyncio.wait_for(
-                        self._write_db_batch(remaining),
-                        timeout=self._shutdown_drain_timeout_s,
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to drain {len(remaining)} events on shutdown: {e}")
+                    await self._drain_task
+                except asyncio.CancelledError:
+                    pass
 
     # ------------------------------------------------------------------
     # Public API
@@ -350,11 +353,17 @@ class EventEmitter:
         return batch
 
     async def _drain_loop(self) -> None:
-        """Background task: drain the queue and batch-write to DB."""
+        """Background task: drain the queue and batch-write to DB.
+
+        Exits after the queue is empty when shutdown is requested, so
+        shutdown() doesn't need to cancel mid-write.
+        """
         assert self._db_queue is not None  # noqa: S101
         while True:
+            if self._shutting_down and self._db_queue.empty():
+                return
             try:
-                # Wait for the first event (with timeout to allow cancellation checks)
+                # Wait for the first event (with timeout to allow shutdown checks)
                 first = await asyncio.wait_for(self._db_queue.get(), timeout=self._drain_interval_s)
             except TimeoutError:
                 continue

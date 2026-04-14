@@ -404,6 +404,11 @@ async def process_anthropic_request(
         if luthien_user and user_hash and db_pool:
             cache_key = (user_hash, luthien_user)
             if cache_key not in _labeled_user_hashes:
+                # Mark optimistically *before* awaiting the DB call so concurrent
+                # coroutines skip the check-then-act race. Rollback on failure.
+                _labeled_user_hashes[cache_key] = None
+                while len(_labeled_user_hashes) > _LABEL_CACHE_MAX_SIZE:
+                    _labeled_user_hashes.popitem(last=False)
                 try:
                     async with db_pool.connection() as conn:
                         await conn.execute(
@@ -416,10 +421,8 @@ async def process_anthropic_request(
                             luthien_user,
                             datetime.now(timezone.utc),
                         )
-                    _labeled_user_hashes[cache_key] = None
-                    while len(_labeled_user_hashes) > _LABEL_CACHE_MAX_SIZE:
-                        _labeled_user_hashes.popitem(last=False)
                 except Exception:
+                    _labeled_user_hashes.pop(cache_key, None)
                     logger.warning(
                         f"[{call_id}] Failed to auto-label user {luthien_user}",
                         exc_info=True,

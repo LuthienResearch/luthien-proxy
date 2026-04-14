@@ -319,18 +319,20 @@ class TestListUsersRoute:
     @pytest.mark.asyncio
     async def test_empty_result(self):
         conn = MagicMock()
-        conn.fetch = AsyncMock(side_effect=[[], []])
+        conn.fetch = AsyncMock(return_value=[])
         db_pool = _make_db_pool_with_conn(conn)
 
         result = await list_users(_=AUTH_TOKEN, db_pool=db_pool, limit=500, offset=0)
 
         assert result["users"] == []
         assert result["labels"] == {}
+        # When there are no users, labels query should be skipped entirely
+        assert conn.fetch.call_count == 1
 
     @pytest.mark.asyncio
     async def test_pagination_forwards_limit_offset(self):
         conn = MagicMock()
-        conn.fetch = AsyncMock(side_effect=[[], []])
+        conn.fetch = AsyncMock(return_value=[])
         db_pool = _make_db_pool_with_conn(conn)
 
         await list_users(_=AUTH_TOKEN, db_pool=db_pool, limit=10, offset=20)
@@ -339,6 +341,26 @@ class TestListUsersRoute:
         first_call = conn.fetch.call_args_list[0]
         assert first_call.args[1] == 10
         assert first_call.args[2] == 20
+
+    @pytest.mark.asyncio
+    async def test_labels_query_scoped_to_returned_users(self):
+        """Regression: labels query must be filtered by user hashes, not unbounded."""
+        conn = MagicMock()
+        conn.fetch = AsyncMock(
+            side_effect=[
+                [{"user_hash": "hash-a"}, {"user_hash": "hash-b"}],
+                [{"user_hash": "hash-a", "display_name": "Alice"}],
+            ]
+        )
+        db_pool = _make_db_pool_with_conn(conn)
+
+        await list_users(_=AUTH_TOKEN, db_pool=db_pool, limit=500, offset=0)
+
+        # Second call is the labels fetch — must include the user_hashes as params
+        labels_call = conn.fetch.call_args_list[1]
+        assert "user_hash IN" in labels_call.args[0]
+        assert "hash-a" in labels_call.args
+        assert "hash-b" in labels_call.args
 
 
 class TestListUserLabelsRoute:

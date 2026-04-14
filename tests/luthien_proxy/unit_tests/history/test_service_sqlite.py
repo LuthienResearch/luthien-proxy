@@ -719,6 +719,68 @@ class TestFetchSessionListSqlite:
         assert result.has_more is True
 
     @pytest.mark.asyncio
+    async def test_user_hash_filter(self, sqlite_pool: DatabasePool):
+        """Test that user_hash filter returns only matching sessions."""
+        async with sqlite_pool.connection() as conn:
+            # session-a belongs to user-1, session-b to user-2, session-c has no user
+            fixtures = [
+                ("call-a", "session-a", "user-1", "2025-01-20T10:00:00"),
+                ("call-b", "session-b", "user-2", "2025-01-20T11:00:00"),
+                ("call-c", "session-c", None, "2025-01-20T12:00:00"),
+            ]
+            for call_id, session_id, user_hash, ts in fixtures:
+                await conn.execute(
+                    """
+                    INSERT INTO conversation_calls
+                    (call_id, model_name, provider, status, session_id, user_hash, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    call_id,
+                    "gpt-4",
+                    "openai",
+                    "completed",
+                    session_id,
+                    user_hash,
+                    ts,
+                )
+                await conn.execute(
+                    """
+                    INSERT INTO conversation_events
+                    (id, call_id, event_type, payload, session_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    f"event-{call_id}",
+                    call_id,
+                    "transaction.request_recorded",
+                    json.dumps(
+                        {
+                            "final_model": "gpt-4",
+                            "final_request": {"messages": [{"role": "user", "content": "hi"}]},
+                        }
+                    ),
+                    session_id,
+                    ts,
+                )
+
+        await _refresh_session_summaries(sqlite_pool)
+
+        # No filter: all 3 sessions
+        all_result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
+        assert all_result.total == 3
+
+        # Filter by user-1: only session-a
+        filtered = await fetch_session_list(limit=10, db_pool=sqlite_pool, user_hash="user-1")
+        assert filtered.total == 1
+        assert len(filtered.sessions) == 1
+        assert filtered.sessions[0].session_id == "session-a"
+        assert filtered.sessions[0].user_hash == "user-1"
+
+        # Filter by unknown user: empty
+        empty = await fetch_session_list(limit=10, db_pool=sqlite_pool, user_hash="user-nonexistent")
+        assert empty.total == 0
+        assert empty.sessions == []
+
+    @pytest.mark.asyncio
     async def test_is_sqlite_flag_used(self, sqlite_pool: DatabasePool):
         """Test that is_sqlite flag correctly routes to SQLite path."""
         # The pool's is_sqlite property should be True

@@ -406,3 +406,52 @@ class TestBoundedEventEmitter:
             assert emitter._db_queue.qsize() == 0
         finally:
             await emitter.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_shutdown_drains_queued_events(self) -> None:
+        """Shutdown should flush all queued events, not drop them mid-write."""
+        executed_transactions: list[str] = []
+        mock_conn = AsyncMock()
+        mock_conn.transaction = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(),
+                __aexit__=AsyncMock(return_value=False),
+            )
+        )
+
+        async def track_execute(query: str, *args: object) -> None:
+            # Record transaction_ids (first arg to the calls-table upsert)
+            if "INSERT INTO conversation_calls" in query:
+                executed_transactions.append(str(args[0]))
+
+        mock_conn.execute = AsyncMock(side_effect=track_execute)
+        mock_conn.fetch = AsyncMock(return_value=[])
+
+        @asynccontextmanager
+        async def fake_connection():
+            yield mock_conn
+
+        mock_pool = AsyncMock()
+        mock_pool.connection = fake_connection
+
+        # Large drain_interval so the drain loop parks on queue.get() —
+        # shutdown must still drain the queue.
+        emitter = EventEmitter(
+            db_pool=mock_pool,
+            stdout_enabled=False,
+            max_queue_size=100,
+            batch_size=50,
+            drain_interval_ms=500,
+        )
+        emitter.start()
+
+        # Enqueue several events just before shutdown
+        for i in range(5):
+            emitter.record(f"tx-{i}", "test.event", {"i": i})
+
+        # Shut down immediately — drain loop should still flush remaining items
+        await emitter.shutdown()
+
+        assert set(executed_transactions) == {f"tx-{i}" for i in range(5)}
+        assert emitter._db_queue is not None
+        assert emitter._db_queue.empty()

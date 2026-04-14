@@ -134,10 +134,18 @@ async def list_users(
             limit,
             offset,
         )
-        label_rows = await conn.fetch("SELECT user_hash, display_name FROM user_labels")
+        user_hashes = [str(row["user_hash"]) for row in rows]
+        if user_hashes:
+            placeholders = ",".join(f"${i + 1}" for i in range(len(user_hashes)))
+            label_rows = await conn.fetch(
+                f"SELECT user_hash, display_name FROM user_labels WHERE user_hash IN ({placeholders})",
+                *user_hashes,
+            )
+        else:
+            label_rows = []
     labels = {str(row["user_hash"]): str(row["display_name"]) for row in label_rows}
     return {
-        "users": [str(row["user_hash"]) for row in rows],
+        "users": user_hashes,
         "labels": labels,
     }
 

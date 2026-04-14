@@ -621,22 +621,35 @@
             const currentName = userLabels[hash] || '';
             const name = prompt('Display name for this user:', currentName);
             if (name === null) return; // cancelled
-            if (name.trim() === '') {
-                // Delete label
-                await fetch('/api/history/user-labels/' + encodeURIComponent(hash), {method: 'DELETE'});
-                delete userLabels[hash];
-            } else {
-                // Set label
-                await fetch('/api/history/user-labels/' + encodeURIComponent(hash), {
-                    method: 'PUT',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({display_name: name.trim()})
-                });
-                userLabels[hash] = name.trim();
+            const previous = userLabels[hash];
+            try {
+                if (name.trim() === '') {
+                    // Delete label
+                    const resp = await fetch('/api/history/user-labels/' + encodeURIComponent(hash), {
+                        method: 'DELETE',
+                    });
+                    if (!resp.ok) throw new Error(`DELETE failed: ${resp.status}`);
+                    delete userLabels[hash];
+                } else {
+                    // Set label
+                    const resp = await fetch('/api/history/user-labels/' + encodeURIComponent(hash), {
+                        method: 'PUT',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({display_name: name.trim()}),
+                    });
+                    if (!resp.ok) throw new Error(`PUT failed: ${resp.status}`);
+                    userLabels[hash] = name.trim();
+                }
+                applyFilters();
+                populateUserFilter();
+            } catch (err) {
+                if (previous !== undefined) {
+                    userLabels[hash] = previous;
+                } else {
+                    delete userLabels[hash];
+                }
+                alert('Failed to update user label: ' + (err && err.message ? err.message : err));
             }
-            // Re-render
-            applyFilters();
-            populateUserFilter();
         }
 
         function renderSessions(sessions) {
@@ -681,7 +694,7 @@
                     if (session.user_hash) {
                         const displayName = userLabels[session.user_hash] || null;
                         const userLabel = displayName || session.user_hash.substring(0, 8);
-                        userBadge = `<span class="user-badge" title="Click to set name · ${escapeHtml(session.user_hash)}" onclick="editUserLabel('${escapeHtml(session.user_hash)}', event)">user: ${escapeHtml(userLabel)}</span>`;
+                        userBadge = `<span class="user-badge" data-user-hash="${escapeHtml(session.user_hash)}" title="Click to set name · ${escapeHtml(session.user_hash)}">user: ${escapeHtml(userLabel)}</span>`;
                     }
 
                     const hasPreview = !!session.preview_message;
@@ -701,6 +714,13 @@
             }
 
             container.innerHTML = html;
+            // Wire up user-badge clicks via event delegation (avoids inline onclick).
+            container.querySelectorAll('.user-badge').forEach(badge => {
+                badge.addEventListener('click', (ev) => {
+                    const hash = badge.dataset.userHash;
+                    if (hash) editUserLabel(hash, ev);
+                });
+            });
         }
 
         function groupByDate(sessions, today, yesterday) {
