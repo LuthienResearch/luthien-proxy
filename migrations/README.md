@@ -9,7 +9,7 @@ Both directories must produce equivalent schemas. A CI test verifies this.
 
 ## Adding migrations
 
-See `CLAUDE.md` in this directory for step-by-step instructions and type translation rules.
+See `AGENTS.md` in this directory for step-by-step instructions and type translation rules.
 
 ## How it works
 

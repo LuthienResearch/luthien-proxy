@@ -1,0 +1,15 @@
+name: AGENTS.md / CLAUDE.md parity
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check AGENTS.md / CLAUDE.md parity
+        run: ./scripts/check_agents_claude_parity.sh

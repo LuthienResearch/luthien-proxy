@@ -18,6 +18,12 @@ repos:
 
   - repo: local
     hooks:
+      - id: agents-claude-parity
+        name: AGENTS.md / CLAUDE.md parity
+        entry: scripts/check_agents_claude_parity.sh
+        language: system
+        pass_filenames: false
+        files: '(^|/)(AGENTS|CLAUDE)\.md$'
       - id: beartype-check
         name: beartype type checking
         entry: uv run python -c "import sys; import importlib.util; spec = importlib.util.spec_from_file_location('luthien_proxy', 'src/luthien_proxy/__init__.py'); module = importlib.util.module_from_spec(spec); sys.modules['luthien_proxy'] = module; spec.loader.exec_module(module)"
