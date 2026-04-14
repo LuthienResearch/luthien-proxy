@@ -12,7 +12,7 @@ from tests.constants import DEFAULT_TEST_MODEL
 
 GATEWAY_URL = os.getenv("E2E_GATEWAY_URL", "http://localhost:8000")
 ADMIN_API_KEY = os.getenv("E2E_ADMIN_API_KEY", os.getenv("ADMIN_API_KEY", "admin-dev-key"))
-PROXY_API_KEY = os.getenv("E2E_API_KEY", os.getenv("PROXY_API_KEY", "sk-luthien-dev-key"))
+CLIENT_API_KEY = os.getenv("E2E_API_KEY", os.getenv("CLIENT_API_KEY", "sk-luthien-dev-key"))
 
 
 @pytest.fixture
@@ -31,7 +31,7 @@ def admin_headers():
 @pytest.fixture
 def proxy_headers():
     """Provide proxy authentication headers."""
-    return {"Authorization": f"Bearer {PROXY_API_KEY}"}
+    return {"Authorization": f"Bearer {CLIENT_API_KEY}"}
 
 
 @pytest.mark.e2e

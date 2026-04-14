@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import enum
 import logging
 import os
 import secrets
+from collections.abc import MutableMapping
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import litellm
 import uvicorn
@@ -20,7 +23,9 @@ from redis.asyncio import Redis
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from luthien_proxy.admin import router as admin_router
-from luthien_proxy.credential_manager import AuthMode, CredentialManager
+from luthien_proxy.config_fields import CONFIG_FIELDS, CONFIG_FIELDS_BY_NAME
+from luthien_proxy.config_registry import ConfigRegistry, coerce_value
+from luthien_proxy.credential_manager import AuthMode, CredentialManager, parse_auth_mode
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.exceptions import BackendAPIError
@@ -141,17 +146,19 @@ def create_app(
     startup_policy_path: str | None = None,
     policy_source: str = "db-fallback-file",
     auth_mode: AuthMode = AuthMode.BOTH,
+    cli_overrides: dict[str, object] | None = None,
 ) -> FastAPI:
     """Create FastAPI application with dependency injection.
 
     Args:
-        api_key: API key for client authentication (PROXY_API_KEY)
+        api_key: Shared API key the gateway accepts from clients (CLIENT_API_KEY)
         admin_key: API key for admin operations (ADMIN_API_KEY)
         db_pool: Database connection pool (already initialized)
         redis_client: Redis client (None for SQLite/local mode)
         startup_policy_path: Optional path to YAML policy config to load at startup
         policy_source: Strategy for loading policy at startup (db, file, db-fallback-file, file-fallback-db)
-        auth_mode: Authentication mode ("proxy_key", "passthrough", or "both")
+        auth_mode: Authentication mode ("client_key", "passthrough", or "both")
+        cli_overrides: CLI argument overrides for config values
 
     Returns:
         Configured FastAPI application with all routes and middleware
@@ -166,6 +173,16 @@ def create_app(
         # Validate migrations are up to date before proceeding
         await check_migrations(db_pool)
         logger.info("Migration check passed")
+
+        # Initialize config registry (CLI > env > DB > defaults)
+        settings = get_settings()
+        _config_registry = ConfigRegistry(
+            settings=settings,
+            db_pool=db_pool,
+            cli_overrides=cli_overrides,
+        )
+        await _config_registry.initialize()
+        logger.info("Config registry initialized")
 
         # Configure litellm globally (moved from policy file to prevent import side effects)
         litellm.drop_params = True
@@ -202,9 +219,9 @@ def create_app(
             raise RuntimeError(f"Failed to initialize PolicyManager: {exc}") from exc
 
         # Create Anthropic client if API key is configured.
-        # Used as the server-side credential in proxy_key and both modes.
+        # Used as the server-side credential in client_key and both modes.
         _anthropic_client: AnthropicClient | None = None
-        anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY")
+        anthropic_api_key = settings.anthropic_api_key
         if anthropic_api_key:
             _anthropic_client = AnthropicClient(api_key=anthropic_api_key)
 
@@ -223,20 +240,22 @@ def create_app(
         await _credential_manager.initialize(default_auth_mode=auth_mode)
 
         _resolved_mode = _credential_manager.config.auth_mode.value
-        if _resolved_mode == "proxy_key":
-            logger.warning("Upstream auth mode: proxy_key — all requests billed to server ANTHROPIC_API_KEY.")
+        if _resolved_mode == "client_key":
+            logger.warning("Upstream auth mode: client_key — all requests billed to server ANTHROPIC_API_KEY.")
         elif _resolved_mode == "both":
-            logger.info("Upstream auth mode: both — uses client credentials when valid, falls back to server API key.")
+            logger.info(
+                "Upstream auth mode: both — forwards client credentials by default; falls back to server key on CLIENT_API_KEY match."
+            )
         else:
             logger.info("Upstream auth mode: passthrough — client credentials forwarded directly to Anthropic.")
 
-        if api_key is None and _resolved_mode == "proxy_key":
+        if api_key is None and _resolved_mode == "client_key":
             raise RuntimeError(
-                "AUTH_MODE=proxy_key requires PROXY_API_KEY to be set. "
-                "Either set PROXY_API_KEY or switch to AUTH_MODE=both or AUTH_MODE=passthrough."
+                "AUTH_MODE=client_key requires CLIENT_API_KEY to be set. "
+                "Either set CLIENT_API_KEY or switch to AUTH_MODE=both or AUTH_MODE=passthrough."
             )
         elif api_key is None and _resolved_mode == "both":
-            logger.info("PROXY_API_KEY is not set — proxy-key auth unavailable, using passthrough only")
+            logger.info("CLIENT_API_KEY is not set — shared-key auth unavailable, using passthrough only")
 
         # Check if request logging is enabled
         _enable_request_logging = get_settings().enable_request_logging
@@ -275,6 +294,7 @@ def create_app(
             credential_manager=_credential_manager,
             enable_request_logging=_enable_request_logging,
             usage_collector=_usage_collector,
+            config_registry=_config_registry,
         )
 
         # Store dependencies container in app state
@@ -457,6 +477,36 @@ async def connect_redis(redis_url: str) -> Redis:
         raise RuntimeError(f"Failed to connect to Redis: {exc}") from exc
 
 
+def _read_env_file_value(env_path: Path, key: str) -> str | None:
+    """Read a single key from a .env file without loading pydantic-settings.
+
+    Used for legacy-alias pre-coercion so an operator with `AUTH_MODE=proxy_key`
+    in `.env` (not in the shell env) still gets the same tolerance as an
+    operator who set it as a shell env var. Deliberately minimal: no variable
+    interpolation, no multi-line values — but we do strip a leading `export `
+    so that `.env` files sourced by shell scripts elsewhere still match.
+    """
+    if not env_path.exists():
+        return None
+    try:
+        for raw_line in env_path.read_text().splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            name, _, value = line.partition("=")
+            name = name.strip()
+            if name.startswith("export "):
+                name = name[len("export ") :].strip()
+            if name == key:
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                    value = value[1:-1]
+                return value or None
+    except OSError:
+        return None
+    return None
+
+
 def load_config_from_env(settings: Settings | None = None) -> dict:
     """Load and validate configuration from environment variables.
 
@@ -477,13 +527,34 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
     """
     errors: list[str] = []
 
+    # The legacy-AUTH_MODE tolerance lives in Settings._coerce_legacy_auth_mode
+    # (auto-generated field_validator). It must run at Settings construction
+    # time because this module itself triggers Settings() at import time via
+    # configure_tracing/configure_logging/init_sentry — if the coercion lived
+    # here, the import would crash before load_config_from_env is ever called.
+    # TODO(post-v0.2): remove legacy AUTH_MODE tolerance in settings.py once
+    # all deployments have migrated past PR #535.
+
+    # A leftover PROXY_API_KEY in the environment is silently dropped by
+    # pydantic (extra='ignore'), which would leave the gateway running on
+    # passthrough while the operator still thinks shared-key auth is active.
+    # Warn loudly and point at the new name. Check both the shell env and .env.
+    leftover_proxy_api_key = os.environ.get("PROXY_API_KEY") or _read_env_file_value(Path(".env"), "PROXY_API_KEY")
+    if leftover_proxy_api_key and not (
+        os.environ.get("CLIENT_API_KEY") or _read_env_file_value(Path(".env"), "CLIENT_API_KEY")
+    ):
+        logger.warning(
+            "PROXY_API_KEY is set in the environment but is no longer read. "
+            "Rename to CLIENT_API_KEY — see changelog for PR #535."
+        )
+
     try:
         if settings is None:
             settings = get_settings()
     except ValidationError as e:
         raise ValueError(f"Invalid configuration: {e}")
 
-    # Both api keys are optional — passthrough mode doesn't need PROXY_API_KEY,
+    # Both api keys are optional — passthrough mode doesn't need CLIENT_API_KEY,
     # and admin endpoints degrade gracefully without ADMIN_API_KEY.
 
     database_url = settings.database_url
@@ -497,7 +568,7 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
     redis_url = settings.redis_url
 
     return {
-        "api_key": settings.proxy_api_key,
+        "api_key": settings.client_api_key,
         "admin_key": settings.admin_api_key,
         "database_url": database_url,
         "redis_url": redis_url,
@@ -524,6 +595,40 @@ def configure_local_mode() -> None:
     os.environ["POLICY_SOURCE"] = "file"
 
 
+def _is_railway() -> bool:
+    """Detect if running on Railway (RAILWAY_SERVICE_NAME is auto-injected)."""
+    return bool(os.environ.get("RAILWAY_SERVICE_NAME"))
+
+
+def propagate_cli_overrides_to_env(
+    cli_overrides: dict[str, object],
+    environ: MutableMapping[str, str] | None = None,
+) -> None:
+    """Write coerced CLI override values into an environment mapping.
+
+    Startup-critical reads (uvicorn port binding, connect_db, policy loading,
+    auth mode) all happen BEFORE the ConfigRegistry is constructed inside the
+    lifespan. Without this propagation, CLI flags for those fields are silently
+    ignored at boot. By injecting into os.environ, load_config_from_env() sees
+    the CLI values via get_settings() on the startup path.
+
+    Args:
+        cli_overrides: {field_name: coerced_value} from argparse.
+        environ: Mapping to write into. Defaults to os.environ; tests pass an
+            isolated dict to avoid polluting process state.
+    """
+    target = environ if environ is not None else os.environ
+    for name, value in cli_overrides.items():
+        meta = CONFIG_FIELDS_BY_NAME[name]
+        if isinstance(value, bool):
+            env_val = "true" if value else "false"
+        elif isinstance(value, enum.Enum):
+            env_val = str(value.value)
+        else:
+            env_val = str(value)
+        target[meta.env_var] = env_val
+
+
 def auto_provision_defaults() -> dict[str, str]:
     """Auto-provision sensible defaults for missing environment variables.
 
@@ -531,10 +636,16 @@ def auto_provision_defaults() -> dict[str, str]:
     without any pre-configured environment variables. Only sets values that are
     not already present — never overrides explicit configuration.
 
+    On Railway, additional defaults are applied:
+      - AUTH_MODE=passthrough (OAuth pass-through, no server API key needed)
+      - POLICY_CONFIG=config/railway_policy_config.yaml (logging + English rules)
+      - LOCALHOST_AUTH_BYPASS=false (not applicable on cloud)
+
     Returns:
         Dict of variable names to auto-provisioned values (empty if nothing was provisioned).
     """
     provisioned: dict[str, str] = {}
+    on_railway = _is_railway()
 
     if not os.environ.get("DATABASE_URL"):
         data_dir = os.path.join(os.path.expanduser("~"), ".luthien")
@@ -550,7 +661,7 @@ def auto_provision_defaults() -> dict[str, str]:
         provisioned["ADMIN_API_KEY"] = value
 
     if not os.environ.get("POLICY_CONFIG"):
-        value = "config/policy_config.yaml"
+        value = "config/railway_policy_config.yaml" if on_railway else "config/policy_config.yaml"
         os.environ["POLICY_CONFIG"] = value
         provisioned["POLICY_CONFIG"] = value
 
@@ -558,6 +669,17 @@ def auto_provision_defaults() -> dict[str, str]:
         value = "file"
         os.environ["POLICY_SOURCE"] = value
         provisioned["POLICY_SOURCE"] = value
+
+    # Railway-specific defaults: passthrough auth and no localhost bypass
+    if on_railway:
+        if not os.environ.get("AUTH_MODE"):
+            value = "passthrough"
+            os.environ["AUTH_MODE"] = value
+            provisioned["AUTH_MODE"] = value
+
+        if not os.environ.get("LOCALHOST_AUTH_BYPASS"):
+            os.environ["LOCALHOST_AUTH_BYPASS"] = "false"
+            provisioned["LOCALHOST_AUTH_BYPASS"] = "false"
 
     return provisioned
 
@@ -583,7 +705,48 @@ if __name__ == "__main__":
             action="store_true",
             help="Run with SQLite (no Redis required), no Docker needed",
         )
+        # Auto-generate CLI flags from config field definitions
+        for field_meta in CONFIG_FIELDS:
+            flag = f"--{field_meta.name.replace('_', '-')}"
+            if field_meta.field_type is bool:
+                parser.add_argument(flag, type=str, default=None, metavar="BOOL", help=field_meta.description)
+            elif field_meta.field_type is int:
+                parser.add_argument(flag, type=int, default=None, help=field_meta.description)
+            elif field_meta.field_type is float:
+                parser.add_argument(flag, type=float, default=None, help=field_meta.description)
+            else:
+                parser.add_argument(flag, type=str, default=None, help=field_meta.description)
         args = parser.parse_args()
+
+        # Pre-coerce a legacy `--auth-mode proxy_key` (pre-#524) with the same
+        # warning path as the env-var tolerance. Symmetry: if an operator who
+        # upgrades via shell env gets a clear message, an operator who upgrades
+        # via CLI flag should too. Removed in the same post-v0.2 cleanup.
+        if getattr(args, "auth_mode", None) is not None:
+            try:
+                args.auth_mode = parse_auth_mode(args.auth_mode, source="--auth-mode CLI flag").value
+            except ValueError:
+                pass  # fall through to coerce_value for the cryptic-but-informative error
+
+        # Collect CLI overrides (only non-None values) through coerce_value so
+        # invalid input (e.g. --dogfood-mode ture, --auth-mode bogus) fails loudly
+        # with a clear error instead of silently landing as False / raw string.
+        cli_overrides: dict[str, object] = {}
+        for field_meta in CONFIG_FIELDS:
+            val = getattr(args, field_meta.name, None)
+            if val is None:
+                continue
+            try:
+                cli_overrides[field_meta.name] = coerce_value(field_meta, val)
+            except (ValueError, TypeError) as exc:
+                parser.error(f"Invalid value for --{field_meta.name.replace('_', '-')}: {exc}")
+
+        # Propagate CLI overrides into os.environ so startup-critical reads (port
+        # binding, DB pool, policy loading — all executed BEFORE ConfigRegistry is
+        # constructed inside the lifespan) actually honor the flags.
+        if cli_overrides:
+            propagate_cli_overrides_to_env(cli_overrides)
+            clear_settings_cache()
 
         if args.local:
             configure_local_mode()
@@ -627,10 +790,11 @@ if __name__ == "__main__":
                 startup_policy_path=startup_path,
                 policy_source=config["policy_source"],
                 auth_mode=config.get("auth_mode", AuthMode.BOTH),
+                cli_overrides=cli_overrides if cli_overrides else None,
             )
 
             _valid_log_levels = {"critical", "error", "warning", "info", "debug", "trace"}
-            log_level = os.environ.get("LOG_LEVEL", "info").lower()
+            log_level = get_settings().log_level.lower()
             if log_level not in _valid_log_levels:
                 logger.warning(
                     f"Invalid LOG_LEVEL '{log_level}', falling back to 'info'. "

@@ -2,6 +2,10 @@
 
 ### Claude Code builds. You stay in control.
 
+```bash
+curl -fsSL https://luthien.cc/install.sh | bash  # local install, no Docker needed
+```
+
 [What does it look like?](#what-does-it-look-like) | [What can it do?](#what-can-it-do) | [How does it work?](#how-does-it-work) | [Quick start](#quick-start)
 
 Open-source proxy that sits between Claude Code and the Anthropic API.
@@ -102,11 +106,7 @@ Luthien sits in line as a transparent proxy. Every request and response flows th
 
 ## Quick Start
 
-```bash
-curl -fsSL https://luthien.cc/install.sh | bash
-```
-
-No Docker required. This installs [`uv`](https://docs.astral.sh/uv/) (if needed) and the Luthien CLI, sets up the gateway with SQLite, walks you through configuration, and starts the proxy.
+No Docker required. The install command at the top of this page installs [`uv`](https://docs.astral.sh/uv/) (if needed) and the Luthien CLI, sets up the gateway with SQLite, walks you through configuration, and starts the proxy.
 
 > **Claude Pro/Max users**: You don't need an API key. Luthien passes your existing Claude subscription credentials through to the Anthropic API — no extra cost, no configuration needed.
 
@@ -139,35 +139,46 @@ After setup, use the CLI or Claude Code to manage the proxy:
 
 ## Configuration
 
-Copy `.env.example` to `.env` and configure your environment:
+Copy `.env.example` to `.env` and edit as needed. Most fields are optional — the defaults written by `luthien onboard` are enough for single-user local development.
 
-### Authentication & Billing
+### Authentication
 
-Luthien supports two ways to authenticate with the Anthropic API:
+From a client's point of view, Luthien is just an Anthropic endpoint. Point your client at `http://localhost:8000` (set `ANTHROPIC_BASE_URL`) and use your normal `ANTHROPIC_API_KEY` or Claude Pro/Max OAuth session — no Luthien-specific key, header, or flow. This is **passthrough**: the gateway forwards your credentials upstream to Anthropic and bills against your own account.
 
-| Mode | Who pays | Setup |
-|------|----------|-------|
-| **OAuth passthrough** (default) | Your existing Claude Pro/Max subscription | Nothing — just run `luthien claude` |
-| **API key** | Per-token billing to your Anthropic API account | Set `ANTHROPIC_API_KEY` in `.env` |
+The gateway has two admin-side keys — both optional for single-user local development:
 
-> :warning: **API key mode bills per token.** If you set `ANTHROPIC_API_KEY` in your `.env`, all requests through the proxy are billed to that API key at [Anthropic's per-token rates](https://docs.anthropic.com/en/docs/about-claude/models). This can result in significant charges. If you have a Claude Pro or Max subscription, you don't need an API key — OAuth passthrough is the default and uses your existing subscription at no extra cost.
+| Env var | What it controls | When to set it |
+|---|---|---|
+| `ADMIN_API_KEY` | Admin dashboard + admin API (History, Policy Config, `/api/admin/*`). Localhost bypass applies by default (`LOCALHOST_AUTH_BYPASS=true`). | Set automatically by `luthien onboard`. Required for remote admin access. |
+| `CLIENT_API_KEY` | A shared value the gateway will also accept as a client credential. When a client sends exactly this value as its `ANTHROPIC_API_KEY`, the gateway forwards the request using the server's own `ANTHROPIC_API_KEY` instead. Useful for operators who don't want to distribute their real Anthropic key. | Only if you want a single shared key that multiple machines can use without knowing the real Anthropic credential. If unset, clients simply use their own Anthropic credentials (the default passthrough path). |
 
-### Gateway Keys
+> :warning: **Server-side `ANTHROPIC_API_KEY` bills per token.** It is only consulted for requests that match `CLIENT_API_KEY`. Claude Pro/Max subscribers should leave both unset and rely on OAuth passthrough.
+
+#### What you get by default
+
+After `luthien onboard`, the gateway runs with `AUTH_MODE=both`, `ADMIN_API_KEY` set, and neither `CLIENT_API_KEY` nor a server-side `ANTHROPIC_API_KEY` set. In this setup:
+
+1. Clients pass their own Anthropic OAuth token or API key (as `ANTHROPIC_API_KEY`) and it is forwarded upstream — **passthrough**, no gateway-specific credential needed.
+2. The admin dashboard is reachable without the admin key from localhost. Remote access requires `Authorization: Bearer <ADMIN_API_KEY>`.
+
+Add `CLIENT_API_KEY` + server-side `ANTHROPIC_API_KEY` only if you want a shared, rotatable credential that hides the real Anthropic key from clients.
+
+> **Source-clone note**: `./scripts/start_gateway.sh` populates `.env` from `.env.local.example`, which seeds a dev `CLIENT_API_KEY=sk-local-dev` for convenience, and the script itself defaults `CLIENT_API_KEY` to `sk-luthien-dev-key` if unset. The source-clone path is meant for gateway development, not end users — use `luthien onboard` for that.
+
+#### Configuring keys manually
 
 ```bash
-# Gateway Authentication
-PROXY_API_KEY=sk-luthien-dev-key     # API key for clients to access the proxy
-ADMIN_API_KEY=admin-dev-key          # API key for admin/policy management UI (History, Policy tabs)
+# Required for remote admin dashboard access; auto-generated by `luthien onboard`
+ADMIN_API_KEY=admin-dev-key
+
+# Optional — clients that set ANTHROPIC_API_KEY to this value will be accepted
+CLIENT_API_KEY=sk-luthien-dev-key
+
+# Required only if CLIENT_API_KEY is set — used to forward matching requests upstream
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
 ```
 
-> **Two gateway keys, two purposes**: `PROXY_API_KEY` is for Claude Code and other LLM clients connecting through the gateway. `ADMIN_API_KEY` is for the web dashboard (History, Policy Configuration, Activity Monitor). On localhost, the dashboard bypasses auth automatically.
-
-### Upstream API Keys (Optional)
-
-```bash
-# Only needed if NOT using Claude Pro/Max OAuth passthrough
-ANTHROPIC_API_KEY=your_anthropic_api_key_here  # optional — per-token billing, see warning above
-```
+For the full auth architecture (auth modes, OAuth passthrough details, judge key resolution), see [`dev/context/authentication.md`](dev/context/authentication.md).
 
 ### Core Infrastructure
 
@@ -287,11 +298,10 @@ docker compose down && ./scripts/quick_start.sh
 
 ### API requests failing
 
-1. **Check gateway key**: Ensure `Authorization: Bearer <PROXY_API_KEY>` header is set
-2. **Check upstream credentials**:
-   - *OAuth passthrough (default)*: Run `claude auth login` to ensure your Claude Pro/Max session is active
-   - *API key mode*: Verify `ANTHROPIC_API_KEY` starts with `sk-ant-api` in `.env`
-3. **Check logs**: `luthien logs` (local mode) or `docker compose logs -f gateway` (Docker mode)
+1. **Check client credentials (default setup)**: Luthien's default mode is passthrough — clients forward their own Anthropic credentials upstream. For Claude Code, run `claude auth login` to ensure your Claude Pro/Max session is active. No Luthien-specific credential is required.
+2. **Only if you explicitly set `CLIENT_API_KEY`**: Clients authenticate by putting that exact value in their `ANTHROPIC_API_KEY` env var (sent as `x-api-key` or `Authorization: Bearer`). The gateway then forwards the request using the server-side `ANTHROPIC_API_KEY`, so that must also be set (otherwise the gateway returns 500).
+3. **Check logs**: `luthien logs` (local mode) or `docker compose logs -f gateway` (Docker mode).
+4. **Dashboard login page appearing on localhost?** `LOCALHOST_AUTH_BYPASS` is normally on — if you see a login page, the bypass may have been disabled. Check `/config` or `.env` for `LOCALHOST_AUTH_BYPASS=true`, and ensure you're actually hitting the gateway from `127.0.0.1` / `::1`.
 
 ### Database connection issues
 
@@ -337,7 +347,7 @@ uv sync  # Install uv first if needed: https://docs.astral.sh/uv/getting-started
 
 To use API key auth, edit `.env` (auto-created on first run) and add your `ANTHROPIC_API_KEY`.
 
-The gateway starts at `http://localhost:8000`. For full development setup, tooling, architecture, and API details, see **[dev-README.md](dev-README.md)**.
+The gateway starts at `http://localhost:8000`. For full development setup, tooling, architecture, releasing, and API details, see **[dev-README.md](dev-README.md)**.
 
 ## License
 

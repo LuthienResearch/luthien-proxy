@@ -33,7 +33,7 @@ def test_write_local_env(tmp_path):
     repo.mkdir()
     _write_local_env(str(repo), "admin-test-key")
     env_content = (repo / ".env").read_text()
-    assert "PROXY_API_KEY" not in env_content
+    assert "CLIENT_API_KEY" not in env_content
     assert "ADMIN_API_KEY=admin-test-key" in env_content
     assert "AUTH_MODE=both" in env_content
     assert "POLICY_SOURCE=file" in env_content
@@ -46,7 +46,7 @@ def test_ensure_docker_env_creates_from_scratch(tmp_path):
     repo.mkdir()
     _ensure_docker_env(str(repo), "admin-test-key")
     env_content = (repo / ".env").read_text()
-    assert "PROXY_API_KEY" not in env_content
+    assert "CLIENT_API_KEY" not in env_content
     assert "ADMIN_API_KEY=admin-test-key" in env_content
     assert "AUTH_MODE=both" in env_content
     assert "POLICY_SOURCE=file" in env_content
@@ -138,7 +138,7 @@ def test_onboard_local_full_flow(tmp_path):
     env_content = (repo_path / ".env").read_text()
     assert "sqlite:///" in env_content
     assert "ADMIN_API_KEY=" in env_content
-    assert "PROXY_API_KEY" not in env_content
+    assert "CLIENT_API_KEY" not in env_content
 
 
 def test_onboard_docker_full_flow(tmp_path):
@@ -194,7 +194,7 @@ def test_onboard_docker_failure(tmp_path):
     repo_path = tmp_path / "managed-repo"
     repo_path.mkdir()
     (repo_path / "docker-compose.yaml").touch()
-    (repo_path / ".env.example").write_text("PROXY_API_KEY=placeholder\n")
+    (repo_path / ".env.example").write_text("CLIENT_API_KEY=placeholder\n")
 
     clone_dir = tmp_path / "clone"
     clone_dir.mkdir()

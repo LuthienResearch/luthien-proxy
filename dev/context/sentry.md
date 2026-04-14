@@ -34,7 +34,7 @@ Built-in denylist includes: `password`, `secret`, `api_key`, `apikey`, `auth`, `
 
 We extend it with proxy-specific keys:
 ```
-anthropic_api_key, openai_api_key, proxy_api_key, admin_api_key,
+anthropic_api_key, openai_api_key, client_api_key, admin_api_key,
 resolved_api_key, explicit_key, bearer_token, api_key_header
 ```
 
@@ -95,7 +95,7 @@ These settings are reused from the general config for Sentry tags:
 |---------|---------|---------|-------------|
 | `environment` | `ENVIRONMENT` (or `RAILWAY_SERVICE_NAME` on Railway) | `development` | `environment` tag |
 | `service_name` | `SERVICE_NAME` | `luthien-proxy` | Part of `release` tag |
-| `service_version` | `SERVICE_VERSION` | `2.0.0` | Part of `release` tag |
+| `service_version` | `SERVICE_VERSION` | package version via `importlib.metadata` (see `version.py`) | Part of `release` tag |
 
 ### Per-Environment Setup
 

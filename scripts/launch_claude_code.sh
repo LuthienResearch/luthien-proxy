@@ -26,8 +26,8 @@ fi
 
 # Source only the variables we need from .env
 if [ -f .env ]; then
-    PROXY_API_KEY="$(grep -E '^PROXY_API_KEY=' .env | cut -d '=' -f2-)"
-    export PROXY_API_KEY
+    CLIENT_API_KEY="$(grep -E '^CLIENT_API_KEY=' .env | cut -d '=' -f2-)"
+    export CLIENT_API_KEY
     GATEWAY_PORT="$(grep -E '^GATEWAY_PORT=' .env | cut -d '=' -f2-)"
     export GATEWAY_PORT
     GATEWAY_HOST="$(grep -E '^GATEWAY_HOST=' .env | cut -d '=' -f2-)"
@@ -63,11 +63,11 @@ echo -e "${GREEN}✅ gateway is running on port ${GATEWAY_PORT_VAR}${NC}"
 # Prepare gateway configuration for Claude Code
 # Note: Don't include /v1 in base URL - Anthropic SDK adds it automatically
 # Claude Code requires these to be set inline when launching to skip onboarding
-PROXY_KEY="${PROXY_API_KEY:-sk-luthien-dev-key}"
+CLIENT_KEY="${CLIENT_API_KEY:-sk-luthien-dev-key}"
 GATEWAY_URL="http://localhost:${GATEWAY_PORT_VAR}/"
 
 # Detect auth mode from /health endpoint:
-#   proxy_key — server always uses its own Anthropic API key; requests are billed to it.
+#   client_key — server always uses its own Anthropic API key; requests are billed to it.
 #   anything else — OAuth passthrough (Claude Pro/Max subscribers, no per-token charges).
 HEALTH_RESPONSE=$(curl -sf "http://localhost:${GATEWAY_PORT_VAR}/health")
 AUTH_MODE=$(echo "$HEALTH_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('auth_mode',''))" 2>/dev/null)
@@ -77,12 +77,12 @@ if [[ "${AUTH_MODE}" == "passthrough" ]]; then
     USE_OAUTH=true
 elif [[ "${AUTH_MODE}" == "both" ]]; then
     # In both mode, the gateway handles credential selection server-side.
-    # Default to OAuth; the gateway falls back to the proxy key if needed.
+    # Default to OAuth; the gateway falls back to the client key if needed.
     AUTH_MODE_LABEL="OAuth passthrough or API key fallback (both mode)"
     USE_OAUTH=true
 else
-    # proxy_key: server always uses its API key.
-    AUTH_MODE_LABEL="API key (proxy_key mode)"
+    # client_key: server always uses its API key.
+    AUTH_MODE_LABEL="API key (client_key mode)"
     USE_OAUTH=false
 fi
 
@@ -91,7 +91,7 @@ echo -e "   • Gateway URL:     ${GATEWAY_URL} (SDK will append /v1/messages)"
 echo -e "   • Auth mode:       ${AUTH_MODE_LABEL}"
 echo ""
 
-# Interactive auth mode nudge — offer to switch away from proxy_key
+# Interactive auth mode nudge — offer to switch away from client_key
 if new_mode=$(check_auth_mode_interactive "$AUTH_MODE"); then
     update_auth_mode_env "$new_mode"
 
@@ -152,7 +152,7 @@ fi
 if [ "${USE_OAUTH}" = false ]; then
     env \
       ANTHROPIC_BASE_URL="${GATEWAY_URL}" \
-      ANTHROPIC_API_KEY="${PROXY_KEY}" \
+      ANTHROPIC_API_KEY="${CLIENT_KEY}" \
       claude "$@"
 else
     # Unset ANTHROPIC_API_KEY to avoid Claude Code's "both token and API key set" conflict warning.

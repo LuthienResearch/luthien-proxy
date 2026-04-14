@@ -51,7 +51,7 @@ Add after the `gateway` service:
     profiles: ["overseer"]
     environment:
       - ANTHROPIC_BASE_URL=http://gateway:8000
-      - ANTHROPIC_API_KEY=${PROXY_API_KEY}
+      - ANTHROPIC_API_KEY=${CLIENT_API_KEY}
     depends_on:
       gateway:
         condition: service_healthy
@@ -992,7 +992,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=8080, help="Report server port (default: 8080)")
     parser.add_argument("--model", default="claude-haiku-4-5-20251001", help="Overseer LLM model")
     parser.add_argument("--gateway-url", default="http://gateway:8000", help="Proxy URL from container perspective")
-    parser.add_argument("--api-key", default=None, help="API key for proxy (default: from PROXY_API_KEY env)")
+    parser.add_argument("--api-key", default=None, help="API key for proxy (default: from CLIENT_API_KEY env)")
     parser.add_argument("--turn-timeout", type=int, default=300, help="Timeout per turn in seconds (default: 300)")
     return parser.parse_args()
 
@@ -1010,7 +1010,7 @@ def ensure_sandbox_running() -> None:
 
 
 async def run_overseer(args: argparse.Namespace) -> None:
-    api_key = args.api_key or __import__("os").environ.get("PROXY_API_KEY", "sk-luthien-dev-key")
+    api_key = args.api_key or __import__("os").environ.get("CLIENT_API_KEY", "sk-luthien-dev-key")
 
     ensure_sandbox_running()
 

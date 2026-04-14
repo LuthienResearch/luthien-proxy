@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any
 
@@ -13,9 +14,15 @@ from pydantic import BaseModel, Field, ValidationError
 from luthien_proxy.admin.policy_discovery import discover_policies, validate_policy_config
 from luthien_proxy.auth import verify_admin_token
 from luthien_proxy.config import _import_policy_class
+from luthien_proxy.config_registry import ConfigOverriddenError, ConfigRegistry
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CredentialManager
 from luthien_proxy.credentials import Credential, CredentialError, CredentialType
-from luthien_proxy.dependencies import get_db_pool, get_policy_manager, require_credential_manager
+from luthien_proxy.dependencies import (
+    get_db_pool,
+    get_policy_manager,
+    require_config_registry,
+    require_credential_manager,
+)
 from luthien_proxy.policy_manager import (
     PolicyEnableResult,
     PolicyInfo,
@@ -91,7 +98,7 @@ class ChatRequest(BaseModel):
     api_key: str | None = Field(
         default=None,
         description="Optional API key to use for this test request. "
-        "Overrides the server's proxy key as the credential sent to the gateway.",
+        "Overrides the server's client key as the credential sent to the gateway.",
     )
 
 
@@ -119,7 +126,7 @@ class AuthConfigResponse(BaseModel):
 class AuthConfigUpdateRequest(BaseModel):
     """Request to update auth configuration."""
 
-    auth_mode: str | None = Field(default=None, description="Auth mode: proxy_key, passthrough, or both")
+    auth_mode: str | None = Field(default=None, description="Auth mode: client_key, passthrough, or both")
     validate_credentials: bool | None = Field(default=None)
     valid_cache_ttl_seconds: int | None = Field(default=None, gt=0)
     invalid_cache_ttl_seconds: int | None = Field(default=None, gt=0)
@@ -297,7 +304,7 @@ async def send_chat(
     """Send a test message through the proxy with the active policy.
 
     Forwards the request to the gateway's /v1/messages endpoint using either
-    the server's PROXY_API_KEY or a custom API key. In mock mode, returns the
+    the server's CLIENT_API_KEY or a custom API key. In mock mode, returns the
     user's message as an echo without calling the LLM or running the policy
     pipeline (useful for quick checks without API credits).
 
@@ -314,15 +321,15 @@ async def send_chat(
             model=body.model,
         )
 
-    # Determine which API key to use: custom key takes precedence over server proxy key
-    test_api_key = settings.proxy_api_key
+    # Determine which API key to use: custom key takes precedence over server client key
+    test_api_key = settings.client_api_key
     if body.api_key is not None and body.api_key.strip():
         test_api_key = body.api_key.strip()
 
     if not test_api_key:
         return ChatResponse(
             success=False,
-            error="No API key available — set PROXY_API_KEY on the server or provide a custom key",
+            error="No API key available — set CLIENT_API_KEY on the server or provide a custom key",
             model=body.model,
         )
 
@@ -424,7 +431,7 @@ async def update_auth_config(
         except ValueError:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid auth_mode: {body.auth_mode}. Must be one of: proxy_key, passthrough, both",
+                detail=f"Invalid auth_mode: {body.auth_mode}. Must be one of: client_key, passthrough, both",
             )
 
     config = await credential_manager.update_config(
@@ -627,11 +634,14 @@ class GatewaySettingsUpdateRequest(BaseModel):
     dogfood_mode: bool | None = None
 
 
-@router.get("/gateway/settings", response_model=GatewaySettingsResponse)
+@router.get("/gateway/settings", response_model=GatewaySettingsResponse, deprecated=True)
 async def get_gateway_settings(
     _: str = Depends(verify_admin_token),
 ):
-    """Get current gateway settings."""
+    """Get current gateway settings.
+
+    Deprecated: use GET /api/admin/config instead for all config with provenance.
+    """
     settings = get_settings()
     return GatewaySettingsResponse(
         inject_policy_context=settings.inject_policy_context,
@@ -639,26 +649,109 @@ async def get_gateway_settings(
     )
 
 
-@router.put("/gateway/settings", response_model=GatewaySettingsResponse)
+@router.put("/gateway/settings", response_model=GatewaySettingsResponse, deprecated=True)
 async def update_gateway_settings(
     body: GatewaySettingsUpdateRequest,
     _: str = Depends(verify_admin_token),
+    registry: ConfigRegistry = Depends(require_config_registry),
 ):
     """Update gateway settings at runtime.
 
-    These settings take effect immediately for new requests.
-    Env var values serve as defaults; runtime updates override them
-    until the gateway restarts.
+    Deprecated: use PUT /api/admin/config/{key} instead.
+    Persists to DB via the config registry so values survive restarts.
     """
-    settings = get_settings()
     if body.inject_policy_context is not None:
-        settings.inject_policy_context = body.inject_policy_context
+        await registry.set_db_value("inject_policy_context", body.inject_policy_context)
     if body.dogfood_mode is not None:
-        settings.dogfood_mode = body.dogfood_mode
+        await registry.set_db_value("dogfood_mode", body.dogfood_mode)
+    settings = get_settings()
     return GatewaySettingsResponse(
         inject_policy_context=settings.inject_policy_context,
         dogfood_mode=settings.dogfood_mode,
     )
+
+
+# === Unified Config Dashboard ===
+
+
+class ConfigSetRequest(BaseModel):
+    """Request to set a config value."""
+
+    value: Any = Field(..., description="The new value for the config field")
+
+
+@router.get("/config")
+async def get_config_dashboard(
+    _: str = Depends(verify_admin_token),
+    registry: ConfigRegistry = Depends(require_config_registry),
+):
+    """Full config dashboard: all fields with resolved values, sources, and metadata."""
+    return {"config": registry.dashboard_view()}
+
+
+def _admin_subject(token: str) -> str:
+    """Fingerprint the admin auth subject for the gateway_config.updated_by audit column.
+
+    The raw token/session string must never land in the DB. Truncated SHA-256
+    is enough to correlate edits without revealing the credential.
+    """
+    if token == "localhost-bypass":
+        return "admin-localhost"
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()[:12]
+    return f"admin:{digest}"
+
+
+@router.put("/config/{key}")
+async def set_config_value(
+    body: ConfigSetRequest,
+    key: str = Path(..., description="Config field name"),
+    subject: str = Depends(verify_admin_token),
+    registry: ConfigRegistry = Depends(require_config_registry),
+):
+    """Set a DB-settable config value. Returns the new resolved state."""
+    meta = registry.get_field_meta(key)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"Unknown config key: {key}")
+    if not meta.db_settable:
+        raise HTTPException(status_code=400, detail=f"Config key '{key}' cannot be set via admin API")
+
+    try:
+        new_resolved = await registry.set_db_value(key, body.value, updated_by=_admin_subject(subject))
+    except ConfigOverriddenError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "success": True,
+        "name": key,
+        "value": "***" if meta.sensitive else new_resolved.value,
+        "source": new_resolved.source.value,
+    }
+
+
+@router.delete("/config/{key}")
+async def delete_config_value(
+    key: str = Path(..., description="Config field name"),
+    _: str = Depends(verify_admin_token),
+    registry: ConfigRegistry = Depends(require_config_registry),
+):
+    """Remove a DB override for a config value, falling back to env or default."""
+    meta = registry.get_field_meta(key)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"Unknown config key: {key}")
+    if not meta.db_settable:
+        raise HTTPException(status_code=400, detail=f"Config key '{key}' is not DB-settable")
+
+    try:
+        new_resolved = await registry.delete_db_value(key)
+    except ConfigOverriddenError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "success": True,
+        "name": key,
+        "value": "***" if meta.sensitive else new_resolved.value,
+        "source": new_resolved.source.value,
+    }
 
 
 __all__ = ["router"]

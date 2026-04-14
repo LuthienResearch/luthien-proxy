@@ -1,7 +1,9 @@
 """Tests for PolicyContext span and event helpers."""
 
+import copy
 from unittest.mock import MagicMock, patch
 
+import pytest
 from opentelemetry import trace
 
 from luthien_proxy.policy_core.policy_context import PolicyContext
@@ -265,3 +267,52 @@ class TestPolicyContextSummaries:
 
         assert "safety prefix" in ctx.request_summary
         assert "PII" in ctx.response_summary
+
+
+class TestPolicyContextPolicyCache:
+    """Tests for PolicyContext.policy_cache() and related facilities."""
+
+    def test_policy_cache_raises_without_factory(self):
+        """Accessing policy_cache() without a configured factory raises RuntimeError."""
+        ctx = PolicyContext.for_testing()
+        with pytest.raises(RuntimeError, match="PolicyCache not available"):
+            ctx.policy_cache("SomePolicy")
+
+    def test_has_policy_cache_false_by_default(self):
+        """has_policy_cache defaults to False when no factory is configured."""
+        ctx = PolicyContext.for_testing()
+        assert ctx.has_policy_cache is False
+
+    def test_has_policy_cache_true_with_factory(self):
+        """has_policy_cache is True when a factory is supplied."""
+        sentinel = MagicMock(name="PolicyCacheInstance")
+        ctx = PolicyContext.for_testing(policy_cache_factory=lambda name: sentinel)
+        assert ctx.has_policy_cache is True
+
+    def test_policy_cache_forwards_name_to_factory(self):
+        """policy_cache() invokes the factory with the supplied policy name."""
+        factory = MagicMock(return_value=MagicMock(name="PolicyCacheInstance"))
+        ctx = PolicyContext.for_testing(policy_cache_factory=factory)
+
+        result = ctx.policy_cache("MyPolicy")
+
+        factory.assert_called_once_with("MyPolicy")
+        assert result is factory.return_value
+
+    def test_for_testing_forwards_policy_cache_factory(self):
+        """PolicyContext.for_testing() propagates the factory through to the instance."""
+        factory = lambda name: MagicMock(name=f"cache-{name}")  # noqa: E731
+        ctx = PolicyContext.for_testing(policy_cache_factory=factory)
+        assert ctx._policy_cache_factory is factory
+
+    def test_deepcopy_preserves_factory_identity(self):
+        """deepcopy shares the factory reference so sub-policies hit the same infra."""
+        factory = MagicMock(return_value=MagicMock())
+        ctx = PolicyContext.for_testing(policy_cache_factory=factory)
+
+        copied = copy.deepcopy(ctx)
+
+        # Must be the exact same object, not a deep copy — factory holds
+        # infrastructure handles (DB pool) that parallel sub-policies share.
+        assert copied._policy_cache_factory is factory
+        assert copied.has_policy_cache is True

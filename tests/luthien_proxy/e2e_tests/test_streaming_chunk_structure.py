@@ -23,7 +23,7 @@ from tests.constants import DEFAULT_TEST_MODEL
 # === Test Configuration ===
 
 GATEWAY_URL = os.getenv("E2E_GATEWAY_URL", "http://localhost:8000")
-API_KEY = os.getenv("E2E_API_KEY", os.getenv("PROXY_API_KEY", "sk-luthien-dev-key"))
+API_KEY = os.getenv("E2E_API_KEY", os.getenv("CLIENT_API_KEY", "sk-luthien-dev-key"))
 ADMIN_API_KEY = os.getenv("E2E_ADMIN_API_KEY", os.getenv("ADMIN_API_KEY", "admin-dev-key"))
 
 

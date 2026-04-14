@@ -1,6 +1,6 @@
 """Credential validation and caching for passthrough authentication.
 
-Manages configurable auth modes (proxy_key, passthrough, both) and validates
+Manages configurable auth modes (client_key, passthrough, both) and validates
 Anthropic credentials via the free count_tokens endpoint, caching results.
 """
 
@@ -49,9 +49,62 @@ VALIDATION_PAYLOAD = {
 class AuthMode(str, Enum):
     """Authentication mode for the gateway."""
 
-    PROXY_KEY = "proxy_key"
+    CLIENT_KEY = "client_key"
     PASSTHROUGH = "passthrough"
     BOTH = "both"
+
+
+# Legacy auth_mode values that pre-date PR #524's rename. Tolerated on read so
+# that a Postgres gateway restarted before migration 013 has applied (or an
+# operator who missed renaming AUTH_MODE in their environment) doesn't
+# crash-loop. Symmetrically applied to DB rows, shell env / .env via
+# Settings._coerce_legacy_auth_mode, and --auth-mode CLI flag.
+# TODO(post-v0.2): remove this dict and parse_auth_mode's fallback branch
+# once all deployments have migrated past PR #535. Tests to delete at the
+# same time, all in tests/luthien_proxy/unit_tests/:
+#   - test_credential_manager.py::TestParseAuthMode::test_legacy_proxy_key_alias
+#   - test_credential_manager.py::TestCredentialManagerInitialize::test_tolerates_legacy_proxy_key_row
+#   - test_auth_modes.py::TestAuthModeConfig::test_settings_coerces_legacy_auth_mode_env_var
+#   - test_auth_modes.py::TestAuthModeConfig::test_settings_coerces_legacy_auth_mode_dotenv
+#   - test_auth_modes.py::TestAuthModeConfig::test_module_import_tolerates_legacy_auth_mode_env_var
+# Audit at the same time: migrations/sqlite/007_add_auth_config_table.sql still
+# declares `DEFAULT 'proxy_key'` on the CREATE TABLE. It's currently harmless
+# because migration 008 overwrites the seeded row and 013 rewrites any stale
+# value, but after the legacy tolerance is removed a DELETE+re-INSERT without
+# an explicit auth_mode would resurrect 'proxy_key' and crash-loop the gateway.
+# Recreate the table with DEFAULT 'client_key' as part of the cleanup.
+LEGACY_AUTH_MODE_ALIASES: dict[str, AuthMode] = {
+    "proxy_key": AuthMode.CLIENT_KEY,
+}
+
+
+def parse_auth_mode(raw: str, source: str = "auth_config.auth_mode") -> AuthMode:
+    """Parse an auth_mode value, tolerating pre-#524 aliases with a warning.
+
+    Args:
+        raw: The raw string to parse.
+        source: Human-readable description of where `raw` came from; included
+            in the deprecation warning so operators know what to fix.
+
+    Raises:
+        ValueError: if `raw` is neither a current `AuthMode` value nor a
+            legacy alias.
+    """
+    try:
+        return AuthMode(raw)
+    except ValueError:
+        alias = LEGACY_AUTH_MODE_ALIASES.get(raw)
+        if alias is not None:
+            logger.warning(
+                "%s=%r is a pre-PR-#524 value; treating as %r. "
+                "Rename to '%s' — the legacy alias will be removed in a follow-up release.",
+                source,
+                raw,
+                alias.value,
+                alias.value,
+            )
+            return alias
+        raise
 
 
 @dataclass(frozen=True)
@@ -127,7 +180,7 @@ class CredentialManager:
         if raw_row:
             row: dict[str, Any] = dict(raw_row)
             self._config = AuthConfig(
-                auth_mode=AuthMode(row["auth_mode"]),
+                auth_mode=parse_auth_mode(row["auth_mode"]),
                 validate_credentials=bool(row["validate_credentials"]),
                 valid_cache_ttl_seconds=row["valid_cache_ttl_seconds"],
                 invalid_cache_ttl_seconds=row["invalid_cache_ttl_seconds"],
@@ -158,6 +211,13 @@ class CredentialManager:
 
         Builds a new AuthConfig and replaces the reference in one assignment,
         so concurrent readers always see a consistent snapshot (no torn reads).
+
+        Note: the write path uses `AuthMode(auth_mode)` directly, not the
+        legacy-tolerant `parse_auth_mode()` used by `initialize()`. This is
+        intentional — the admin API already validates the incoming value at
+        `admin/routes.py` before calling this method, and writing a pre-#524
+        alias like `'proxy_key'` back into the DB would undo migration 013.
+        Strictness here is load-bearing.
         """
         new_config = AuthConfig(
             auth_mode=AuthMode(auth_mode) if auth_mode is not None else self._config.auth_mode,
@@ -226,13 +286,12 @@ class CredentialManager:
             return cached.valid
 
         # Cache miss - validate against Anthropic API
-        is_oauth_bearer = is_bearer
         is_valid = await self._call_count_tokens(credential, is_bearer=is_bearer)
         if is_valid is None:
             # Inconclusive (network error, unexpected status, or OAuth bearer that
             # count_tokens can't validate). For OAuth tokens, pass through and let
             # Anthropic's messages endpoint decide. For API keys, block to be safe.
-            return is_oauth_bearer
+            return is_bearer
         await self._cache_result(key_hash, is_valid)
         logger.info(f"Credential validated: hash={key_hash[:16]}... valid={is_valid}")
         return is_valid

@@ -70,6 +70,7 @@ from luthien_proxy.types import RawHttpRequest
 from luthien_proxy.usage_telemetry.collector import UsageCollector
 from luthien_proxy.utils import db
 from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
+from luthien_proxy.utils.policy_cache import PolicyCache
 
 
 class _ErrorDetail(TypedDict):
@@ -433,6 +434,13 @@ async def process_anthropic_request(
         if beta := raw_http_request.headers.get("anthropic-beta"):
             forwarded_headers = {"anthropic-beta": beta}
 
+        # Create policy cache factory if database is available. The cap is
+        # configured once here so every policy's cache honors the same limit;
+        # 0-or-negative in settings means "unbounded" (pass None to the cache).
+        cache_cap_setting = get_settings().policy_cache_max_entries
+        cache_cap: int | None = cache_cap_setting if cache_cap_setting > 0 else None
+        policy_cache_factory = (lambda name: PolicyCache(db_pool, name, max_entries=cache_cap)) if db_pool else None
+
         # Create policy context
         policy_ctx = PolicyContext(
             transaction_id=call_id,
@@ -442,6 +450,7 @@ async def process_anthropic_request(
             session_id=session_id,
             user_credential=user_credential,
             credential_manager=credential_manager,
+            policy_cache_factory=policy_cache_factory,
         )
 
         # Set policy name on root span for easy identification

@@ -79,6 +79,47 @@ async def test_database_pool_connection_context():
 
 
 @pytest.mark.asyncio
+async def test_database_pool_in_memory_sqlite_fixture_pattern():
+    """Canonical pattern for tests that need a DatabasePool with pre-populated schema.
+
+    This exists as the documented replacement for the `DatabasePool.__new__(...)
+    + private-attribute poke` hack. Tests that previously constructed a
+    `SqlitePool` directly and wrapped it should use this pattern instead:
+
+      1. Construct a DatabasePool via its public constructor.
+      2. Prime it once via `get_pool()` and do schema/fixture setup on the
+         returned pool.
+      3. Pass the DatabasePool anywhere a real one is expected — `get_pool()`
+         returns the same cached instance, so schema set up in step 2 is
+         visible throughout.
+
+    If this test ever breaks because `DatabasePool.__init__` grows a new
+    required field, that's the signal for downstream tests: they need to
+    update along with it — there is no hidden bypass.
+    """
+    pool = db.DatabasePool("sqlite://:memory:")
+    try:
+        backing_pool = await pool.get_pool()
+        await backing_pool.execute("CREATE TABLE widgets (id INTEGER PRIMARY KEY, name TEXT)")
+        await backing_pool.execute("INSERT INTO widgets (id, name) VALUES ($1, $2)", 1, "sprocket")
+
+        # Subsequent get_pool() calls return the same cached instance so the
+        # schema and rows seeded above are visible.
+        again = await pool.get_pool()
+        assert again is backing_pool
+
+        # Reading through the public `connection()` context manager sees the
+        # seeded row, proving downstream consumers don't need any back-door
+        # access to the underlying SqlitePool.
+        async with pool.connection() as conn:
+            row = await conn.fetchrow("SELECT name FROM widgets WHERE id = $1", 1)
+        assert row is not None
+        assert row["name"] == "sprocket"
+    finally:
+        await pool.close()
+
+
+@pytest.mark.asyncio
 async def test_database_pool_close_resets():
     pools = [DummyPool(name="first"), DummyPool(name="second")]
 

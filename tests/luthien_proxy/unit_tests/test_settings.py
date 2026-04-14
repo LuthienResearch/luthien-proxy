@@ -61,6 +61,22 @@ class TestSettingsDefaults:
         settings = Settings(_env_file=None)
         assert settings.service_name == "luthien-proxy"
 
+    def test_default_service_version_resolves_from_package(self, monkeypatch):
+        """Default service_version must resolve from real package metadata.
+
+        In CI the package is installed, so `importlib.metadata.version()` should
+        return a real PEP 440 string. If this test ever sees the "unknown" fallback
+        from version.py, something is wrong with the install state — catch it here
+        rather than discovering it in Sentry release tags or OTel dashboards.
+        """
+        monkeypatch.delenv("SERVICE_VERSION", raising=False)
+        settings = Settings(_env_file=None)
+        # Not the PackageNotFoundError sentinel
+        assert settings.service_version != "unknown"
+        # Looks like a version (non-empty, contains a digit)
+        assert settings.service_version
+        assert any(c.isdigit() for c in settings.service_version)
+
     def test_default_gateway_port(self, monkeypatch):
         """Test default gateway port is 8000."""
         monkeypatch.delenv("GATEWAY_PORT", raising=False)
@@ -76,7 +92,7 @@ class TestSettingsDefaults:
     def test_optional_fields_default_to_none(self, monkeypatch):
         """Test optional fields default to None."""
         for var in [
-            "PROXY_API_KEY",
+            "CLIENT_API_KEY",
             "ADMIN_API_KEY",
             "LLM_JUDGE_MODEL",
             "LLM_JUDGE_API_BASE",
@@ -85,7 +101,7 @@ class TestSettingsDefaults:
         ]:
             monkeypatch.delenv(var, raising=False)
         settings = Settings(_env_file=None)
-        assert settings.proxy_api_key is None
+        assert settings.client_api_key is None
         assert settings.admin_api_key is None
         assert settings.llm_judge_model is None
         assert settings.llm_judge_api_base is None
@@ -96,11 +112,11 @@ class TestSettingsDefaults:
 class TestSettingsFromEnv:
     """Test loading settings from environment variables."""
 
-    def test_loads_proxy_api_key(self, monkeypatch):
-        """Test PROXY_API_KEY is loaded from environment."""
-        monkeypatch.setenv("PROXY_API_KEY", "test-key-123")
+    def test_loads_client_api_key(self, monkeypatch):
+        """Test CLIENT_API_KEY is loaded from environment."""
+        monkeypatch.setenv("CLIENT_API_KEY", "test-key-123")
         settings = Settings()
-        assert settings.proxy_api_key == "test-key-123"
+        assert settings.client_api_key == "test-key-123"
 
     def test_loads_database_url(self, monkeypatch):
         """Test DATABASE_URL is loaded from environment."""
@@ -205,9 +221,10 @@ class TestAuthModeValidation:
 class TestAuthModeDefaultConsistency:
     """Ensure DB migration default and Python defaults never silently diverge.
 
-    PR #222 COE: migration 007 seeded 'proxy_key' while settings.py defaulted
-    to 'both', causing 401s for Claude Code OAuth. This test catches that class
-    of bug by reading the actual migration SQL and comparing to Python defaults.
+    PR #222 COE: migration 007 seeded 'proxy_key' (now 'client_key' after PR
+    #524's rename) while settings.py defaulted to 'both', causing 401s for
+    Claude Code OAuth. This test catches that class of bug by reading the
+    actual migration SQL and comparing to Python defaults.
     """
 
     def _get_effective_db_default(self) -> str:

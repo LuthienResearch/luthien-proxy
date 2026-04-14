@@ -17,7 +17,7 @@ class TestLocalBuildFallback:
     def _make_config(self, tmp_path):
         config = MagicMock()
         config.repo_path = str(tmp_path)
-        (tmp_path / ".env.example").write_text("PROXY_API_KEY=placeholder\n")
+        (tmp_path / ".env.example").write_text("CLIENT_API_KEY=placeholder\n")
         return config
 
     @patch("luthien_cli.commands.onboard._show_results")

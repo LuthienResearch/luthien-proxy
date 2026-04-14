@@ -50,7 +50,7 @@ _SAFE_HEADERS = {"content-type", "accept", "user-agent", "x-request-id"}
 _EXTRA_DENYLIST: list[str] = [
     "anthropic_api_key",
     "openai_api_key",
-    "proxy_api_key",
+    "client_api_key",
     "admin_api_key",
     "resolved_api_key",
     "explicit_key",

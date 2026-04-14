@@ -118,6 +118,18 @@ async def policy_config(
     return FileResponse(os.path.join(STATIC_DIR, "policy_config.html"))
 
 
+@router.get("/config")
+async def config_dashboard(
+    request: Request,
+    admin_key: str | None = Depends(get_admin_key),
+):
+    """Config dashboard — unified view of all gateway configuration with provenance."""
+    redirect = check_auth_or_redirect(request, admin_key)
+    if redirect:
+        return redirect
+    return FileResponse(os.path.join(STATIC_DIR, "config_dashboard.html"))
+
+
 @router.get("/credentials")
 async def credentials_page(
     request: Request,

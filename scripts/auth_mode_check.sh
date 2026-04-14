@@ -1,7 +1,7 @@
 #!/bin/bash
 # Requires: bash 3.2+
 # ABOUTME: Shared auth mode check with interactive countdown dialogue
-# ABOUTME: Nudges users on proxy_key mode to consider passthrough/both
+# ABOUTME: Nudges users on client_key mode to consider passthrough/both
 
 # Colors (caller may have already defined these)
 _AMC_YELLOW='\033[1;33m'
@@ -9,12 +9,12 @@ _AMC_GREEN='\033[0;32m'
 _AMC_NC='\033[0m'
 
 # check_auth_mode_interactive <current_mode>
-# Prompts if mode is proxy_key. Prints chosen mode to stdout.
+# Prompts if mode is client_key. Prints chosen mode to stdout.
 # Returns 0 if mode changed, 1 if kept the same.
 check_auth_mode_interactive() {
     local current_mode="$1"
 
-    if [ "$current_mode" != "proxy_key" ]; then
+    if [ "$current_mode" != "client_key" ]; then
         echo "$current_mode"
         return 1
     fi
@@ -27,7 +27,7 @@ check_auth_mode_interactive() {
 
     echo -e "${_AMC_YELLOW}" >&2
     echo -e "╔══════════════════════════════════════════════════════════════╗" >&2
-    echo -e "║  ⚠  Auth mode is currently \"proxy_key\"                      ║" >&2
+    echo -e "║  ⚠  Auth mode is currently \"client_key\"                      ║" >&2
     echo -e "║                                                              ║" >&2
     echo -e "║  The proxy uses its own Anthropic API key for ALL requests,  ║" >&2
     echo -e "║  billed to whichever account owns that key. This is likely   ║" >&2
@@ -39,7 +39,7 @@ check_auth_mode_interactive() {
     echo "" >&2
     echo -e "   [1] Switch to \"both\"        (recommended — proxy key + OAuth)" >&2
     echo -e "   [2] Switch to \"passthrough\" (OAuth only)" >&2
-    echo -e "   [3] Keep \"proxy_key\"        (all requests billed to server API key)" >&2
+    echo -e "   [3] Keep \"client_key\"        (all requests billed to server API key)" >&2
     echo "" >&2
 
     local choice=""
@@ -68,8 +68,8 @@ check_auth_mode_interactive() {
             return 0
             ;;
         *)
-            echo -e "   Keeping \"proxy_key\" mode" >&2
-            echo "proxy_key"
+            echo -e "   Keeping \"client_key\" mode" >&2
+            echo "client_key"
             return 1
             ;;
     esac

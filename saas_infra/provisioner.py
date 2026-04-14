@@ -49,7 +49,7 @@ class Provisioner:
                 error=f"Instance '{name}' already exists",
             )
 
-        proxy_api_key = generate_api_key()
+        client_api_key = generate_api_key()
         admin_api_key = generate_api_key()
 
         created_project_id = None
@@ -91,7 +91,7 @@ class Provisioner:
                     "GATEWAY_PORT": "${{PORT}}",
                     "DATABASE_URL": "${{Postgres.DATABASE_URL}}",
                     "REDIS_URL": "${{Redis.REDIS_URL}}",
-                    "PROXY_API_KEY": proxy_api_key,
+                    "CLIENT_API_KEY": client_api_key,
                     "ADMIN_API_KEY": admin_api_key,
                     "PYTHONUNBUFFERED": "1",
                     "SENTRY_ENABLED": "true",
@@ -143,7 +143,7 @@ class Provisioner:
             return ProvisioningResult(
                 success=True,
                 instance=instance,
-                proxy_api_key=proxy_api_key,
+                client_api_key=client_api_key,
                 admin_api_key=admin_api_key,
             )
 

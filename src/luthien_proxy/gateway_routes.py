@@ -87,7 +87,7 @@ async def verify_token(
 
     auth_mode = credential_manager.config.auth_mode
 
-    if auth_mode == AuthMode.PROXY_KEY:
+    if auth_mode == AuthMode.CLIENT_KEY:
         if api_key is not None and secrets.compare_digest(token, api_key):
             return credential
         raise HTTPException(status_code=401, detail="Invalid API key")
@@ -98,7 +98,7 @@ async def verify_token(
                 raise HTTPException(status_code=401, detail="Invalid credential")
         return credential
 
-    # BOTH mode: try proxy key first, fall through to passthrough
+    # BOTH mode: try the shared client key first, fall through to passthrough
     if api_key is not None and secrets.compare_digest(token, api_key):
         return credential
     if credential_manager.config.validate_credentials:
@@ -122,12 +122,12 @@ async def resolve_anthropic_client(
     """
     token = credential.value
     is_bearer = credential.credential_type == CredentialType.AUTH_TOKEN
-    auth_mode = credential_manager.config.auth_mode if credential_manager else AuthMode.PROXY_KEY
+    auth_mode = credential_manager.config.auth_mode if credential_manager else AuthMode.CLIENT_KEY
     base_url = base_client._base_url if base_client else None
 
     async def _record_credential_type(cred_type: str) -> None:
         """Best-effort write of observed credential type for /health visibility."""
-        if auth_mode == AuthMode.PROXY_KEY:
+        if auth_mode == AuthMode.CLIENT_KEY:
             return
         deps = getattr(request.app.state, "dependencies", None)
         if deps:
@@ -140,7 +140,7 @@ async def resolve_anthropic_client(
     if explicit_key is not None:
         if not explicit_key.strip():
             raise HTTPException(status_code=401, detail="x-anthropic-api-key header is empty")
-        await _record_credential_type("client_api_key")
+        await _record_credential_type("user_api_key")
         forwarding_cred = Credential(
             value=explicit_key,
             credential_type=CredentialType.API_KEY,
@@ -151,26 +151,26 @@ async def resolve_anthropic_client(
 
     # Passthrough: forward the request credential to Anthropic.
     # The transport header is authoritative: Bearer = OAuth, x-api-key = API key.
-    matches_proxy_key = api_key is not None and secrets.compare_digest(token, api_key)
-    use_passthrough = not matches_proxy_key or auth_mode == AuthMode.PASSTHROUGH
+    matches_client_key = api_key is not None and secrets.compare_digest(token, api_key)
+    use_passthrough = not matches_client_key or auth_mode == AuthMode.PASSTHROUGH
     if use_passthrough:
         if is_bearer:
             await _record_credential_type("oauth")
             client = await anthropic_client_cache.get_client(token, auth_type="auth_token", base_url=base_url)
             return client, credential
-        await _record_credential_type("client_api_key")
+        await _record_credential_type("user_api_key")
         client = await anthropic_client_cache.get_client(token, auth_type="api_key", base_url=base_url)
         return client, credential
 
-    # Proxy key fallback: use the server's configured client.
-    # user_credential is None here — the proxy key authenticated the client
-    # but the backend uses the server's ANTHROPIC_API_KEY, not the user's key.
+    # Client-key match: use the server's configured upstream client.
+    # user_credential is None here — the shared client key authenticated the
+    # request but the backend uses the server's ANTHROPIC_API_KEY.
     if base_client is None:
         raise HTTPException(
             status_code=500,
             detail="No Anthropic credentials available (set ANTHROPIC_API_KEY or use passthrough auth)",
         )
-    await _record_credential_type("proxy_key_fallback")
+    await _record_credential_type("client_key_match")
     return base_client, None
 
 

@@ -7,27 +7,24 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 ---
 
-## Release Automation and CHANGELOG Enforcement (2026-03-18)
+## Auto-Release on Merge to Main (2026-04-09)
 
-**Decision**: Add two GitHub Actions workflows — a CHANGELOG reminder on PRs and a tag-based release workflow.
+**Decision**: Fully automated patch releases on every merge to main. Replaces the previous manual tag-based workflow (2026-03-18). See `dev-README.md` § Releasing for the full procedure.
 
-**How releasing works**:
-1. Maintain a `## Unreleased` section in `CHANGELOG.md` as features land
-2. When ready to release: rename `## Unreleased` to `## vX.Y.Z`, push a `vX.Y.Z` tag
-3. The release workflow automatically: checks out the repo, extracts the changelog section for that version via AWK, builds the package with `uv build`, and creates a GitHub Release with the changelog notes and dist artifacts
+**How it works**: `auto-tag-proxy.yml` fires on push to main, compiles `changelog.d/` fragments, cuts a versioned `CHANGELOG.md` section, commits it back (with `[skip auto-tag-proxy]` to prevent loops), and tags `vX.Y.Z`. Downstream workflows (`release.yml`, `docker-publish.yml`) handle GitHub Releases and Docker images. Minor/major bumps are manual (just create the tag).
 
-**CHANGELOG enforcement**: A non-blocking workflow posts a one-time reminder comment on PRs that don't modify `CHANGELOG.md`. PRs labeled `skip-changelog` or `chore` skip the check entirely. This is intentionally a reminder, not a gate — some PRs legitimately don't need changelog entries.
+**CHANGELOG enforcement**: Unchanged — non-blocking reminder on PRs missing a `changelog.d/` fragment. PRs labeled `skip-changelog` or `chore` skip the check.
 
 **Rationale**:
-- **Why non-blocking**: A hard gate would slow down chore/infra PRs and train people to add meaningless entries. A reminder is enough to catch accidental omissions.
-- **Why tag-based releases**: Simple, standard flow. No release branches or manual artifact uploads. Push a tag → get a release.
-- **Why AWK for changelog extraction**: No external dependencies, runs in any CI environment. Matches `## vX.Y.Z` or `## X.Y.Z` headers in CHANGELOG.md.
+- **Why auto-release on merge**: The manual process produced 72 uncompiled fragments over months. Manual = never.
+- **Why patch-only auto-bumps**: Simplicity. Minor/major bumps are intentional decisions that shouldn't be automated.
+- **Why rebase instead of skip on concurrent merges**: Successive merges would silently lose tags if the verify step just skipped. Rebase handles the common case; conflicts fail loudly.
 
 ---
 
-## V2 Architecture: Integrated Gateway (2025-10-24)
+## Integrated Gateway (2025-10-24)
 
-**Decision**: Replace separate litellm-proxy + control-plane services with single integrated V2 gateway.
+**Decision**: Replace the previous two-process architecture (a separate LiteLLM proxy plus a control-plane service) with a single integrated gateway.
 
 **Rationale**:
 - **Simpler deployment**: One service instead of two, easier to reason about
@@ -110,34 +107,9 @@ The V2 architecture supports this range:
 
 This is infrastructure-first: AI Control is an important use case, not the defining architecture.
 
-## Streaming Pipeline: Queue-Based Architecture (2025-11-05)
+## Streaming Pipeline: Queue-Based Architecture (2025-11-05, superseded 2026-04-10)
 
-**Decision**: Refactor streaming pipeline from implicit callback-based to explicit queue-based architecture with dependency injection.
-
-**Rationale**:
-- **Explicit data flow**: Clear pipeline stages with typed queues make architecture obvious from code
-- **Testability**: Each stage (PolicyExecutor, ClientFormatter) can be tested in isolation
-- **Type safety**: Explicit `Queue[ModelResponse]` and `Queue[str]` types catch errors early
-- **Separation of concerns**: Policy logic separate from streaming mechanics
-- **Debuggability**: Can inspect queue states, add recording at boundaries
-
-**Key insight**: LiteLLM already provides ModelResponse format from backends, so no ingress formatting needed. This simplified original 3-stage plan to 2 stages.
-
-**Architecture**:
-```
-PolicyExecutor: AsyncIterator[ModelResponse] → Queue[ModelResponse]
-ClientFormatter: Queue[ModelResponse] → Queue[str]
-```
-
-**Trade-offs accepted**:
-- More verbose setup (dependency injection) vs. simpler implicit flow
-- Queue memory overhead vs. backpressure control (bounded queues mitigate this)
-
-**Benefits realized**:
-- Removed ~200 lines of unnecessary CommonFormatter code
-- PolicyOrchestrator simplified to ~30 lines
-- 67 new unit tests added (pipeline is well-tested)
-- All 309 existing tests continue passing
+**Historical only.** This entry described a short-lived two-stage queue pipeline (`PolicyExecutor` → `Queue[ModelResponse]` → `ClientFormatter` → `Queue[str]`) built around LiteLLM's `ModelResponse` type. That design was removed when the gateway moved to direct Anthropic SDK usage. The current Anthropic streaming path lives in `src/luthien_proxy/pipeline/anthropic_processor.py` and uses `AnthropicClient` + `AnthropicExecutionInterface`; there is no `orchestration/` or `streaming/` package. Read the processor module for the up-to-date flow.
 
 ## Context Threading Pattern (2025-11-05)
 
@@ -239,13 +211,8 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 **Rationale**:
 - **Signal-to-noise**: Public repo should help contributors understand the codebase, not internal planning
-- **Industry norm**: LiteLLM uses GitHub Issues/Projects for planning, not in-repo docs
+- **Industry norm**: Many OSS projects (e.g., LiteLLM) keep planning in GitHub Issues/Projects rather than in-repo docs
 - **Focus**: Developers cloning the repo need implementation context, not product strategy
-
-**How LiteLLM handles this** (for reference):
-- Planning in GitHub Issues and Projects
-- README + docs/ for public technical docs
-- No in-repo planning docs or user stories
 
 ---
 
@@ -337,7 +304,7 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 **Decision**: Use an explicit allowlist (`_REQUEST_PARAM_ALLOWLIST`) when passing request parameters to the conversation viewer frontend, rather than excluding known-sensitive fields.
 
 **Rationale**:
-- A blocklist (`if k not in ("messages", "system")`) forwards every unknown field — any new field added to the request pipeline (by policies, LiteLLM, or the Anthropic API) is automatically leaked to the browser.
+- A blocklist (`if k not in ("messages", "system")`) forwards every unknown field — any new field added to the request pipeline (by policies or the Anthropic API) is automatically leaked to the browser.
 - An allowlist (`model`, `max_tokens`, `stream`, `temperature`, `top_p`, `top_k`, `stop_sequences`, `output_config`) only passes explicitly approved fields.
 - `output_config` is further sanitized to only include `format.type` (not the full JSON schema body, which may contain proprietary structure).
 

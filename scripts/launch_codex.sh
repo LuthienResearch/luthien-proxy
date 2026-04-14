@@ -47,8 +47,8 @@ fi
 echo "✅ Gateway is running on port ${GATEWAY_PORT_VAR}"
 echo "📊 Monitor at: http://localhost:${GATEWAY_PORT_VAR}/history"
 
-# Use PROXY_API_KEY for gateway authentication
-export LITELLM_MASTER_KEY="${PROXY_API_KEY:-sk-luthien-dev-key}"
+# Use CLIENT_API_KEY for gateway authentication
+export LITELLM_MASTER_KEY="${CLIENT_API_KEY:-sk-luthien-dev-key}"
 
 # TODO: Right now we hardcode gpt-5 model for Codex because 5-1 isn't available on the API yet.
 

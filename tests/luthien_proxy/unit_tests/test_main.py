@@ -12,7 +12,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from luthien_proxy.credential_manager import AuthMode
-from luthien_proxy.main import auto_provision_defaults, connect_db, connect_redis, create_app, load_config_from_env
+from luthien_proxy.main import (
+    auto_provision_defaults,
+    connect_db,
+    connect_redis,
+    create_app,
+    load_config_from_env,
+    propagate_cli_overrides_to_env,
+)
 
 
 class TestLoadConfigFromEnv:
@@ -27,18 +34,18 @@ class TestLoadConfigFromEnv:
         handle the None gracefully at request time instead."""
         from luthien_proxy.settings import Settings
 
-        monkeypatch.setenv("PROXY_API_KEY", "test-proxy-key")
+        monkeypatch.setenv("CLIENT_API_KEY", "test-proxy-key")
         monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
         monkeypatch.delenv("ADMIN_API_KEY", raising=False)
 
         config = load_config_from_env(settings=Settings(_env_file=None))
         assert config["admin_key"] is None
 
-    def test_missing_proxy_api_key_is_allowed(self, monkeypatch):
-        """PROXY_API_KEY is optional — passthrough mode doesn't need it."""
+    def test_missing_client_api_key_is_allowed(self, monkeypatch):
+        """CLIENT_API_KEY is optional — passthrough mode doesn't need it."""
         from luthien_proxy.settings import Settings
 
-        monkeypatch.delenv("PROXY_API_KEY", raising=False)
+        monkeypatch.delenv("CLIENT_API_KEY", raising=False)
         monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
         monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
 
@@ -49,7 +56,7 @@ class TestLoadConfigFromEnv:
         """Test that missing DATABASE_URL raises ValueError."""
         from luthien_proxy.settings import Settings
 
-        monkeypatch.setenv("PROXY_API_KEY", "test-proxy-key")
+        monkeypatch.setenv("CLIENT_API_KEY", "test-proxy-key")
         monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
         monkeypatch.delenv("DATABASE_URL", raising=False)
 
@@ -60,7 +67,7 @@ class TestLoadConfigFromEnv:
         """Test that missing DATABASE_URL is reported."""
         from luthien_proxy.settings import Settings
 
-        monkeypatch.delenv("PROXY_API_KEY", raising=False)
+        monkeypatch.delenv("CLIENT_API_KEY", raising=False)
         monkeypatch.delenv("DATABASE_URL", raising=False)
         monkeypatch.delenv("ADMIN_API_KEY", raising=False)
 
@@ -74,7 +81,7 @@ class TestLoadConfigFromEnv:
         """Test that valid configuration returns expected dictionary."""
         from luthien_proxy.settings import Settings
 
-        monkeypatch.setenv("PROXY_API_KEY", "test-proxy-key")
+        monkeypatch.setenv("CLIENT_API_KEY", "test-proxy-key")
         monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
         monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6380")
@@ -94,7 +101,7 @@ class TestLoadConfigFromEnv:
         """Test that GATEWAY_PORT is included in config from environment."""
         from luthien_proxy.settings import Settings
 
-        monkeypatch.setenv("PROXY_API_KEY", "test-proxy-key")
+        monkeypatch.setenv("CLIENT_API_KEY", "test-proxy-key")
         monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
         monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
         monkeypatch.setenv("GATEWAY_PORT", "3000")
@@ -107,7 +114,7 @@ class TestLoadConfigFromEnv:
         """Test that empty POLICY_CONFIG returns None for startup_policy_path."""
         from luthien_proxy.settings import Settings
 
-        monkeypatch.setenv("PROXY_API_KEY", "test-proxy-key")
+        monkeypatch.setenv("CLIENT_API_KEY", "test-proxy-key")
         monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
         monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
         monkeypatch.delenv("POLICY_CONFIG", raising=False)
@@ -130,16 +137,17 @@ class TestAutoProvisionDefaults:
         assert result["DATABASE_URL"].startswith("sqlite:///")
         assert os.environ["DATABASE_URL"] == result["DATABASE_URL"]
 
-    def test_does_not_provision_proxy_api_key(self, monkeypatch):
-        monkeypatch.delenv("PROXY_API_KEY", raising=False)
+    def test_does_not_provision_client_api_key(self, monkeypatch):
+        monkeypatch.delenv("CLIENT_API_KEY", raising=False)
 
         result = auto_provision_defaults()
 
-        assert "PROXY_API_KEY" not in result
-        assert "PROXY_API_KEY" not in os.environ
+        assert "CLIENT_API_KEY" not in result
+        assert "CLIENT_API_KEY" not in os.environ
 
     def test_provisions_policy_config_when_missing(self, monkeypatch):
         monkeypatch.delenv("POLICY_CONFIG", raising=False)
+        monkeypatch.delenv("RAILWAY_SERVICE_NAME", raising=False)
 
         result = auto_provision_defaults()
 
@@ -164,8 +172,9 @@ class TestAutoProvisionDefaults:
         assert os.environ["ADMIN_API_KEY"] == result["ADMIN_API_KEY"]
 
     def test_does_not_override_existing_values(self, monkeypatch):
+        monkeypatch.delenv("RAILWAY_SERVICE_NAME", raising=False)
         monkeypatch.setenv("DATABASE_URL", "postgresql://existing")
-        monkeypatch.setenv("PROXY_API_KEY", "sk-existing")
+        monkeypatch.setenv("CLIENT_API_KEY", "sk-existing")
         monkeypatch.setenv("ADMIN_API_KEY", "admin-existing")
         monkeypatch.setenv("POLICY_CONFIG", "custom/path.yaml")
         monkeypatch.setenv("POLICY_SOURCE", "db")
@@ -174,23 +183,110 @@ class TestAutoProvisionDefaults:
 
         assert result == {}
         assert os.environ["DATABASE_URL"] == "postgresql://existing"
-        assert os.environ["PROXY_API_KEY"] == "sk-existing"
+        assert os.environ["CLIENT_API_KEY"] == "sk-existing"
         assert os.environ["POLICY_CONFIG"] == "custom/path.yaml"
         assert os.environ["POLICY_SOURCE"] == "db"
 
     def test_provisions_multiple_missing_vars(self, monkeypatch, tmp_path):
         monkeypatch.delenv("DATABASE_URL", raising=False)
-        monkeypatch.delenv("PROXY_API_KEY", raising=False)
+        monkeypatch.delenv("CLIENT_API_KEY", raising=False)
         monkeypatch.delenv("ADMIN_API_KEY", raising=False)
         monkeypatch.delenv("POLICY_CONFIG", raising=False)
         monkeypatch.delenv("POLICY_SOURCE", raising=False)
+        monkeypatch.delenv("RAILWAY_SERVICE_NAME", raising=False)
         monkeypatch.setenv("HOME", str(tmp_path))
 
         result = auto_provision_defaults()
 
         assert len(result) == 4
         assert all(k in result for k in ("DATABASE_URL", "ADMIN_API_KEY", "POLICY_CONFIG", "POLICY_SOURCE"))
-        assert "PROXY_API_KEY" not in result
+        assert "CLIENT_API_KEY" not in result
+
+
+class TestAutoProvisionDefaultsRailway:
+    """Test Railway-specific auto-provisioning behavior."""
+
+    def _clear_env(self, monkeypatch):
+        """Remove all vars that auto_provision_defaults might read."""
+        for var in (
+            "DATABASE_URL",
+            "CLIENT_API_KEY",
+            "ADMIN_API_KEY",
+            "POLICY_CONFIG",
+            "POLICY_SOURCE",
+            "AUTH_MODE",
+            "LOCALHOST_AUTH_BYPASS",
+            "RAILWAY_SERVICE_NAME",
+        ):
+            monkeypatch.delenv(var, raising=False)
+
+    def test_railway_sets_passthrough_auth(self, monkeypatch, tmp_path):
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("RAILWAY_SERVICE_NAME", "gateway")
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        result = auto_provision_defaults()
+
+        assert result["AUTH_MODE"] == "passthrough"
+        assert os.environ["AUTH_MODE"] == "passthrough"
+
+    def test_railway_sets_railway_policy_config(self, monkeypatch, tmp_path):
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("RAILWAY_SERVICE_NAME", "gateway")
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        result = auto_provision_defaults()
+
+        assert result["POLICY_CONFIG"] == "config/railway_policy_config.yaml"
+
+    def test_railway_disables_localhost_auth_bypass(self, monkeypatch, tmp_path):
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("RAILWAY_SERVICE_NAME", "gateway")
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        result = auto_provision_defaults()
+
+        assert result["LOCALHOST_AUTH_BYPASS"] == "false"
+        assert os.environ["LOCALHOST_AUTH_BYPASS"] == "false"
+
+    def test_railway_does_not_override_explicit_auth_mode(self, monkeypatch, tmp_path):
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("RAILWAY_SERVICE_NAME", "gateway")
+        monkeypatch.setenv("AUTH_MODE", "both")
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        result = auto_provision_defaults()
+
+        assert "AUTH_MODE" not in result
+        assert os.environ["AUTH_MODE"] == "both"
+
+    def test_railway_does_not_override_explicit_policy_config(self, monkeypatch, tmp_path):
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("RAILWAY_SERVICE_NAME", "gateway")
+        monkeypatch.setenv("POLICY_CONFIG", "config/custom.yaml")
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        result = auto_provision_defaults()
+
+        assert "POLICY_CONFIG" not in result
+        assert os.environ["POLICY_CONFIG"] == "config/custom.yaml"
+
+    def test_non_railway_does_not_set_auth_mode(self, monkeypatch, tmp_path):
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        result = auto_provision_defaults()
+
+        assert "AUTH_MODE" not in result
+        assert "LOCALHOST_AUTH_BYPASS" not in result
+
+    def test_non_railway_uses_default_policy_config(self, monkeypatch, tmp_path):
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        result = auto_provision_defaults()
+
+        assert result["POLICY_CONFIG"] == "config/policy_config.yaml"
 
 
 @pytest.fixture
@@ -317,12 +413,12 @@ class TestCreateApp:
             data = response.json()
             assert data["status"] == "healthy"
             assert data["version"] and data["version"] != "unknown"
-            assert data["auth_mode"] in ("proxy_key", "both", "passthrough", None)
+            assert data["auth_mode"] in ("client_key", "both", "passthrough", None)
             assert "last_credential_type" in data
             assert "last_credential_at" in data
 
-    def test_create_app_health_endpoint_proxy_key_mode(self, policy_config_file, mock_db_pool, mock_redis_client):
-        """Health endpoint reports auth_mode=proxy_key when configured."""
+    def test_create_app_health_endpoint_client_key_mode(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Health endpoint reports auth_mode=client_key when configured."""
         mock_redis_client.get = AsyncMock(return_value=None)
         app = create_app(
             api_key="test-key",
@@ -330,12 +426,12 @@ class TestCreateApp:
             db_pool=mock_db_pool,
             redis_client=mock_redis_client,
             startup_policy_path=policy_config_file,
-            auth_mode=AuthMode.PROXY_KEY,
+            auth_mode=AuthMode.CLIENT_KEY,
         )
 
         with TestClient(app) as client:
             response = client.get("/health")
-            assert response.json()["auth_mode"] == "proxy_key"
+            assert response.json()["auth_mode"] == "client_key"
 
     def test_create_app_health_endpoint_both_mode(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Health endpoint reports auth_mode=both when configured."""
@@ -482,3 +578,47 @@ class TestConnectRedis:
 
             with pytest.raises(RuntimeError, match="Failed to connect to Redis"):
                 await connect_redis("redis://invalid:6379")
+
+
+class TestPropagateCliOverridesToEnv:
+    """CLI flags for startup-critical fields must land in the env mapping.
+
+    Otherwise the flow at startup — load_config_from_env → uvicorn.Config →
+    connect_db — reads from get_settings() which only consults env, bypassing
+    any cli_overrides dict that hasn't been synced back yet.
+    """
+
+    def test_int_field_propagated_as_decimal_string(self):
+        env: dict[str, str] = {}
+        propagate_cli_overrides_to_env({"gateway_port": 9999}, environ=env)
+        assert env["GATEWAY_PORT"] == "9999"
+
+    def test_bool_field_propagated_lowercase(self):
+        env: dict[str, str] = {}
+        propagate_cli_overrides_to_env({"dogfood_mode": True}, environ=env)
+        assert env["DOGFOOD_MODE"] == "true"
+        propagate_cli_overrides_to_env({"dogfood_mode": False}, environ=env)
+        assert env["DOGFOOD_MODE"] == "false"
+
+    def test_enum_field_propagated_as_value(self):
+        env: dict[str, str] = {}
+        propagate_cli_overrides_to_env({"auth_mode": AuthMode.PASSTHROUGH}, environ=env)
+        assert env["AUTH_MODE"] == "passthrough"
+
+    def test_str_field_propagated_verbatim(self):
+        env: dict[str, str] = {}
+        propagate_cli_overrides_to_env({"database_url": "postgresql://localhost/test"}, environ=env)
+        assert env["DATABASE_URL"] == "postgresql://localhost/test"
+
+    def test_cli_value_is_visible_via_get_settings_after_cache_clear(self, monkeypatch):
+        """Regression test for the startup flag bug: CLI override for gateway_port
+        must be visible to load_config_from_env() which reads via get_settings()."""
+        from luthien_proxy.settings import clear_settings_cache, get_settings
+
+        # monkeypatch.setenv tracks the var for automatic teardown cleanup.
+        monkeypatch.setenv("GATEWAY_PORT", "9999")
+        clear_settings_cache()
+        try:
+            assert get_settings().gateway_port == 9999
+        finally:
+            clear_settings_cache()

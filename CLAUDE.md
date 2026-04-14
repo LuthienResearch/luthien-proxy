@@ -3,7 +3,7 @@
 ## Purpose & Scope
 
 - Core goal: implement AI Control for LLMs with integrated gateway architecture.
-- Architecture: FastAPI gateway with integrated control plane and LiteLLM, using event-driven policies.
+- Architecture: FastAPI gateway with integrated control plane, using event-driven policies. LiteLLM handles judge/LLM policy calls.
 - **Read `ARCHITECTURE.md` first** when you need to understand how modules connect, how requests flow, or where to make changes. It covers the request lifecycle, module map, key abstractions, and data model.
 - Select a policy via `POLICY_CONFIG` that points to a YAML file (defaults to `config/policy_config.yaml`).
   - Example: `export POLICY_CONFIG=./config/policy_config.yaml`
@@ -97,6 +97,7 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 
 ## Project Structure & Module Organization
 
+- `dev-README.md`: **Development guide** — dev commands, releasing, architecture, endpoints, policy system
 - `dev/`: Tracking current development information
   - `OBJECTIVE.md`: Succinct statement of the active objective with acceptance check.
   - `NOTES.md`: Scratchpad for implementation details while the current objective is in progress.
@@ -106,18 +107,33 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
     - `decisions.md`: Technical decisions made and their rationale
     - `gotchas.md`: Non-obvious behaviors, edge cases, things that are easy to get wrong
 - `CHANGELOG.md`: Record changes as we make them (typically updated when we complete an OBJECTIVE)
-- `src/luthien_proxy/`: core package
-  - `orchestration/`: PolicyOrchestrator coordinates streaming pipeline
-  - `policies/`: Event-driven policy implementations
-  - `policy_core/`: Policy protocol, contexts, and chunk builders
-  - `streaming/`: Policy executor and client formatters
-  - `storage/`: Conversation event persistence
-  - `observability/`: OpenTelemetry integration, transaction recording
-  - `admin/`: Runtime policy management API
-  - `debug/`: Debug endpoints for inspecting conversation events
-  - `ui/`: Activity monitoring and diff viewer interfaces
-  - `llm/`: LiteLLM client wrapper and format converters
-  - `utils/`: Shared utilities (db, redis, validation)
+- `src/luthien_proxy/`: core gateway package
+  - `main.py`: FastAPI app factory, lifespan wiring, CLI entry point
+  - `gateway_routes.py`: `/v1/messages` and related Anthropic-shaped proxy endpoints
+  - `auth.py`: bearer/API-key/session auth helpers for admin and debug endpoints
+  - `session.py`: cookie-based browser login flow for the admin UI (companion to `auth.py`)
+  - `dependencies.py`: FastAPI dependency providers (policy, emitter, credential store, etc.)
+  - `config.py`: policy YAML loading (`load_policy_from_yaml`) and policy class import (separate from the gateway config system below)
+  - `config_fields.py`, `config_registry.py`, `settings.py`: gateway config system (see "Configuration System" below). `settings.py` is auto-generated — do not edit by hand.
+  - `policy_manager.py`: loads the active policy from YAML or DB and hot-swaps at runtime
+  - `policy_composition.py`: `compose_policy()` helper for wrapping policies in a `MultiSerialPolicy` chain
+  - `credential_manager.py`: validates client credentials (client_key / passthrough / both) and caches results
+  - `telemetry.py`: OpenTelemetry tracing setup (distinct from `observability/`, which handles event emission)
+  - `pipeline/`: request processing pipeline — request entry point, client format detection, policy-context injection, stream protocol validation
+  - `policies/`: concrete policy implementations; `policies/presets/` holds reusable rule presets (e.g. `block_dangerous_commands`, `no_yapping`)
+  - `policy_core/`: policy contract layer — `BasePolicy`, `AnthropicExecutionInterface`, `AnthropicHookPolicy`, `PolicyContext`, `TextModifierPolicy`
+  - `credentials/`: typed credential models (`Credential`, `CredentialType`) and per-policy `AuthProvider` strategies (`UserCredentials`, `ServerKey`, `UserThenServer`), plus the DB-backed credential store
+  - `llm/`: Anthropic HTTP client wrapper, per-credential client cache, LiteLLM-based judge client, and shared Anthropic type definitions
+  - `observability/`: event emitter, Redis/in-process event publishers, Sentry integration, and the SSE generator (`stream_activity_events`) wired into the activity monitor UI
+  - `storage/`: helpers for persisting and reconstructing conversation events
+  - `request_log/`: HTTP-level request/response recording for `/v1/` traffic (gated by `ENABLE_REQUEST_LOGGING`)
+  - `usage_telemetry/`: anonymous aggregate usage metrics sent to the central telemetry endpoint
+  - `admin/`: admin API routes and policy class discovery
+  - `debug/`: debug endpoints for inspecting recorded conversation events
+  - `history/`: conversation history browsing and export
+  - `ui/`: protected HTML routes for the admin UI pages
+  - `static/`: HTML/JS/CSS assets served by the UI routes
+  - `utils/`: shared infrastructure — DB pools (Postgres + SQLite), Redis client, credential cache, migration check, URL helpers
 - `src/luthien_cli/`: Standalone CLI (`uv tool install luthien-cli`); `luthien onboard` auto-downloads proxy artifacts
   - `commands/`: Click commands — `onboard`, `claude`, `status`, `up`/`down`, `logs`, `config`
   - `repo.py`: Manages `~/.luthien/luthien-proxy/` — downloads and updates proxy artifacts from GitHub
@@ -134,35 +150,14 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 
 ## Build, Test, and Development Commands
 
-- Install dev deps: `uv sync --dev`
-- Start gateway (dockerless): `./scripts/start_gateway.sh` — runs the gateway as a local Python process with SQLite, no Docker/Postgres/Redis needed
-- Run tests: `uv run pytest` (coverage: `uv run pytest --cov=src -q`)
-- Lint/format: `uv run ruff format` then `uv run ruff check --fix`. The `scripts/dev_checks.sh` script applies formatting automatically, and VS Code formats on save via Ruff. See `scripts/format_all.sh` for a quick all-in-one solution.
-- Type check: `uv run pyright`
+See **[dev-README.md](dev-README.md)** for the canonical reference: dev commands, architecture, endpoints, deployment modes, releasing, and observability.
 
-### Deployment Modes
+Quick reference for frequent commands:
 
-**Dockerless (default for development and single-user local use)**:
-- Run the gateway directly: `./scripts/start_gateway.sh` or `uv run python -m luthien_proxy.main`
-- Uses SQLite (`DATABASE_URL` unset, defaults to `~/.luthien/local.db`) — no Postgres or Redis needed
-- Code changes take effect immediately on restart (no image rebuilds)
-- The `luthien` CLI defaults to this mode (`luthien onboard` → `luthien up`)
-
-**Single Docker container (self-contained local testing)**:
-- `./scripts/quick_start_standalone.sh` — builds one container with everything bundled
-- Good for testing the deployment artifact without multi-container orchestration
-- Still uses SQLite internally, no Postgres/Redis containers
-
-**Docker Compose with Postgres + Redis (multi-user production)**:
-- `./scripts/quick_start.sh` — spins up db, redis, and gateway containers
-- Use this for shared/multi-user deployments that need durable storage and pub/sub
-- The `docker-compose.yaml` mounts source code as read-only volumes (`./src:/app/src:ro`), so Python changes require `docker compose restart gateway`
-
-Most near-term development work is dockerless. Prefer `start_gateway.sh` for day-to-day work.
-
-## Tooling
-
-- Inspect the dev database with `uv run python scripts/query_debug_logs.py`. The helper loads `.env`, connects to `DATABASE_URL` (works with both SQLite and Postgres), and prints recent conversation events and debug logs.
+- `./scripts/dev_checks.sh` — format + lint + tests + type check (run before pushing)
+- `uv run pytest tests/luthien_proxy/unit_tests` — quick unit pass
+- `./scripts/run_e2e.sh` — all e2e tiers
+- `./scripts/start_gateway.sh` — start gateway locally (dockerless, SQLite)
 
 ## Coding Style & Naming Conventions
 
@@ -218,14 +213,28 @@ Note: `sqlite_e2e` and `mock_e2e` must run in **separate pytest sessions** — `
 
 Migrations live in `migrations/postgres/` and `migrations/sqlite/`. Every Postgres migration needs a matching SQLite migration with the same number prefix. See `migrations/CLAUDE.md` for type translation rules and workflow.
 
-## Security & Configuration
+## Configuration System
 
-- Keep lint, test, and type-check settings consolidated in `pyproject.toml`; avoid extra config files unless necessary.
+All gateway configuration is defined in `src/luthien_proxy/config_fields.py` — single source of truth for field names, env vars, types, defaults, descriptions, and metadata.
+
+- **Config registry** (`config_registry.py`): resolves values through CLI args > env vars > DB (`gateway_config` table) > defaults, with provenance tracking.
+- **Adding a new config value**: add a `ConfigFieldMeta` to `CONFIG_FIELDS` in `config_fields.py`, then run `uv run python scripts/generate_settings.py` (or let `dev_checks.sh` do it). `settings.py` is auto-generated — don't edit it by hand. Regenerate `.env.example` with `uv run python scripts/generate_env_example.py > .env.example`.
+- **Config dashboard**: `/config` in the admin UI shows all fields with active values, provenance, and inline editing for DB-settable fields.
+- **Admin API**: `GET /api/admin/config` returns all fields; `PUT /api/admin/config/{key}` sets DB-settable values.
+- `.env.example` is auto-generated from the config spec — don't edit it by hand.
+
+### Environment Setup
+
 - Copy `.env.example` to `.env`; never commit secrets.
-- Key env vars: `DATABASE_URL`, `POLICY_CONFIG`, `PROXY_API_KEY`. (`REDIS_URL` only needed for Docker Compose deployments.)
-- For dockerless dev, use `DATABASE_URL` unset, defaults to `~/.luthien/local.db` (no Postgres needed).
-- Update `config/policy_config.yaml` rather than hardcoding.
-- Validate setup with test requests to the gateway at `http://localhost:8000`.
+- Key env vars: `DATABASE_URL`, `POLICY_CONFIG`, `ADMIN_API_KEY`. (`REDIS_URL` only needed for Docker Compose deployments.)
+  - `CLIENT_API_KEY` and `ANTHROPIC_API_KEY` are optional and only apply in specific auth modes — see [`dev/context/authentication.md`](dev/context/authentication.md).
+- Policy env vars:
+  - `POLICY_SOURCE` — policy loading strategy: `db`, `file`, `db-fallback-file` (default), or `file-fallback-db`.
+  - `POLICY_CONFIG` — path to the policy YAML file (used when `POLICY_SOURCE` resolves to file).
+- For dockerless dev, leave `DATABASE_URL` unset — defaults to `~/.luthien/local.db` (no Postgres needed).
+- All config values can be overridden via CLI flags: `python -m luthien_proxy.main --gateway-port 9000`.
+- Full field list lives in `src/luthien_proxy/config_fields.py`; `.env.example` is auto-generated from it.
+- Keep lint, test, and type-check settings consolidated in `pyproject.toml`; avoid extra config files unless necessary.
 
 ## Policy Architecture
 

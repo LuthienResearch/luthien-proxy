@@ -103,7 +103,7 @@ async def _create_instance(req: CreateRequest):
             "url": inst.url,
             "railway_url": f"https://railway.com/project/{inst.project_id}",
             "status": inst.status.value,
-            "proxy_api_key": result.proxy_api_key,
+            "client_api_key": result.client_api_key,
             "admin_api_key": result.admin_api_key,
         }
     except RailwayAPIError as e:
@@ -724,7 +724,7 @@ async function createInstance() {
         '<strong>' + esc(data.name) + '</strong> deployed<br>' +
         '<span class="key-value"><strong>Gateway:</strong> <a class="url-link" href="' + esc(data.url) + '" target="_blank">' + esc(data.url) + '</a></span><br>' +
         '<span class="key-value"><strong>Console:</strong> <a class="url-link" href="' + esc(data.railway_url) + '" target="_blank">' + esc(data.railway_url) + '</a></span><br>' +
-        '<span class="key-value"><strong>PROXY_API_KEY:</strong> ' + esc(data.proxy_api_key) + '</span><br>' +
+        '<span class="key-value"><strong>CLIENT_API_KEY:</strong> ' + esc(data.client_api_key) + '</span><br>' +
         '<span class="key-value"><strong>ADMIN_API_KEY:</strong> ' + esc(data.admin_api_key) + '</span>';
       nameInput.value = '';
       repoInput.value = '';

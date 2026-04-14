@@ -7,13 +7,12 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 ---
 
-## Testing (2025-10-08, updated 2025-10-24)
+## Testing (2025-10-08, updated 2026-04-10)
 
 - E2E tests (`pytest -m e2e`) are SLOW - use sparingly, prefer unit tests for rapid iteration
 - Always run `./scripts/dev_checks.sh` before committing - formats, lints, type-checks, and tests
 - **OTel disabled in tests**: Set `OTEL_ENABLED=false` in test environment to avoid connection errors to Tempo endpoint. Module-level `tracer = trace.get_tracer()` calls trigger OTel initialization at import time.
-- **LiteLLM type warnings**: When working with `ModelResponse`, use proper typed objects (`Choices`, `StreamingChoices`, `Message`, `Delta`) to avoid Pydantic serialization warnings from LiteLLM's `Union` types. See test fixtures for examples.
-- **E2E tests**: E2E tests remain (test_gateway_matrix.py, test_streaming_chunk_structure.py).
+- **LiteLLM type warnings (judge policies only)**: `judge_client.judge_completion` and the judge-side utilities in `simple_llm_utils.py` / `tool_call_judge_utils.py` still call `litellm.acompletion` and receive `ModelResponse`. When constructing judge-call fixtures, use proper typed objects (`Choices`, `Message`) to avoid Pydantic serialization warnings. The main gateway request path is Anthropic-SDK-only and does not touch these types.
 
 ## Docker Development (2025-10-08, updated 2026-02-03)
 
@@ -28,11 +27,12 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 - Uses OpenTelemetry for observability - see `dev/observability.md` and `dev/VIEWING_TRACES_GUIDE.md`
 - Live activity monitoring available at `/history` on the gateway
 
-## Documentation Structure (2025-10-10, updated 2025-11-11)
+## Documentation Structure (2025-10-10, updated 2026-04-10)
 
-- **Active docs**: dev/REQUEST_PROCESSING_ARCHITECTURE.md, dev/observability.md, dev/VIEWING_TRACES_GUIDE.md
-- **Common places to check**: README.md, CLAUDE.md, dev planning docs, inline code comments
-- **Streaming behavior**: Emits conversation events via `storage/events.py` using background queue for non-blocking persistence
+- **Start with code**: For anything load-bearing, read the module in `src/luthien_proxy/` — architecture documents lag.
+- **Canonical docs**: `ARCHITECTURE.md` (has known staleness tracked on Trello), `dev-README.md`, inline docstrings.
+- **Common places to check**: README.md, CLAUDE.md, inline code comments.
+- **Streaming behavior**: Emits conversation events via `storage/events.py` using a background queue for non-blocking persistence.
 
 ## Queue Shutdown for Stream Termination (2025-01-20, updated 2025-10-20)
 
@@ -73,66 +73,20 @@ See `SimplePolicy.on_stream_complete()` for the pattern.
 - **Right**: `claude -p "run echo hello"` - uses default tool set including Bash
 - **Why**: The `--tools` flag with permission patterns appears to filter the tool list differently than expected. When testing Claude Code through the gateway, omit `--tools` to get the full default tool set.
 
-## Image/Multimodal Handling Through Proxy (2025-12-15)
+## Image/Multimodal Handling Through Proxy (2025-12-15, note 2026-04-10)
 
 **Gotcha**: Images pass validation after PR #104 fix, but Claude may respond to wrong image content.
 
 - **Fixed (PR #104)**: Validation error - changed `Request.messages` to `list[dict[str, Any]]`, added image block conversion
-- **Still broken**: Claude sometimes describes wrong image - suspect LiteLLM→Anthropic conversion issue
+- **Still broken**: Claude sometimes describes wrong image
 - **Tracking**: Issue #108 has full troubleshooting logs
+- **Stale caveat**: The original note attributed this to a "LiteLLM→Anthropic conversion issue" from an older architecture where the gateway went through LiteLLM. The Anthropic path no longer uses LiteLLM, so the root cause needs to be re-investigated if this still reproduces.
 
-## Thinking Blocks Must Come First in Anthropic Responses (2026-01-14)
+## Extended Thinking Blocks (2026-01-14, superseded 2026-04-10)
 
-- Anthropic API requires `thinking`/`redacted_thinking` blocks BEFORE text content
-- LiteLLM exposes these via `message.thinking_blocks` (list of dicts)
-- Wrong order causes: `Expected 'thinking' or 'redacted_thinking', but found 'text'`
+**Historical only.** Earlier notes in this section described thinking-block handling from the era when the gateway ran backend calls through LiteLLM and had to untangle `thinking_blocks` / `reasoning_content` / `signature_delta` ordering, along with referenced modules (`anthropic_sse_assembler.py`, `response_normalizer.py`, `litellm_client.py`, `litellm_test_utils.py`) that no longer exist. The current Anthropic path uses the Anthropic SDK directly and consumes `MessageStreamEvent` values (from `anthropic.lib.streaming`) unmodified, so those workarounds do not apply. If thinking-block ordering bugs resurface, re-investigate against `pipeline/anthropic_processor.py` and the SDK event types rather than the old LiteLLM behavior.
 
-## Thinking Blocks in Multi-Turn Conversations (2026-01-24)
-
-**Gotcha**: Extended thinking requires fixes at THREE layers - streaming, format conversion, AND request validation.
-
-1. **Streaming assembler** must recognize `reasoning_content` and `thinking_blocks` from LiteLLM
-2. **Format conversion** (`anthropic_to_openai_request`) must preserve thinking blocks in message history - they were silently dropped!
-3. **Pydantic validation** must allow list content in `AssistantMessage` - OpenAI types don't natively support thinking blocks
-
-**Symptoms by layer**:
-- Layer 1 missing: Single-turn works, but no thinking content visible
-- Layer 2 missing: 500 error from Anthropic: `"Expected 'thinking' or 'redacted_thinking', but found 'text'"`
-- Layer 3 missing: 400 error from proxy: `"AssistantMessage.content: Input should be a valid string"`
-
-**Files involved**: `anthropic_sse_assembler.py`, `llm_format_utils.py`, `types/anthropic.py`, `types/openai.py`
-
-## LiteLLM Delivers Thinking Signatures Out of Order (2026-01-24)
-
-**Gotcha**: LiteLLM sends `signature_delta` AFTER text content starts, but Anthropic requires it BEFORE the thinking block closes.
-
-**Expected order** (Anthropic native):
-1. thinking_deltas → 2. signature_delta → 3. content_block_stop → 4. text starts
-
-**LiteLLM actual order**:
-1. thinking_deltas → 2. text starts → 3. signature_delta (too late!)
-
-**Fix**: Delay `content_block_stop` for thinking blocks until signature arrives. Track `thinking_block_needs_close` flag and `last_thinking_block_index`.
-
-## LiteLLM >= 1.81.0 Breaking Changes in Streaming (2026-01-29)
-
-**Gotcha**: litellm 1.81.0+ introduced breaking changes in streaming response handling.
-
-**Breaking changes**:
-1. `StreamingChoices.delta` returns a `dict` instead of a `Delta` object
-2. `finish_reason` defaults to `"stop"` instead of `None` for intermediate chunks
-3. `StreamingChoices` passed to `ModelResponse` may get converted to `Choices`
-
-**Fix**: Use `response_normalizer.py` to normalize all streaming chunks:
-- `normalize_chunk()` - converts dict deltas to `Delta` objects
-- `normalize_chunk_with_finish_reason()` - also restores intended `finish_reason`
-- `normalize_stream()` - wraps async streams to normalize each chunk
-
-**Where normalization happens**:
-- `litellm_client.py` calls `normalize_stream()` on raw litellm output
-- Downstream code should receive already-normalized chunks
-
-**Test helpers**: Use `litellm_test_utils.make_streaming_chunk()` to create normalized chunks for tests.
+Still relevant from that era: the **Anthropic API invariant** that all content-block events must complete before `message_delta` (see "Anthropic Streaming: All Content Blocks Must Precede message_delta" below) and the general requirement that `thinking` / `redacted_thinking` blocks appear before plain text in an assistant message.
 
 ## Content and finish_reason Must Be in Separate Chunks (2026-01-30)
 
@@ -183,7 +137,7 @@ if stream_state.finish_reason:
 2. **Compare streaming chunks**: Enable debug logging to see each SSE chunk as it flows through pipeline
 3. **Isolate the layer**: Is it request conversion? Response assembly? Policy transformation?
 4. **Reproduce minimally**: Strip the request down to simplest failing case
-5. **Check LiteLLM version**: Breaking changes in LiteLLM streaming have caused issues (see litellm >= 1.81.0 gotcha)
+5. **Check the Anthropic SDK version**: Gateway request processing is SDK-direct. If upstream stream events change shape, `pipeline/anthropic_processor.py` is where the breakage will surface. LiteLLM is only used inside judge policies and is isolated from the main request path.
 
 **Tools available**:
 - History/Conversation view: `/history` - conversation sessions and live details
@@ -198,9 +152,25 @@ if stream_state.finish_reason:
 - Only trusted users should have access to modify `policy_config.yaml` or set `POLICY_CONFIG` env var
 - Policy classes are instantiated with full Python capabilities
 - In production: ensure config files have proper filesystem permissions
-- The Admin API requires `ADMIN_API_KEY` authentication for runtime policy changes
+- The Admin API requires `ADMIN_API_KEY` authentication for runtime policy changes from non-localhost clients (localhost is bypassed by default via `LOCALHOST_AUTH_BYPASS=true`; set to `false` to enforce on loopback — see the reverse-proxy gotcha below)
 
 **Related TODO item**: Add security documentation for dynamic policy loading.
+
+## Admin Auth Localhost Bypass + Same-Host Reverse Proxy (2026-04-10)
+
+**Gotcha**: `LOCALHOST_AUTH_BYPASS=true` (the default) skips admin auth for any request whose TCP source IP matches loopback. `is_localhost_request()` in `src/luthien_proxy/auth.py:30-35` inspects `request.client.host` only — it does NOT parse `X-Forwarded-For` or any other forwarding header. That means:
+
+- If Luthien runs behind a reverse proxy on the **same host** (Caddy, nginx, Traefik, Tailscale Funnel, cavil.jai.one's Caddy), every forwarded request appears as `127.0.0.1` to the gateway.
+- The admin API (`/api/admin/*`) and the monitoring/policy dashboards are then effectively unauthenticated to the public internet.
+- The Luthien gateway request scheme *does* honor `X-Forwarded-Proto` (`auth.py:150-152`, inside `get_base_url`) — so the header-trust story is asymmetric: scheme is trusted from headers, source IP is not.
+
+**Fix for operators**:
+- For any same-host reverse-proxy deployment: set `LOCALHOST_AUTH_BYPASS=false` in the gateway env.
+- Railway sets it to `false` at startup automatically (`src/luthien_proxy/main.py:607-609`) if the variable isn't explicitly set, so cloud deployments via `deploy/railway.json` are safe out of the box.
+
+**Structural fix tracked at**: https://trello.com/c/6IspgIkX — the code should probably either parse trusted forwarding headers, or auto-disable the bypass when forwarding headers are present.
+
+**Related to**: the admin auth docs correction (PR #531) — the previous docs claimed admin endpoints always required the bearer token, masking this landmine.
 
 ## Docker Compose Orphaned Containers from Mismatched Project Names (2026-02-17)
 
@@ -266,7 +236,7 @@ if stream_state.finish_reason:
 
 ## Passthrough Auth Mode Is DB-Persisted, Not Just Env (2026-02-27)
 
-**Gotcha**: `AUTH_MODE` env var is only the startup default; the effective mode is loaded from `auth_config` in DB on startup. If DB says `proxy_key`, passthrough tests will skip/fail even when container env has `AUTH_MODE=both`.
+**Gotcha**: `AUTH_MODE` env var is only the startup default; the effective mode is loaded from `auth_config` in DB on startup. If DB says `client_key`, passthrough tests will skip/fail even when container env has `AUTH_MODE=both`.
 
 - **Symptom**: Passthrough tests skip with "Gateway not in passthrough/both auth mode" while env shows `AUTH_MODE=both`
 - **Fix**: Set mode explicitly via admin API: `POST /admin/auth/config {"auth_mode":"both"}`

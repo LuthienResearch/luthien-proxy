@@ -1,26 +1,26 @@
-"""Centralized environment configuration using pydantic-settings.
+"""Application settings — generated from config_fields.py.
 
-All environment variables should be defined here for type safety, validation,
-and discoverability. Access settings via get_settings() which returns a cached
-Settings instance.
+DO NOT EDIT BY HAND. Regenerate with:
+    uv run python scripts/generate_settings.py
+
+The Settings model is a plain class with explicit typed fields so Pyright
+can check attribute access. config_fields.py remains the single source of truth.
 """
+
+from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field, model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from luthien_proxy.credential_manager import AuthMode
+from luthien_proxy.credential_manager import AuthMode, parse_auth_mode
 from luthien_proxy.utils.constants import DEFAULT_GATEWAY_PORT
+from luthien_proxy.version import PROXY_VERSION
 
 
-class Settings(BaseSettings):
-    """Application settings loaded from environment variables.
-
-    All settings are optional with sensible defaults for local development.
-    Required settings (like PROXY_API_KEY) will raise validation errors if not set
-    when accessed in production contexts.
-    """
+class _SettingsBase(BaseSettings):
+    """Base with pydantic-settings configuration. Fields declared on Settings."""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -28,75 +28,80 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Core API keys
-    proxy_api_key: str | None = None
+    @model_validator(mode="after")
+    def _set_environment_from_railway(self) -> "_SettingsBase":
+        """Auto-set environment from Railway service name."""
+        railway = getattr(self, "railway_service_name", "")
+        env = getattr(self, "environment", "development")
+        if railway and env == "development":
+            object.__setattr__(self, "environment", railway)
+        return self
+
+    @field_validator("auth_mode", mode="before", check_fields=False)
+    @classmethod
+    def _coerce_legacy_auth_mode(cls, raw: object) -> object:
+        """Coerce pre-PR-#535 AUTH_MODE aliases (e.g. 'proxy_key') before enum validation."""
+        if isinstance(raw, str):
+            try:
+                return parse_auth_mode(raw, source="AUTH_MODE env var").value
+            except ValueError:
+                # Let pydantic's enum validator produce the canonical error message.
+                return raw
+        return raw
+
+
+class Settings(_SettingsBase):
+    """Application settings — all fields generated from config_fields.py."""
+
+    # ── server ──────────────────────────────────────────────────────
+    gateway_port: int = DEFAULT_GATEWAY_PORT
+    log_level: str = "info"
+    verbose_client_errors: bool = False
+
+    # ── auth ────────────────────────────────────────────────────────
+    client_api_key: str | None = None
     admin_api_key: str | None = None
     auth_mode: AuthMode = AuthMode.BOTH
+    localhost_auth_bypass: bool = True
 
-    # Server configuration
-    gateway_port: int = Field(default=DEFAULT_GATEWAY_PORT)
-
-    # Database and Redis
-    database_url: str = ""
-    redis_url: str = ""
-
-    # Policy configuration
+    # ── policy ──────────────────────────────────────────────────────
     policy_source: str = "db-fallback-file"
     policy_config: str = ""
+    inject_policy_context: bool = True
+    dogfood_mode: bool = False
+    policy_cache_max_entries: int = 10000
 
-    # OpenTelemetry / Observability
+    # ── database ────────────────────────────────────────────────────
+    database_url: str = ""
+    redis_url: str = ""
+    migrations_dir: str | None = None
+
+    # ── llm ─────────────────────────────────────────────────────────
+    anthropic_api_key: str | None = None
+    litellm_master_key: str | None = None
+    llm_judge_model: str | None = None
+    llm_judge_api_base: str | None = None
+    llm_judge_api_key: str | None = None
+    anthropic_client_cache_size: int = 16
+
+    # ── security ────────────────────────────────────────────────────
+    credential_encryption_key: str | None = None
+
+    # ── observability ───────────────────────────────────────────────
     otel_enabled: bool = False
     otel_exporter_otlp_endpoint: str = "http://tempo:4317"
     tempo_url: str = "http://localhost:3200"
     service_name: str = "luthien-proxy"
-    service_version: str = "2.0.0"
+    service_version: str = PROXY_VERSION
     environment: str = "development"
     railway_service_name: str = ""
-
-    @model_validator(mode="after")
-    def _set_environment_from_railway(self) -> "Settings":
-        # Only override when environment is still the default ("development").
-        # Explicit ENVIRONMENT= settings (e.g. "production", "staging") are preserved.
-        if self.railway_service_name and self.environment == "development":
-            self.environment = self.railway_service_name
-        return self
-
-    # Request/response logging
     enable_request_logging: bool = False
 
-    # Usage telemetry (anonymous aggregate metrics sent to central endpoint)
-    # None = defer to DB config; True/False = env var takes precedence over DB
+    # ── telemetry ───────────────────────────────────────────────────
     usage_telemetry: bool | None = None
     telemetry_endpoint: str = "https://telemetry.luthien.cc/v1/events"
 
-    # LLM Judge policy configuration
-    llm_judge_model: str | None = None
-    llm_judge_api_base: str | None = None
-    llm_judge_api_key: str | None = None
-    litellm_master_key: str | None = None
-
-    # Fernet encryption key for server credentials at rest.
-    # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-    # Optional for single-user SQLite; recommended for multi-user Postgres.
-    credential_encryption_key: str | None = None
-
-    # Skip auth for all routes when accessed from localhost (127.0.0.1, ::1)
-    localhost_auth_bypass: bool = True
-
-    # Inject a system-level note telling the LLM which policies are active,
-    # so the model doesn't get confused when policies modify its output.
-    inject_policy_context: bool = True
-
-    # Dogfood mode — auto-compose DogfoodSafetyPolicy to prevent agents
-    # from killing the proxy they communicate through
-    dogfood_mode: bool = False
-
-    # Include exception details in client-facing error responses.
-    # Useful for local debugging; should stay False in production to
-    # avoid leaking internal paths, DB connection strings, etc.
-    verbose_client_errors: bool = False
-
-    # Sentry error tracking (opt-in: set SENTRY_ENABLED=true to enable)
+    # ── sentry ──────────────────────────────────────────────────────
     sentry_enabled: bool = False
     sentry_dsn: str = ""
     sentry_traces_sample_rate: float = 0.0
@@ -105,11 +110,7 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """Get cached application settings.
-
-    Returns:
-        Cached Settings instance loaded from environment
-    """
+    """Get cached application settings."""
     return Settings()
 
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -128,6 +129,58 @@ def delete_fragments() -> list[str]:
     return deleted
 
 
+def cut_release(version: str, dry_run: bool) -> None:
+    """Rename the Unreleased section to a versioned release section.
+
+    Moves content from '## Unreleased' into '## <version> | <date>' and
+    inserts a fresh empty '## Unreleased | TBA' header above it.
+    Skips if a section for this version already exists.
+    """
+    changelog = CHANGELOG_PATH.read_text()
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # Check if this version section already exists
+    if re.search(rf"^## {re.escape(version)}(\s|\|)", changelog, re.MULTILINE):
+        print(f"Section for {version} already exists in CHANGELOG.md — skipping cut.")
+        return
+
+    match = re.search(r"^## Unreleased.*$", changelog, re.MULTILINE)
+    if not match:
+        sys.exit(f"Could not find '{UNRELEASED_HEADER}' header in CHANGELOG.md")
+
+    body_start = match.end()
+    while body_start < len(changelog) and changelog[body_start] == "\n":
+        body_start += 1
+
+    next_h2 = re.search(r"^## ", changelog[body_start:], re.MULTILINE)
+    body_end = body_start + next_h2.start() if next_h2 else len(changelog)
+    unreleased_body = changelog[body_start:body_end].strip()
+
+    before = changelog[: match.start()].rstrip("\n")
+    after = changelog[body_end:].lstrip("\n")
+
+    parts = [before, "", "## Unreleased | TBA", ""]
+    if unreleased_body:
+        parts += [f"## {version} | {today}", "", unreleased_body, ""]
+    else:
+        parts += [f"## {version} | {today}", ""]
+
+    if after:
+        parts.append(after)
+
+    result = "\n".join(parts)
+
+    if dry_run:
+        print(f"Would cut release {version} | {today}")
+        if unreleased_body:
+            print(f"  Moving {len(unreleased_body.splitlines())} lines to versioned section")
+        else:
+            print("  Unreleased section is empty")
+    else:
+        CHANGELOG_PATH.write_text(result)
+        print(f"Cut release section: ## {version} | {today}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -135,7 +188,16 @@ def main() -> None:
         action="store_true",
         help="Preview compiled output without modifying files",
     )
+    parser.add_argument(
+        "--cut-release",
+        metavar="VERSION",
+        help="Cut a release: rename Unreleased section to VERSION (e.g. '3.0.0')",
+    )
     args = parser.parse_args()
+
+    if args.cut_release:
+        cut_release(args.cut_release, dry_run=args.dry_run)
+        return
 
     grouped = collect_fragments()
     total = sum(len(v) for v in grouped.values())

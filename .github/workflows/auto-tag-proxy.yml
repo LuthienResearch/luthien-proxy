@@ -1,0 +1,147 @@
+name: Auto-tag Proxy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: auto-tag-proxy
+  cancel-in-progress: false
+
+jobs:
+  auto-tag:
+    # Skip CI-authored changelog commits to avoid infinite loop
+    if: >-
+      !contains(github.event.head_commit.message, '[skip auto-tag-proxy]')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Generate token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Fetch tags
+        run: git fetch origin --tags --force
+
+      - name: Get latest proxy tag
+        id: latest
+        run: |
+          TAG=$(git tag -l 'v[0-9]*' --sort=-v:refname | head -1)
+          if [ -z "$TAG" ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check for proxy-relevant changes
+        id: changes
+        env:
+          LATEST_FOUND: ${{ steps.latest.outputs.found }}
+          LATEST_TAG: ${{ steps.latest.outputs.tag }}
+        run: |
+          if [ "$LATEST_FOUND" = "false" ]; then
+            echo "count=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Count changed files, excluding CLI-only paths
+          COUNT=$(git diff --name-only "${LATEST_TAG}..HEAD" \
+            | grep -Ev '^(src/luthien_cli/|tests/luthien_cli/)' \
+            | wc -l | tr -d ' ')
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Install uv
+        if: steps.changes.outputs.count != '0'
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.13"
+
+      - name: Run unit tests
+        if: steps.changes.outputs.count != '0'
+        run: uv run pytest tests/luthien_proxy/unit_tests/ -v
+
+      - name: Determine new tag
+        if: steps.changes.outputs.count != '0'
+        id: bump
+        env:
+          LATEST_FOUND: ${{ steps.latest.outputs.found }}
+          LATEST_TAG: ${{ steps.latest.outputs.tag }}
+        run: |
+          if [ "$LATEST_FOUND" = "false" ]; then
+            NEW_TAG="v3.0.0"
+          else
+            VERSION="${LATEST_TAG#v}"
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+            PATCH="${PATCH%%[-+]*}"  # strip pre-release/build metadata
+            NEW_TAG="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+          fi
+          echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${NEW_TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Compile changelog fragments
+        if: steps.changes.outputs.count != '0'
+        run: |
+          FRAG_COUNT=$(find changelog.d -maxdepth 1 -type f \
+            ! -name README.md ! -name .gitkeep | wc -l | tr -d ' ')
+          if [ "$FRAG_COUNT" -gt 0 ]; then
+            uv run python scripts/compile_changelog.py
+          fi
+
+      - name: Cut release section in CHANGELOG.md
+        if: steps.changes.outputs.count != '0'
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: uv run python scripts/compile_changelog.py --cut-release "$VERSION"
+
+      - name: Commit changelog
+        if: steps.changes.outputs.count != '0'
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          git config user.name "luthien-ci[bot]"
+          git config user.email "luthien-ci[bot]@users.noreply.github.com"
+
+          git add CHANGELOG.md changelog.d/
+
+          if git diff --cached --quiet; then
+            echo "No changelog changes to commit"
+          else
+            git commit -m "chore(release): compile changelog for ${TAG} [skip auto-tag-proxy]"
+          fi
+
+      - name: Rebase onto latest main and push
+        if: steps.changes.outputs.count != '0'
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
+          TRIGGER_SHA: ${{ github.sha }}
+        run: |
+          git fetch origin main
+
+          # If main advanced (e.g. previous auto-tag run pushed a changelog
+          # commit), rebase our changelog commit on top of the new HEAD.
+          if [ "$(git rev-parse origin/main)" != "$TRIGGER_SHA" ]; then
+            echo "main advanced — rebasing changelog commit"
+            if ! git rebase origin/main; then
+              echo "::error::Rebase failed (conflict). Skipping tag."
+              git rebase --abort
+              exit 1
+            fi
+          fi
+
+          # Push changelog commit, then tag on the pushed commit. The
+          # concurrency group serializes runs, so no other auto-tag can
+          # interleave between these two pushes.
+          git push origin HEAD:main
+          git tag "$TAG"
+          git push origin "$TAG"

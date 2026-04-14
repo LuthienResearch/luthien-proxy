@@ -19,7 +19,7 @@ class TestEnsureDockerEnv:
         repo.mkdir()
         example = repo / ".env.example"
         example.write_text(
-            "# PROXY_API_KEY=changeme\n"
+            "# CLIENT_API_KEY=changeme\n"
             "# ADMIN_API_KEY=changeme\n"
             "# POSTGRES_USER=luthien\n"
             "# POSTGRES_PASSWORD=changeme\n"
@@ -28,7 +28,7 @@ class TestEnsureDockerEnv:
             "# DATABASE_URL=postgresql://luthien:changeme@db:5432/luthien_control\n"
             "# REDIS_URL=redis://redis:6379\n"
             "# REDIS_PORT=6379\n"
-            "AUTH_MODE=proxy_key\n"
+            "AUTH_MODE=client_key\n"
         )
 
         _ensure_docker_env(str(repo), admin_key="ak-test")

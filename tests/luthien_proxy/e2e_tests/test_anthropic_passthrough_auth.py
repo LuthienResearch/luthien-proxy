@@ -4,7 +4,7 @@ Tests the passthrough authentication feature in three modes:
 
 1. **x-anthropic-api-key header** (works in any auth_mode):
    Client passes their Anthropic key via x-anthropic-api-key header while
-   authenticating to the proxy with PROXY_API_KEY via Authorization header.
+   authenticating to the proxy with CLIENT_API_KEY via Authorization header.
 
 2. **Auth mode passthrough** (requires AUTH_MODE=both or AUTH_MODE=passthrough):
    Client authenticates directly with their Anthropic key as the Bearer token.
@@ -179,7 +179,7 @@ async def test_empty_client_key_rejected(gateway_healthy, http_client, gateway_u
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_fallback_to_proxy_key(gateway_healthy, http_client, gateway_url, api_key):
+async def test_fallback_to_client_key(gateway_healthy, http_client, gateway_url, api_key):
     """Without x-anthropic-api-key, the proxy's own key is used."""
     response = await http_client.post(
         f"{gateway_url}/v1/messages",
