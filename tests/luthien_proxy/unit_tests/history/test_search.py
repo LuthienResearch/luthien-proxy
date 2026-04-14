@@ -2,7 +2,6 @@
 
 Tests cover:
 - SessionSearchParams model validation
-- Service layer search parameter handling (mocked DB)
 - Route handler search query parameter wiring
 """
 
@@ -86,105 +85,9 @@ class TestSessionSearchParams:
         assert params.is_empty() is True
 
 
-# ---------------------------------------------------------------------------
-# Service layer tests (mocked DB)
-# ---------------------------------------------------------------------------
-
-
-class TestFetchSessionListWithSearch:
-    """Test fetch_session_list with search parameters."""
-
-    def _make_session_summary(self, session_id: str = "session-1") -> SessionSummary:
-        return SessionSummary(
-            session_id=session_id,
-            first_timestamp="2026-01-01T00:00:00",
-            last_timestamp="2026-01-01T01:00:00",
-            turn_count=2,
-            total_events=5,
-            policy_interventions=0,
-            models_used=["claude-opus-4-6"],
-        )
-
-    @pytest.mark.asyncio
-    async def test_fetch_session_list_no_search_params(self):
-        """fetch_session_list with empty search params behaves like original."""
-        from luthien_proxy.history.service import fetch_session_list
-
-        mock_pool = MagicMock()
-        mock_pool.is_sqlite = False
-        expected = SessionListResponse(
-            sessions=[self._make_session_summary()],
-            total=1,
-            offset=0,
-            has_more=False,
-        )
-
-        with patch(
-            "luthien_proxy.history.service._fetch_session_list_pg",
-            new_callable=AsyncMock,
-            return_value=expected,
-        ) as mock_pg:
-            result = await fetch_session_list(50, mock_pool, 0, SessionSearchParams())
-            assert result.total == 1
-            mock_pg.assert_called_once_with(50, mock_pool, 0, SessionSearchParams())
-
-    @pytest.mark.asyncio
-    async def test_fetch_session_list_with_user_filter_pg(self):
-        """fetch_session_list passes user filter to postgres implementation."""
-        from luthien_proxy.history.service import fetch_session_list
-
-        mock_pool = MagicMock()
-        mock_pool.is_sqlite = False
-        search = SessionSearchParams(user="sami")
-        expected = SessionListResponse(sessions=[], total=0, offset=0, has_more=False)
-
-        with patch(
-            "luthien_proxy.history.service._fetch_session_list_pg",
-            new_callable=AsyncMock,
-            return_value=expected,
-        ) as mock_pg:
-            await fetch_session_list(50, mock_pool, 0, search)
-            mock_pg.assert_called_once_with(50, mock_pool, 0, search)
-
-    @pytest.mark.asyncio
-    async def test_fetch_session_list_with_user_filter_sqlite(self):
-        """fetch_session_list passes user filter to sqlite implementation."""
-        from luthien_proxy.history.service import fetch_session_list
-
-        mock_pool = MagicMock()
-        mock_pool.is_sqlite = True
-        search = SessionSearchParams(user="sami")
-        expected = SessionListResponse(sessions=[], total=0, offset=0, has_more=False)
-
-        with patch(
-            "luthien_proxy.history.service._fetch_session_list_sqlite",
-            new_callable=AsyncMock,
-            return_value=expected,
-        ) as mock_sqlite:
-            await fetch_session_list(50, mock_pool, 0, search)
-            mock_sqlite.assert_called_once_with(50, mock_pool, 0, search)
-
-    @pytest.mark.asyncio
-    async def test_fetch_session_list_default_search_params(self):
-        """fetch_session_list uses empty SessionSearchParams when not provided."""
-        from luthien_proxy.history.service import fetch_session_list
-
-        mock_pool = MagicMock()
-        mock_pool.is_sqlite = False
-        expected = SessionListResponse(sessions=[], total=0, offset=0, has_more=False)
-
-        with patch(
-            "luthien_proxy.history.service._fetch_session_list_pg",
-            new_callable=AsyncMock,
-            return_value=expected,
-        ) as mock_pg:
-            # Call without search params — should use default empty params
-            await fetch_session_list(50, mock_pool, 0)
-            call_args = mock_pg.call_args
-            # Fourth arg should be a SessionSearchParams with all None
-            search_arg = call_args[0][3]
-            assert isinstance(search_arg, SessionSearchParams)
-            assert search_arg.is_empty()
+# Service-layer SQL behavior is covered by:
+#   - tests/luthien_proxy/unit_tests/history/test_service_sqlite.py
+#   - tests/luthien_proxy/unit_tests/history/test_search_bugs.py
 
 
 # ---------------------------------------------------------------------------

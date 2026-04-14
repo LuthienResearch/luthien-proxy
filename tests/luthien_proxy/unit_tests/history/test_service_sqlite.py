@@ -1,7 +1,7 @@
-"""Tests for SQLite-specific path in conversation history service.
+"""Tests for conversation history service against real in-memory SQLite.
 
-Tests the `_fetch_session_list_sqlite` code path using a real in-memory
-SQLite database with the schema applied.
+Exercises fetch_session_list with the SQLite dialect branches (JSON access
+via json_extract, LIKE-based content search, SUM(CASE) aggregates).
 """
 
 from __future__ import annotations
