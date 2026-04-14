@@ -1003,6 +1003,7 @@ class TestFetchSessionList:
                 "policy_interventions": 1,
                 "models": ["gpt-4", "claude-3"],
                 "request_payload": {"final_request": {"messages": [{"role": "user", "content": "Hello world"}]}},
+                "user_id": "alice@example.com",
             },
         ]
 
@@ -1025,6 +1026,7 @@ class TestFetchSessionList:
         assert result.sessions[0].policy_interventions == 1
         assert "gpt-4" in result.sessions[0].models_used
         assert result.sessions[0].preview_message == "Hello world"
+        assert result.sessions[0].user_id == "alice@example.com"
 
     @pytest.mark.asyncio
     async def test_fetch_with_offset(self):
@@ -1039,6 +1041,7 @@ class TestFetchSessionList:
                 "policy_interventions": 0,
                 "models": ["gpt-4"],
                 "request_payload": None,  # Test with no first message
+                "user_id": None,
             },
         ]
 
