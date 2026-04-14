@@ -366,10 +366,6 @@ async def fetch_session_list(
     if search is None:
         search = SessionSearchParams()
 
-    if not getattr(fetch_session_list, "_shared_impl_active", False):
-        if db_pool.is_sqlite:
-            return await _fetch_session_list_sqlite(limit, db_pool, offset, search)
-        return await _fetch_session_list_pg(limit, db_pool, offset, search)
     params: list[Any] = []
     param_idx = 1
 
@@ -633,36 +629,6 @@ async def fetch_session_list(
 
     has_more = offset + len(sessions) < total
     return SessionListResponse(sessions=sessions, total=total, offset=offset, has_more=has_more)
-
-
-async def _fetch_session_list_pg(
-    limit: int,
-    db_pool: DatabasePool,
-    offset: int = 0,
-    search: SessionSearchParams | None = None,
-) -> SessionListResponse:
-    """Backward-compatible wrapper around the shared fetch_session_list path."""
-    previous = getattr(fetch_session_list, "_shared_impl_active", False)
-    setattr(fetch_session_list, "_shared_impl_active", True)
-    try:
-        return await fetch_session_list(limit, db_pool, offset, search)
-    finally:
-        setattr(fetch_session_list, "_shared_impl_active", previous)
-
-
-async def _fetch_session_list_sqlite(
-    limit: int,
-    db_pool: DatabasePool,
-    offset: int = 0,
-    search: SessionSearchParams | None = None,
-) -> SessionListResponse:
-    """Backward-compatible wrapper around the shared fetch_session_list path."""
-    previous = getattr(fetch_session_list, "_shared_impl_active", False)
-    setattr(fetch_session_list, "_shared_impl_active", True)
-    try:
-        return await fetch_session_list(limit, db_pool, offset, search)
-    finally:
-        setattr(fetch_session_list, "_shared_impl_active", previous)
 
 
 async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> SessionDetail:
