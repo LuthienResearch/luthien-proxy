@@ -1,16 +1,16 @@
-"""Tests demonstrating bugs in the session search implementation.
+"""Regression tests for session search bugs fixed during PR #578 review.
 
 These tests hit real SQLite to exercise the actual SQL query construction,
-unlike test_search.py which mocks the DB and can't catch SQL-level bugs.
+unlike test_search.py which mocks the DB. Each class pins down a specific
+semantic that was wrong in an earlier revision and must not regress.
 
-Bug 1: from_time/to_time filter applied to raw event rows, not aggregated session timestamps.
-        A session spanning Jan-Mar queried with from_time=Feb returns mutilated stats.
+- Time filters must not mutilate session stats (from_time/to_time were
+  originally applied to raw event rows before aggregation).
+- SQLite q must escape LIKE wildcards so q="%" / q="_" doesn't match everything.
+- SQLite content search must target message text only, not raw JSON payload.
 
-Bug 2: SQLite q parameter missing LIKE wildcard escaping.
-        q=% or q=_ matches everything; diverges from Postgres plainto_tsquery behavior.
-
-Bug 3: SQLite q search matches raw JSON structure, not just content.
-        q=role or q=type matches every event because of JSON keys.
+Assertion messages carry a "regression:" prefix so that if any of these come
+back, the failure is self-describing.
 """
 
 from __future__ import annotations
@@ -94,21 +94,21 @@ async def _insert_event(
         )
 
 
-class TestBug1_TimeFilterMutilatesSessionStats:
-    """Bug: from_time/to_time is applied to individual event rows, not session-level aggregates.
+class TestTimeFilterDoesNotMutilateStats:
+    """Time filters must match on aggregated session timestamps (MAX/MIN of
+    created_at) and must not truncate first_ts/total_events/turn_count by
+    excluding early or late events from the aggregate.
 
-    The docstring says "lower bound on session last activity" but the WHERE clause
-    filters raw events, so a session spanning Jan-Mar queried with from_time=Feb
-    returns wrong first_ts, total_events, and turn_count (computed only from Feb+ events).
+    Semantics (matching docstrings in models.py):
+      - from_time: lower bound on session last activity (MAX >= from_time)
+      - to_time: upper bound on session last activity (MAX <= to_time)
     """
 
     @pytest.mark.asyncio
-    async def test_from_time_should_not_mutilate_session_stats(self, sqlite_pool: DatabasePool):
-        """A session with events in Jan and Mar, filtered with from_time=Feb,
-        should return the session with its REAL stats (first_ts=Jan, total_events=2),
-        not stats computed only from the Mar event."""
+    async def test_from_time_returns_real_stats_for_session_spanning_boundary(self, sqlite_pool: DatabasePool):
+        """from_time=Feb on a Jan+Mar session returns the session with
+        total_events=2, first_ts=Jan — not stats recomputed from Feb+ events only."""
 
-        # Session A: events in January and March
         await _insert_event(
             sqlite_pool,
             event_id="e1",
@@ -132,43 +132,34 @@ class TestBug1_TimeFilterMutilatesSessionStats:
             },
         )
 
-        # Unfiltered: should show 2 events, first_ts in January
         unfiltered = await fetch_session_list(limit=10, db_pool=sqlite_pool)
         assert len(unfiltered.sessions) == 1
         session = unfiltered.sessions[0]
         assert session.total_events == 2
         assert "2026-01-15" in session.first_timestamp
 
-        # Filtered: from_time=Feb should still return the session (last activity is March)
-        # and should show the REAL stats, not just the March-onwards slice
         search = SessionSearchParams(
             from_time=__import__("datetime").datetime(2026, 2, 1, tzinfo=__import__("datetime").timezone.utc)
         )
         filtered = await fetch_session_list(limit=10, db_pool=sqlite_pool, search=search)
 
-        # The session should appear (its last activity is March, after Feb)
         assert len(filtered.sessions) == 1, "Session with last_ts=March should match from_time=Feb"
 
         filtered_session = filtered.sessions[0]
 
-        # BUG: These assertions demonstrate the bug.
-        # The filter should not change the session's intrinsic stats.
-        # But the current implementation computes stats only from events >= Feb,
-        # so first_ts becomes March and total_events becomes 1.
         assert filtered_session.total_events == 2, (
-            f"BUG: total_events={filtered_session.total_events}, expected 2. "
-            "The time filter is mutilating session stats by excluding early events from the aggregate."
+            f"regression: total_events={filtered_session.total_events}, expected 2. "
+            "Time filter is excluding early events from the aggregate."
         )
         assert "2026-01-15" in filtered_session.first_timestamp, (
-            f"BUG: first_timestamp={filtered_session.first_timestamp}, expected 2026-01-15. "
-            "The time filter shifted first_ts to the filter boundary."
+            f"regression: first_timestamp={filtered_session.first_timestamp}, expected 2026-01-15. "
+            "Time filter shifted first_ts to the filter boundary."
         )
 
     @pytest.mark.asyncio
-    async def test_to_time_should_not_exclude_later_events_from_stats(self, sqlite_pool: DatabasePool):
-        """A session with events in Jan and Mar, filtered with to_time=Feb,
-        should return the session (if its first activity is before Feb)
-        with its REAL stats, not stats computed only from the Jan event."""
+    async def test_to_time_excludes_sessions_whose_last_activity_is_after_bound(self, sqlite_pool: DatabasePool):
+        """to_time=Feb on a Jan+Mar session excludes the session entirely —
+        its last activity (Mar) is after the upper bound."""
 
         await _insert_event(
             sqlite_pool,
@@ -190,22 +181,44 @@ class TestBug1_TimeFilterMutilatesSessionStats:
         )
         filtered = await fetch_session_list(limit=10, db_pool=sqlite_pool, search=search)
 
-        if len(filtered.sessions) == 1:
-            # If the session is returned, its stats should be the real ones
-            assert filtered.sessions[0].total_events == 2, (
-                f"BUG: total_events={filtered.sessions[0].total_events}, expected 2. "
-                "The to_time filter is excluding later events from the aggregate."
-            )
+        assert len(filtered.sessions) == 0, (
+            "regression: session with last_ts=March was included for to_time=Feb. "
+            "to_time should be an upper bound on session last activity (MAX <= to_time)."
+        )
+
+    @pytest.mark.asyncio
+    async def test_to_time_returns_real_stats_for_fully_contained_session(self, sqlite_pool: DatabasePool):
+        """to_time=Feb on a session with events entirely in January returns
+        the session with full stats from all its events."""
+
+        await _insert_event(
+            sqlite_pool,
+            event_id="e1",
+            call_id="c1",
+            session_id="session-A",
+            created_at="2026-01-10T10:00:00",
+        )
+        await _insert_event(
+            sqlite_pool,
+            event_id="e2",
+            call_id="c2",
+            session_id="session-A",
+            created_at="2026-01-20T10:00:00",
+        )
+
+        search = SessionSearchParams(
+            to_time=__import__("datetime").datetime(2026, 2, 1, tzinfo=__import__("datetime").timezone.utc)
+        )
+        filtered = await fetch_session_list(limit=10, db_pool=sqlite_pool, search=search)
+
+        assert len(filtered.sessions) == 1
+        assert filtered.sessions[0].total_events == 2
 
 
-class TestBug2_SqliteLikeEscaping:
-    """Bug: The q parameter is not escaped for LIKE metacharacters on SQLite.
-
-    The user filter correctly escapes %, _, and \\ before constructing the LIKE pattern.
-    The q filter does not, so q=% matches everything and q=_ matches everything
-    with at least one character. This diverges from Postgres plainto_tsquery which
-    treats input as literal text.
-    """
+class TestSqliteLikeEscaping:
+    """The q parameter must escape LIKE metacharacters on SQLite so that
+    searches for literal %, _, or \\ behave as plain text — not wildcards.
+    Matches Postgres plainto_tsquery semantics for the same input."""
 
     @pytest.mark.asyncio
     async def test_q_percent_should_not_match_everything(self, sqlite_pool: DatabasePool):
@@ -228,7 +241,7 @@ class TestBug2_SqliteLikeEscaping:
         result = await fetch_session_list(limit=10, db_pool=sqlite_pool, search=search)
 
         assert len(result.sessions) == 0, (
-            f"BUG: q='%' matched {len(result.sessions)} sessions. "
+            f"regression:q='%' matched {len(result.sessions)} sessions. "
             "The percent sign is being treated as a LIKE wildcard instead of literal text. "
             "Expected 0 matches since no event contains a literal '%'."
         )
@@ -254,19 +267,16 @@ class TestBug2_SqliteLikeEscaping:
         result = await fetch_session_list(limit=10, db_pool=sqlite_pool, search=search)
 
         assert len(result.sessions) == 0, (
-            f"BUG: q='_' matched {len(result.sessions)} sessions. "
+            f"regression:q='_' matched {len(result.sessions)} sessions. "
             "The underscore is being treated as a LIKE single-char wildcard instead of literal text. "
             "Expected 0 matches since no event contains a literal '_'."
         )
 
 
-class TestBug3_SqliteSearchesRawJson:
-    """Bug: SQLite q search matches the entire serialized JSON payload, including
-    structural keys like 'role', 'type', 'content', 'final_request', etc.
-
-    Postgres uses _extract_event_search_text() which carefully extracts only user/assistant
-    text content. SQLite uses `payload LIKE '%q%'` which matches JSON keys and metadata.
-    """
+class TestSqliteSearchesContentNotJsonKeys:
+    """SQLite q search must target message text values only, not raw JSON
+    structural keys ('role', 'type', 'final_request', etc.) that appear in
+    every event payload."""
 
     @pytest.mark.asyncio
     async def test_q_role_should_not_match_json_keys(self, sqlite_pool: DatabasePool):
@@ -290,7 +300,7 @@ class TestBug3_SqliteSearchesRawJson:
         result = await fetch_session_list(limit=10, db_pool=sqlite_pool, search=search)
 
         assert len(result.sessions) == 0, (
-            f"BUG: q='role' matched {len(result.sessions)} sessions. "
+            f"regression:q='role' matched {len(result.sessions)} sessions. "
             "SQLite is matching against JSON structural keys, not just message content. "
             "Postgres uses _extract_event_search_text() to search only user/assistant text."
         )
@@ -315,6 +325,6 @@ class TestBug3_SqliteSearchesRawJson:
         result = await fetch_session_list(limit=10, db_pool=sqlite_pool, search=search)
 
         assert len(result.sessions) == 0, (
-            f"BUG: q='final_request' matched {len(result.sessions)} sessions. "
+            f"regression:q='final_request' matched {len(result.sessions)} sessions. "
             "SQLite is matching against JSON structural keys, not just message content."
         )

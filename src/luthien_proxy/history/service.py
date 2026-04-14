@@ -379,6 +379,14 @@ async def fetch_session_list(
     def escape_like(value: str) -> str:
         return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
+    def model_expr_on(alias: str) -> str:
+        return (
+            f"{alias}.payload->>'final_model'"
+            if db_pool.is_postgres
+            else f"json_extract({alias}.payload, '$.final_model')"
+        )
+
+    # Bare-column expressions for standalone queries (no table alias needed).
     model_expr = "payload->>'final_model'" if db_pool.is_postgres else "json_extract(payload, '$.final_model')"
     max_tokens_expr = (
         "payload->'final_request'->>'max_tokens'"
@@ -400,16 +408,14 @@ async def fetch_session_list(
     if search.model is not None:
         model_placeholder = add_param(search.model)
         qualifying_where.append(
-            """
+            f"""
             EXISTS (
                 SELECT 1
                 FROM conversation_events ce_model
                 WHERE ce_model.session_id = ce.session_id
                 AND ce_model.event_type = 'transaction.request_recorded'
                 AND ce_model.session_id IS NOT NULL
-                AND """
-            + f"{model_expr.replace('payload', 'ce_model.payload')} = {model_placeholder}"
-            + """
+                AND {model_expr_on("ce_model")} = {model_placeholder}
             )
             """.strip()
         )
@@ -493,7 +499,7 @@ async def fetch_session_list(
 
     if search.to_time is not None:
         qualifying_having.append(
-            f"MIN(ce.created_at) <= {add_param(search.to_time if db_pool.is_postgres else search.to_time.isoformat())}"
+            f"MAX(ce.created_at) <= {add_param(search.to_time if db_pool.is_postgres else search.to_time.isoformat())}"
         )
 
     qualifying_where_sql = " AND ".join(qualifying_where)
@@ -585,30 +591,15 @@ async def fetch_session_list(
         )
 
     models_by_session: dict[str, list[str]] = {}
-    for row in rows:
-        if "models" not in row:
-            continue
-        raw_models = row["models"]
-        if isinstance(raw_models, list | tuple) and raw_models:
-            models_by_session[str(row["session_id"])] = [str(model) for model in raw_models]
-
     for model_row in model_rows:
-        if "model" not in model_row:
-            continue
         sid = str(model_row["session_id"])
         model = str(model_row["model"])
         session_models = models_by_session.setdefault(sid, [])
         if model not in session_models:
             session_models.append(model)
 
-    preview_by_session: dict[str, str | None] = {
-        str(row["session_id"]): _extract_preview_message(cast(_PreviewPayload, row["request_payload"]))
-        for row in rows
-        if "request_payload" in row
-    }
+    preview_by_session: dict[str, str | None] = {}
     for preview_row in preview_rows:
-        if "request_payload" not in preview_row:
-            continue
         sid = str(preview_row["session_id"])
         if sid not in preview_by_session:
             preview_by_session[sid] = _extract_preview_message(cast(_PreviewPayload, preview_row["request_payload"]))
