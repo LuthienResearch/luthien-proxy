@@ -73,6 +73,7 @@ Flags:
 |------|--------|
 | `--timing` | Write per-step wall-clock timings to `.dev_checks_timings.jsonl` (one JSON object per step) and print a summary at the end. Useful for diagnosing slowdowns. |
 | `--timing=PATH` | Same as `--timing` but write to a custom path. |
+| `--fast` | Inner-loop mode: skip coverage in pytest and skip report-only steps (ruff docstrings, radon). Gating checks (ruff, pyright, pytest) still run. Typical savings ~10-12s (~45s → ~34s). Use `--fast` while iterating, then run the full gate before pushing. |
 
 Each JSONL record has `run_id`, `step`, `duration_s`, `exit_code`, `ts`. A final `__total__` record captures wall-clock for the whole run. The file is gitignored.
 
