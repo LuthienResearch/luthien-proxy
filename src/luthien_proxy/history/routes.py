@@ -120,13 +120,14 @@ async def list_users(
 ) -> dict:
     """List distinct user hashes with any assigned labels.
 
-    Returns distinct user_hash values from conversation_calls (paginated),
-    plus a labels mapping from user_hash to display_name for the returned page.
+    Queries session_summaries (one row per session, indexed on user_hash)
+    rather than conversation_calls (one row per call) for a much smaller
+    DISTINCT scan on deployments with many calls per session.
     """
     async with db_pool.connection() as conn:
         rows = await conn.fetch(
             """
-            SELECT DISTINCT user_hash FROM conversation_calls
+            SELECT DISTINCT user_hash FROM session_summaries
             WHERE user_hash IS NOT NULL
             ORDER BY user_hash
             LIMIT $1 OFFSET $2

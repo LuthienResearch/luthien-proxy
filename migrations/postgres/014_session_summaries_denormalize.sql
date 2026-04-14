@@ -1,7 +1,11 @@
 -- ABOUTME: Denormalizes models_used and preview_message into session_summaries
 -- ABOUTME: Adds composite index on conversation_events for faster filtered queries
 
--- Composite index: covers the common WHERE session_id + event_type pattern
+-- Composite index: covers the common WHERE session_id + event_type pattern.
+-- CONCURRENTLY is safe here: docker/run-migrations.sh runs each file via
+-- `psql -f` in autocommit mode (no --single-transaction), so each statement
+-- runs as its own top-level transaction. The CONCURRENTLY requirement
+-- ("not inside an explicit transaction block") is satisfied.
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_conversation_events_session_type
     ON conversation_events(session_id, event_type)
     WHERE session_id IS NOT NULL;

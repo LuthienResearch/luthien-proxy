@@ -144,3 +144,53 @@ class TestUserPrefixMiddleware:
             data = response.json()
             assert data["luthien_user"] == "bob"
             assert data["path"] == "/nested/test-path"
+
+    @pytest.mark.parametrize(
+        "raw_username",
+        [
+            "<script>",
+            "a b",
+            "user@example",
+            "",
+        ],
+    )
+    def test_invalid_usernames_dropped_but_path_still_stripped(self, app, raw_username):
+        """Usernames with disallowed chars must not reach request.state.luthien_user.
+
+        Defense-in-depth: even though display_name goes through parameterized SQL
+        and escapeHtml() in the UI, we refuse to store malformed values at all.
+        The prefix is still stripped so routing continues to work.
+        """
+        from urllib.parse import quote
+
+        from fastapi import Request
+        from fastapi.responses import JSONResponse
+
+        @app.get("/validation-test")
+        async def test_endpoint(request: Request):
+            user = getattr(request.state, "luthien_user", None)
+            return JSONResponse({"luthien_user": user, "path": request.scope.get("path")})
+
+        encoded = quote(raw_username, safe="")
+        with TestClient(app) as client:
+            response = client.get(f"/u/{encoded}/validation-test")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["luthien_user"] is None
+            assert data["path"] == "/validation-test"
+
+    @pytest.mark.parametrize("raw_username", ["alice", "alice.smith", "alice_smith", "alice-1", "a.b-c_d", "A1"])
+    def test_valid_usernames_stored(self, app, raw_username):
+        """Usernames matching the allowlist should be stored verbatim."""
+        from fastapi import Request
+        from fastapi.responses import JSONResponse
+
+        @app.get("/valid-test")
+        async def test_endpoint(request: Request):
+            user = getattr(request.state, "luthien_user", None)
+            return JSONResponse({"luthien_user": user})
+
+        with TestClient(app) as client:
+            response = client.get(f"/u/{raw_username}/valid-test")
+            assert response.status_code == 200
+            assert response.json()["luthien_user"] == raw_username

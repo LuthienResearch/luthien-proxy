@@ -378,6 +378,13 @@
             background: #1a1a1a;
             color: #e5e5e5;
         }
+
+        .load-status {
+            margin-left: 12px;
+            font-size: 11px;
+            color: #666;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -416,6 +423,7 @@
             <select id="user-filter" class="filter-dropdown" style="margin-left: 8px;">
                 <option value="">All users</option>
             </select>
+            <span id="load-status" class="load-status"></span>
             <div class="filter-dropdown">
                 <span class="filter-dropdown-btn" onclick="toggleDropdown()">More filters ▾</span>
                 <div class="filter-dropdown-menu" id="filter-dropdown">
@@ -520,14 +528,8 @@
         }
 
         function applyFilters() {
-            // Apply filter
+            // Apply filter (user filter is applied server-side via refetch)
             let filtered = getFilteredSessions(currentFilter);
-
-            // Apply user filter
-            const selectedUser = document.getElementById('user-filter').value;
-            if (selectedUser) {
-                filtered = filtered.filter(s => s.user_hash === selectedUser);
-            }
 
             // Apply search if there's a query
             const query = document.getElementById('search-input').value.toLowerCase();
@@ -559,11 +561,18 @@
             applyFilters();
         }
 
-        async function loadSessions() {
+        const SESSIONS_PAGE_SIZE = 50;
+        let allKnownUsers = [];
+
+        async function loadSessions(userHash = null) {
             const container = document.getElementById('sessions-container');
 
             try {
-                const response = await fetch('/api/history/sessions?limit=50', {
+                let url = `/api/history/sessions?limit=${SESSIONS_PAGE_SIZE}`;
+                if (userHash) {
+                    url += `&user_hash=${encodeURIComponent(userHash)}`;
+                }
+                const response = await fetch(url, {
                     headers: {
                         'Accept': 'application/json'
                     }
@@ -574,28 +583,62 @@
                 }
 
                 const data = await response.json();
-                allSessions = data.sessions;
+                allSessions = data.sessions || [];
 
-                // Fetch user labels
-                try {
-                    const labelsResp = await fetch('/api/history/user-labels', {
-                        headers: {'Accept': 'application/json'}
-                    });
-                    const labelsData = await labelsResp.json();
-                    userLabels = labelsData.labels || {};
-                } catch (e) {
-                    // Label fetch is non-critical; silently ignore
-                }
-
+                updateLoadStatus(data);
                 updateFilterCounts();
                 applyFilters();
-
-                populateUserFilter();
-                document.getElementById('user-filter').addEventListener('change', applyFilters);
 
             } catch (error) {
                 container.innerHTML = `<div class="error">Failed to load sessions: ${escapeHtml(error.message)}</div>`;
             }
+        }
+
+        function updateLoadStatus(data) {
+            const status = document.getElementById('load-status');
+            if (!status) return;
+            const total = typeof data.total === 'number' ? data.total : allSessions.length;
+            const shown = allSessions.length;
+            if (data.has_more || total > shown) {
+                status.textContent = `showing ${shown} of ${total} · search/date filters apply to loaded set only`;
+            } else {
+                status.textContent = `${total} session${total !== 1 ? 's' : ''}`;
+            }
+        }
+
+        async function loadUserLabelsAndDropdown() {
+            // Fetch labels for display name lookup
+            try {
+                const labelsResp = await fetch('/api/history/user-labels', {
+                    headers: {'Accept': 'application/json'}
+                });
+                if (labelsResp.ok) {
+                    const labelsData = await labelsResp.json();
+                    userLabels = labelsData.labels || {};
+                }
+            } catch (e) {
+                // Label fetch is non-critical; silently ignore
+            }
+
+            // Fetch the full user list (not just users in the loaded session page).
+            // This ensures the user-filter dropdown shows every known user, so
+            // selecting a user whose sessions aren't in the first page still works.
+            try {
+                const usersResp = await fetch('/api/history/users', {
+                    headers: {'Accept': 'application/json'}
+                });
+                if (usersResp.ok) {
+                    const usersData = await usersResp.json();
+                    allKnownUsers = usersData.users || [];
+                    // Merge any additional labels from the users endpoint
+                    Object.assign(userLabels, usersData.labels || {});
+                }
+            } catch (e) {
+                // Fall back to deriving users from loaded sessions
+                allKnownUsers = [];
+            }
+
+            populateUserFilter();
         }
 
         function populateUserFilter() {
@@ -605,8 +648,10 @@
             while (userFilter.options.length > 1) {
                 userFilter.remove(1);
             }
-            // Collect unique user hashes from loaded sessions
-            const hashes = [...new Set(allSessions.map(s => s.user_hash).filter(Boolean))].sort();
+            // Prefer the full user list; fall back to users from loaded sessions
+            const hashes = allKnownUsers.length
+                ? [...allKnownUsers].sort()
+                : [...new Set(allSessions.map(s => s.user_hash).filter(Boolean))].sort();
             hashes.forEach(hash => {
                 const option = document.createElement('option');
                 option.value = hash;
@@ -614,6 +659,11 @@
                 userFilter.appendChild(option);
             });
             userFilter.value = selectedValue;
+        }
+
+        function onUserFilterChange() {
+            const selected = document.getElementById('user-filter').value;
+            loadSessions(selected || null);
         }
 
         async function editUserLabel(hash, event) {
@@ -822,6 +872,9 @@
             return div.innerHTML;
         }
 
+        // Wire up user filter once, then kick off initial loads.
+        document.getElementById('user-filter').addEventListener('change', onUserFilterChange);
+        loadUserLabelsAndDropdown();
         loadSessions();
     </script>
     <script defer src="/static/vendor/alpine.min.js"></script>

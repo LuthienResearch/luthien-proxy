@@ -220,7 +220,6 @@ class EventEmitter:
 
         self._db_queue: asyncio.Queue[DbQueueItem] | None = None
         self._drain_task: asyncio.Task[None] | None = None
-        self._batch_drained: asyncio.Event | None = None
         self._shutting_down: bool = False
         self.dropped_events: int = 0
         self.dropped_db_writes: int = 0
@@ -235,7 +234,6 @@ class EventEmitter:
         """Start the background drain loop.  Call after the event loop is running."""
         if self._db_pool is not None:
             self._db_queue = asyncio.Queue(maxsize=self._max_queue_size)
-            self._batch_drained = asyncio.Event()
             self._drain_task = asyncio.create_task(self._drain_loop())
             self._drain_task.add_done_callback(_log_task_exception)
 
@@ -274,22 +272,18 @@ class EventEmitter:
     ) -> None:
         """Emit an event to all configured sinks.
 
-        Prefer record() for fire-and-forget usage.  This async method is
-        kept for backward compatibility and direct-await callers.
+        Thin async wrapper around record() retained for tests and legacy
+        direct-await callers. DB writes are enqueued via record() and
+        flushed by the background drain loop; callers that need to observe
+        the DB write must separately wait for the drain cycle (e.g. with
+        a short asyncio.sleep in tests).
+
+        A single yield point (asyncio.sleep(0)) is included so that
+        fire-and-forget SSE tasks scheduled inside record() get a chance
+        to run before control returns to the caller.
         """
-        # Clear the drain signal *before* enqueueing so we wait for a drain
-        # cycle that includes our event, not one that just finished.
-        if self._batch_drained is not None:
-            self._batch_drained.clear()
         self.record(transaction_id, event_type, data)
-        if self._db_queue is not None and self._batch_drained is not None:
-            try:
-                await asyncio.wait_for(
-                    self._batch_drained.wait(),
-                    timeout=self._shutdown_drain_timeout_s,
-                )
-            except TimeoutError:
-                logger.warning(f"emit() timed out waiting for drain after {self._shutdown_drain_timeout_s}s")
+        await asyncio.sleep(0)
 
     def record(
         self,
@@ -381,9 +375,6 @@ class EventEmitter:
                     f"Batch DB write failed ({len(batch)} events dropped, {self.dropped_db_writes} total): {e}",
                     exc_info=True,
                 )
-            finally:
-                if self._batch_drained is not None:
-                    self._batch_drained.set()
 
     async def _write_db_batch(
         self,
