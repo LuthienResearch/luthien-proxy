@@ -259,6 +259,23 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         category="webhook",
     ),
 
+    # ── retention ─────────────────────────────────────────────────────────
+    ConfigFieldMeta(
+        "conversation_retention_days", "CONVERSATION_RETENTION_DAYS", int, None,
+        "Delete conversation_calls older than this many days (None = disabled)",
+        category="retention",
+    ),
+    ConfigFieldMeta(
+        "archive_s3_bucket", "ARCHIVE_S3_BUCKET", str, None,
+        "S3 bucket for archiving conversations before purge (None = no archival)",
+        category="retention",
+    ),
+    ConfigFieldMeta(
+        "archive_s3_prefix", "ARCHIVE_S3_PREFIX", str, "luthien-archive/",
+        "S3 key prefix for archived conversation JSONL files",
+        category="retention",
+    ),
+
     # ── sentry ────────────────────────────────────────────────────────────
     ConfigFieldMeta(
         "sentry_enabled", "SENTRY_ENABLED", bool, False,
@@ -298,6 +315,7 @@ CONFIG_CATEGORIES: tuple[str, ...] = (
     "observability",
     "telemetry",
     "webhook",
+    "retention",
     "sentry",
 )
 

@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker ps:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker logs:*)",
+      "Bash(python3:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker restart:*)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "indeed-job-scraper",
+    "atlassian"
+  ]
+}
