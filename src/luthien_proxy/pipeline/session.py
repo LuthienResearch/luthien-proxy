@@ -98,6 +98,14 @@ def extract_user_hash(body: dict[str, Any], credential: Credential | None) -> st
 
     Falls back to hashing the credential value if metadata doesn't contain a user ID.
 
+    **Trust model**: The user_hash is *client-asserted* in API-key mode — any
+    client holding a valid credential can forge a metadata.user_id that maps to
+    another user's hash. This is acceptable because user_hash is used only for
+    observability grouping in the admin history UI, not for access control.
+    The admin UI is behind separate authentication. If cryptographic binding is
+    needed in the future, HMAC(credential, metadata_user_id) would prevent
+    spoofing without changing the external interface.
+
     Args:
         body: Raw request body as dict (expected to have optional ``metadata.user_id`` field)
         credential: The authenticated credential for this request, used as fallback identifier

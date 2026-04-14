@@ -419,6 +419,8 @@ async def process_anthropic_request(
                     _labeled_user_hashes.popitem(last=False)
                 try:
                     async with db_pool.connection() as conn:
+                        # DO NOTHING (not DO UPDATE) so admin-set labels via
+                        # the PUT endpoint are never overwritten by auto-labels.
                         await conn.execute(
                             """INSERT INTO user_labels (user_hash, display_name, created_at, updated_at)
                                VALUES ($1, $2, $3, $3)
