@@ -68,6 +68,7 @@ debug_multitool_nonstreaming.json
 .playwright-mcp/
 .worktrees/
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 
 # Superpowers generated docs (per-session plans and specs)
 docs/superpowers/plans/
