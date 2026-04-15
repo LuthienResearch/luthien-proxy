@@ -600,6 +600,18 @@ async def fetch_session_list(
             *session_ids,
         )
 
+        user_id_rows = await conn.fetch(
+            f"""
+            SELECT ce.session_id, MIN(cc.user_id) as user_id
+            FROM conversation_events ce
+            JOIN conversation_calls cc ON ce.call_id = cc.call_id
+            WHERE ce.session_id IN ({session_id_placeholders})
+            AND cc.user_id IS NOT NULL
+            GROUP BY ce.session_id
+            """,
+            *session_ids,
+        )
+
     models_by_session: dict[str, list[str]] = {}
     for model_row in model_rows:
         sid = str(model_row["session_id"])
@@ -614,6 +626,12 @@ async def fetch_session_list(
         if sid not in preview_by_session:
             preview_by_session[sid] = _extract_preview_message(cast(_PreviewPayload, preview_row["request_payload"]))
 
+    user_id_by_session: dict[str, str] = {}
+    for uid_row in user_id_rows:
+        sid = str(uid_row["session_id"])
+        if uid_row["user_id"]:
+            user_id_by_session[sid] = str(uid_row["user_id"])
+
     sessions = [
         SessionSummary(
             session_id=str(row["session_id"]),
@@ -624,7 +642,7 @@ async def fetch_session_list(
             policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
             models_used=models_by_session.get(str(row["session_id"]), []),
             preview_message=preview_by_session.get(str(row["session_id"])),
-            user_id=str(row["user_id"]) if row["user_id"] else None,
+            user_id=user_id_by_session.get(str(row["session_id"])),
         )
         for row in rows
     ]
