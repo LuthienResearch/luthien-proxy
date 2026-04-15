@@ -416,8 +416,8 @@ def create_app(
         db_error = None
         if deps and deps.db_pool:
             try:
-                pool = await deps.db_pool.get_pool()
-                result = await pool.fetchval("SELECT 1")
+                async with deps.db_pool.connection() as conn:
+                    result = await conn.fetchval("SELECT 1")
                 db_status = "connected" if result == 1 else "unexpected_response"
             except Exception as exc:
                 db_status = "unreachable"
@@ -461,8 +461,8 @@ def create_app(
         # Check database connectivity
         if deps.db_pool:
             try:
-                pool = await deps.db_pool.get_pool()
-                await pool.fetchval("SELECT 1")
+                async with deps.db_pool.connection() as conn:
+                    await conn.fetchval("SELECT 1")
             except Exception as exc:
                 reasons.append(f"database unreachable: {exc}")
         # No db_pool is acceptable (SQLite auto-creates, or DB is optional)
