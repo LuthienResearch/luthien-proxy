@@ -27,6 +27,9 @@ from luthien_proxy.history.routes import (
 
 AUTH_TOKEN = "test-admin-key"
 
+# Default no-search kwargs for list_sessions (all new params None)
+_NO_SEARCH = dict(user=None, model=None, from_time=None, to_time=None, q=None, policy_intervention=None)
+
 
 class TestListSessionsRoute:
     """Test list_sessions route handler."""
@@ -57,7 +60,7 @@ class TestListSessionsRoute:
             new_callable=AsyncMock,
             return_value=expected_response,
         ) as mock_fetch:
-            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=0)
+            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=0, **_NO_SEARCH)
 
             assert isinstance(result, SessionListResponse)
             assert result.total == 100
@@ -65,7 +68,8 @@ class TestListSessionsRoute:
             assert result.has_more is True
             assert len(result.sessions) == 1
             assert result.sessions[0].session_id == "session-1"
-            mock_fetch.assert_called_once_with(50, mock_db_pool, 0, user_id=ANY)
+            # Called with limit, db_pool, offset, and a SessionSearchParams
+            mock_fetch.assert_called_once_with(50, mock_db_pool, 0, ANY)
 
     @pytest.mark.asyncio
     async def test_list_sessions_custom_limit(self):
@@ -77,8 +81,10 @@ class TestListSessionsRoute:
             new_callable=AsyncMock,
             return_value=SessionListResponse(sessions=[], total=0),
         ) as mock_fetch:
-            await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=100, offset=0)
-            mock_fetch.assert_called_once_with(100, mock_db_pool, 0, user_id=ANY)
+            await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=100, offset=0, **_NO_SEARCH)
+            call_args = mock_fetch.call_args[0]
+            assert call_args[0] == 100  # limit
+            assert call_args[2] == 0  # offset
 
     @pytest.mark.asyncio
     async def test_list_sessions_with_offset(self):
@@ -96,11 +102,13 @@ class TestListSessionsRoute:
             new_callable=AsyncMock,
             return_value=expected_response,
         ) as mock_fetch:
-            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=50)
+            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=50, **_NO_SEARCH)
 
             assert result.offset == 50
             assert result.has_more is True
-            mock_fetch.assert_called_once_with(50, mock_db_pool, 50, user_id=ANY)
+            call_args = mock_fetch.call_args[0]
+            assert call_args[0] == 50  # limit
+            assert call_args[2] == 50  # offset
 
     @pytest.mark.asyncio
     async def test_list_sessions_empty(self):
@@ -112,7 +120,7 @@ class TestListSessionsRoute:
             new_callable=AsyncMock,
             return_value=SessionListResponse(sessions=[], total=0),
         ):
-            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=0)
+            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=0, **_NO_SEARCH)
 
             assert result.total == 0
             assert result.sessions == []

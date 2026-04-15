@@ -1,7 +1,7 @@
 """Routes for conversation history viewer.
 
 Provides endpoints for:
-- Listing recent sessions
+- Listing recent sessions (with optional server-side search/filter)
 - Viewing session details
 - Exporting sessions to markdown
 - HTML UI pages
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -24,7 +25,7 @@ from luthien_proxy.utils.constants import (
 )
 from luthien_proxy.utils.db import DatabasePool
 
-from .models import SessionDetail, SessionListResponse
+from .models import SessionDetail, SessionListResponse, SessionSearchParams
 from .service import export_session_jsonl, export_session_markdown, fetch_session_detail, fetch_session_list
 
 logger = logging.getLogger(__name__)
@@ -83,9 +84,38 @@ async def list_sessions(
         ge=0,
         description="Number of sessions to skip for pagination",
     ),
-    user_id: str | None = Query(
+    # --- Search / filter parameters ---
+    user: str | None = Query(
         default=None,
-        description="Filter sessions by user identity (from X-Luthien-User-Id header or JWT sub claim)",
+        description=(
+            "Filter by session_id prefix (case-sensitive). "
+            "Currently maps to session_id; will be updated to user_id once #554 lands."
+        ),
+    ),
+    model: str | None = Query(
+        default=None,
+        description="Filter by model name (exact match, e.g. 'claude-opus-4-6')",
+    ),
+    from_time: datetime | None = Query(
+        default=None,
+        alias="from",
+        description="ISO 8601 lower bound on session last activity (inclusive)",
+    ),
+    to_time: datetime | None = Query(
+        default=None,
+        alias="to",
+        description="ISO 8601 upper bound on session last activity (inclusive)",
+    ),
+    q: str | None = Query(
+        default=None,
+        description=(
+            "Full-text search on user message and assistant response text. "
+            "PostgreSQL uses tsvector/GIN index; SQLite uses LIKE (slow for large datasets)."
+        ),
+    ),
+    policy_intervention: bool | None = Query(
+        default=None,
+        description="If true, only return sessions with at least one policy intervention",
     ),
 ) -> SessionListResponse:
     """List recent sessions with summaries.
@@ -93,9 +123,19 @@ async def list_sessions(
     Returns a list of session summaries ordered by most recent activity,
     including turn counts, policy interventions, and models used.
     Supports pagination via limit and offset parameters.
-    Optionally filter by user_id to see sessions for a specific user.
+
+    All search parameters are optional. When none are provided, returns all sessions
+    (fully backward compatible with the original unfiltered behavior).
     """
-    return await fetch_session_list(limit, db_pool, offset, user_id=user_id)
+    search = SessionSearchParams(
+        user=user,
+        model=model,
+        from_time=from_time,
+        to_time=to_time,
+        q=q,
+        policy_intervention=policy_intervention,
+    )
+    return await fetch_session_list(limit, db_pool, offset, search)
 
 
 @api_router.get("/sessions/{session_id}", response_model=SessionDetail)
