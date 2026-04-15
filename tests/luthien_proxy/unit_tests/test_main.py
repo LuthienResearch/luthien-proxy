@@ -5,8 +5,15 @@
 
 import os
 import tempfile
+from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock
+
+
+@asynccontextmanager
+async def _async_cm(value):
+    """Helper to create an async context manager yielding a fixed value."""
+    yield value
 
 import pytest
 from fastapi.testclient import TestClient
@@ -476,6 +483,10 @@ class TestCreateApp:
         mock_pool.fetchrow = AsyncMock(return_value=None)
         mock_pool.fetch = AsyncMock(return_value=[])
         mock_db_pool.get_pool = AsyncMock(return_value=mock_pool)
+        # Health/ready use db_pool.connection() context manager
+        mock_conn = AsyncMock()
+        mock_conn.fetchval = AsyncMock(return_value=1)
+        mock_db_pool.connection = lambda: _async_cm(mock_conn)
         app = create_app(
             api_key="test-key",
             admin_key=None,
@@ -500,6 +511,10 @@ class TestCreateApp:
         mock_pool.fetchrow = AsyncMock(return_value=None)
         mock_pool.fetch = AsyncMock(return_value=[])
         mock_db_pool.get_pool = AsyncMock(return_value=mock_pool)
+        # Working connection for startup
+        mock_conn = AsyncMock()
+        mock_conn.fetchval = AsyncMock(return_value=1)
+        mock_db_pool.connection = lambda: _async_cm(mock_conn)
         app = create_app(
             api_key="test-key",
             admin_key=None,
@@ -508,9 +523,15 @@ class TestCreateApp:
             startup_policy_path=policy_config_file,
         )
 
+        @asynccontextmanager
+        async def _broken_connection():
+            raise ConnectionRefusedError("Connection refused")
+            yield  # noqa: unreachable
+
         with TestClient(app) as client:
             # Now make DB unreachable for the health check
             mock_db_pool.get_pool = AsyncMock(side_effect=ConnectionRefusedError("Connection refused"))
+            mock_db_pool.connection = _broken_connection
             response = client.get("/health")
             assert response.status_code == 200  # Liveness probe always 200
             data = response.json()
@@ -526,6 +547,10 @@ class TestCreateApp:
         mock_pool.fetchrow = AsyncMock(return_value=None)
         mock_pool.fetch = AsyncMock(return_value=[])
         mock_db_pool.get_pool = AsyncMock(return_value=mock_pool)
+        # Ready uses db_pool.connection() context manager
+        mock_conn = AsyncMock()
+        mock_conn.fetchval = AsyncMock(return_value=1)
+        mock_db_pool.connection = lambda: _async_cm(mock_conn)
         app = create_app(
             api_key="test-key",
             admin_key=None,
@@ -548,6 +573,10 @@ class TestCreateApp:
         mock_pool.fetchrow = AsyncMock(return_value=None)
         mock_pool.fetch = AsyncMock(return_value=[])
         mock_db_pool.get_pool = AsyncMock(return_value=mock_pool)
+        # Working connection for startup
+        mock_conn = AsyncMock()
+        mock_conn.fetchval = AsyncMock(return_value=1)
+        mock_db_pool.connection = lambda: _async_cm(mock_conn)
         app = create_app(
             api_key="test-key",
             admin_key=None,
@@ -556,9 +585,15 @@ class TestCreateApp:
             startup_policy_path=policy_config_file,
         )
 
+        @asynccontextmanager
+        async def _broken_connection():
+            raise ConnectionRefusedError("Connection refused")
+            yield  # noqa: unreachable
+
         with TestClient(app) as client:
             # Now make DB unreachable for the readiness check
             mock_db_pool.get_pool = AsyncMock(side_effect=ConnectionRefusedError("Connection refused"))
+            mock_db_pool.connection = _broken_connection
             response = client.get("/ready")
             assert response.status_code == 503
             data = response.json()
