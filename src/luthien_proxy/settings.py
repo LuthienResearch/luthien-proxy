@@ -102,17 +102,15 @@ class Settings(_SettingsBase):
     usage_telemetry: bool | None = None
     telemetry_endpoint: str = "https://telemetry.luthien.cc/v1/events"
 
-<<<<<<< HEAD
     # ── webhook ─────────────────────────────────────────────────────
     webhook_url: str = ""
     webhook_max_retries: int = 3
     webhook_retry_delay_seconds: float = 1.0
-=======
+
     # ── retention ───────────────────────────────────────────────────
     conversation_retention_days: int | None = None
     archive_s3_bucket: str | None = None
     archive_s3_prefix: str = "luthien-archive/"
->>>>>>> pr-571
 
     # ── sentry ──────────────────────────────────────────────────────
     sentry_enabled: bool = False

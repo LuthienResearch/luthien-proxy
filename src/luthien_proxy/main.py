@@ -283,7 +283,6 @@ def create_app(
         else:
             logger.info("Usage telemetry disabled")
 
-<<<<<<< HEAD
         # Initialize webhook sender
         _webhook_url = settings.webhook_url or None
         _webhook_sender = WebhookSender(
@@ -295,7 +294,7 @@ def create_app(
             logger.info("Webhook event export enabled (url=%s)", _webhook_url)
         else:
             logger.info("Webhook event export disabled (set WEBHOOK_URL to enable)")
-=======
+
         # Initialize conversation retention purger
         _purger: ConversationPurger | None = None
         _retention_days = get_settings().conversation_retention_days
@@ -314,7 +313,6 @@ def create_app(
             _purger.start()
         else:
             logger.info("Conversation retention disabled (CONVERSATION_RETENTION_DAYS not set)")
->>>>>>> pr-571
 
         # Create Dependencies container with all services
         _dependencies = Dependencies(
