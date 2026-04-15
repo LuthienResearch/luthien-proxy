@@ -6,6 +6,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 TIMING_FILE=""
 SKIP_REPORTS=0
+PYTEST_WORKERS="${DEV_CHECKS_PYTEST_WORKERS:-4}"
 for arg in "$@"; do
     case "$arg" in
         --timing)
@@ -23,9 +24,12 @@ for arg in "$@"; do
             # here in the future without breaking --skip-reports' meaning.
             SKIP_REPORTS=1
             ;;
+        --workers=*)
+            PYTEST_WORKERS="${arg#--workers=}"
+            ;;
         --help|-h)
             cat <<'USAGE'
-Usage: dev_checks.sh [--timing[=PATH]] [--skip-reports] [--fast]
+Usage: dev_checks.sh [--timing[=PATH]] [--skip-reports] [--fast] [--workers=N]
 
   --timing[=PATH]  Record per-step wall-clock timings as JSONL
                    (default path: .dev_checks_timings.jsonl).
@@ -34,6 +38,10 @@ Usage: dev_checks.sh [--timing[=PATH]] [--skip-reports] [--fast]
                    still run. Saves ~13s.
   --fast           Alias for --skip-reports (may enable more inner-loop
                    shortcuts in the future).
+  --workers=N      Pytest parallel workers (pytest-xdist). Default: 4.
+                   Use 1 to disable parallelism (helpful for debugging
+                   flakes or interleaved output). Also overridable via
+                   DEV_CHECKS_PYTEST_WORKERS env var.
 USAGE
             exit 0
             ;;
@@ -155,10 +163,14 @@ pyright_start=$(date +%s.%N)
 PYRIGHT_PID=$!
 
 pytest_start=$(date +%s.%N)
+PYTEST_PARALLEL=()
+if [[ "$PYTEST_WORKERS" -gt 1 ]]; then
+    PYTEST_PARALLEL=(-n "$PYTEST_WORKERS")
+fi
 if [[ $SKIP_REPORTS -eq 1 ]]; then
-    (uv run -m pytest -q --no-cov > "$PYTEST_LOG" 2>&1) &
+    (uv run -m pytest -q --no-cov "${PYTEST_PARALLEL[@]}" > "$PYTEST_LOG" 2>&1) &
 else
-    (uv run -m pytest -q > "$PYTEST_LOG" 2>&1) &
+    (uv run -m pytest -q "${PYTEST_PARALLEL[@]}" > "$PYTEST_LOG" 2>&1) &
 fi
 PYTEST_PID=$!
 
