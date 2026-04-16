@@ -158,25 +158,44 @@ step "ruff_docstrings" run_ruff_docstrings
 
 echo "== Pyright + Tests (parallel) =="
 # Pyright and pytest are independent; running them concurrently saves ~10s.
-# Each writes to its own log and we surface output sequentially so it's readable.
+# Each writes its output + end-timestamp + exit code to its own tmp files,
+# so we can record each process's actual finish time (not just when the
+# outer wait returns). This matters once pyright ≈ pytest in duration.
 PYRIGHT_LOG="$(mktemp)"
 PYTEST_LOG="$(mktemp)"
-trap 'rm -f "$PYRIGHT_LOG" "$PYTEST_LOG"' EXIT
+PYRIGHT_END_FILE="$(mktemp)"
+PYTEST_END_FILE="$(mktemp)"
+PYRIGHT_PID=""
+PYTEST_PID=""
 
-pyright_start=$(date +%s.%N)
-(uv run pyright > "$PYRIGHT_LOG" 2>&1) &
+parallel_cleanup() {
+    # Kill any still-running background jobs (e.g. on Ctrl-C) so they don't
+    # become orphans that keep burning CPU after the script exits.
+    if [[ -n "$PYRIGHT_PID" ]] && kill -0 "$PYRIGHT_PID" 2>/dev/null; then
+        kill "$PYRIGHT_PID" 2>/dev/null || true
+    fi
+    if [[ -n "$PYTEST_PID" ]] && kill -0 "$PYTEST_PID" 2>/dev/null; then
+        kill "$PYTEST_PID" 2>/dev/null || true
+    fi
+    rm -f "$PYRIGHT_LOG" "$PYTEST_LOG" "$PYRIGHT_END_FILE" "$PYTEST_END_FILE"
+}
+# Compose with the existing summary trap instead of replacing it.
+trap 'parallel_cleanup; print_timing_summary' EXIT INT TERM
+
+pyright_start=$(now_epoch)
+( uv run pyright > "$PYRIGHT_LOG" 2>&1; rc=$?; now_epoch > "$PYRIGHT_END_FILE"; exit "$rc" ) &
 PYRIGHT_PID=$!
 
-pytest_start=$(date +%s.%N)
-(uv run -m pytest -q > "$PYTEST_LOG" 2>&1) &
+pytest_start=$(now_epoch)
+( uv run -m pytest -q > "$PYTEST_LOG" 2>&1; rc=$?; now_epoch > "$PYTEST_END_FILE"; exit "$rc" ) &
 PYTEST_PID=$!
 
 set +e
 wait "$PYRIGHT_PID"; PYRIGHT_RC=$?
-pyright_end=$(date +%s.%N)
-wait "$PYTEST_PID"; PYTEST_RC=$?
-pytest_end=$(date +%s.%N)
+wait "$PYTEST_PID";  PYTEST_RC=$?
 set -e
+pyright_end=$(cat "$PYRIGHT_END_FILE")
+pytest_end=$(cat "$PYTEST_END_FILE")
 
 echo ""
 echo "── Pyright output ──"
@@ -189,20 +208,22 @@ if [[ -n "$TIMING_FILE" ]]; then
     pyright_dur=$(awk -v s="$pyright_start" -v e="$pyright_end" 'BEGIN { printf "%.3f", e - s }')
     pytest_dur=$(awk -v s="$pytest_start" -v e="$pytest_end" 'BEGIN { printf "%.3f", e - s }')
     printf '{"run_id":"%s","step":"pyright","duration_s":%s,"exit_code":%d,"ts":"%s"}\n' \
-        "$RUN_ID" "$pyright_dur" "$PYRIGHT_RC" "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" \
+        "$RUN_ID" "$pyright_dur" "$PYRIGHT_RC" "$(now_iso_ms_utc)" \
         >> "$TIMING_FILE"
     printf '{"run_id":"%s","step":"pytest","duration_s":%s,"exit_code":%d,"ts":"%s"}\n' \
-        "$RUN_ID" "$pytest_dur" "$PYTEST_RC" "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" \
+        "$RUN_ID" "$pytest_dur" "$PYTEST_RC" "$(now_iso_ms_utc)" \
         >> "$TIMING_FILE"
 fi
 
-if [[ $PYRIGHT_RC -ne 0 ]]; then
-    echo "Pyright failed (exit $PYRIGHT_RC)."
+# If both failed, report both before exiting (not just the first one).
+if [[ $PYRIGHT_RC -ne 0 || $PYTEST_RC -ne 0 ]]; then
+    [[ $PYRIGHT_RC -ne 0 ]] && echo "Pyright failed (exit $PYRIGHT_RC)."
+    [[ $PYTEST_RC  -ne 0 ]] && echo "Pytest failed (exit $PYTEST_RC)."
+    # Prefer pytest's exit code when both fail (it's the more actionable signal).
+    if [[ $PYTEST_RC -ne 0 ]]; then
+        exit "$PYTEST_RC"
+    fi
     exit "$PYRIGHT_RC"
-fi
-if [[ $PYTEST_RC -ne 0 ]]; then
-    echo "Pytest failed (exit $PYTEST_RC)."
-    exit "$PYTEST_RC"
 fi
 
 echo "== Radon complexity (report-only) =="
