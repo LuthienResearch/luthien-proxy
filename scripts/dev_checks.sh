@@ -4,49 +4,134 @@ set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
+TIMING_FILE=""
+for arg in "$@"; do
+    case "$arg" in
+        --timing)
+            TIMING_FILE="$REPO_ROOT/.dev_checks_timings.jsonl"
+            ;;
+        --timing=*)
+            TIMING_FILE="${arg#--timing=}"
+            ;;
+    esac
+done
+
+# Portable high-resolution epoch timestamp. `date +%N` is a GNU coreutils
+# extension; BSD/macOS `date` emits the literal 'N' instead of nanoseconds.
+# Try GNU date first, then gdate (common via `brew install coreutils`), and
+# finally fall back to whole-second resolution. The JSONL schema is unchanged.
+if date +%N 2>/dev/null | grep -qE '^[0-9]+$'; then
+    now_epoch()      { date +%s.%N; }
+    now_iso_ms_utc() { date -u +%Y-%m-%dT%H:%M:%S.%3NZ; }
+elif command -v gdate >/dev/null 2>&1 && gdate +%N 2>/dev/null | grep -qE '^[0-9]+$'; then
+    now_epoch()      { gdate +%s.%N; }
+    now_iso_ms_utc() { gdate -u +%Y-%m-%dT%H:%M:%S.%3NZ; }
+else
+    now_epoch()      { date +%s; }
+    now_iso_ms_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+fi
+
+if [[ -n "$TIMING_FILE" ]]; then
+    : > "$TIMING_FILE"
+    echo "Timing output: $TIMING_FILE"
+fi
+
+RUN_ID="$(date -u +%Y-%m-%dT%H:%M:%SZ)-$$"
+TOTAL_START=$(now_epoch)
+
+# Always print the summary on exit (including on failure) when timing is on,
+# so slow/failing runs are the most useful to diagnose.
+print_timing_summary() {
+    [[ -z "$TIMING_FILE" ]] && return
+    [[ ! -s "$TIMING_FILE" ]] && return
+    echo ""
+    echo "── Timing summary ──"
+    # Parse JSONL via Python for correctness (field order / embedded colons).
+    # uv is already warm from earlier steps so the overhead is negligible.
+    uv run python - "$TIMING_FILE" <<'PY' | sort -rn
+import json, sys
+for line in open(sys.argv[1]):
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        rec = json.loads(line)
+    except Exception:
+        continue
+    print(f"  {float(rec['duration_s']):7.2f}s  {rec['step']}")
+PY
+}
+trap print_timing_summary EXIT
+
+# Run a named step and optionally record its wall-clock duration + exit status
+# as one JSON line in $TIMING_FILE.
+step() {
+    local name="$1"
+    shift
+    if [[ -z "$TIMING_FILE" ]]; then
+        "$@"
+        return $?
+    fi
+    local start end dur rc
+    start=$(now_epoch)
+    set +e
+    "$@"
+    rc=$?
+    set -e
+    end=$(now_epoch)
+    dur=$(awk -v s="$start" -v e="$end" 'BEGIN { printf "%.3f", e - s }')
+    printf '{"run_id":"%s","step":"%s","duration_s":%s,"exit_code":%d,"ts":"%s"}\n' \
+        "$RUN_ID" "$name" "$dur" "$rc" "$(now_iso_ms_utc)" \
+        >> "$TIMING_FILE"
+    return $rc
+}
+
 # ── Phase 1: Fix ──────────────────────────────────────────────
 
 echo "== Dependency sync (locked) =="
-uv sync --all-groups --locked
+step "uv_sync" uv sync --all-groups --locked
 
 echo "== Shellcheck (shell scripts) =="
-if command -v shellcheck &>/dev/null; then
-    SCRIPT_DIR="$REPO_ROOT/scripts"
-    shellcheck_failed=0
-    pushd "$SCRIPT_DIR" > /dev/null
+run_shellcheck() {
+    if ! command -v shellcheck &>/dev/null; then
+        echo "  ERROR: shellcheck not installed."
+        echo "  Install with: brew install shellcheck (macOS) or apt-get install shellcheck (Linux)"
+        return 1
+    fi
+    local script_dir="$REPO_ROOT/scripts"
+    local failed=0
+    pushd "$script_dir" > /dev/null
     for script in *.sh; do
         if [[ -f "$script" ]]; then
             echo "  Checking $script..."
             if ! shellcheck --shell=bash -x "$script"; then
-                shellcheck_failed=1
+                failed=1
             fi
         fi
     done
     popd > /dev/null
-    if [[ "$shellcheck_failed" -ne 0 ]]; then
+    if [[ "$failed" -ne 0 ]]; then
         echo "Shellcheck found issues. Please fix them before proceeding."
-        exit 1
+        return 1
     fi
     echo "  All shell scripts passed."
-else
-    echo "  ERROR: shellcheck not installed."
-    echo "  Install with: brew install shellcheck (macOS) or apt-get install shellcheck (Linux)"
-    exit 1
-fi
+}
+step "shellcheck" run_shellcheck
 
 echo "== Generate settings.py from config_fields =="
-uv run python scripts/generate_settings.py
+step "generate_settings" uv run python scripts/generate_settings.py
 
 echo "== Generate .env.example from config_fields =="
-uv run python scripts/generate_env_example.py > .env.example
+run_generate_env() { uv run python scripts/generate_env_example.py > .env.example; }
+step "generate_env_example" run_generate_env
 
 DIRTY_BEFORE=$(git diff --name-only 2>/dev/null)
 
 echo "== Ruff format (apply) =="
-uv run ruff format
+step "ruff_format" uv run ruff format
 
 echo "== Ruff lint (autofix) =="
-uv run ruff check --fix
+step "ruff_check_fix" uv run ruff check --fix
 
 DIRTY_AFTER=$(git diff --name-only 2>/dev/null)
 FORMATTER_CHANGED=$(comm -13 <(echo "$DIRTY_BEFORE" | sort) <(echo "$DIRTY_AFTER" | sort))
@@ -65,19 +150,21 @@ fi
 # ── Phase 2: Gate ─────────────────────────────────────────────
 
 echo "== Ruff lint (E/F/I/D gating) =="
-uv run ruff check
+step "ruff_check" uv run ruff check
 
 echo "== Ruff docstrings (report-only) =="
-uv run ruff check --select D --exit-zero || true
+run_ruff_docstrings() { uv run ruff check --select D --exit-zero || true; }
+step "ruff_docstrings" run_ruff_docstrings
 
 echo "== Pyright (basic) =="
-uv run pyright
+step "pyright" uv run pyright
 
 echo "== Tests =="
-uv run -m pytest -q
+step "pytest" uv run -m pytest -q
 
 echo "== Radon complexity (report-only) =="
-uv run radon cc -s -a src || true
+run_radon() { uv run radon cc -s -a src || true; }
+step "radon" run_radon
 
 echo "== Clean tree check (post) =="
 if ! git diff --quiet 2>/dev/null; then
@@ -88,6 +175,15 @@ fi
 
 echo ""
 echo "All checks completed."
+
+if [[ -n "$TIMING_FILE" ]]; then
+    TOTAL_END=$(now_epoch)
+    TOTAL=$(awk -v s="$TOTAL_START" -v e="$TOTAL_END" 'BEGIN { printf "%.3f", e - s }')
+    printf '{"run_id":"%s","step":"__total__","duration_s":%s,"exit_code":0,"ts":"%s"}\n' \
+        "$RUN_ID" "$TOTAL" "$(now_iso_ms_utc)" \
+        >> "$TIMING_FILE"
+fi
+# Summary itself is printed by the EXIT trap (runs on success and failure).
 
 # Remind about staged/unpushed changes
 if ! git diff --cached --quiet 2>/dev/null; then
