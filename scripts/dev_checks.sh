@@ -16,13 +16,52 @@ for arg in "$@"; do
     esac
 done
 
+# Portable high-resolution epoch timestamp. `date +%N` is a GNU coreutils
+# extension; BSD/macOS `date` emits the literal 'N' instead of nanoseconds.
+# Try GNU date first, then gdate (common via `brew install coreutils`), and
+# finally fall back to whole-second resolution. The JSONL schema is unchanged.
+if date +%N 2>/dev/null | grep -qE '^[0-9]+$'; then
+    now_epoch()      { date +%s.%N; }
+    now_iso_ms_utc() { date -u +%Y-%m-%dT%H:%M:%S.%3NZ; }
+elif command -v gdate >/dev/null 2>&1 && gdate +%N 2>/dev/null | grep -qE '^[0-9]+$'; then
+    now_epoch()      { gdate +%s.%N; }
+    now_iso_ms_utc() { gdate -u +%Y-%m-%dT%H:%M:%S.%3NZ; }
+else
+    now_epoch()      { date +%s; }
+    now_iso_ms_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+fi
+
 if [[ -n "$TIMING_FILE" ]]; then
     : > "$TIMING_FILE"
     echo "Timing output: $TIMING_FILE"
 fi
 
 RUN_ID="$(date -u +%Y-%m-%dT%H:%M:%SZ)-$$"
-TOTAL_START=$(date +%s.%N)
+TOTAL_START=$(now_epoch)
+
+# Always print the summary on exit (including on failure) when timing is on,
+# so slow/failing runs are the most useful to diagnose.
+print_timing_summary() {
+    [[ -z "$TIMING_FILE" ]] && return
+    [[ ! -s "$TIMING_FILE" ]] && return
+    echo ""
+    echo "── Timing summary ──"
+    # Parse JSONL via Python for correctness (field order / embedded colons).
+    # uv is already warm from earlier steps so the overhead is negligible.
+    uv run python - "$TIMING_FILE" <<'PY' | sort -rn
+import json, sys
+for line in open(sys.argv[1]):
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        rec = json.loads(line)
+    except Exception:
+        continue
+    print(f"  {float(rec['duration_s']):7.2f}s  {rec['step']}")
+PY
+}
+trap print_timing_summary EXIT
 
 # Run a named step and optionally record its wall-clock duration + exit status
 # as one JSON line in $TIMING_FILE.
@@ -34,15 +73,15 @@ step() {
         return $?
     fi
     local start end dur rc
-    start=$(date +%s.%N)
+    start=$(now_epoch)
     set +e
     "$@"
     rc=$?
     set -e
-    end=$(date +%s.%N)
+    end=$(now_epoch)
     dur=$(awk -v s="$start" -v e="$end" 'BEGIN { printf "%.3f", e - s }')
     printf '{"run_id":"%s","step":"%s","duration_s":%s,"exit_code":%d,"ts":"%s"}\n' \
-        "$RUN_ID" "$name" "$dur" "$rc" "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" \
+        "$RUN_ID" "$name" "$dur" "$rc" "$(now_iso_ms_utc)" \
         >> "$TIMING_FILE"
     return $rc
 }
@@ -138,23 +177,13 @@ echo ""
 echo "All checks completed."
 
 if [[ -n "$TIMING_FILE" ]]; then
-    TOTAL_END=$(date +%s.%N)
+    TOTAL_END=$(now_epoch)
     TOTAL=$(awk -v s="$TOTAL_START" -v e="$TOTAL_END" 'BEGIN { printf "%.3f", e - s }')
     printf '{"run_id":"%s","step":"__total__","duration_s":%s,"exit_code":0,"ts":"%s"}\n' \
-        "$RUN_ID" "$TOTAL" "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" \
+        "$RUN_ID" "$TOTAL" "$(now_iso_ms_utc)" \
         >> "$TIMING_FILE"
-    echo ""
-    echo "── Timing summary ──"
-    awk -F'[,:]' '
-        /"step"/ {
-            for (i=1; i<=NF; i++) {
-                if ($i ~ /"step"/) { gsub(/["{} ]/, "", $(i+1)); step=$(i+1) }
-                if ($i ~ /"duration_s"/) { gsub(/["{} ]/, "", $(i+1)); dur=$(i+1) }
-            }
-            printf "  %7.2fs  %s\n", dur, step
-        }
-    ' "$TIMING_FILE" | sort -rn
 fi
+# Summary itself is printed by the EXIT trap (runs on success and failure).
 
 # Remind about staged/unpushed changes
 if ! git diff --cached --quiet 2>/dev/null; then
