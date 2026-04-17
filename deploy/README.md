@@ -7,7 +7,7 @@ setup required — just deploy, generate a domain, and point Claude Code at it.
 
 ### 1. Deploy
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/LuthienResearch/luthien-proxy)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/luthien-proxy-oneclick)
 
 ### 2. Generate a domain
 
