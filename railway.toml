@@ -1,5 +1,5 @@
 # Railway deployment configuration for Luthien Proxy
-# Deploy: https://railway.com/deploy/5pk_06
+# Deploy: https://railway.com/deploy/luthien-proxy-oneclick
 #
 # One-click deploy: the app detects Railway and boots with sensible defaults:
 #   - SQLite database (no Postgres needed for single-user)
