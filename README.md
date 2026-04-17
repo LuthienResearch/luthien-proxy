@@ -6,6 +6,8 @@
 curl -fsSL https://luthien.cc/install.sh | bash  # local install, no Docker needed
 ```
 
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/luthien-proxy-oneclick)
+
 [What does it look like?](#what-does-it-look-like) | [What can it do?](#what-can-it-do) | [How does it work?](#how-does-it-work) | [Quick start](#quick-start)
 
 Open-source proxy that sits between Claude Code and the Anthropic API.
