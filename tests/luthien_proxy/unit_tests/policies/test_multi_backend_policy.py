@@ -21,9 +21,12 @@ import pytest
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
     Message,
+    RawContentBlockDeltaEvent,
+    RawContentBlockStartEvent,
     RawMessageStartEvent,
     Usage,
 )
+from anthropic.types.thinking_delta import ThinkingDelta
 from pydantic import ValidationError
 from tests.luthien_proxy.unit_tests.policies.anthropic_event_builders import (
     block_stop,
@@ -472,6 +475,68 @@ class TestStreaming:
         assert "# extra\n\n" in all_text
         assert "**Error:**" in all_text
         assert "backend blew up" in all_text
+
+    @pytest.mark.asyncio
+    async def test_thinking_blocks_are_skipped_not_emitted_as_empty_text(self):
+        """Thinking blocks from the primary stream must not round-trip as empty text.
+
+        Empty text content blocks trigger Anthropic's "text content blocks must
+        be non-empty" error on the next turn's history replay. Regression test
+        for exactly that failure seen during live Claude Code testing.
+        """
+        policy = MultiBackendPolicy(MultiBackendConfig(models=["primary", "extra"]))
+        ctx = _context_with_credential()
+
+        _install_streaming_clients(
+            policy,
+            {"extra": _FakeStreamingClient([_message_start("extra"), message_delta()])},
+        )
+
+        thinking_start = RawContentBlockStartEvent.model_construct(
+            type="content_block_start",
+            index=0,
+            content_block={"type": "thinking", "thinking": ""},
+        )
+        thinking_delta_ev = RawContentBlockDeltaEvent.model_construct(
+            type="content_block_delta",
+            index=0,
+            delta=ThinkingDelta.model_construct(type="thinking_delta", thinking="reasoning..."),
+        )
+        primary_events: list[MessageStreamEvent] = [
+            _message_start("primary"),
+            thinking_start,
+            thinking_delta_ev,
+            block_stop(index=0),
+            text_start(index=1),
+            text_delta("real-reply", index=1),
+            block_stop(index=1),
+            message_delta(),
+        ]
+        request: AnthropicRequest = {
+            "model": "x",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 10,
+            "stream": True,
+        }
+
+        emitted = await _run_streaming(policy, ctx, primary_events, request)
+
+        # Every emitted content_block_delta that's a text_delta carries a non-empty string.
+        for ev in emitted:
+            if getattr(ev, "type", None) != "content_block_delta":
+                continue
+            delta = getattr(ev, "delta", None)
+            if getattr(delta, "type", None) == "text_delta":
+                assert getattr(delta, "text", "") != "", "emitted empty text_delta"
+
+        # No content block's accumulated text is empty.
+        indices = {
+            getattr(ev, "index", -1)
+            for ev in emitted
+            if getattr(ev, "type", None) == "content_block_start"
+        }
+        for idx in indices:
+            assert _text_of_block(emitted, idx) != "", f"block {idx} is empty"
 
     @pytest.mark.asyncio
     async def test_tool_use_rendered_as_labeled_text(self):

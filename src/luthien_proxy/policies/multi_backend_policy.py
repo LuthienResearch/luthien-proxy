@@ -399,36 +399,28 @@ class MultiBackendPolicy(BasePolicy, AnthropicHookPolicy):
             if etype == "content_block_start":
                 local_idx = event.index
                 cb = event.content_block
+
+                if cb.type not in ("text", "tool_use"):
+                    # Thinking / redacted_thinking / other unknown block types
+                    # would round-trip as empty text blocks here (their deltas
+                    # aren't text_delta). Anthropic rejects empty text blocks on
+                    # the next turn's history replay, so skip them entirely — no
+                    # index_map entry, no content_block_start/stop emission.
+                    continue
+
                 remapped = out_idx
                 index_map[local_idx] = remapped
-
                 if cb.type == "tool_use":
                     tool_meta[local_idx] = (cb.name or "", cb.id or "")
                     tool_json[local_idx] = ""
-                    await output.put(
-                        RawContentBlockStartEvent.model_construct(
-                            type="content_block_start",
-                            index=remapped,
-                            content_block=TextBlock(type="text", text=""),
-                        ),
-                    )
-                elif cb.type == "text":
-                    await output.put(
-                        RawContentBlockStartEvent.model_construct(
-                            type="content_block_start",
-                            index=remapped,
-                            content_block=TextBlock(type="text", text=""),
-                        ),
-                    )
-                else:
-                    # Unknown block types (thinking, etc.): start a text block; deltas will drop.
-                    await output.put(
-                        RawContentBlockStartEvent.model_construct(
-                            type="content_block_start",
-                            index=remapped,
-                            content_block=TextBlock(type="text", text=""),
-                        ),
-                    )
+
+                await output.put(
+                    RawContentBlockStartEvent.model_construct(
+                        type="content_block_start",
+                        index=remapped,
+                        content_block=TextBlock(type="text", text=""),
+                    ),
+                )
 
             elif etype == "content_block_delta":
                 local_idx = event.index
