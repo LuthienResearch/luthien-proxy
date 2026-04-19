@@ -7,6 +7,7 @@ import enum
 import logging
 import os
 import secrets
+import time
 from collections.abc import MutableMapping
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -14,10 +15,12 @@ from pathlib import Path
 import litellm
 import uvicorn
 from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import HTTPException as FastAPIHTTPException
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
 from pydantic import ValidationError
 from redis.asyncio import Redis
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -33,6 +36,7 @@ from luthien_proxy.gateway_routes import router as gateway_router
 from luthien_proxy.history import routes as history_routes
 from luthien_proxy.llm import anthropic_client_cache
 from luthien_proxy.llm.anthropic_client import AnthropicClient
+from luthien_proxy.metrics import MetricsAwareUsageCollector, active_requests, request_duration
 from luthien_proxy.observability.emitter import EventEmitter
 from luthien_proxy.observability.event_publisher import (
     EventPublisherProtocol,
@@ -47,6 +51,7 @@ from luthien_proxy.session import router as session_router
 from luthien_proxy.settings import Settings, clear_settings_cache, get_settings
 from luthien_proxy.telemetry import (
     configure_logging,
+    configure_metrics,
     configure_tracing,
     instrument_app,
     instrument_redis,
@@ -66,9 +71,10 @@ from luthien_proxy.utils.migration_check import check_migrations
 from luthien_proxy.utils.url import sanitize_url_for_logging
 from luthien_proxy.version import PROXY_DISPLAY_VERSION
 
-# Configure OpenTelemetry tracing and logging EARLY (before app creation)
-# This ensures the tracer provider is set up before any spans are created
+# Configure OpenTelemetry tracing, metrics, and logging EARLY (before app creation)
+# This ensures the tracer/meter providers are set up before any spans or metrics are created
 configure_tracing()
+configure_metrics()
 configure_logging()
 instrument_redis()
 
@@ -136,6 +142,40 @@ async def request_validation_error_handler(request: Request, exc: Exception) -> 
         }
         return JSONResponse(status_code=422, content=content)
     return JSONResponse(status_code=422, content={"detail": validation_exc.errors()})
+
+
+class LatencyMiddleware(BaseHTTPMiddleware):
+    """Record latency histogram and in-flight gauge for /v1/messages only.
+
+    Only instruments the primary completion endpoint. Passthrough routes
+    (/v1/models, /v1/messages/count_tokens, etc.) are intentionally excluded
+    because they have different latency profiles.
+
+    Measurement semantics depend on response type:
+      - Non-streaming: full request duration (body fully produced)
+      - Streaming (text/event-stream): time-to-first-byte only
+    A ``streaming`` label on the histogram lets dashboards split the two
+    distributions. Pure-ASGI middleware would be needed for true
+    stream-duration metrics.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path != "/v1/messages":
+            return await call_next(request)
+        active_requests.add(1)
+        t0 = time.perf_counter()
+        response = None
+        try:
+            response = await call_next(request)
+            return response
+        finally:
+            status = str(response.status_code) if response is not None else "error"
+            is_streaming = response is not None and "text/event-stream" in response.headers.get("content-type", "")
+            request_duration.record(
+                time.perf_counter() - t0,
+                {"status": status, "streaming": str(is_streaming).lower()},
+            )
+            active_requests.add(-1)
 
 
 def create_app(
@@ -267,10 +307,11 @@ def create_app(
             db_pool=db_pool,
             env_value=settings.usage_telemetry,
         )
-        _usage_collector: UsageCollector | None = None
+        # Always create MetricsAwareUsageCollector so Prometheus counters
+        # work regardless of the phone-home telemetry setting.
+        _usage_collector: UsageCollector = MetricsAwareUsageCollector()
         _telemetry_sender: TelemetrySender | None = None
         if _telemetry_config.enabled:
-            _usage_collector = UsageCollector()
             _telemetry_sender = TelemetrySender(
                 config=_telemetry_config,
                 collector=_usage_collector,
@@ -278,7 +319,7 @@ def create_app(
             )
             _telemetry_sender.start()
         else:
-            logger.info("Usage telemetry disabled")
+            logger.info("Usage telemetry disabled (Prometheus metrics still active)")
 
         # Create Dependencies container with all services
         _dependencies = Dependencies(
@@ -330,7 +371,7 @@ def create_app(
     class StaticCacheMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
             response = await call_next(request)
-            if request.url.path.startswith("/api/") or request.url.path == "/health":
+            if request.url.path.startswith("/api/") or request.url.path in ("/health", "/metrics"):
                 # Prevent CDN/edge caching of API and health responses (Railway, Cloudflare, etc.)
                 response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
             elif request.url.path.startswith("/static/"):
@@ -380,6 +421,13 @@ def create_app(
             "last_credential_type": last_credential_type,
             "last_credential_at": last_credential_at,
         }
+
+    @app.get("/metrics", include_in_schema=False)
+    async def prometheus_metrics() -> Response:
+        body = await run_in_threadpool(generate_latest, REGISTRY)
+        return Response(body, media_type=CONTENT_TYPE_LATEST)
+
+    app.add_middleware(LatencyMiddleware)
 
     # Format HTTPExceptions and validation errors as Anthropic errors on /v1/messages paths
     app.add_exception_handler(FastAPIHTTPException, http_exception_handler)
