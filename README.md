@@ -3,7 +3,8 @@
 ### Claude Code builds. You stay in control.
 
 ```bash
-curl -fsSL https://luthien.cc/install.sh | bash  # local install, no Docker needed
+# Local install, no Docker needed
+curl -fsSL https://luthien.cc/install.sh | bash
 ```
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/luthien-proxy-oneclick)
