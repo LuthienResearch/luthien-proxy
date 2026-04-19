@@ -2,8 +2,6 @@
 
 ### Claude Code builds. You stay in control.
 
-Local install, no Docker needed:
-
 ```bash
 curl -fsSL https://luthien.cc/install.sh | bash
 ```
