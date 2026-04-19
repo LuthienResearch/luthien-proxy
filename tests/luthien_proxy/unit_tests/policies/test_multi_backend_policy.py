@@ -260,8 +260,9 @@ class TestPerModelRequestShape:
         assert "context_management" not in out
         assert "effort" not in out
         assert "output_config" not in out
-        # Core fields survive.
-        assert out["messages"] == [{"role": "user", "content": "hi"}]
+        # Core fields survive (the first user message gets the multi-backend
+        # note prepended; the original text is retained).
+        assert "hi" in out["messages"][0]["content"]
         assert out["max_tokens"] == 100
 
     def test_opus_keeps_thinking_and_context_management(self):
@@ -280,6 +281,28 @@ class TestPerModelRequestShape:
         out = _request_for_model(src, "claude-opus-4-7")
         out["messages"].append({"role": "user", "content": "extra"})
         assert len(src["messages"]) == 1
+
+    def test_injects_multi_backend_note_into_first_user_message(self):
+        out = _request_for_model(self._base_request(), "claude-opus-4-7")
+        first_user = out["messages"][0]
+        content = first_user["content"]
+        # First block (or prepended prefix) carries the tagged note.
+        if isinstance(content, list):
+            assert content[0]["type"] == "text"
+            assert "<multi-backend-context>" in content[0]["text"]
+            assert "respond only on behalf of yourself" in content[0]["text"].lower()
+        else:
+            assert "<multi-backend-context>" in content
+
+    def test_note_is_idempotent_across_turns(self):
+        """Don't re-inject if the note is already present in history."""
+        req = self._base_request()
+        once = _request_for_model(req, "claude-opus-4-7")
+        twice = _request_for_model(once, "claude-sonnet-4-6")
+        flat = ""
+        for block in twice["messages"][0]["content"]:
+            flat += block["text"] if isinstance(block, dict) else str(block)
+        assert flat.count("<multi-backend-context>") == 1
 
 
 class TestConfig:

@@ -691,13 +691,79 @@ def _request_for_model(request: AnthropicRequest, target_model: str) -> Anthropi
     """Return a deep copy of ``request`` targeted at ``target_model``.
 
     Drops fields the target model doesn't support (see ``_MODEL_FIELD_DROPS``)
-    so the backend call meets the model's specific requirements instead of a
-    lowest-common-denominator shape.
+    and injects the multi-backend conversation-context note into the first
+    user message so every model understands why the history it sees contains
+    labeled sections from other models.
     """
     drops = _fields_to_drop_for_model(target_model)
     kept: dict = {k: copy.deepcopy(v) for k, v in request.items() if k not in drops}
     kept["model"] = target_model
-    return cast(AnthropicRequest, kept)
+    return _inject_multi_backend_note(cast(AnthropicRequest, kept))
+
+
+# =============================================================================
+# Multi-backend conversation-context injection
+# =============================================================================
+#
+# When the client echoes history back on subsequent turns, that history will
+# contain labeled sections from every model (`# claude-opus-4-7`, etc.). Each
+# model sees the merged assistant turn and, without context, tries to continue
+# the pattern by impersonating the other models. Injecting a tagged note into
+# the first user message tells every model what's going on, and the tag-based
+# dedupe keeps it from piling up across turns.
+
+_MULTI_BACKEND_TAG = "multi-backend-context"
+_MULTI_BACKEND_OPEN = f"<{_MULTI_BACKEND_TAG}>"
+_MULTI_BACKEND_CLOSE = f"</{_MULTI_BACKEND_TAG}>"
+
+_MULTI_BACKEND_NOTE = (
+    f"{_MULTI_BACKEND_OPEN}"
+    "The conversation history you are seeing is being assembled by Luthien "
+    "proxy from parallel calls to multiple Anthropic models. Each assistant "
+    "turn contains labeled sections (headers like `# <model-name>`) with the "
+    "response from a different model. You are ONE of those models — respond "
+    "only on behalf of yourself. Do not impersonate, quote, summarize, or "
+    "compensate for the other models' responses. Do not try to reproduce the "
+    "labeled-section format; just answer as yourself."
+    f"{_MULTI_BACKEND_CLOSE}"
+)
+
+
+def _inject_multi_backend_note(request: AnthropicRequest) -> AnthropicRequest:
+    """Prepend the MultiBackend context note to the first user message, idempotently."""
+    messages = list(request.get("messages", []))
+    if not messages:
+        return request
+    if _multi_backend_note_already_present(messages):
+        return request
+
+    first_user_idx = next((i for i, m in enumerate(messages) if m.get("role") == "user"), None)
+    if first_user_idx is None:
+        return request
+
+    user_msg = messages[first_user_idx]
+    content = user_msg.get("content", "")
+    if isinstance(content, list):
+        note_block = {"type": "text", "text": _MULTI_BACKEND_NOTE}
+        new_content: str | list = [note_block, *content]
+    else:
+        new_content = _MULTI_BACKEND_NOTE + "\n\n" + (content if isinstance(content, str) else "")
+    messages[first_user_idx] = {**user_msg, "content": new_content}  # type: ignore[typeddict-item]
+
+    return cast(AnthropicRequest, {**request, "messages": messages})
+
+
+def _multi_backend_note_already_present(messages: list) -> bool:
+    for msg in messages:
+        content = msg.get("content", "") if isinstance(msg, dict) else ""
+        if isinstance(content, str) and _MULTI_BACKEND_OPEN in content:
+            return True
+        if isinstance(content, list):
+            for block in content:
+                text = block.get("text", "") if isinstance(block, dict) else ""
+                if _MULTI_BACKEND_OPEN in text:
+                    return True
+    return False
 
 
 def _render_tool_use_as_text(name: str, tool_id: str, input_json: str) -> str:
