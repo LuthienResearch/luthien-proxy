@@ -16,6 +16,13 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+
+def _log_task_exception(task: asyncio.Task[None]) -> None:
+    """Log exceptions from fire-and-forget tasks to prevent silent failures."""
+    if not task.cancelled() and (exc := task.exception()):
+        logger.error("Webhook send task raised an unexpected exception: %r", exc)
+
+
 SEND_TIMEOUT_SECONDS = 10
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY_SECONDS = 1.0
@@ -218,4 +225,5 @@ class WebhookSender:
             duration_ms=duration_ms,
             is_streaming=is_streaming,
         )
-        asyncio.create_task(self._send_with_retries(payload))
+        task = asyncio.create_task(self._send_with_retries(payload))
+        task.add_done_callback(_log_task_exception)

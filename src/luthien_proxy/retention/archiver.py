@@ -10,6 +10,7 @@ unset, this module is never instantiated and boto3 is never imported.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime
@@ -106,7 +107,8 @@ class S3ConversationArchiver:
         key = self._build_s3_key(cutoff)
 
         s3 = self._get_s3_client()
-        s3.put_object(
+        await asyncio.to_thread(
+            s3.put_object,
             Bucket=self.bucket,
             Key=key,
             Body=body,

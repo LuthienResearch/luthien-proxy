@@ -903,7 +903,7 @@ class TestBuildTurn:
             },
         ]
 
-        with pytest.raises(KeyError, match="final_request"):
+        with pytest.raises(ValueError, match="final_request"):
             _build_turn("call-123", events)
 
     def test_missing_final_response_raises_error(self):

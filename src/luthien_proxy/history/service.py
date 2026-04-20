@@ -743,7 +743,7 @@ def _build_turn(call_id: str, events: list[StoredEvent]) -> ConversationTurn:
             final_req = payload.get("final_request")
 
             if final_req is None:
-                raise KeyError("transaction.request_recorded missing 'final_request'")
+                raise ValueError("transaction.request_recorded missing 'final_request'")
 
             request_messages = _parse_request_messages(final_req)
 

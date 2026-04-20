@@ -302,6 +302,7 @@ class PolicyContext:
         request: Any | None = None,
         raw_http_request: RawHttpRequest | None = None,
         session_id: str | None = None,
+        user_id: str | None = None,
         user_credential: Credential | None = None,
         credential_manager: "CredentialManager | None" = None,
         policy_cache_factory: "PolicyCacheFactory | None" = None,
@@ -315,6 +316,7 @@ class PolicyContext:
             request: Optional request object
             raw_http_request: Optional raw HTTP request data
             session_id: Optional session ID
+            user_id: Optional user identity for tests exercising user-aware behavior
             user_credential: Optional credential for tests exercising auth
             credential_manager: Optional manager for tests exercising auth providers
             policy_cache_factory: Optional cache factory for tests exercising caching
@@ -328,6 +330,7 @@ class PolicyContext:
             emitter=NullEventEmitter(),
             raw_http_request=raw_http_request,
             session_id=session_id,
+            user_id=user_id,
             user_credential=user_credential,
             credential_manager=credential_manager,
             policy_cache_factory=policy_cache_factory,
