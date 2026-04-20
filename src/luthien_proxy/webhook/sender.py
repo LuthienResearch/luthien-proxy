@@ -262,8 +262,8 @@ class WebhookSender:
         )
         task = asyncio.create_task(self._send_with_retries(payload))
         self._pending_tasks.add(task)
-        task.add_done_callback(self._pending_tasks.discard)
-        task.add_done_callback(_log_task_exception)
+        task.add_done_callback(self._pending_tasks.discard)  # Remove from set first
+        task.add_done_callback(_log_task_exception)  # Then log any exception
 
     async def stop(self) -> None:
         """Cancel and await all pending webhook delivery tasks.
