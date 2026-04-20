@@ -89,10 +89,7 @@ class S3ConversationArchiver:
                 skip deletion to avoid data loss.
         """
         rows = await db_conn.fetch(
-            "SELECT call_id, model_name, provider, status, created_at, completed_at"
-            " FROM conversation_calls"
-            " WHERE created_at < $1"
-            " ORDER BY created_at",
+            "SELECT * FROM conversation_calls WHERE created_at < $1 ORDER BY created_at",
             cutoff,
         )
 
