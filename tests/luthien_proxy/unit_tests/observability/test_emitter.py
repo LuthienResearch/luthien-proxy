@@ -254,9 +254,9 @@ class TestEventEmitter:
 
         emitter = EventEmitter(db_pool=mock_pool, stdout_enabled=False)
 
-        before = EventEmitter.dropped_db_writes
+        assert emitter.dropped_db_writes == 0
         await emitter.emit("tx-123", "test.event", {"key": "value"})
-        assert EventEmitter.dropped_db_writes == before + 1
+        assert emitter.dropped_db_writes == 1
 
     @pytest.mark.asyncio
     async def test_write_db_increments_dropped_counter_on_os_error(self) -> None:
@@ -273,9 +273,9 @@ class TestEventEmitter:
 
         emitter = EventEmitter(db_pool=mock_pool, stdout_enabled=False)
 
-        before = EventEmitter.dropped_db_writes
+        assert emitter.dropped_db_writes == 0
         await emitter.emit("tx-123", "test.event", {"key": "value"})
-        assert EventEmitter.dropped_db_writes == before + 1
+        assert emitter.dropped_db_writes == 1
 
     @pytest.mark.asyncio
     async def test_write_db_does_not_catch_unrelated_exceptions(self) -> None:
