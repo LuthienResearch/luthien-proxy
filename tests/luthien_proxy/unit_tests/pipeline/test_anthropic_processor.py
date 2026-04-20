@@ -255,6 +255,26 @@ class TestProcessRequest:
         assert "payload too large" in exc_info.value.detail.lower()
 
     @pytest.mark.asyncio
+    async def test_malformed_content_length_returns_400(self, mock_request, mock_emitter, mock_span):
+        """Test that a non-numeric Content-Length header returns 400."""
+        mock_request.headers = {"content-length": "not-a-number"}
+        mock_request.json = AsyncMock(return_value={})
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            with pytest.raises(HTTPException) as exc_info:
+                await _process_request(
+                    request=mock_request,
+                    call_id="test-call-id",
+                    emitter=mock_emitter,
+                )
+
+        assert exc_info.value.status_code == 400
+        assert "Content-Length" in exc_info.value.detail
+
+    @pytest.mark.asyncio
     async def test_malformed_json_returns_400(self, mock_request, mock_emitter, mock_span):
         """Test that malformed JSON in request body returns 400 error."""
         mock_request.json = AsyncMock(side_effect=json.JSONDecodeError("Expecting value", "", 0))
@@ -2060,3 +2080,46 @@ class TestAnthropicPolicyIOBuffering:
 
         raw_events = accumulated_events if not io._buffer_raw_events else io._raw_backend_events
         assert raw_events is io._raw_backend_events
+
+
+class TestAnthropicPolicyIOInitialRequestSnapshot:
+    """Tests that _initial_request is a deep copy, immune to in-place mutations."""
+
+    def _make_io(self) -> _AnthropicPolicyIO:
+        request: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "max_tokens": 100,
+            "messages": [{"role": "user", "content": "original"}],
+        }
+        return _AnthropicPolicyIO(
+            initial_request=request,
+            anthropic_client=MagicMock(),
+            emitter=MagicMock(),
+            call_id="test-call",
+            session_id=None,
+            user_id=None,
+            request_log_recorder=MagicMock(),
+            is_streaming=False,
+        )
+
+    def test_mutating_request_does_not_corrupt_initial_request_snapshot(self):
+        """Mutating _request after construction must not change _initial_request."""
+        io = self._make_io()
+        original_model = io._initial_request["model"]
+
+        io._request["model"] = "mutated-model"
+
+        assert io._initial_request["model"] == original_model
+
+    def test_ensure_request_recorded_uses_pre_mutation_model(self):
+        """ensure_request_recorded must emit the original model, not the mutated one."""
+        io = self._make_io()
+        original_model = io._initial_request["model"]
+
+        io._request["model"] = "mutated-model"
+        io.ensure_request_recorded()
+
+        call_args = io._emitter.record.call_args
+        payload = call_args[0][2]
+        assert payload["original_model"] == original_model
+        assert payload["original_request"]["model"] == original_model

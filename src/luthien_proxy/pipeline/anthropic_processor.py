@@ -112,7 +112,7 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         extra_headers: dict[str, str] | None = None,
     ) -> None:
         self._request = initial_request
-        self._initial_request = initial_request
+        self._initial_request = copy.deepcopy(initial_request)
         self._anthropic_client = anthropic_client
         self._emitter = emitter
         self._call_id = call_id
@@ -505,8 +505,13 @@ async def _process_request(
 
         # Check request size
         content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > MAX_REQUEST_PAYLOAD_BYTES:
-            raise HTTPException(status_code=413, detail="Request payload too large")
+        if content_length:
+            try:
+                content_length_int = int(content_length)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid Content-Length header")
+            if content_length_int > MAX_REQUEST_PAYLOAD_BYTES:
+                raise HTTPException(status_code=413, detail="Request payload too large")
 
         try:
             body = await request.json()
