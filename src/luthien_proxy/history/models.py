@@ -11,7 +11,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class MessageType(str, Enum):
@@ -128,6 +128,13 @@ class SessionSearchParams(BaseModel):
     to_time: datetime | None = None
     q: str | None = None
     policy_intervention: bool | None = None
+
+    @model_validator(mode="after")
+    def _validate_time_range(self) -> "SessionSearchParams":
+        if self.from_time is not None and self.to_time is not None:
+            if self.from_time > self.to_time:
+                raise ValueError("from_time must be before or equal to to_time")
+        return self
 
     def is_empty(self) -> bool:
         """Return True if no filters are set (all fields are None or False)."""
