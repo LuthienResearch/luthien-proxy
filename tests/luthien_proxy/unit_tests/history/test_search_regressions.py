@@ -349,3 +349,27 @@ class TestSqliteSearchesContentNotJsonKeys:
             f"regression:q='final_request' matched {len(result.sessions)} sessions. "
             "SQLite is matching against JSON structural keys, not just message content."
         )
+
+
+class TestUserFilterSQLInjection:
+    """Regression: user filter must not be injectable via LIKE metacharacters or SQL syntax."""
+
+    @pytest.mark.asyncio
+    async def test_user_filter_sql_injection_attempt_returns_no_results(self, sqlite_pool: DatabasePool):
+        """SessionSearchParams(user=...) with SQL injection payload must not match all rows."""
+        await _insert_event(
+            sqlite_pool,
+            event_id="e1",
+            call_id="c1",
+            session_id="session-A",
+            created_at="2026-01-15T10:00:00",
+            payload={"final_request": {"messages": [{"role": "user", "content": "hello"}]}},
+        )
+
+        for injection in ["admin' OR '1'='1", "' OR 1=1 --", "%", "_"]:
+            search = SessionSearchParams(user=injection)
+            result = await fetch_session_list(limit=10, db_pool=sqlite_pool, search=search)
+            assert len(result.sessions) == 0, (
+                f"regression: user filter with injection payload {injection!r} matched "
+                f"{len(result.sessions)} sessions — LIKE escaping may be broken."
+            )
