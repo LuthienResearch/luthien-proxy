@@ -270,6 +270,11 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         "Base delay in seconds between webhook retry attempts (doubles each retry)",
         category="webhook",
     ),
+    ConfigFieldMeta(
+        "webhook_max_pending_tasks", "WEBHOOK_MAX_PENDING_TASKS", int, 1000,
+        "Maximum number of in-flight webhook delivery tasks. When exceeded, new webhooks are dropped and logged. Prevents unbounded memory growth when the webhook endpoint is slow or down.",
+        category="webhook",
+    ),
 
     # ── sentry ────────────────────────────────────────────────────────────
     ConfigFieldMeta(

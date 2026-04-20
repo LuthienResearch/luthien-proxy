@@ -27,6 +27,7 @@ def _log_task_exception(task: asyncio.Task[None]) -> None:
 SEND_TIMEOUT_SECONDS = 10
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY_SECONDS = 1.0
+DEFAULT_MAX_PENDING_TASKS = 1000
 
 
 class _UsageCounts(TypedDict):
@@ -105,6 +106,7 @@ class WebhookSender:
         url: str | None,
         max_retries: int = DEFAULT_MAX_RETRIES,
         retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
+        max_pending_tasks: int = DEFAULT_MAX_PENDING_TASKS,
     ) -> None:
         """Initialize the webhook sender.
 
@@ -112,11 +114,16 @@ class WebhookSender:
             url: Webhook endpoint URL. If ``None`` or empty, the sender is disabled.
             max_retries: Number of retry attempts after the initial failure.
             retry_delay_seconds: Base delay between retries in seconds.
+            max_pending_tasks: Maximum in-flight delivery tasks. New webhooks
+                are dropped (with a warning log) when this cap is reached.
+                Prevents unbounded memory growth when the endpoint is slow/down.
         """
         self._url = url or None
         self._max_retries = max_retries
         self._retry_delay_seconds = retry_delay_seconds
+        self._max_pending_tasks = max_pending_tasks
         self._pending_tasks: set[asyncio.Task[None]] = set()
+        self._dropped_due_to_backpressure = 0
 
     @property
     def enabled(self) -> bool:
@@ -231,6 +238,17 @@ class WebhookSender:
             is_streaming: Whether the response was streamed.
         """
         if not self.enabled:
+            return
+
+        if len(self._pending_tasks) >= self._max_pending_tasks:
+            self._dropped_due_to_backpressure += 1
+            if self._dropped_due_to_backpressure == 1 or self._dropped_due_to_backpressure % 100 == 0:
+                logger.warning(
+                    "Webhook backpressure: dropped %d webhook(s) — pending task cap %d reached (url=%s)",
+                    self._dropped_due_to_backpressure,
+                    self._max_pending_tasks,
+                    self._safe_url,
+                )
             return
 
         payload = build_payload(
