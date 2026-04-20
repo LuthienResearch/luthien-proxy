@@ -125,11 +125,17 @@ class WebhookSender:
 
     @property
     def _safe_url(self) -> str:
-        """URL with userinfo and query params stripped, safe for logging."""
+        """URL with userinfo and query params stripped, safe for logging.
+
+        Preserves host and port but drops userinfo (basic auth credentials)
+        and query/fragment (which may contain API keys or tokens).
+        """
         if not self._url:
             return ""
         parsed = urlparse(self._url)
-        return urlunparse(parsed._replace(netloc=parsed.hostname or "", query="", fragment=""))
+        host = parsed.hostname or ""
+        netloc = f"{host}:{parsed.port}" if parsed.port else host
+        return urlunparse(parsed._replace(netloc=netloc, query="", fragment=""))
 
     async def _attempt_send(self, payload: ConversationCompletedPayload) -> bool:
         """Attempt a single POST delivery.
