@@ -262,6 +262,33 @@ def test_sender_enabled_when_url_set():
     assert sender.enabled is True
 
 
+# ── _safe_url tests ───────────────────────────────────────────────────────────
+
+
+def test_safe_url_strips_userinfo_preserves_port():
+    """Credentials are stripped, port is preserved."""
+    sender = WebhookSender(url="https://user:pass@hooks.example.com:8443/webhook?key=secret")
+    assert sender._safe_url == "https://hooks.example.com:8443/webhook"
+
+
+def test_safe_url_no_port():
+    """URL without port round-trips correctly."""
+    sender = WebhookSender(url="https://hooks.example.com/webhook")
+    assert sender._safe_url == "https://hooks.example.com/webhook"
+
+
+def test_safe_url_strips_query_and_fragment():
+    """Query string and fragment are removed."""
+    sender = WebhookSender(url="https://hooks.example.com/webhook?token=abc#section")
+    assert sender._safe_url == "https://hooks.example.com/webhook"
+
+
+def test_safe_url_empty_when_no_url():
+    """Returns empty string when no URL configured."""
+    sender = WebhookSender(url=None)
+    assert sender._safe_url == ""
+
+
 @pytest.mark.asyncio
 async def test_fire_and_forget_noop_when_disabled():
     """fire_and_forget does nothing when sender is disabled."""
