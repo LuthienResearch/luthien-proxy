@@ -306,6 +306,32 @@ class TestSqliteSearchesContentNotJsonKeys:
         )
 
     @pytest.mark.asyncio
+    async def test_q_searches_response_event_text(self, sqlite_pool: DatabasePool):
+        """Searching for text that only appears in a response event finds the session."""
+
+        await _insert_event(
+            sqlite_pool,
+            event_id="e1",
+            call_id="c1",
+            session_id="session-A",
+            event_type="transaction.non_streaming_response_recorded",
+            created_at="2026-01-15T10:00:00",
+            payload={
+                "final_response": {
+                    "content": "xyzzy_unique_response_token",
+                }
+            },
+        )
+
+        search = SessionSearchParams(q="xyzzy_unique_response_token")
+        result = await fetch_session_list(limit=10, db_pool=sqlite_pool, search=search)
+
+        assert len(result.sessions) == 1, (
+            f"regression: q search on response text returned {len(result.sessions)} sessions. "
+            "Response event text should be searchable."
+        )
+
+    @pytest.mark.asyncio
     async def test_q_final_request_should_not_match_json_keys(self, sqlite_pool: DatabasePool):
         """Searching for 'final_request' should not match just because it's a JSON key."""
 
