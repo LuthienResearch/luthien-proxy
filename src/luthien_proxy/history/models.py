@@ -111,8 +111,7 @@ class SessionSearchParams(BaseModel):
     Attributes:
         user: Filter by user_id prefix (case-sensitive LIKE 'value%').
             Matches the user_id extracted from X-Luthien-User-Id header or JWT sub claim
-            (requires TRUST_USER_ID_HEADER=true). Falls back to session_id prefix match
-            when user_id is not populated.
+            (requires TRUST_USER_ID_HEADER=true).
         model: Filter by model name (exact match, e.g. 'claude-opus-4-6').
         from_time: ISO 8601 lower bound on session last activity (inclusive).
         to_time: ISO 8601 upper bound on session last activity (inclusive).
