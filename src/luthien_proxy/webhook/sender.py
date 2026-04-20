@@ -115,6 +115,7 @@ class WebhookSender:
         self._url = url or None
         self._max_retries = max_retries
         self._retry_delay_seconds = retry_delay_seconds
+        self._pending_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def enabled(self) -> bool:
@@ -132,6 +133,7 @@ class WebhookSender:
         """
         try:
             async with httpx.AsyncClient(timeout=SEND_TIMEOUT_SECONDS) as client:
+                # self._url is str when enabled (checked by caller); TypedDict value is str | None
                 response = await client.post(self._url, json=dict(payload))  # type: ignore[arg-type]
                 if response.status_code >= 400:
                     logger.warning(
@@ -141,7 +143,7 @@ class WebhookSender:
                     )
                     return False
                 return True
-        except Exception:
+        except (httpx.HTTPError, asyncio.TimeoutError, OSError):
             logger.warning("Webhook delivery error to %s", self._url, exc_info=True)
             return False
 
@@ -226,4 +228,6 @@ class WebhookSender:
             is_streaming=is_streaming,
         )
         task = asyncio.create_task(self._send_with_retries(payload))
+        self._pending_tasks.add(task)
+        task.add_done_callback(self._pending_tasks.discard)
         task.add_done_callback(_log_task_exception)
