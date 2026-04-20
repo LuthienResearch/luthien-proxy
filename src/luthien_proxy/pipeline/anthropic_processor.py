@@ -729,7 +729,7 @@ async def _handle_execution_streaming(
                             type="error",
                             error=_ErrorDetail(
                                 type="api_error",
-                                message="Request blocked: policy evaluation unavailable. Contact your administrator.",
+                                message="No response from policy execution. The policy did not emit any streaming events.",
                             ),
                         )
                         yield _format_sse_event(empty_stream_error)
