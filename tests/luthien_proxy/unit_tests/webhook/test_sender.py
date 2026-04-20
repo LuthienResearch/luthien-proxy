@@ -305,3 +305,47 @@ async def test_fire_and_forget_noop_when_disabled():
         )
         await asyncio.sleep(0.05)
         mock_send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_fire_and_forget_drops_when_backpressure_cap_reached():
+    """fire_and_forget drops new webhooks once _pending_tasks reaches max_pending_tasks."""
+    sender = WebhookSender(url="https://example.com/hook", max_pending_tasks=2)
+
+    send_started = asyncio.Event()
+    block_release = asyncio.Event()
+
+    async def _blocking_send(payload):
+        send_started.set()
+        await block_release.wait()
+        return True
+
+    with patch.object(sender, "_attempt_send", side_effect=_blocking_send):
+        for i in range(2):
+            sender.fire_and_forget(
+                session_id=f"s{i}",
+                transaction_id=f"t{i}",
+                model="m",
+                input_tokens=0,
+                output_tokens=0,
+                duration_ms=0,
+                is_streaming=False,
+            )
+        await send_started.wait()
+        assert len(sender._pending_tasks) == 2
+        assert sender._dropped_due_to_backpressure == 0
+
+        sender.fire_and_forget(
+            session_id="s_dropped",
+            transaction_id="t_dropped",
+            model="m",
+            input_tokens=0,
+            output_tokens=0,
+            duration_ms=0,
+            is_streaming=False,
+        )
+        assert len(sender._pending_tasks) == 2
+        assert sender._dropped_due_to_backpressure == 1
+
+        block_release.set()
+        await asyncio.gather(*list(sender._pending_tasks), return_exceptions=True)

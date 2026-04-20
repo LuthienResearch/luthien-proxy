@@ -98,6 +98,7 @@ class Settings(_SettingsBase):
     webhook_url: str = ""
     webhook_max_retries: int = 3
     webhook_retry_delay_seconds: float = 1.0
+    webhook_max_pending_tasks: int = 1000
 
     # ── sentry ──────────────────────────────────────────────────────
     sentry_enabled: bool = False
