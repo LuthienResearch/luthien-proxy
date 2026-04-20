@@ -366,6 +366,12 @@ async def fetch_session_list(
     if search is None:
         search = SessionSearchParams()
 
+    # SECURITY INVARIANT: This function builds SQL via f-string interpolation for
+    # structural parts (dialect-specific expressions, column lists, event-type IN
+    # clauses). All user-supplied values MUST go through add_param() to be
+    # passed as query parameters — never interpolated directly. Violating this
+    # invariant introduces SQL injection. If you add a new filter, use
+    # add_param(user_value) for any scalar that originated from user input.
     params: list[Any] = []
     param_idx = 1
 
