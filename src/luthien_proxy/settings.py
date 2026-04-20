@@ -101,6 +101,11 @@ class Settings(_SettingsBase):
     usage_telemetry: bool | None = None
     telemetry_endpoint: str = "https://telemetry.luthien.cc/v1/events"
 
+    # ── retention ───────────────────────────────────────────────────
+    conversation_retention_days: int | None = None
+    archive_s3_bucket: str | None = None
+    archive_s3_prefix: str = "luthien-archive/"
+
     # ── sentry ──────────────────────────────────────────────────────
     sentry_enabled: bool = False
     sentry_dsn: str = ""
