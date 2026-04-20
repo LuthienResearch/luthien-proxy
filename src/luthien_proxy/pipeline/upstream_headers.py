@@ -50,6 +50,7 @@ from functools import lru_cache
 logger = logging.getLogger(__name__)
 
 _TEMPLATE_PATTERN = re.compile(r"\$\{([^}]+)\}")
+_HEADER_NAME_RE = re.compile(r"[!#$%&'*+\-.0-9A-Z^_`a-z|~]+")
 
 
 @lru_cache(maxsize=1)
@@ -71,6 +72,9 @@ def _load_header_templates() -> dict[str, str]:
         for k, v in parsed.items():
             if not isinstance(k, str) or not isinstance(v, str):
                 logger.warning("UPSTREAM_HEADERS: skipping non-string entry %r: %r", k, v)
+                continue
+            if not _HEADER_NAME_RE.fullmatch(k):
+                logger.warning("UPSTREAM_HEADERS: skipping invalid header name %r", k)
                 continue
             result[k] = v
         if result:
