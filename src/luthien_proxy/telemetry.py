@@ -78,7 +78,7 @@ def _get_otel_config() -> tuple[bool, str, str, str, str, str]:
         settings.service_name,
         settings.service_version,
         settings.environment,
-        getattr(settings, "otel_exporter_protocol", "http/protobuf"),
+        settings.otel_exporter_protocol,
     )
 
 
