@@ -609,9 +609,9 @@ async def fetch_session_list(
             session_id=str(row["session_id"]),
             first_timestamp=parse_db_ts(row["first_ts"]).isoformat(),
             last_timestamp=parse_db_ts(row["last_ts"]).isoformat(),
-            turn_count=int(row["turn_count"]),  # type: ignore[arg-type]
-            total_events=int(row["total_events"]),  # type: ignore[arg-type]
-            policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
+            turn_count=int(row["turn_count"] or 0),
+            total_events=int(row["total_events"] or 0),
+            policy_interventions=int(row["policy_interventions"] or 0),
             models_used=models_by_session.get(str(row["session_id"]), []),
             preview_message=preview_by_session.get(str(row["session_id"])),
         )
