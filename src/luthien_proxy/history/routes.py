@@ -152,7 +152,7 @@ async def get_session(
     try:
         return await fetch_session_detail(session_id, db_pool)
     except ValueError as e:
-        logger.warning(f"Session not found: {repr(e)}")
+        logger.warning("Session not found: %r", e)
         raise HTTPException(status_code=404, detail="Session not found.") from None
 
 
@@ -170,7 +170,7 @@ async def export_session(
     try:
         session = await fetch_session_detail(session_id, db_pool)
     except ValueError as e:
-        logger.warning(f"Session not found for export: {repr(e)}")
+        logger.warning("Session not found for export: %r", e)
         raise HTTPException(status_code=404, detail="Session not found.") from None
 
     markdown = export_session_markdown(session)
@@ -199,7 +199,7 @@ async def export_session_jsonl_endpoint(
     try:
         session = await fetch_session_detail(session_id, db_pool)
     except ValueError as e:
-        logger.warning(f"Session not found for export: {repr(e)}")
+        logger.warning("Session not found for export: %r", e)
         raise HTTPException(status_code=404, detail="Session not found.") from None
 
     jsonl = export_session_jsonl(session)
