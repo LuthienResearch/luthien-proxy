@@ -3,7 +3,7 @@ category: Features
 pr: 595
 ---
 
-**Trajectory Labs Week 0 integration**: Merged 10 PRs from Sami Jawhar's fork (trajectory-labs-pbc)
+**Week 0 community PR integration**: Merged 10 PRs from a community contributor fork
   - OTEL HTTP instrumentation now enabled by default
   - Role-based access control (RBAC) for admin endpoints
   - StringReplacementPolicy for request filtering
