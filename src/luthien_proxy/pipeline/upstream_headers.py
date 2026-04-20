@@ -11,7 +11,7 @@ Supported template variables::
 
 Example::
 
-    UPSTREAM_HEADERS='{"Helicone-Auth":"Bearer ${env.HELICONE_API_KEY}","Helicone-Session-Id":"${session_id}"}'
+    UPSTREAM_HEADERS = '{"Helicone-Auth":"Bearer ${env.HELICONE_API_KEY}","Helicone-Session-Id":"${session_id}"}'
 
 Design notes:
 
@@ -96,7 +96,8 @@ def _expand_template(template: str, session_id: str | None, request_path: str) -
         logger.debug("Unknown template variable: ${%s}", var)
         return match.group(0)  # Leave unknown variables unexpanded
 
-    return _TEMPLATE_PATTERN.sub(_replace, template)
+    result = _TEMPLATE_PATTERN.sub(_replace, template)
+    return result.replace("\r", "").replace("\n", "")
 
 
 def expand_upstream_headers(
