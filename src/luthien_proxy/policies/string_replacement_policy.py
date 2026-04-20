@@ -140,7 +140,6 @@ def _apply_capitalization_pattern(source: str, replacement: str) -> str:
         return replacement.capitalize()
     else:
         # Mixed: apply character-by-character case matching
-        result = []
         source_alpha = [c for c in source if c.isalpha()]
         replacement_chars = list(replacement)
 
@@ -152,8 +151,7 @@ def _apply_capitalization_pattern(source: str, replacement: str) -> str:
                 else:
                     replacement_chars[i] = char.lower()
                 alpha_idx += 1
-        result = replacement_chars
-        return "".join(result)
+        return "".join(replacement_chars)
 
 
 def apply_replacements(
