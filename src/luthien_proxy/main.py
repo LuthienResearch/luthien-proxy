@@ -338,6 +338,8 @@ def create_app(
         yield
 
         # Shutdown
+        if _webhook_sender is not None and _webhook_sender.enabled:
+            await _webhook_sender.stop()
         if _purger is not None:
             await _purger.stop()
         await _webhook_sender.stop()
