@@ -83,6 +83,19 @@ class TestExpandTemplate:
     def test_no_variables_returns_literal(self):
         assert _expand_template("plain value", None, "/") == "plain value"
 
+    def test_strips_crlf_from_literal_value(self):
+        assert _expand_template("value\r\nX-Injected: evil", None, "/") == "valueX-Injected: evil"
+
+    def test_strips_crlf_from_env_var_expansion(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("EVIL_VAR", "legit\r\nX-Injected: evil")
+        assert _expand_template("${env.EVIL_VAR}", None, "/") == "legitX-Injected: evil"
+
+    def test_strips_lf_only(self):
+        assert _expand_template("value\ninjected", None, "/") == "valueinjected"
+
+    def test_strips_cr_only(self):
+        assert _expand_template("value\rinjected", None, "/") == "valueinjected"
+
 
 class TestExpandUpstreamHeaders:
     """Tests for the full expansion pipeline."""
