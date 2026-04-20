@@ -84,7 +84,10 @@ def generate() -> str:
     lines.append("")
     lines.append("from functools import lru_cache")
     lines.append("")
-    lines.append("from pydantic import model_validator")
+    # Include Field if any config field needs a validation_alias (env_var != auto-derived name)
+    needs_field_alias = any(m.env_var != m.name.upper() for m in CONFIG_FIELDS)
+    pydantic_imports = "Field, field_validator, model_validator" if needs_field_alias else "field_validator, model_validator"
+    lines.append(f"from pydantic import {pydantic_imports}")
     lines.append("from pydantic_settings import BaseSettings, SettingsConfigDict")
     if extra_imports:
         lines.append("")
@@ -128,7 +131,12 @@ def generate() -> str:
         for meta in cat_fields:
             ann = _type_annotation(meta)
             default = _default_repr(meta)
-            lines.append(f"    {meta.name}: {ann} = {default}")
+            if meta.env_var != meta.name.upper():
+                lines.append(
+                    f"    {meta.name}: {ann} = Field(default={default}, validation_alias={meta.env_var.lower()!r})"
+                )
+            else:
+                lines.append(f"    {meta.name}: {ann} = {default}")
 
     lines.append("")
     lines.append("")
