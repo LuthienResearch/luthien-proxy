@@ -3,6 +3,9 @@
 -- ABOUTME: Extracted from X-Luthien-User-Id header or JWT Bearer token sub claim
 
 -- Add user_id to conversation_calls (one row per API call)
+-- SQLite does not support IF NOT EXISTS on ALTER TABLE ADD COLUMN, so we use a
+-- conditional approach via a no-op trigger pattern. Instead, we rely on the
+-- migration runner executing each migration exactly once (idempotency via tracking).
 ALTER TABLE conversation_calls ADD COLUMN user_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_conversation_calls_user ON conversation_calls(user_id) WHERE user_id IS NOT NULL;
 
