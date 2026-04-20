@@ -264,3 +264,18 @@ class WebhookSender:
         self._pending_tasks.add(task)
         task.add_done_callback(self._pending_tasks.discard)
         task.add_done_callback(_log_task_exception)
+
+    async def stop(self) -> None:
+        """Cancel and await all pending webhook delivery tasks.
+
+        Call during application shutdown to prevent 'Event loop is closed' errors
+        from in-flight tasks sleeping in exponential backoff.
+        """
+        if not self._pending_tasks:
+            return
+        tasks = list(self._pending_tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self._pending_tasks.clear()
+        logger.debug("WebhookSender stopped (%d in-flight tasks cancelled)", len(tasks))
