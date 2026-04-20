@@ -32,8 +32,9 @@ from anthropic.lib.streaming import MessageStreamEvent
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
-from opentelemetry import trace
+from opentelemetry import context as otel_context, trace
 from opentelemetry.context import get_current
+from opentelemetry.propagate import extract as otel_extract
 from opentelemetry.trace import Span
 
 from luthien_proxy.credential_manager import CredentialManager
@@ -53,6 +54,7 @@ from luthien_proxy.pipeline.session import (
     extract_session_id_from_anthropic_body,
     extract_session_id_from_headers,
 )
+from luthien_proxy.pipeline.upstream_headers import expand_upstream_headers
 from luthien_proxy.pipeline.stream_protocol_validator import validate_anthropic_event_ordering
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
@@ -362,7 +364,10 @@ async def process_anthropic_request(
     if usage_collector:
         usage_collector.record_accepted()
 
-    with tracer.start_as_current_span("anthropic_transaction_processing") as root_span:
+    # Extract inbound trace context (traceparent header) so Luthien spans
+    # link into the caller's distributed trace (e.g. Claude Code → Datadog).
+    inbound_ctx = otel_extract(dict(request.headers))
+    with tracer.start_as_current_span("anthropic_transaction_processing", context=inbound_ctx) as root_span:
         root_span.set_attribute("luthien.transaction_id", call_id)
         root_span.set_attribute("luthien.client_format", "anthropic_native")
         root_span.set_attribute("luthien.endpoint", "/v1/messages")
@@ -402,6 +407,20 @@ async def process_anthropic_request(
         forwarded_headers: dict[str, str] | None = None
         if beta := raw_http_request.headers.get("anthropic-beta"):
             forwarded_headers = {"anthropic-beta": beta}
+
+        # Expand configurable upstream headers (e.g. Helicone session/auth headers).
+        # Templates in UPSTREAM_HEADERS env var are expanded with per-request context.
+        upstream = expand_upstream_headers(
+            session_id=session_id,
+            request_path=raw_http_request.path,
+        )
+        if upstream:
+            # Remove any upstream headers that collide with reserved client headers
+            # (case-insensitive, since HTTP headers are case-insensitive).
+            if forwarded_headers:
+                reserved = {k.lower() for k in forwarded_headers}
+                upstream = {k: v for k, v in upstream.items() if k.lower() not in reserved}
+            forwarded_headers = {**(upstream or {}), **(forwarded_headers or {})}
 
         # Create policy cache factory if database is available. The cap is
         # configured once here so every policy's cache honors the same limit;
