@@ -147,7 +147,10 @@ def extract_user_id_from_bearer_token(token: str | None) -> str | None:
         return None
 
     sub = payload.get("sub")
-    return sub if isinstance(sub, str) and sub else None
+    if not isinstance(sub, str) or not sub:
+        return None
+    cleaned = "".join(ch for ch in sub if ord(ch) >= 0x20 and ord(ch) != 0x7F).strip()
+    return cleaned[:_USER_ID_MAX_LENGTH] if cleaned else None
 
 
 __all__ = [

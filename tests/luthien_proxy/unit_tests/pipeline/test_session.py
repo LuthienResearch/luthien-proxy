@@ -302,3 +302,25 @@ class TestExtractUserIdFromBearerToken:
 
         user_id = extract_user_id_from_bearer_token(token)
         assert user_id == "user-xyz"
+
+    def _make_jwt(self, sub: str) -> str:
+        import base64
+        import json
+
+        payload_bytes = json.dumps({"sub": sub}).encode()
+        payload = base64.urlsafe_b64encode(payload_bytes).rstrip(b"=").decode()
+        return f"eyJhbGciOiJSUzI1NiJ9.{payload}.fakesig"
+
+    def test_strips_control_characters_from_sub(self):
+        token = self._make_jwt("user\r\nX-Injected: evil")
+        assert extract_user_id_from_bearer_token(token) == "userX-Injected: evil"
+
+    def test_truncates_sub_to_max_length(self):
+        token = self._make_jwt("a" * 300)
+        result = extract_user_id_from_bearer_token(token)
+        assert result is not None
+        assert len(result) == 256
+
+    def test_returns_none_for_sub_of_only_control_chars(self):
+        token = self._make_jwt("\x00\x01\x1f\x7f")
+        assert extract_user_id_from_bearer_token(token) is None
