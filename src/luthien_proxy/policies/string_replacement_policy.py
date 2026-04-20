@@ -94,6 +94,8 @@ class StringReplacementConfig(BaseModel):
                 raise ValueError(
                     f"replacements[{i}] must be a [from, to] pair with exactly 2 elements, got {len(pair)}"
                 )
+            if not pair[0]:
+                raise ValueError(f"replacements[{i}]: the 'from' string (first element) must not be empty")
         return v
 
 
