@@ -349,3 +349,40 @@ async def test_fire_and_forget_drops_when_backpressure_cap_reached():
 
         block_release.set()
         await asyncio.gather(*list(sender._pending_tasks), return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_pending_tasks():
+    """stop() cancels in-flight tasks and clears _pending_tasks."""
+    sender = WebhookSender(url="https://example.com/hook")
+
+    block_release = asyncio.Event()
+
+    async def _blocking_send(payload):
+        await block_release.wait()
+        return True
+
+    with patch.object(sender, "_attempt_send", side_effect=_blocking_send):
+        sender.fire_and_forget(
+            session_id="s1",
+            transaction_id="t1",
+            model="m",
+            input_tokens=0,
+            output_tokens=0,
+            duration_ms=0,
+            is_streaming=False,
+        )
+        await asyncio.sleep(0.01)
+        assert len(sender._pending_tasks) == 1
+
+        await sender.stop()
+
+        assert len(sender._pending_tasks) == 0
+
+
+@pytest.mark.asyncio
+async def test_stop_is_noop_when_no_pending_tasks():
+    """stop() does nothing when there are no pending tasks."""
+    sender = WebhookSender(url="https://example.com/hook")
+    await sender.stop()
+    assert len(sender._pending_tasks) == 0
