@@ -20,9 +20,14 @@ from luthien_proxy.history.models import (
     SessionSummary,
 )
 from luthien_proxy.history.routes import (
+    UserLabelRequest,
+    delete_user_label,
     export_session,
     get_session,
     list_sessions,
+    list_user_labels,
+    list_users,
+    set_user_label,
 )
 
 AUTH_TOKEN = "test-admin-key"
@@ -57,7 +62,7 @@ class TestListSessionsRoute:
             new_callable=AsyncMock,
             return_value=expected_response,
         ) as mock_fetch:
-            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=0)
+            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=0, user_hash=None)
 
             assert isinstance(result, SessionListResponse)
             assert result.total == 100
@@ -65,7 +70,7 @@ class TestListSessionsRoute:
             assert result.has_more is True
             assert len(result.sessions) == 1
             assert result.sessions[0].session_id == "session-1"
-            mock_fetch.assert_called_once_with(50, mock_db_pool, 0)
+            mock_fetch.assert_called_once_with(50, mock_db_pool, 0, user_hash=None)
 
     @pytest.mark.asyncio
     async def test_list_sessions_custom_limit(self):
@@ -77,8 +82,8 @@ class TestListSessionsRoute:
             new_callable=AsyncMock,
             return_value=SessionListResponse(sessions=[], total=0),
         ) as mock_fetch:
-            await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=100, offset=0)
-            mock_fetch.assert_called_once_with(100, mock_db_pool, 0)
+            await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=100, offset=0, user_hash=None)
+            mock_fetch.assert_called_once_with(100, mock_db_pool, 0, user_hash=None)
 
     @pytest.mark.asyncio
     async def test_list_sessions_with_offset(self):
@@ -96,11 +101,11 @@ class TestListSessionsRoute:
             new_callable=AsyncMock,
             return_value=expected_response,
         ) as mock_fetch:
-            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=50)
+            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=50, user_hash=None)
 
             assert result.offset == 50
             assert result.has_more is True
-            mock_fetch.assert_called_once_with(50, mock_db_pool, 50)
+            mock_fetch.assert_called_once_with(50, mock_db_pool, 50, user_hash=None)
 
     @pytest.mark.asyncio
     async def test_list_sessions_empty(self):
@@ -112,7 +117,7 @@ class TestListSessionsRoute:
             new_callable=AsyncMock,
             return_value=SessionListResponse(sessions=[], total=0),
         ):
-            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=0)
+            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=0, user_hash=None)
 
             assert result.total == 0
             assert result.sessions == []
@@ -280,3 +285,173 @@ class TestDeprecatedHistoryDetailRedirect:
         assert " " not in location
         assert "#" not in location
         assert "id%20with%20spaces%23fragment" in location
+
+
+def _make_db_pool_with_conn(conn_mock: MagicMock) -> MagicMock:
+    """Build a mock DB pool whose connection() returns an async context manager."""
+    pool = MagicMock()
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=conn_mock)
+    cm.__aexit__ = AsyncMock(return_value=None)
+    pool.connection = MagicMock(return_value=cm)
+    return pool
+
+
+class TestListUsersRoute:
+    """Test list_users route handler."""
+
+    @pytest.mark.asyncio
+    async def test_returns_distinct_users_and_labels(self):
+        conn = MagicMock()
+        conn.fetch = AsyncMock(
+            side_effect=[
+                [{"user_hash": "hash-a"}, {"user_hash": "hash-b"}],
+                [{"user_hash": "hash-a", "display_name": "Alice"}],
+            ]
+        )
+        db_pool = _make_db_pool_with_conn(conn)
+
+        result = await list_users(_=AUTH_TOKEN, db_pool=db_pool, limit=500, offset=0)
+
+        assert result["users"] == ["hash-a", "hash-b"]
+        assert result["labels"] == {"hash-a": "Alice"}
+
+    @pytest.mark.asyncio
+    async def test_empty_result(self):
+        conn = MagicMock()
+        conn.fetch = AsyncMock(return_value=[])
+        db_pool = _make_db_pool_with_conn(conn)
+
+        result = await list_users(_=AUTH_TOKEN, db_pool=db_pool, limit=500, offset=0)
+
+        assert result["users"] == []
+        assert result["labels"] == {}
+        # When there are no users, labels query should be skipped entirely
+        assert conn.fetch.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_pagination_forwards_limit_offset(self):
+        conn = MagicMock()
+        conn.fetch = AsyncMock(return_value=[])
+        db_pool = _make_db_pool_with_conn(conn)
+
+        await list_users(_=AUTH_TOKEN, db_pool=db_pool, limit=10, offset=20)
+
+        # First fetch is the DISTINCT user_hash query; verify limit/offset args
+        first_call = conn.fetch.call_args_list[0]
+        assert first_call.args[1] == 10
+        assert first_call.args[2] == 20
+
+    @pytest.mark.asyncio
+    async def test_labels_query_scoped_to_returned_users(self):
+        """Regression: labels query must be filtered by user hashes, not unbounded."""
+        conn = MagicMock()
+        conn.fetch = AsyncMock(
+            side_effect=[
+                [{"user_hash": "hash-a"}, {"user_hash": "hash-b"}],
+                [{"user_hash": "hash-a", "display_name": "Alice"}],
+            ]
+        )
+        db_pool = _make_db_pool_with_conn(conn)
+
+        await list_users(_=AUTH_TOKEN, db_pool=db_pool, limit=500, offset=0)
+
+        # Second call is the labels fetch — must include the user_hashes as params
+        labels_call = conn.fetch.call_args_list[1]
+        assert "user_hash IN" in labels_call.args[0]
+        assert "hash-a" in labels_call.args
+        assert "hash-b" in labels_call.args
+
+
+class TestListUserLabelsRoute:
+    """Test list_user_labels route handler."""
+
+    @pytest.mark.asyncio
+    async def test_returns_labels_mapping(self):
+        conn = MagicMock()
+        conn.fetch = AsyncMock(
+            return_value=[
+                {"user_hash": "hash-a", "display_name": "Alice"},
+                {"user_hash": "hash-b", "display_name": "Bob"},
+            ]
+        )
+        db_pool = _make_db_pool_with_conn(conn)
+
+        result = await list_user_labels(_=AUTH_TOKEN, db_pool=db_pool)
+
+        assert result == {"labels": {"hash-a": "Alice", "hash-b": "Bob"}}
+
+    @pytest.mark.asyncio
+    async def test_empty_labels(self):
+        conn = MagicMock()
+        conn.fetch = AsyncMock(return_value=[])
+        db_pool = _make_db_pool_with_conn(conn)
+
+        result = await list_user_labels(_=AUTH_TOKEN, db_pool=db_pool)
+
+        assert result == {"labels": {}}
+
+
+class TestSetUserLabelRoute:
+    """Test set_user_label route handler."""
+
+    @pytest.mark.asyncio
+    async def test_sets_label_successfully(self):
+        conn = MagicMock()
+        conn.execute = AsyncMock()
+        db_pool = _make_db_pool_with_conn(conn)
+
+        result = await set_user_label(
+            user_hash="hash-a",
+            body=UserLabelRequest(display_name="Alice"),
+            _=AUTH_TOKEN,
+            db_pool=db_pool,
+        )
+
+        assert result == {"user_hash": "hash-a", "display_name": "Alice"}
+        conn.execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_strips_whitespace_from_display_name(self):
+        conn = MagicMock()
+        conn.execute = AsyncMock()
+        db_pool = _make_db_pool_with_conn(conn)
+
+        result = await set_user_label(
+            user_hash="hash-a",
+            body=UserLabelRequest(display_name="  Alice  "),
+            _=AUTH_TOKEN,
+            db_pool=db_pool,
+        )
+
+        assert result["display_name"] == "Alice"
+
+    @pytest.mark.asyncio
+    async def test_rejects_blank_display_name(self):
+        db_pool = MagicMock()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await set_user_label(
+                user_hash="hash-a",
+                body=UserLabelRequest(display_name="   "),
+                _=AUTH_TOKEN,
+                db_pool=db_pool,
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "blank" in exc_info.value.detail.lower()
+
+
+class TestDeleteUserLabelRoute:
+    """Test delete_user_label route handler."""
+
+    @pytest.mark.asyncio
+    async def test_deletes_label(self):
+        conn = MagicMock()
+        conn.execute = AsyncMock()
+        db_pool = _make_db_pool_with_conn(conn)
+
+        result = await delete_user_label(user_hash="hash-a", _=AUTH_TOKEN, db_pool=db_pool)
+
+        assert result == {"deleted": True}
+        conn.execute.assert_called_once()

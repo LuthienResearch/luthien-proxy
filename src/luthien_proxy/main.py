@@ -6,6 +6,7 @@ import argparse
 import enum
 import logging
 import os
+import re
 import secrets
 from collections.abc import MutableMapping
 from contextlib import asynccontextmanager
@@ -201,7 +202,8 @@ def create_app(
             event_publisher=_event_publisher,
             stdout_enabled=True,
         )
-        logger.info("Event emitter created")
+        _emitter.start()
+        logger.info("Event emitter created (drain loop started)")
 
         # Initialize PolicyManager
         try:
@@ -303,6 +305,7 @@ def create_app(
         yield
 
         # Shutdown
+        await _emitter.shutdown()
         if _telemetry_sender is not None:
             await _telemetry_sender.stop()
         await _credential_manager.close()
@@ -342,6 +345,33 @@ def create_app(
             return response
 
     app.add_middleware(StaticCacheMiddleware)
+
+    # Extract username from /u/{name}/ URL prefix.
+    # The luthien CLI sets ANTHROPIC_BASE_URL=http://proxy:8000/u/stefan/
+    # so Claude Code requests arrive at /u/stefan/v1/messages.
+    # This middleware strips the prefix and stores the name on request.state.
+    _MAX_USERNAME_LENGTH = 64
+    # Defense-in-depth: restrict to alphanumerics, dash, underscore, and dot.
+    # The username is later written to user_labels.display_name (parameterized,
+    # so injection is already blocked) and rendered via escapeHtml() in the UI.
+    # This regex prevents stored-XSS payloads from being accepted in the first
+    # place, so future consumers that forget to escape cannot be exploited.
+    _USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+    class UserPrefixMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            path = request.scope.get("path", "")
+            if path.startswith("/u/"):
+                parts = path.split("/", 3)  # ['', 'u', 'name', 'rest...']
+                if len(parts) >= 4:
+                    raw_username = parts[2][:_MAX_USERNAME_LENGTH]
+                    if raw_username and _USERNAME_RE.match(raw_username):
+                        request.state.luthien_user = raw_username
+                    request.scope["path"] = "/" + parts[3]
+            response = await call_next(request)
+            return response
+
+    app.add_middleware(UserPrefixMiddleware)
 
     # Include routers
     app.include_router(gateway_router)  # /v1/messages

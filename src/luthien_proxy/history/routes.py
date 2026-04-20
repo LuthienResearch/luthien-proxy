@@ -4,6 +4,7 @@ Provides endpoints for:
 - Listing recent sessions
 - Viewing session details
 - Exporting sessions to markdown
+- User label management (assign display names to user hashes)
 - HTML UI pages
 """
 
@@ -11,10 +12,12 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime, timezone
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
+from pydantic import BaseModel, Field
 
 from luthien_proxy.auth import check_auth_or_redirect, verify_admin_token
 from luthien_proxy.dependencies import get_admin_key, get_db_pool
@@ -31,6 +34,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/history", tags=["history"])
 api_router = APIRouter(prefix="/api/history", tags=["history-api"])
+
+
+class UserLabelRequest(BaseModel):
+    """Request body for setting a user display name."""
+
+    display_name: str = Field(
+        ...,
+        max_length=255,
+        description="Human-readable display name for the user",
+    )
+
 
 # Static directory for HTML templates
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
@@ -82,14 +96,111 @@ async def list_sessions(
         ge=0,
         description="Number of sessions to skip for pagination",
     ),
+    user_hash: str | None = Query(
+        default=None,
+        description="Filter sessions by user hash",
+    ),
 ) -> SessionListResponse:
     """List recent sessions with summaries.
 
     Returns a list of session summaries ordered by most recent activity,
     including turn counts, policy interventions, and models used.
     Supports pagination via limit and offset parameters.
+    Optionally filters by user_hash.
     """
-    return await fetch_session_list(limit, db_pool, offset)
+    return await fetch_session_list(limit, db_pool, offset, user_hash=user_hash)
+
+
+@api_router.get("/users")
+async def list_users(
+    _: str = Depends(verify_admin_token),
+    db_pool: DatabasePool = Depends(get_db_pool),
+    limit: int = Query(default=500, ge=1, le=5000, description="Max users to return"),
+    offset: int = Query(default=0, ge=0, description="Users to skip for pagination"),
+) -> dict:
+    """List distinct user hashes with any assigned labels.
+
+    Queries session_summaries (one row per session, indexed on user_hash)
+    rather than conversation_calls (one row per call) for a much smaller
+    DISTINCT scan on deployments with many calls per session.
+    """
+    async with db_pool.connection() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT DISTINCT user_hash FROM session_summaries
+            WHERE user_hash IS NOT NULL
+            ORDER BY user_hash
+            LIMIT $1 OFFSET $2
+            """,
+            limit,
+            offset,
+        )
+        user_hashes = [str(row["user_hash"]) for row in rows]
+        if user_hashes:
+            placeholders = ",".join(f"${i + 1}" for i in range(len(user_hashes)))
+            label_rows = await conn.fetch(
+                f"SELECT user_hash, display_name FROM user_labels WHERE user_hash IN ({placeholders})",
+                *user_hashes,
+            )
+        else:
+            label_rows = []
+    labels = {str(row["user_hash"]): str(row["display_name"]) for row in label_rows}
+    return {
+        "users": user_hashes,
+        "labels": labels,
+    }
+
+
+@api_router.get("/user-labels")
+async def list_user_labels(
+    _: str = Depends(verify_admin_token),
+    db_pool: DatabasePool = Depends(get_db_pool),
+) -> dict:
+    """Return all user labels.
+
+    Returns a mapping from user_hash to display_name for all labeled users.
+    """
+    async with db_pool.connection() as conn:
+        rows = await conn.fetch("SELECT user_hash, display_name FROM user_labels ORDER BY display_name")
+    return {"labels": {str(row["user_hash"]): str(row["display_name"]) for row in rows}}
+
+
+@api_router.put("/user-labels/{user_hash}")
+async def set_user_label(
+    user_hash: str,
+    body: UserLabelRequest,
+    _: str = Depends(verify_admin_token),
+    db_pool: DatabasePool = Depends(get_db_pool),
+) -> dict:
+    """Create or update a display name for a user hash."""
+    display_name = body.display_name.strip()
+    if not display_name:
+        raise HTTPException(status_code=400, detail="display_name must not be blank")
+    now = datetime.now(timezone.utc)
+    async with db_pool.connection() as conn:
+        await conn.execute(
+            """INSERT INTO user_labels (user_hash, display_name, created_at, updated_at)
+               VALUES ($1, $2, $3, $3)
+               ON CONFLICT (user_hash) DO UPDATE SET
+                   display_name = EXCLUDED.display_name,
+                   updated_at = EXCLUDED.updated_at""",
+            user_hash,
+            display_name,
+            now,
+        )
+    return {"user_hash": user_hash, "display_name": display_name}
+
+
+@api_router.delete("/user-labels/{user_hash}")
+async def delete_user_label(
+    user_hash: str,
+    _: str = Depends(verify_admin_token),
+    db_pool: DatabasePool = Depends(get_db_pool),
+) -> dict:
+    """Remove a user label."""
+    async with db_pool.connection() as conn:
+        await conn.execute("DELETE FROM user_labels WHERE user_hash = $1", user_hash)
+    return {"deleted": True}
 
 
 @api_router.get("/sessions/{session_id}", response_model=SessionDetail)
@@ -153,7 +264,8 @@ async def export_session_jsonl_endpoint(
     try:
         session = await fetch_session_detail(session_id, db_pool)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from None
+        logger.warning(f"Session not found for JSONL export: {repr(e)}")
+        raise HTTPException(status_code=404, detail="Session not found.") from None
 
     jsonl = export_session_jsonl(session)
 

@@ -69,6 +69,7 @@ class TestRowToEntry:
             "id": 1,
             "transaction_id": "txn-123",
             "session_id": "sess-456",
+            "user_hash": None,
             "direction": "inbound",
             "http_method": "POST",
             "url": "http://example.com/api/chat",
@@ -208,6 +209,16 @@ class TestRowToEntry:
         entry_no_error = _row_to_entry(row_no_error)
         assert entry_no_error.error is None
 
+    def test_row_to_entry_user_hash_field(self) -> None:
+        """user_hash should be converted to string or remain None."""
+        row = self._make_row(user_hash="abc123def456")
+        entry = _row_to_entry(row)
+        assert entry.user_hash == "abc123def456"
+
+        row_no_hash = self._make_row(user_hash=None)
+        entry_no_hash = _row_to_entry(row_no_hash)
+        assert entry_no_hash.user_hash is None
+
 
 class TestListRequestLogs:
     """Tests for list_request_logs."""
@@ -218,6 +229,7 @@ class TestListRequestLogs:
             "id": 1,
             "transaction_id": "txn-123",
             "session_id": "sess-456",
+            "user_hash": None,
             "direction": "inbound",
             "http_method": "POST",
             "url": "http://example.com/api/chat",
@@ -353,6 +365,17 @@ class TestListRequestLogs:
         assert len(result.logs) == 1
 
     @pytest.mark.asyncio
+    async def test_list_request_logs_user_hash_filter(self) -> None:
+        """User hash filter should be applied."""
+        rows = [self._make_row(user_hash="abc123")]
+        mock_pool = self._make_mock_pool(count_result={"cnt": 1}, fetch_results=rows)
+
+        result = await list_request_logs(mock_pool, user_hash="abc123")
+
+        assert len(result.logs) == 1
+        assert result.logs[0].user_hash == "abc123"
+
+    @pytest.mark.asyncio
     async def test_list_request_logs_status_filter(self) -> None:
         """Status filter should be applied."""
         rows = [self._make_row(response_status=404)]
@@ -414,6 +437,7 @@ class TestGetTransactionLogs:
             "id": 1,
             "transaction_id": "txn-123",
             "session_id": "sess-456",
+            "user_hash": None,
             "direction": "inbound",
             "http_method": "POST",
             "url": "http://example.com/api/chat",
@@ -546,6 +570,32 @@ class TestGetTransactionLogs:
         result = await get_transaction_logs(mock_pool, "txn-123")
 
         assert result.session_id is None
+
+    @pytest.mark.asyncio
+    async def test_get_transaction_logs_user_hash_from_entries(self) -> None:
+        """Should extract user_hash from entries."""
+        rows = [
+            self._make_row(direction="inbound", user_hash="hash-abc"),
+            self._make_row(direction="outbound", user_hash="hash-abc"),
+        ]
+        mock_pool = self._make_mock_pool(fetch_results=rows)
+
+        result = await get_transaction_logs(mock_pool, "txn-123")
+
+        assert result.user_hash == "hash-abc"
+
+    @pytest.mark.asyncio
+    async def test_get_transaction_logs_user_hash_none_if_not_in_entries(self) -> None:
+        """User hash should be None if not in any entry."""
+        rows = [
+            self._make_row(direction="inbound", user_hash=None),
+            self._make_row(direction="outbound", user_hash=None),
+        ]
+        mock_pool = self._make_mock_pool(fetch_results=rows)
+
+        result = await get_transaction_logs(mock_pool, "txn-123")
+
+        assert result.user_hash is None
 
     @pytest.mark.asyncio
     async def test_get_transaction_logs_preserves_transaction_id(self) -> None:

@@ -336,6 +336,55 @@
             border: 1px solid #3d0a0a;
             border-radius: 8px;
         }
+
+        .user-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            background: #2a2a3a;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.75em;
+            color: #8b8ba0;
+            cursor: pointer;
+        }
+
+        .user-badge:hover {
+            background: #3a3a4a;
+        }
+
+        select.filter-dropdown {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 16px;
+            padding: 4px 12px;
+            font-size: 12px;
+            color: #888;
+            cursor: pointer;
+            transition: all 0.15s;
+            outline: none;
+            appearance: none;
+            padding-right: 24px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23888' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+        }
+
+        select.filter-dropdown:hover {
+            border-color: #555;
+            color: #e5e5e5;
+        }
+
+        select.filter-dropdown option {
+            background: #1a1a1a;
+            color: #e5e5e5;
+        }
+
+        .load-status {
+            margin-left: 12px;
+            font-size: 11px;
+            color: #666;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -371,6 +420,10 @@
             <span class="quick-filter" data-filter="lastweek" onclick="applyQuickFilter('lastweek')">Last week <span class="count" id="count-lastweek"></span></span>
             <span class="quick-filter" data-filter="30days" onclick="applyQuickFilter('30days')">Last 30 days <span class="count" id="count-30days"></span></span>
             <span class="quick-filter" data-filter="claude" onclick="applyQuickFilter('claude')">Claude Code <span class="count" id="count-claude"></span></span>
+            <select id="user-filter" class="filter-dropdown" style="margin-left: 8px;">
+                <option value="">All users</option>
+            </select>
+            <span id="load-status" class="load-status"></span>
             <div class="filter-dropdown">
                 <span class="filter-dropdown-btn" onclick="toggleDropdown()">More filters ▾</span>
                 <div class="filter-dropdown-menu" id="filter-dropdown">
@@ -395,6 +448,7 @@
 
     <script>
         let allSessions = [];
+        let userLabels = {};
         let currentFilter = 'all';
         let currentSort = 'newest';
 
@@ -474,7 +528,7 @@
         }
 
         function applyFilters() {
-            // Apply filter
+            // Apply filter (user filter is applied server-side via refetch)
             let filtered = getFilteredSessions(currentFilter);
 
             // Apply search if there's a query
@@ -507,11 +561,18 @@
             applyFilters();
         }
 
-        async function loadSessions() {
+        const SESSIONS_PAGE_SIZE = 50;
+        let allKnownUsers = [];
+
+        async function loadSessions(userHash = null) {
             const container = document.getElementById('sessions-container');
 
             try {
-                const response = await fetch('/api/history/sessions?limit=10000', {
+                let url = `/api/history/sessions?limit=${SESSIONS_PAGE_SIZE}`;
+                if (userHash) {
+                    url += `&user_hash=${encodeURIComponent(userHash)}`;
+                }
+                const response = await fetch(url, {
                     headers: {
                         'Accept': 'application/json'
                     }
@@ -522,13 +583,122 @@
                 }
 
                 const data = await response.json();
-                allSessions = data.sessions;
+                allSessions = data.sessions || [];
 
+                updateLoadStatus(data);
                 updateFilterCounts();
                 applyFilters();
 
             } catch (error) {
                 container.innerHTML = `<div class="error">Failed to load sessions: ${escapeHtml(error.message)}</div>`;
+            }
+        }
+
+        function updateLoadStatus(data) {
+            const status = document.getElementById('load-status');
+            if (!status) return;
+            const total = typeof data.total === 'number' ? data.total : allSessions.length;
+            const shown = allSessions.length;
+            if (data.has_more || total > shown) {
+                status.textContent = `showing ${shown} of ${total} · search/date filters apply to loaded set only`;
+            } else {
+                status.textContent = `${total} session${total !== 1 ? 's' : ''}`;
+            }
+        }
+
+        async function loadUserLabelsAndDropdown() {
+            // Fetch labels for display name lookup
+            try {
+                const labelsResp = await fetch('/api/history/user-labels', {
+                    headers: {'Accept': 'application/json'}
+                });
+                if (labelsResp.ok) {
+                    const labelsData = await labelsResp.json();
+                    userLabels = labelsData.labels || {};
+                }
+            } catch (e) {
+                // Label fetch is non-critical; silently ignore
+            }
+
+            // Fetch the full user list (not just users in the loaded session page).
+            // This ensures the user-filter dropdown shows every known user, so
+            // selecting a user whose sessions aren't in the first page still works.
+            try {
+                const usersResp = await fetch('/api/history/users', {
+                    headers: {'Accept': 'application/json'}
+                });
+                if (usersResp.ok) {
+                    const usersData = await usersResp.json();
+                    allKnownUsers = usersData.users || [];
+                    // Merge any additional labels from the users endpoint
+                    Object.assign(userLabels, usersData.labels || {});
+                }
+            } catch (e) {
+                // Fall back to deriving users from loaded sessions
+                allKnownUsers = [];
+            }
+
+            populateUserFilter();
+        }
+
+        function populateUserFilter() {
+            const userFilter = document.getElementById('user-filter');
+            const selectedValue = userFilter.value;
+            // Clear existing options except the first "All users"
+            while (userFilter.options.length > 1) {
+                userFilter.remove(1);
+            }
+            // Prefer the full user list; fall back to users from loaded sessions
+            const hashes = allKnownUsers.length
+                ? [...allKnownUsers].sort()
+                : [...new Set(allSessions.map(s => s.user_hash).filter(Boolean))].sort();
+            hashes.forEach(hash => {
+                const option = document.createElement('option');
+                option.value = hash;
+                option.textContent = userLabels[hash] || hash.substring(0, 12) + '...';
+                userFilter.appendChild(option);
+            });
+            userFilter.value = selectedValue;
+        }
+
+        function onUserFilterChange() {
+            const selected = document.getElementById('user-filter').value;
+            loadSessions(selected || null);
+        }
+
+        async function editUserLabel(hash, event) {
+            event.stopPropagation();
+            const currentName = userLabels[hash] || '';
+            const name = prompt('Display name for this user:', currentName);
+            if (name === null) return; // cancelled
+            const previous = userLabels[hash];
+            try {
+                if (name.trim() === '') {
+                    // Delete label
+                    const resp = await fetch('/api/history/user-labels/' + encodeURIComponent(hash), {
+                        method: 'DELETE',
+                    });
+                    if (!resp.ok) throw new Error(`DELETE failed: ${resp.status}`);
+                    delete userLabels[hash];
+                } else {
+                    // Set label
+                    const resp = await fetch('/api/history/user-labels/' + encodeURIComponent(hash), {
+                        method: 'PUT',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({display_name: name.trim()}),
+                    });
+                    if (!resp.ok) throw new Error(`PUT failed: ${resp.status}`);
+                    userLabels[hash] = name.trim();
+                }
+                applyFilters();
+                populateUserFilter();
+            } catch (err) {
+                if (previous !== undefined) {
+                    userLabels[hash] = previous;
+                } else {
+                    delete userLabels[hash];
+                }
+                alert('Failed to update user label: ' + (err && err.message ? err.message : err));
             }
         }
 
@@ -570,12 +740,19 @@
                         interventionsHtml = `<span class="interventions-none">no policies triggered</span>`;
                     }
 
+                    let userBadge = '';
+                    if (session.user_hash) {
+                        const displayName = userLabels[session.user_hash] || null;
+                        const userLabel = displayName || session.user_hash.substring(0, 8);
+                        userBadge = `<span class="user-badge" data-user-hash="${escapeHtml(session.user_hash)}" title="Click to set name · ${escapeHtml(session.user_hash)}">user: ${escapeHtml(userLabel)}</span>`;
+                    }
+
                     const hasPreview = !!session.preview_message;
                     html += `
-                        <div class="session-card" onclick="viewSession('${escapeHtml(session.session_id)}')">
+                        <div class="session-card" data-session-id="${escapeHtml(session.session_id)}">
                             <div class="session-main">
                                 <div class="session-preview${hasPreview ? '' : ' session-preview-empty'}">${escapeHtml(previewText)}</div>
-                                <div class="session-meta">${metaParts.join(' · ')} · ${interventionsHtml}</div>
+                                <div class="session-meta">${metaParts.join(' · ')} · ${interventionsHtml}${userBadge ? ' · ' + userBadge : ''}</div>
                             </div>
                             <div class="session-right">
                                 <div class="session-time">${timeStr}</div>
@@ -587,6 +764,19 @@
             }
 
             container.innerHTML = html;
+            // Wire up clicks via event delegation (avoids inline onclick XSS).
+            container.querySelectorAll('.session-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    const sid = card.dataset.sessionId;
+                    if (sid) viewSession(sid);
+                });
+            });
+            container.querySelectorAll('.user-badge').forEach(badge => {
+                badge.addEventListener('click', (ev) => {
+                    const hash = badge.dataset.userHash;
+                    if (hash) editUserLabel(hash, ev);
+                });
+            });
         }
 
         function groupByDate(sessions, today, yesterday) {
@@ -685,9 +875,12 @@
         function escapeHtml(str) {
             const div = document.createElement('div');
             div.textContent = str;
-            return div.innerHTML;
+            return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
 
+        // Wire up user filter once, then kick off initial loads.
+        document.getElementById('user-filter').addEventListener('change', onUserFilterChange);
+        loadUserLabelsAndDropdown();
         loadSessions();
     </script>
     <script defer src="/static/vendor/alpine.min.js"></script>

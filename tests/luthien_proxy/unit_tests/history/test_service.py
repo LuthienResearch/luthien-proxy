@@ -915,22 +915,23 @@ class TestFetchSessionList:
     @pytest.mark.asyncio
     async def test_successful_fetch(self):
         """Test successful session list fetching."""
-        mock_rows = [
+        summary_rows = [
             {
                 "session_id": "session-1",
-                "first_ts": datetime(2025, 1, 15, 10, 0, 0),
-                "last_ts": datetime(2025, 1, 15, 11, 0, 0),
-                "total_events": 10,
-                "turn_count": 3,
-                "policy_interventions": 1,
-                "models": ["gpt-4", "claude-3"],
-                "request_payload": {"final_request": {"messages": [{"role": "user", "content": "Hello world"}]}},
+                "first_seen": datetime(2025, 1, 15, 10, 0, 0),
+                "last_seen": datetime(2025, 1, 15, 11, 0, 0),
+                "event_count": 10,
+                "call_count": 3,
+                "policy_event_count": 1,
+                "user_hash": "abc123",
+                "models_used": "gpt-4,claude-3",
+                "preview_message": "Hello world",
             },
         ]
 
         mock_conn = AsyncMock()
         mock_conn.fetchval.return_value = 1  # Total count
-        mock_conn.fetch.return_value = mock_rows
+        mock_conn.fetch.return_value = summary_rows
 
         mock_pool = MagicMock()
         mock_pool.is_sqlite = False
@@ -945,28 +946,30 @@ class TestFetchSessionList:
         assert result.sessions[0].session_id == "session-1"
         assert result.sessions[0].turn_count == 3
         assert result.sessions[0].policy_interventions == 1
-        assert "gpt-4" in result.sessions[0].models_used
+        assert result.sessions[0].models_used == ["gpt-4", "claude-3"]
         assert result.sessions[0].preview_message == "Hello world"
+        assert result.sessions[0].user_hash == "abc123"
 
     @pytest.mark.asyncio
     async def test_fetch_with_offset(self):
         """Test fetching with offset for pagination."""
-        mock_rows = [
+        summary_rows = [
             {
                 "session_id": "session-2",
-                "first_ts": datetime(2025, 1, 15, 10, 0, 0),
-                "last_ts": datetime(2025, 1, 15, 11, 0, 0),
-                "total_events": 5,
-                "turn_count": 2,
-                "policy_interventions": 0,
-                "models": ["gpt-4"],
-                "request_payload": None,  # Test with no first message
+                "first_seen": datetime(2025, 1, 15, 10, 0, 0),
+                "last_seen": datetime(2025, 1, 15, 11, 0, 0),
+                "event_count": 5,
+                "call_count": 2,
+                "policy_event_count": 0,
+                "user_hash": None,
+                "models_used": "gpt-4",
+                "preview_message": None,
             },
         ]
 
         mock_conn = AsyncMock()
         mock_conn.fetchval.return_value = 100  # Total count
-        mock_conn.fetch.return_value = mock_rows
+        mock_conn.fetch.return_value = summary_rows
 
         mock_pool = MagicMock()
         mock_pool.is_sqlite = False

@@ -1,6 +1,6 @@
 """Tests for SQLite-specific path in conversation history service.
 
-Tests the `_fetch_session_list_sqlite` code path using a real in-memory
+Tests the `fetch_session_list` code path using a real in-memory
 SQLite database with the schema applied.
 """
 
@@ -13,6 +13,49 @@ import pytest
 
 from luthien_proxy.history.service import fetch_session_list
 from luthien_proxy.utils.db import DatabasePool
+
+
+async def _refresh_session_summaries(pool: DatabasePool) -> None:
+    """Rebuild session_summaries from conversation_events (test helper)."""
+    async with pool.connection() as conn:
+        await conn.execute("DELETE FROM session_summaries")
+        await conn.execute(
+            """
+            INSERT INTO session_summaries
+                (session_id, first_seen, last_seen, event_count, call_count,
+                 policy_event_count, user_hash, models_used, preview_message)
+            SELECT
+                ce.session_id,
+                MIN(ce.created_at),
+                MAX(ce.created_at),
+                COUNT(*),
+                COUNT(DISTINCT ce.call_id),
+                SUM(CASE
+                    WHEN ce.event_type LIKE 'policy.%'
+                    AND ce.event_type NOT LIKE 'policy.judge.evaluation%'
+                    THEN 1 ELSE 0
+                END),
+                (SELECT cc.user_hash FROM conversation_calls cc
+                 WHERE cc.session_id = ce.session_id AND cc.user_hash IS NOT NULL LIMIT 1),
+                (SELECT GROUP_CONCAT(DISTINCT json_extract(ce2.payload, '$.final_model'))
+                 FROM conversation_events ce2
+                 WHERE ce2.session_id = ce.session_id
+                 AND ce2.event_type = 'transaction.request_recorded'
+                 AND json_extract(ce2.payload, '$.final_model') IS NOT NULL),
+                (SELECT json_extract(ce3.payload, '$.final_request.messages[0].content')
+                 FROM conversation_events ce3
+                 WHERE ce3.session_id = ce.session_id
+                 AND ce3.event_type = 'transaction.request_recorded'
+                 AND COALESCE(
+                     CAST(json_extract(ce3.payload, '$.final_request.max_tokens') AS INTEGER), 2
+                 ) > 1
+                 ORDER BY ce3.created_at ASC
+                 LIMIT 1)
+            FROM conversation_events ce
+            WHERE ce.session_id IS NOT NULL
+            GROUP BY ce.session_id
+            """
+        )
 
 
 @pytest.fixture
@@ -131,6 +174,7 @@ async def populated_sqlite_pool(sqlite_pool: DatabasePool) -> DatabasePool:
             "2025-01-15T10:05:01",
         )
 
+    await _refresh_session_summaries(sqlite_pool)
     return sqlite_pool
 
 
@@ -210,6 +254,7 @@ async def populated_with_interventions_pool(sqlite_pool: DatabasePool) -> Databa
             "2025-01-16T14:00:02",
         )
 
+    await _refresh_session_summaries(sqlite_pool)
     return sqlite_pool
 
 
@@ -316,6 +361,7 @@ class TestFetchSessionListSqlite:
                     f"2025-01-15T{10 + i:02d}:00:00",
                 )
 
+        await _refresh_session_summaries(sqlite_pool)
         # Fetch first 2
         result = await fetch_session_list(limit=2, db_pool=sqlite_pool)
         assert len(result.sessions) == 2
@@ -377,6 +423,7 @@ class TestFetchSessionListSqlite:
                     f"2025-01-15T10:00:0{i}",
                 )
 
+        await _refresh_session_summaries(sqlite_pool)
         result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
         sessions = result.sessions
 
@@ -422,6 +469,7 @@ class TestFetchSessionListSqlite:
                 "2025-01-15T15:00:00",
             )
 
+        await _refresh_session_summaries(sqlite_pool)
         result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
         assert len(result.sessions) == 1
         assert result.sessions[0].preview_message is None
@@ -466,6 +514,7 @@ class TestFetchSessionListSqlite:
                     f"2025-01-15T10:{idx:02d}:00",
                 )
 
+        await _refresh_session_summaries(sqlite_pool)
         result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
         assert len(result.sessions) == 1
 
@@ -535,6 +584,7 @@ class TestFetchSessionListSqlite:
                 "2025-01-15T16:00:01",
             )
 
+        await _refresh_session_summaries(sqlite_pool)
         result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
         session = result.sessions[0]
 
@@ -615,6 +665,7 @@ class TestFetchSessionListSqlite:
                 "2025-01-17T10:00:04",
             )
 
+        await _refresh_session_summaries(sqlite_pool)
         result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
         session = result.sessions[0]
 
@@ -660,11 +711,74 @@ class TestFetchSessionListSqlite:
                     f"2025-01-15T10:{i:02d}:00",
                 )
 
+        await _refresh_session_summaries(sqlite_pool)
         result = await fetch_session_list(limit=3, db_pool=sqlite_pool)
 
         assert len(result.sessions) == 3
         assert result.total == 5
         assert result.has_more is True
+
+    @pytest.mark.asyncio
+    async def test_user_hash_filter(self, sqlite_pool: DatabasePool):
+        """Test that user_hash filter returns only matching sessions."""
+        async with sqlite_pool.connection() as conn:
+            # session-a belongs to user-1, session-b to user-2, session-c has no user
+            fixtures = [
+                ("call-a", "session-a", "user-1", "2025-01-20T10:00:00"),
+                ("call-b", "session-b", "user-2", "2025-01-20T11:00:00"),
+                ("call-c", "session-c", None, "2025-01-20T12:00:00"),
+            ]
+            for call_id, session_id, user_hash, ts in fixtures:
+                await conn.execute(
+                    """
+                    INSERT INTO conversation_calls
+                    (call_id, model_name, provider, status, session_id, user_hash, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    call_id,
+                    "gpt-4",
+                    "openai",
+                    "completed",
+                    session_id,
+                    user_hash,
+                    ts,
+                )
+                await conn.execute(
+                    """
+                    INSERT INTO conversation_events
+                    (id, call_id, event_type, payload, session_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    f"event-{call_id}",
+                    call_id,
+                    "transaction.request_recorded",
+                    json.dumps(
+                        {
+                            "final_model": "gpt-4",
+                            "final_request": {"messages": [{"role": "user", "content": "hi"}]},
+                        }
+                    ),
+                    session_id,
+                    ts,
+                )
+
+        await _refresh_session_summaries(sqlite_pool)
+
+        # No filter: all 3 sessions
+        all_result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
+        assert all_result.total == 3
+
+        # Filter by user-1: only session-a
+        filtered = await fetch_session_list(limit=10, db_pool=sqlite_pool, user_hash="user-1")
+        assert filtered.total == 1
+        assert len(filtered.sessions) == 1
+        assert filtered.sessions[0].session_id == "session-a"
+        assert filtered.sessions[0].user_hash == "user-1"
+
+        # Filter by unknown user: empty
+        empty = await fetch_session_list(limit=10, db_pool=sqlite_pool, user_hash="user-nonexistent")
+        assert empty.total == 0
+        assert empty.sessions == []
 
     @pytest.mark.asyncio
     async def test_is_sqlite_flag_used(self, sqlite_pool: DatabasePool):
@@ -706,6 +820,7 @@ class TestFetchSessionListSqlite:
                 "2025-01-15T12:00:00",
             )
 
+        await _refresh_session_summaries(sqlite_pool)
         # Call fetch_session_list (which will dispatch to SQLite path)
         result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
 

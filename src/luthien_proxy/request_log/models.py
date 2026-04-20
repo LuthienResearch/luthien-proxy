@@ -13,6 +13,7 @@ class RequestLogEntry(BaseModel):
     id: str
     transaction_id: str
     session_id: str | None = None
+    user_hash: str | None = None
     direction: str
     http_method: str | None = None
     url: str | None = None
@@ -44,6 +45,7 @@ class RequestLogDetailResponse(BaseModel):
 
     transaction_id: str
     session_id: str | None = None
+    user_hash: str | None = None
     inbound: RequestLogEntry | None = None
     outbound: RequestLogEntry | None = None
 
