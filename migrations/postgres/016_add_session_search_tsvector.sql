@@ -48,7 +48,7 @@ BEGIN
 
     RETURN NULLIF(TRIM(result), '');
 END;
-$$ LANGUAGE plpgsql IMMUTABLE;
+$$ LANGUAGE plpgsql STABLE;
 
 -- Add tsvector column to conversation_events
 ALTER TABLE conversation_events
