@@ -128,6 +128,8 @@ class ConversationPurger:
 
     def start(self) -> None:
         """Start the periodic purge loop as a background task."""
+        if self._task is not None and not self._task.done():
+            return
         logger.info(
             "Conversation retention enabled: retention_days=%d, interval=%ds, initial_delay=%ds",
             self._retention_days,
