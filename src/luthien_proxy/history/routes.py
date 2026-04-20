@@ -87,10 +87,7 @@ async def list_sessions(
     # --- Search / filter parameters ---
     user: str | None = Query(
         default=None,
-        description=(
-            "Filter by session_id prefix (case-sensitive). "
-            "Currently maps to session_id; will be updated to user_id once #554 lands."
-        ),
+        description="Filter by user_id prefix (case-sensitive). Requires TRUST_USER_ID_HEADER=true to populate user_id.",
     ),
     model: str | None = Query(
         default=None,
