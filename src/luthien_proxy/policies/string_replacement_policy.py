@@ -45,7 +45,7 @@ from anthropic.types import (
     RawMessageDeltaEvent,
     TextDelta,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from luthien_proxy.policy_core import (
     AnthropicHookPolicy,
@@ -85,6 +85,16 @@ class StringReplacementConfig(BaseModel):
             "what the model sees — review your replacement patterns before enabling."
         ),
     )
+
+    @field_validator("replacements")
+    @classmethod
+    def _validate_replacement_pairs(cls, v: list[list[str]]) -> list[list[str]]:
+        for i, pair in enumerate(v):
+            if len(pair) != 2:
+                raise ValueError(
+                    f"replacements[{i}] must be a [from, to] pair with exactly 2 elements, got {len(pair)}"
+                )
+        return v
 
 
 def _detect_capitalization_pattern(text: str) -> str:
