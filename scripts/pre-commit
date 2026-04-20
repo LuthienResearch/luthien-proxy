@@ -3,8 +3,64 @@
 # Install: ./scripts/install-hooks.sh
 set -uo pipefail
 
+# ── Staged-file safety check ─────────────────────────────────────────────────
+# Abort if any staged file matches a known-sensitive pattern.
+# These patterns cover: agent tooling state, meeting transcripts, session logs,
+# business/strategy docs, and any file that has no place in a code repository.
+BLOCKED_PATTERNS=(
+    '.sisyphus/'
+    'session-ses_'
+    '.docx.md'
+    'stability-agenda'
+    'trajectory-luthien-scoping'
+    'trajectory-executive-brief'
+    'trajectory-peter-reconciliation'
+    'multi-provider-technical-report'
+)
+
+blocked_output=""
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    for pat in "${BLOCKED_PATTERNS[@]}"; do
+        if [[ "$f" == *"$pat"* ]]; then
+            blocked_output="${blocked_output}    ${f}  (matches: ${pat})\n"
+            break
+        fi
+    done
+done < <(git diff --cached --name-only --diff-filter=ACMRD)
+
+if [ -n "$blocked_output" ]; then
+    echo ""
+    echo "✗ pre-commit: refusing to commit sensitive or out-of-place files:"
+    echo ""
+    printf "%b" "$blocked_output"
+    echo ""
+    echo "  Unstage with: git restore --staged <file>"
+    echo "  Add to .gitignore if this file should never be committed."
+    echo ""
+    exit 1
+fi
+
+# Also block any staged file whose name contains a meeting-date pattern
+# (e.g. "Apr 15 Luthien_Trajectory_ Scott, Jai, Sami.md")
+meeting_output=$(git diff --cached --name-only --diff-filter=ACMRD | grep -iE '^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [0-9]' || true)
+if [ -n "$meeting_output" ]; then
+    echo ""
+    echo "✗ pre-commit: refusing to commit what looks like a meeting transcript:"
+    echo ""
+    echo "$meeting_output" | sed 's/^/    /'
+    echo ""
+    echo "  Unstage with: git restore --staged <file>"
+    echo ""
+    exit 1
+fi
+# ─────────────────────────────────────────────────────────────────────────────
+
 # Only act on Python files that are staged (Added, Modified, Copied, Renamed)
-mapfile -t staged_py < <(git diff --cached --name-only --diff-filter=ACMR -- '*.py')
+staged_py=()
+while IFS= read -r f; do
+    [ -n "$f" ] && staged_py+=("$f")
+done < <(git diff --cached --name-only --diff-filter=ACMR -- '*.py')
 [ "${#staged_py[@]}" -eq 0 ] && exit 0
 
 echo "pre-commit: formatting ${#staged_py[@]} staged Python file(s)..."
