@@ -21,7 +21,7 @@ from luthien_proxy.retention.archiver import S3ConversationArchiver
 
 @pytest.fixture
 def sample_calls():
-    """Sample conversation_calls rows."""
+    """Sample conversation_calls rows with all columns including session_id and user_id."""
     return [
         {
             "call_id": "call-001",
@@ -30,6 +30,8 @@ def sample_calls():
             "status": "completed",
             "created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
             "completed_at": datetime(2024, 1, 1, 12, 0, 5, tzinfo=UTC),
+            "session_id": "sess-abc",
+            "user_id": "user-123",
         },
         {
             "call_id": "call-002",
@@ -38,6 +40,8 @@ def sample_calls():
             "status": "completed",
             "created_at": datetime(2024, 1, 2, 8, 0, 0, tzinfo=UTC),
             "completed_at": None,
+            "session_id": None,
+            "user_id": None,
         },
     ]
 
@@ -167,6 +171,26 @@ async def test_archive_calls_null_completed_at(mock_db_pool, mock_s3_client, sam
     lines = body.decode().strip().split("\n")
     second = json.loads(lines[1])
     assert second["completed_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_archive_calls_preserves_session_and_user_id(mock_db_pool, mock_s3_client, sample_calls):
+    """session_id and user_id columns must be preserved in the archived JSONL."""
+    pool, conn = mock_db_pool
+    cutoff = datetime(2024, 1, 3, tzinfo=UTC)
+
+    archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
+    await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+
+    body = mock_s3_client.put_object.call_args[1]["Body"]
+    lines = [line for line in body.decode().strip().split("\n") if line]
+    first = json.loads(lines[0])
+    assert first["session_id"] == "sess-abc"
+    assert first["user_id"] == "user-123"
+
+    second = json.loads(lines[1])
+    assert second["session_id"] is None
+    assert second["user_id"] is None
 
 
 def test_build_s3_key_format():
