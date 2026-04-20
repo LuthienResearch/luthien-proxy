@@ -171,7 +171,7 @@ class TestExtractUserIdFromHeaders:
             "content-type": "application/json",
             USER_ID_HEADER: "alice@example.com",
         }
-        user_id = extract_user_id_from_headers(headers)
+        user_id = extract_user_id_from_headers(headers, trust_header=True)
         assert user_id == "alice@example.com"
 
     def test_returns_none_when_header_missing(self):
@@ -180,24 +180,47 @@ class TestExtractUserIdFromHeaders:
             "content-type": "application/json",
             "authorization": "Bearer token",
         }
-        user_id = extract_user_id_from_headers(headers)
+        user_id = extract_user_id_from_headers(headers, trust_header=True)
         assert user_id is None
 
     def test_returns_none_if_header_empty(self):
         """Test returns None if header value is empty."""
         headers = {USER_ID_HEADER: ""}
-        user_id = extract_user_id_from_headers(headers)
+        user_id = extract_user_id_from_headers(headers, trust_header=True)
         assert user_id is None
 
     def test_preserves_arbitrary_user_id_format(self):
         """Test arbitrary user ID formats are preserved."""
         for uid in ["user-123", "alice", "alice@corp.example.com", "sub:abc123"]:
             headers = {USER_ID_HEADER: uid}
-            assert extract_user_id_from_headers(headers) == uid
+            assert extract_user_id_from_headers(headers, trust_header=True) == uid
 
     def test_header_name_constant(self):
         """Test the header name constant is correct."""
         assert USER_ID_HEADER == "x-luthien-user-id"
+
+    def test_returns_none_when_trust_header_false(self):
+        """Gating: returns None even when header is present if trust_header=False."""
+        headers = {USER_ID_HEADER: "alice@example.com"}
+        assert extract_user_id_from_headers(headers, trust_header=False) is None
+
+    def test_strips_control_characters(self):
+        """Sanitization: control characters are stripped from the value."""
+        headers = {USER_ID_HEADER: "alice\x00\x1f\x7f@example.com"}
+        result = extract_user_id_from_headers(headers, trust_header=True)
+        assert result == "alice@example.com"
+
+    def test_truncates_to_max_length(self):
+        """Sanitization: values longer than 256 chars are truncated."""
+        long_id = "a" * 300
+        headers = {USER_ID_HEADER: long_id}
+        result = extract_user_id_from_headers(headers, trust_header=True)
+        assert result == "a" * 256
+
+    def test_returns_none_if_only_control_chars(self):
+        """Sanitization: returns None if header contains only control characters."""
+        headers = {USER_ID_HEADER: "\x00\x1f\x7f"}
+        assert extract_user_id_from_headers(headers, trust_header=True) is None
 
 
 class TestExtractUserIdFromBearerToken:
