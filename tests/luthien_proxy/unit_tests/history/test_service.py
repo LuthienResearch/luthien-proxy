@@ -910,75 +910,12 @@ class TestBuildTurn:
 
 
 class TestFetchSessionList:
-    """Test fetching session list from database."""
+    """Test fetching session list from database.
 
-    @pytest.mark.asyncio
-    async def test_successful_fetch(self):
-        """Test successful session list fetching."""
-        mock_rows = [
-            {
-                "session_id": "session-1",
-                "first_ts": datetime(2025, 1, 15, 10, 0, 0),
-                "last_ts": datetime(2025, 1, 15, 11, 0, 0),
-                "total_events": 10,
-                "turn_count": 3,
-                "policy_interventions": 1,
-                "models": ["gpt-4", "claude-3"],
-                "request_payload": {"final_request": {"messages": [{"role": "user", "content": "Hello world"}]}},
-            },
-        ]
-
-        mock_conn = AsyncMock()
-        mock_conn.fetchval.return_value = 1  # Total count
-        mock_conn.fetch.return_value = mock_rows
-
-        mock_pool = MagicMock()
-        mock_pool.is_sqlite = False
-        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
-
-        result = await fetch_session_list(limit=10, db_pool=mock_pool)
-
-        assert result.total == 1
-        assert result.offset == 0
-        assert result.has_more is False
-        assert len(result.sessions) == 1
-        assert result.sessions[0].session_id == "session-1"
-        assert result.sessions[0].turn_count == 3
-        assert result.sessions[0].policy_interventions == 1
-        assert "gpt-4" in result.sessions[0].models_used
-        assert result.sessions[0].preview_message == "Hello world"
-
-    @pytest.mark.asyncio
-    async def test_fetch_with_offset(self):
-        """Test fetching with offset for pagination."""
-        mock_rows = [
-            {
-                "session_id": "session-2",
-                "first_ts": datetime(2025, 1, 15, 10, 0, 0),
-                "last_ts": datetime(2025, 1, 15, 11, 0, 0),
-                "total_events": 5,
-                "turn_count": 2,
-                "policy_interventions": 0,
-                "models": ["gpt-4"],
-                "request_payload": None,  # Test with no first message
-            },
-        ]
-
-        mock_conn = AsyncMock()
-        mock_conn.fetchval.return_value = 100  # Total count
-        mock_conn.fetch.return_value = mock_rows
-
-        mock_pool = MagicMock()
-        mock_pool.is_sqlite = False
-        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
-
-        result = await fetch_session_list(limit=10, db_pool=mock_pool, offset=50)
-
-        assert result.total == 100
-        assert result.offset == 50
-        assert result.has_more is True  # 50 + 1 < 100
-        assert len(result.sessions) == 1
-        assert result.sessions[0].preview_message is None
+    Full-behavior SQL coverage lives in `test_service_sqlite.py` and
+    `test_search_regressions.py` (real in-memory SQLite). Only backend-agnostic
+    edge cases that don't depend on row shape belong here.
+    """
 
     @pytest.mark.asyncio
     async def test_empty_result(self):
