@@ -915,6 +915,8 @@ async def _handle_execution_non_streaming(
                 )
 
         if webhook_sender and webhook_sender.enabled:
+            # Non-streaming path always reaches here on success (errors raise before this point),
+            # so no explicit status check is needed — equivalent to final_status == 200.
             _ns_usage = final_response.get("usage") or {}
             _duration_ms = int((time.monotonic() - request_start_time) * 1000) if request_start_time else 0
             webhook_sender.fire_and_forget(
