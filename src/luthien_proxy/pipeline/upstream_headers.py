@@ -51,6 +51,20 @@ logger = logging.getLogger(__name__)
 
 _TEMPLATE_PATTERN = re.compile(r"\$\{([^}]+)\}")
 _HEADER_NAME_RE = re.compile(r"[!#$%&'*+\-.0-9A-Z^_`a-z|~]+")
+_SENSITIVE_ENV_RE = re.compile(
+    r"\$\{env\.([^}]*(?:KEY|SECRET|PASSWORD|TOKEN)[^}]*|DATABASE_URL|REDIS_URL)\}", re.IGNORECASE
+)
+
+
+def _warn_sensitive_env_refs(templates: dict[str, str]) -> None:
+    for header, template in templates.items():
+        for match in _SENSITIVE_ENV_RE.finditer(template):
+            logger.warning(
+                "UPSTREAM_HEADERS: header %r references potentially sensitive env var ${env.%s} — "
+                "ensure the upstream target is trusted",
+                header,
+                match.group(1),
+            )
 
 
 @lru_cache(maxsize=1)
@@ -79,6 +93,7 @@ def _load_header_templates() -> dict[str, str]:
             result[k] = v
         if result:
             logger.info("Loaded %d upstream header template(s)", len(result))
+        _warn_sensitive_env_refs(result)
         return result
     except json.JSONDecodeError as e:
         logger.warning("UPSTREAM_HEADERS: invalid JSON: %s", e)
