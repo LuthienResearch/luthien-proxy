@@ -11,6 +11,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import TypedDict
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 
@@ -122,6 +123,14 @@ class WebhookSender:
         """True if a webhook URL is configured."""
         return bool(self._url)
 
+    @property
+    def _safe_url(self) -> str:
+        """URL with userinfo and query params stripped, safe for logging."""
+        if not self._url:
+            return ""
+        parsed = urlparse(self._url)
+        return urlunparse(parsed._replace(netloc=parsed.hostname or "", query="", fragment=""))
+
     async def _attempt_send(self, payload: ConversationCompletedPayload) -> bool:
         """Attempt a single POST delivery.
 
@@ -139,12 +148,12 @@ class WebhookSender:
                     logger.warning(
                         "Webhook delivery failed: HTTP %d from %s",
                         response.status_code,
-                        self._url,
+                        self._safe_url,
                     )
                     return False
                 return True
         except (httpx.HTTPError, asyncio.TimeoutError, OSError):
-            logger.warning("Webhook delivery error to %s", self._url, exc_info=True)
+            logger.warning("Webhook delivery error to %s", self._safe_url, exc_info=True)
             return False
 
     async def _send_with_retries(self, payload: ConversationCompletedPayload) -> None:
@@ -186,7 +195,7 @@ class WebhookSender:
 
         logger.error(
             "Webhook delivery to %s failed after %d attempts — giving up",
-            self._url,
+            self._safe_url,
             1 + self._max_retries,
         )
 
