@@ -289,12 +289,18 @@ _FIRST_MESSAGE_MAX_LENGTH = 100
 # Pattern to strip system-reminder tags from content
 _SYSTEM_REMINDER_PATTERN = re.compile(r"<system-reminder>.*?</system-reminder>\s*", re.DOTALL)
 
+# Pattern to strip policy-context tags injected by inject_policy_awareness_anthropic.
+# These are prepended to the first user message and must be removed so the preview
+# shows the actual user intent rather than the policy awareness boilerplate.
+_POLICY_CONTEXT_PATTERN = re.compile(r"<policy-context>.*?</policy-context>\s*", re.DOTALL)
+
 
 def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None:
     """Extract the first meaningful user message from a request payload for preview.
 
     Used to generate a session preview/title. Returns truncated text.
-    Skips system-reminders and other non-meaningful content to find actual user intent.
+    Skips system-reminders, policy-context injections, and other non-meaningful
+    content to find actual user intent.
     """
     if not payload:
         return None
@@ -330,9 +336,13 @@ def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None
             if content:
                 # Truncate and clean up for display
                 content = content.strip()
-                # Skip system-reminder tags (Claude Code injects these)
+                # Strip system-reminder tags (Claude Code injects these)
                 if content.startswith("<system-reminder>"):
                     content = _SYSTEM_REMINDER_PATTERN.sub("", content).strip()
+                # Strip policy-context tags (inject_policy_awareness_anthropic prepends these
+                # to the first user message when active policies modify LLM output)
+                if "<policy-context>" in content:
+                    content = _POLICY_CONTEXT_PATTERN.sub("", content).strip()
                 if not content:
                     continue
                 # Replace newlines with spaces for single-line preview
