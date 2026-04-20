@@ -309,7 +309,7 @@ def create_app(
             retry_delay_seconds=settings.webhook_retry_delay_seconds,
         )
         if _webhook_sender.enabled:
-            logger.info("Webhook event export enabled (url=%s)", _webhook_url)
+            logger.info("Webhook event export enabled (url=%s)", _webhook_sender._safe_url)
         else:
             logger.info("Webhook event export disabled (set WEBHOOK_URL to enable)")
 
