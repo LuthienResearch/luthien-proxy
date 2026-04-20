@@ -155,7 +155,7 @@ def check_auth_or_redirect(
         return None
 
     if not admin_key:
-        return None
+        return RedirectResponse(url="/login?error=not_configured", status_code=303)
 
     session = get_session_user(request, admin_key)
     if session:
