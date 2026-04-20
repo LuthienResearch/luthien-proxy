@@ -75,6 +75,11 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         "Include internal details in client-facing error responses",
         category="server", db_settable=True, restart_required=False,
     ),
+    ConfigFieldMeta(
+        "trust_user_id_header", "TRUST_USER_ID_HEADER", bool, False,
+        description="Trust the X-Luthien-User-Id request header for user attribution. Disabled by default — only enable when clients are trusted (e.g., behind an authenticated reverse proxy).",
+        category="server", db_settable=True, restart_required=False,
+    ),
 
     # ── auth ──────────────────────────────────────────────────────────────
     ConfigFieldMeta(

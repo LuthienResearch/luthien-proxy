@@ -33,7 +33,7 @@ from anthropic.lib.streaming import MessageStreamEvent
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
-from opentelemetry import context as otel_context, trace
+from opentelemetry import trace
 from opentelemetry.context import get_current
 from opentelemetry.propagate import extract as otel_extract
 from opentelemetry.trace import Span
@@ -57,8 +57,8 @@ from luthien_proxy.pipeline.session import (
     extract_user_id_from_bearer_token,
     extract_user_id_from_headers,
 )
-from luthien_proxy.pipeline.upstream_headers import expand_upstream_headers
 from luthien_proxy.pipeline.stream_protocol_validator import validate_anthropic_event_ordering
+from luthien_proxy.pipeline.upstream_headers import expand_upstream_headers
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
     AnthropicPolicyEmission,
@@ -536,7 +536,10 @@ async def _process_request(
         bearer_token = headers.get("authorization", "")
         if bearer_token.lower().startswith("bearer "):
             bearer_token = bearer_token[7:]
-        user_id = extract_user_id_from_headers(headers) or extract_user_id_from_bearer_token(bearer_token)
+        settings = get_settings()
+        user_id = extract_user_id_from_headers(
+            headers, trust_header=settings.trust_user_id_header
+        ) or extract_user_id_from_bearer_token(bearer_token)
 
         # Validate required fields
         if "model" not in body:
