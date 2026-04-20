@@ -316,7 +316,7 @@ def create_app(
             max_pending_tasks=settings.webhook_max_pending_tasks,
         )
         if _webhook_sender.enabled:
-            logger.info("Webhook event export enabled (url=%s)", _webhook_url)
+            logger.info("Webhook event export enabled (url=%s)", _webhook_sender.safe_url)
         else:
             logger.info("Webhook event export disabled (set WEBHOOK_URL to enable)")
 
