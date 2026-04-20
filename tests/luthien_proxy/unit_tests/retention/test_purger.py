@@ -21,11 +21,26 @@ from luthien_proxy.retention.purger import ConversationPurger
 
 @pytest.fixture
 def mock_db_pool():
-    """Mock DatabasePool with async execute and fetch methods."""
+    """Mock DatabasePool (Postgres dialect) with async execute and fetch methods."""
     pool = MagicMock()
+    pool.is_sqlite = False
     conn = AsyncMock()
     conn.execute = AsyncMock(return_value="DELETE 5")
     conn.fetchval = AsyncMock(return_value=5)
+    pool.connection = MagicMock()
+    pool.connection.return_value.__aenter__ = AsyncMock(return_value=conn)
+    pool.connection.return_value.__aexit__ = AsyncMock(return_value=False)
+    return pool, conn
+
+
+@pytest.fixture
+def mock_sqlite_pool():
+    """Mock DatabasePool (SQLite dialect) — uses two-step count+delete."""
+    pool = MagicMock()
+    pool.is_sqlite = True
+    conn = AsyncMock()
+    conn.execute = AsyncMock(return_value=None)
+    conn.fetchval = AsyncMock(return_value=4)
     pool.connection = MagicMock()
     pool.connection.return_value.__aenter__ = AsyncMock(return_value=conn)
     pool.connection.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -172,3 +187,22 @@ def test_cutoff_date_calculation():
     after = datetime.now(UTC)
 
     assert before - timedelta(days=30) <= cutoff <= after - timedelta(days=30)
+
+
+@pytest.mark.asyncio
+async def test_purge_once_sqlite_uses_two_step_count_then_delete(mock_sqlite_pool):
+    """SQLite path: fetchval for count, then execute for delete (no CTE RETURNING)."""
+    pool, conn = mock_sqlite_pool
+    conn.fetchval = AsyncMock(return_value=5)
+
+    purger = ConversationPurger(db_pool=pool, retention_days=30)
+    count = await purger.purge_once()
+
+    assert count == 5
+    conn.fetchval.assert_called_once()
+    conn.execute.assert_called_once()
+    count_sql = conn.fetchval.call_args[0][0]
+    delete_sql = conn.execute.call_args[0][0]
+    assert "COUNT(*)" in count_sql
+    assert "DELETE" in delete_sql
+    assert "WITH deleted" not in delete_sql
