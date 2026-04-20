@@ -403,7 +403,7 @@ async def fetch_session_list(
     qualifying_having: list[str] = []
 
     if search.user is not None:
-        qualifying_where.append(f"ce.session_id LIKE {add_param(escape_like(search.user) + '%')} ESCAPE '\\'")
+        qualifying_where.append(f"ce.user_id LIKE {add_param(escape_like(search.user) + '%')} ESCAPE '\\'")
 
     if search.model is not None:
         model_placeholder = add_param(search.model)
@@ -446,7 +446,11 @@ async def fetch_session_list(
                     FROM conversation_events ce_search
                     WHERE ce_search.session_id = ce.session_id
                     AND ce_search.session_id IS NOT NULL
-                    AND ce_search.event_type = 'transaction.request_recorded'
+                    AND ce_search.event_type IN (
+                        'transaction.request_recorded',
+                        'transaction.streaming_response_recorded',
+                        'transaction.non_streaming_response_recorded'
+                    )
                     AND (
                         EXISTS (
                             SELECT 1
