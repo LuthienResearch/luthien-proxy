@@ -16,6 +16,7 @@ back, the failure is self-describing.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -138,9 +139,7 @@ class TestTimeFilterDoesNotMutilateStats:
         assert session.total_events == 2
         assert "2026-01-15" in session.first_timestamp
 
-        search = SessionSearchParams(
-            from_time=__import__("datetime").datetime(2026, 2, 1, tzinfo=__import__("datetime").timezone.utc)
-        )
+        search = SessionSearchParams(from_time=datetime(2026, 2, 1, tzinfo=timezone.utc))
         filtered = await fetch_session_list(limit=10, db_pool=sqlite_pool, search=search)
 
         assert len(filtered.sessions) == 1, "Session with last_ts=March should match from_time=Feb"
@@ -176,9 +175,7 @@ class TestTimeFilterDoesNotMutilateStats:
             created_at="2026-03-15T10:00:00",
         )
 
-        search = SessionSearchParams(
-            to_time=__import__("datetime").datetime(2026, 2, 1, tzinfo=__import__("datetime").timezone.utc)
-        )
+        search = SessionSearchParams(to_time=datetime(2026, 2, 1, tzinfo=timezone.utc))
         filtered = await fetch_session_list(limit=10, db_pool=sqlite_pool, search=search)
 
         assert len(filtered.sessions) == 0, (
@@ -206,9 +203,7 @@ class TestTimeFilterDoesNotMutilateStats:
             created_at="2026-01-20T10:00:00",
         )
 
-        search = SessionSearchParams(
-            to_time=__import__("datetime").datetime(2026, 2, 1, tzinfo=__import__("datetime").timezone.utc)
-        )
+        search = SessionSearchParams(to_time=datetime(2026, 2, 1, tzinfo=timezone.utc))
         filtered = await fetch_session_list(limit=10, db_pool=sqlite_pool, search=search)
 
         assert len(filtered.sessions) == 1
