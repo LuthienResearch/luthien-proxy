@@ -1003,7 +1003,7 @@ class TestEmptyStreamErrorEvent:
         last_event = events[-1]
         assert "event: error" in last_event
         assert '"type": "api_error"' in last_event
-        assert "policy evaluation unavailable" in last_event
+        assert "No response from policy execution" in last_event
 
 
 class TestHandleAnthropicError:
