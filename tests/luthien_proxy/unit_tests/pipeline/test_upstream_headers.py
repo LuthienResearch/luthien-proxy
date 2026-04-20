@@ -149,7 +149,7 @@ class TestExpandUpstreamHeaders:
         """Integration-style test matching the real Helicone use case."""
         monkeypatch.setenv("HELICONE_API_KEY", "sk-helicone-prod")
         monkeypatch.setenv("POSTHOG_API_KEY", "phc_prod_key")
-        monkeypatch.setenv("USER", "sami@trajectory.dev")
+        monkeypatch.setenv("USER", "user@example.com")
         monkeypatch.setenv(
             "UPSTREAM_HEADERS",
             json.dumps(
@@ -173,9 +173,9 @@ class TestExpandUpstreamHeaders:
             "Helicone-Session-Id": "9f3a-b2c1-session-uuid",
             "Helicone-Session-Name": "Claude Code",
             "Helicone-Session-Path": "/v1/messages",
-            "Helicone-User-Id": "sami@trajectory.dev",
+            "Helicone-User-Id": "user@example.com",
             "Helicone-Posthog-Key": "phc_prod_key",
             "Helicone-Posthog-Host": "https://us.i.posthog.com",
             "Helicone-Property-SessionId": "9f3a-b2c1-session-uuid",
-            "Helicone-Property-UserId": "sami@trajectory.dev",
+            "Helicone-Property-UserId": "user@example.com",
         }
