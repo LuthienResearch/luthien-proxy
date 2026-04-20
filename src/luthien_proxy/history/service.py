@@ -148,7 +148,7 @@ def _safe_parse_json(s: str) -> dict[str, Any] | None:
         result = json.loads(s)
         return result if isinstance(result, dict) else None
     except (json.JSONDecodeError, TypeError) as e:
-        logger.debug(f"JSON parse failed in _safe_parse_json: {repr(e)}")
+        logger.debug("JSON parse failed in _safe_parse_json: %r", e)
         return None
 
 
@@ -318,7 +318,7 @@ def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None
             if int(max_tokens) <= 1:
                 return None
         except (TypeError, ValueError) as e:
-            logger.debug(f"max_tokens conversion failed: {repr(e)}")
+            logger.debug("max_tokens conversion failed: %r", e)
 
     messages = request.get("messages", [])
 
@@ -692,7 +692,11 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
     # Sort call_ids by their first event timestamp to ensure chronological order
     sorted_call_ids = sorted(calls.keys(), key=lambda cid: calls[cid][0]["created_at"])
     for call_id in sorted_call_ids:
-        turn = _build_turn(call_id, calls[call_id])
+        try:
+            turn = _build_turn(call_id, calls[call_id])
+        except (ValueError, KeyError, TypeError) as e:
+            logger.warning("Skipping corrupt turn %s in session %s: %r", call_id, session_id, e)
+            continue
         turns.append(turn)
         if turn.model:
             all_models.add(turn.model)
