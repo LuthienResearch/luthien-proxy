@@ -14,3 +14,5 @@ pr: 595
   - Data retention policies with S3 archival support
   - Webhook event export for external integrations
   - Server-side session search with full-text indexing
+
+**Breaking change**: Admin UI pages (`/history`, `/activity`, `/policies`, etc.) now redirect to `/login?error=not_configured` when `ADMIN_API_KEY` is unset and `LOCALHOST_AUTH_BYPASS=false`. Previously they were accessible without authentication. Operators running without `ADMIN_API_KEY` must either set it or enable `LOCALHOST_AUTH_BYPASS=true` (default for local dev).
