@@ -134,11 +134,15 @@ async def _apply_sqlite_migrations(
             # fragments. SQLite DDL auto-commits; a multi-statement migration
             # that fails mid-way will leave partial schema with no _migrations
             # record.
+            #
+            # NOTE: executescript() bypasses the _translate_params rewriter,
+            # so SQLite migration files must already be SQLite-native (no
+            # ILIKE, NOW(), ::type, LEAST, to_timestamp, or $N placeholders).
+            # A startup-time audit of migrations/sqlite/*.sql enforces this
+            # (see tests/.../test_sqlite_migrations_are_native.py).
+            assert isinstance(conn, SqliteConnection), "_apply_sqlite_migrations called on non-sqlite pool"
             sql = mf.read_text()
-            if isinstance(conn, SqliteConnection):
-                await conn.executescript(sql)
-            else:
-                await conn.execute(sql)
+            await conn.executescript(sql)
 
             content_hash = compute_file_hash(mf)
             await conn.execute(
