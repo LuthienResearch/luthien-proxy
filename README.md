@@ -74,9 +74,9 @@ policy:
     model: "anthropic/claude-haiku-4-5-20251001"  # swap for a larger model if needed
     probability_threshold: 0.6  # block when judge LLM's subjective risk score >= 0.6 (higher = more permissive)
     judge_instructions: >
-      Block any 'pip install' commands. Suggest 'uv add' instead.
-      Block 'rm -rf' or any recursive delete on project directories.
-      Block 'git push --force' to main or master.
+      Block tool calls that delete, skip, or disable tests that were failing earlier in the session.
+      Block file writes that don't match the files the user asked to change.
+      Flag Bash commands that contradict CLAUDE.md rules loaded into the session.
 ```
 
 > The `class:` field is a Python import path (`module:ClassName`). You can use any of the [built-in policies](#core-policies) or write your own.
