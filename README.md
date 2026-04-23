@@ -1,4 +1,4 @@
-# Luthien <!-- README v11.0 -->
+# Luthien <!-- README v12.0 -->
 
 ### Claude Code builds. You stay in control.
 
@@ -56,24 +56,31 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 
 ### Enforce arbitrary policies
 
-- **Block dangerous operations** — `rm -rf`, `git push --force`, dropping database tables
-- **Enforce package standards** — block `pip install`, suggest `uv add` instead
-- **Clean up AI writing tics** — remove em dashes, curly quotes, over-bulleting
-- **Enforce scope boundaries** — only allow changes to files mentioned in the request
+> Use Luthien to define policies and run them on every request and/or response. What it catches depends on the rules you write.
 
-**Example: ToolCallJudgePolicy** — an LLM judge that evaluates every tool call:
+- **Rewrite pip into uv**: a drop-in preset (`PreferUvPolicy`) that corrects `pip install` to `uv add` in every response from Claude.
+- **Plain-English rules, checked by an LLM-as-Judge**: write your rules in English, and a second LLM (`SimpleLLMPolicy`) checks every response from Claude against them and rewrites or flags anything that doesn't comply.
+- **Enforce scope boundaries**: only allow changes to files mentioned in the request.
+- **Catch subtle test cheating**: not just deleted tests. Flag tests that accept any response code (`assert response_code in [200, 302, 400, 404, 500]`), or `except: return {"mock": "data"}` fallbacks that hide failures so no test ever fails.
+- **Clean up AI writing tics**: remove em dashes, curly quotes, over-bulleting, and excessive comments.
+
+**Example: an LLM-as-Judge on every response from Claude** (`SimpleLLMPolicy`). You write rules in plain English. A separate LLM reads every response from Claude, checks it against your rules, and rewrites or flags anything that doesn't comply.
 
 ```yaml
 # config/policy_config.yaml
 policy:
-  class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
+  class: "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
   config:
-    model: "anthropic/claude-haiku-4-5-20251001"  # swap for a larger model if needed
-    probability_threshold: 0.6  # block when judge LLM's subjective risk score >= 0.6 (higher = more permissive)
-    judge_instructions: >
-      Block any 'pip install' commands. Suggest 'uv add' instead.
-      Block 'rm -rf' or any recursive delete on project directories.
-      Block 'git push --force' to main or master.
+    model: "anthropic/claude-haiku-4-5-20251001"
+    instructions: |
+      Review each response from Claude against these two checks:
+      1. Did Claude do what the user asked? Flag responses that drop
+         requirements, skip parts of the task, or claim "done" when
+         the actual work wasn't finished.
+      2. Did the response follow the rules in our CLAUDE.md? Flag
+         anything that contradicts them.
+      If a response passes both checks, return it unchanged.
+      Otherwise, reject any response that doesn't satisfy these two checks and provide an explanation.
 ```
 
 > The `class:` field is a Python import path (`module:ClassName`). You can use any of the [built-in policies](#core-policies) or write your own.
@@ -234,15 +241,20 @@ policy:
 
 ### Built-in Presets
 
-Ready-to-use policies in `src/luthien_proxy/policies/presets/` — no configuration needed:
+Ready-to-use policies in `src/luthien_proxy/policies/presets/` — no configuration needed.
+
+**Shape what the model writes and does:**
+
+- `PreferUvPolicy` - Replaces pip commands with uv equivalents in responses
+- `NoYappingPolicy` - Enforces concise responses by cutting filler, hedging, and unnecessary preamble
+- `NoApologiesPolicy` - Removes apologetic filler ("I apologize", "I'm sorry") from responses
+- `PlainDashesPolicy` - Replaces em-dashes and en-dashes with plain hyphens (useful for terminals)
+
+**Defense-in-depth for agents or plans where Claude Code auto mode isn't available** (OpenCode, Aider, Codex, Bedrock/Vertex, free/Pro/Max Claude Code):
 
 - `BlockDangerousCommandsPolicy` - Blocks destructive shell commands (rm -rf, chmod 777, mkfs, dd, etc.)
 - `BlockSensitiveFileWritesPolicy` - Blocks writes to sensitive paths (/etc, ~/.ssh, ~/.gnupg, etc.)
 - `BlockWebRequestsPolicy` - Blocks outbound network requests (curl, wget, fetch, etc.) to prevent data exfiltration
-- `NoApologiesPolicy` - Removes apologetic filler ("I apologize", "I'm sorry") from responses
-- `NoYappingPolicy` - Enforces concise responses by cutting filler, hedging, and unnecessary preamble
-- `PlainDashesPolicy` - Replaces em-dashes and en-dashes with plain hyphens (useful for terminals)
-- `PreferUvPolicy` - Replaces pip commands with uv equivalents in responses
 
 Example preset config:
 
