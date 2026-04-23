@@ -56,10 +56,13 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 
 ### Enforce arbitrary policies
 
-- **Block dangerous operations** — `rm -rf`, `git push --force`, dropping database tables
-- **Enforce package standards** — block `pip install`, suggest `uv add` instead
-- **Clean up AI writing tics** — remove em dashes, curly quotes, over-bulleting
+> Claude Code can refuse to run a dangerous command. Luthien checks whether the work it actually did is the work you asked for.
+
+- **Catch test-cheating** — flag when Claude deletes, skips, or disables failing tests instead of fixing them
+- **Catch false "done" claims** — flag when Claude says a task is complete but tests are red or files weren't written
+- **Enforce your CLAUDE.md** — verify rules like "use uv, never pip" on every request, not just the first one
 - **Enforce scope boundaries** — only allow changes to files mentioned in the request
+- **Clean up AI writing tics** — remove em dashes, curly quotes, over-bulleting
 
 **Example: ToolCallJudgePolicy** — an LLM judge that evaluates every tool call:
 
