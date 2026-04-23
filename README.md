@@ -73,13 +73,14 @@ policy:
   config:
     model: "anthropic/claude-haiku-4-5-20251001"
     instructions: |
-      Review each response from Claude and apply these rules:
-      1. Replace em dashes with plain hyphens.
-      2. Strip apologetic filler like "I apologize" or "I'm sorry".
-      3. Check that the response follows the rules in our CLAUDE.md.
-         Rewrite or flag anything that doesn't.
-      If a block passes, return it unchanged.
-      If a block violates a rule, rewrite it to comply.
+      Review each response from Claude against these two checks:
+      1. Did Claude do what the user asked? Flag responses that drop
+         requirements, skip parts of the task, or claim "done" when
+         the actual work wasn't finished.
+      2. Did the response follow the rules in our CLAUDE.md? Flag
+         anything that contradicts them.
+      If a response passes both checks, return it unchanged.
+      Otherwise, rewrite to comply or flag for review.
 ```
 
 > The `class:` field is a Python import path (`module:ClassName`). You can use any of the [built-in policies](#core-policies) or write your own.
