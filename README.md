@@ -56,15 +56,15 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 
 ### Enforce arbitrary policies
 
-> Luthien is where you define those checks as policies and run them on every request and response. What it catches depends on the rules you write.
+> Use Luthien to define policies and run them on every request and/or response. What it catches depends on the rules you write.
 
-- **Rewrite pip into uv**: the demo above, as a drop-in preset (`PreferUvPolicy`). Corrects `pip install` to `uv add` in every response from Claude.
-- **Apply plain-English rules to every response**: `SimpleLLMPolicy` takes the rules you write in English and applies them to Claude's output on every request, not just the first one.
+- **Rewrite pip into uv**: a drop-in preset (`PreferUvPolicy`) that corrects `pip install` to `uv add` in every response from Claude.
+- **Plain-English rules, checked by an LLM-as-Judge**: write your rules in English, and a second LLM (`SimpleLLMPolicy`) checks every response from Claude against them and rewrites or flags anything that doesn't comply.
 - **Enforce scope boundaries**: only allow changes to files mentioned in the request.
-- **Catch test-cheating**: write a rule that flags failing tests being deleted, skipped, or disabled.
-- **Clean up AI writing tics**: remove em dashes, curly quotes, over-bulleting.
+- **Catch subtle test cheating**: not just deleted tests. Flag tests that accept any response code (`assert response_code in [200, 302, 400, 404, 500]`), or `except: return {"mock": "data"}` fallbacks that hide failures so no test ever fails.
+- **Clean up AI writing tics**: remove em dashes, curly quotes, over-bulleting, and excessive comments.
 
-**Example: SimpleLLMPolicy.** Apply plain-English rules to every response from Claude. The rules run on the response content before it reaches you, so they can rewrite, redact, or replace whatever does not comply.
+**Example: an LLM-as-Judge on every response from Claude** (`SimpleLLMPolicy`). You write rules in plain English. A small LLM reads every response from Claude, checks it against your rules, and rewrites or flags anything that doesn't comply.
 
 ```yaml
 # config/policy_config.yaml
@@ -74,10 +74,11 @@ policy:
     model: "anthropic/claude-haiku-4-5-20251001"
     instructions: |
       Review each response from Claude and apply these rules:
-      1. Redact any API keys, passwords, tokens, or private keys.
-      2. Replace em dashes with plain hyphens.
-      3. Strip apologetic filler like "I apologize" or "I'm sorry".
-      If a block passes all rules, return it unchanged.
+      1. Replace em dashes with plain hyphens.
+      2. Strip apologetic filler like "I apologize" or "I'm sorry".
+      3. Check that the response follows the rules in our CLAUDE.md.
+         Rewrite or flag anything that doesn't.
+      If a block passes, return it unchanged.
       If a block violates a rule, rewrite it to comply.
 ```
 
