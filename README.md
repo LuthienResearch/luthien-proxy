@@ -79,8 +79,7 @@ policy:
          the actual work wasn't finished.
       2. Did the response follow the rules in our CLAUDE.md? Flag
          anything that contradicts them.
-      If a response passes both checks, return it unchanged.
-      Otherwise, rewrite to comply or flag for review.
+      Reject any response that doesn't satisfy these two checks and provide an explanation.
 ```
 
 > The `class:` field is a Python import path (`module:ClassName`). You can use any of the [built-in policies](#core-policies) or write your own.
