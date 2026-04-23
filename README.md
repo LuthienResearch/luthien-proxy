@@ -64,7 +64,7 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 - **Catch subtle test cheating**: not just deleted tests. Flag tests that accept any response code (`assert response_code in [200, 302, 400, 404, 500]`), or `except: return {"mock": "data"}` fallbacks that hide failures so no test ever fails.
 - **Clean up AI writing tics**: remove em dashes, curly quotes, over-bulleting, and excessive comments.
 
-**Example: an LLM-as-Judge on every response from Claude** (`SimpleLLMPolicy`). You write rules in plain English. A small LLM reads every response from Claude, checks it against your rules, and rewrites or flags anything that doesn't comply.
+**Example: an LLM-as-Judge on every response from Claude** (`SimpleLLMPolicy`). You write rules in plain English. A separate LLM reads every response from Claude, checks it against your rules, and rewrites or flags anything that doesn't comply.
 
 ```yaml
 # config/policy_config.yaml
