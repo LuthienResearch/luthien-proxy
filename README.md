@@ -56,7 +56,7 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 
 ### Enforce arbitrary policies
 
-> Claude Code can refuse to run a dangerous command. Luthien checks whether the work it actually did is the work you asked for.
+> Every request, Luthien checks: did Claude do what you asked? Did it follow your CLAUDE.md? Did it do something suspicious?
 
 - **Catch test-cheating** — flag when Claude deletes, skips, or disables failing tests instead of fixing them
 - **Catch false "done" claims** — flag when Claude says a task is complete but tests are red or files weren't written
