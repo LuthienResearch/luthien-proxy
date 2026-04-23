@@ -1,4 +1,4 @@
-# Luthien <!-- README v11.0 -->
+# Luthien <!-- README v12.0 -->
 
 ### Claude Code builds. You stay in control.
 
@@ -237,15 +237,20 @@ policy:
 
 ### Built-in Presets
 
-Ready-to-use policies in `src/luthien_proxy/policies/presets/` — no configuration needed:
+Ready-to-use policies in `src/luthien_proxy/policies/presets/` — no configuration needed.
+
+**Shape what the model writes and does:**
+
+- `PreferUvPolicy` - Replaces pip commands with uv equivalents in responses
+- `NoYappingPolicy` - Enforces concise responses by cutting filler, hedging, and unnecessary preamble
+- `NoApologiesPolicy` - Removes apologetic filler ("I apologize", "I'm sorry") from responses
+- `PlainDashesPolicy` - Replaces em-dashes and en-dashes with plain hyphens (useful for terminals)
+
+**Defense-in-depth for agents or plans where Claude Code auto mode isn't available** (OpenCode, Aider, Codex, Bedrock/Vertex, free/Pro/Max Claude Code):
 
 - `BlockDangerousCommandsPolicy` - Blocks destructive shell commands (rm -rf, chmod 777, mkfs, dd, etc.)
 - `BlockSensitiveFileWritesPolicy` - Blocks writes to sensitive paths (/etc, ~/.ssh, ~/.gnupg, etc.)
 - `BlockWebRequestsPolicy` - Blocks outbound network requests (curl, wget, fetch, etc.) to prevent data exfiltration
-- `NoApologiesPolicy` - Removes apologetic filler ("I apologize", "I'm sorry") from responses
-- `NoYappingPolicy` - Enforces concise responses by cutting filler, hedging, and unnecessary preamble
-- `PlainDashesPolicy` - Replaces em-dashes and en-dashes with plain hyphens (useful for terminals)
-- `PreferUvPolicy` - Replaces pip commands with uv equivalents in responses
 
 Example preset config:
 
