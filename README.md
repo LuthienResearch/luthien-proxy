@@ -58,25 +58,27 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 
 > Luthien is where you define those checks as policies and run them on every request and response. What it catches depends on the rules you write.
 
-- **Catch test-cheating** — flag when Claude deletes, skips, or disables failing tests instead of fixing them
-- **Catch false "done" claims** — flag when Claude says a task is complete but tests are red or files weren't written
-- **Enforce your CLAUDE.md** — verify rules like "use uv, never pip" on every request, not just the first one
-- **Enforce scope boundaries** — only allow changes to files mentioned in the request
-- **Clean up AI writing tics** — remove em dashes, curly quotes, over-bulleting
+- **Rewrite pip into uv**: the demo above, as a drop-in preset (`PreferUvPolicy`). Corrects `pip install` to `uv add` in every response from Claude.
+- **Apply plain-English rules to every response**: `SimpleLLMPolicy` takes the rules you write in English and applies them to Claude's output on every request, not just the first one.
+- **Enforce scope boundaries**: only allow changes to files mentioned in the request.
+- **Catch test-cheating**: write a rule that flags failing tests being deleted, skipped, or disabled.
+- **Clean up AI writing tics**: remove em dashes, curly quotes, over-bulleting.
 
-**Example: ToolCallJudgePolicy** — an LLM judge that evaluates every tool call:
+**Example: SimpleLLMPolicy.** Apply plain-English rules to every response from Claude. The rules run on the response content before it reaches you, so they can rewrite, redact, or replace whatever does not comply.
 
 ```yaml
 # config/policy_config.yaml
 policy:
-  class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
+  class: "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
   config:
-    model: "anthropic/claude-haiku-4-5-20251001"  # swap for a larger model if needed
-    probability_threshold: 0.6  # block when judge LLM's subjective risk score >= 0.6 (higher = more permissive)
-    judge_instructions: >
-      Block tool calls that delete, skip, or disable tests that were failing earlier in the session.
-      Block file writes that don't match the files the user asked to change.
-      Flag Bash commands that contradict CLAUDE.md rules loaded into the session.
+    model: "anthropic/claude-haiku-4-5-20251001"
+    instructions: |
+      Review each response from Claude and apply these rules:
+      1. Redact any API keys, passwords, tokens, or private keys.
+      2. Replace em dashes with plain hyphens.
+      3. Strip apologetic filler like "I apologize" or "I'm sorry".
+      If a block passes all rules, return it unchanged.
+      If a block violates a rule, rewrite it to comply.
 ```
 
 > The `class:` field is a Python import path (`module:ClassName`). You can use any of the [built-in policies](#core-policies) or write your own.
