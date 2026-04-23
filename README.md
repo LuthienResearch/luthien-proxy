@@ -56,7 +56,7 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 
 ### Enforce arbitrary policies
 
-> Every request, Luthien checks: did Claude do what you asked? Did it follow your CLAUDE.md? Did it do something suspicious?
+> Luthien is where you define those checks as policies and run them on every request and response. What it catches depends on the rules you write.
 
 - **Catch test-cheating** — flag when Claude deletes, skips, or disables failing tests instead of fixing them
 - **Catch false "done" claims** — flag when Claude says a task is complete but tests are red or files weren't written
