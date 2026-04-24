@@ -280,6 +280,14 @@
             <a href="/credentials" class="pointer-link">Manage credentials &rarr;</a>
         </div>
 
+        <div class="pointer-card" role="complementary">
+            <div class="pointer-body">
+                <h3>Inference Providers</h3>
+                <p>Named server-side inference backends for judges and policy-test tooling. Reference stored credentials by name and dispatch on backend type (claude_code, direct_api).</p>
+            </div>
+            <a href="/inference-providers" class="pointer-link">Manage providers &rarr;</a>
+        </div>
+
         <div id="status" class="status-msg"></div>
         <div id="content"><div class="loading">Loading configuration...</div></div>
     </div>
@@ -470,21 +478,6 @@
                     ${policy.config ? `<div class="policy-config">${esc(JSON.stringify(policy.config, null, 2))}</div>` : ''}
                 </div>`;
             }
-
-            // Pointer cards for operator-managed resources that aren't simple config fields.
-            html += `<div class="section">
-                <h2>Operator-managed resources</h2>
-                <div style="display:flex;gap:12px;flex-wrap:wrap">
-                    <a href="/credentials" style="color:#6b9eff;text-decoration:none;border:1px solid #262626;border-radius:6px;padding:12px 16px;display:inline-block">
-                        <div style="font-weight:600">Credentials</div>
-                        <div style="font-size:12px;color:#888">Auth modes and server credentials</div>
-                    </a>
-                    <a href="/inference-providers" style="color:#6b9eff;text-decoration:none;border:1px solid #262626;border-radius:6px;padding:12px 16px;display:inline-block">
-                        <div style="font-weight:600">Inference Providers</div>
-                        <div style="font-size:12px;color:#888">Named backends for judges and policy tests</div>
-                    </a>
-                </div>
-            </div>`;
 
             for (const cat of categoryOrder) {
                 const catFields = grouped[cat];

@@ -14,7 +14,6 @@ document.addEventListener('alpine:init', () => {
             { href: '/credentials', label: 'Credentials' },
             { href: '/inference-providers', label: 'Providers' },
             { href: '/config', label: 'Config' },
-            { href: '/credentials', label: 'Credentials' },
         ],
         async init() {
             const navEl = this.$el;
