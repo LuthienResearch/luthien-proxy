@@ -197,6 +197,45 @@
         /* Loading */
         .loading { text-align: center; padding: 40px; color: #666; }
 
+        /* Pointer card to related management pages */
+        .pointer-card {
+            background: #141414;
+            border: 1px solid #262626;
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+        }
+        .pointer-card .pointer-body h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #e5e5e5;
+            margin-bottom: 4px;
+        }
+        .pointer-card .pointer-body p {
+            font-size: 12px;
+            color: #888;
+            margin: 0;
+        }
+        .pointer-card a.pointer-link {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            color: #e5e5e5;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            text-decoration: none;
+            white-space: nowrap;
+            transition: border-color 0.2s, color 0.2s;
+        }
+        .pointer-card a.pointer-link:hover {
+            border-color: #6b9fff;
+            color: #6b9fff;
+        }
+
         /* Active policy section */
         .policy-section {
             background: #0f1f0f;
@@ -232,6 +271,14 @@
                 <div class="subtitle">All config values with provenance. CLI args > env vars > database > defaults.</div>
             </div>
         </header>
+
+        <div class="pointer-card" role="complementary">
+            <div class="pointer-body">
+                <h3>Server Credentials</h3>
+                <p>Manage server-side API keys and auth tokens (judge, upstream LLM providers) used by policies and the gateway.</p>
+            </div>
+            <a href="/credentials" class="pointer-link">Manage credentials &rarr;</a>
+        </div>
 
         <div id="status" class="status-msg"></div>
         <div id="content"><div class="loading">Loading configuration...</div></div>
