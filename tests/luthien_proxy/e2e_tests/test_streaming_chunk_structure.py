@@ -361,6 +361,7 @@ async def tool_call_judge_policy_active():
                     "probability_threshold": 0.99,  # High threshold = allow most tool calls
                     "temperature": 0.0,
                     "max_tokens": 256,
+                    "auth_provider": "user_credentials",
                 },
                 "enabled_by": "e2e-streaming-tests",
             },

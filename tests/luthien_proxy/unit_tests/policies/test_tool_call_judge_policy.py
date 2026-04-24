@@ -44,7 +44,8 @@ from luthien_proxy.policy_core.policy_context import PolicyContext
 
 def _make_policy(**overrides) -> ToolCallJudgePolicy:
     """Create a ToolCallJudgePolicy with optional config overrides."""
-    config = ToolCallJudgeConfig(api_key="fake-key", **overrides)
+    overrides.setdefault("auth_provider", "user_credentials")
+    config = ToolCallJudgeConfig(**overrides)
     return ToolCallJudgePolicy(config)
 
 

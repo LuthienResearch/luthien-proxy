@@ -23,5 +23,6 @@ class PlainDashesPolicy(SimpleLLMPolicy):
                 temperature=0.0,
                 max_tokens=4096,
                 on_error="pass",
+                auth_provider="user_credentials",
             )
         )

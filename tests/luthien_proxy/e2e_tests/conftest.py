@@ -392,12 +392,11 @@ class FailureCapture:
         input_messages: list[dict] | None = None,
     ) -> None:
         """Append one observation. Call before the assertion; persisted only on flush()."""
-        safe_config = {k: v for k, v in policy_config.items() if k != "api_key"}
         self._entries.append(
             {
                 "test_name": self._test_name,
                 "scenario": scenario,
-                "policy_config": safe_config,
+                "policy_config": policy_config,
                 "expected": expected,
                 "actual_response": actual_response,
                 "input_messages": input_messages or [],
@@ -515,6 +514,7 @@ PII_REDACTION_CONFIG: dict = {
     "on_error": "block",
     "temperature": 0.0,
     "max_tokens": 4096,
+    "auth_provider": "user_credentials",
 }
 
 INJECTION_DETECTION_CONFIG: dict = {
@@ -533,4 +533,5 @@ INJECTION_DETECTION_CONFIG: dict = {
     "on_error": "block",
     "temperature": 0.0,
     "max_tokens": 4096,
+    "auth_provider": "user_credentials",
 }

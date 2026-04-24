@@ -35,7 +35,7 @@ _UNREACHABLE_JUDGE = {
     "instructions": "Block all content",
     "model": "claude-haiku-4-5",
     "api_base": "http://127.0.0.1:19999",
-    "api_key": "fake-key",
+    "auth_provider": "user_credentials",
 }
 
 

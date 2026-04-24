@@ -119,27 +119,27 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         return "SimpleLLM"
 
     def __init__(self, config: SimpleLLMJudgeConfig | None = None):
-        """Initialize with judge config."""
+        """Initialize with judge config.
+
+        Note: config=None will fail at runtime with ValidationError since auth_provider is required.
+        Pass an explicit SimpleLLMJudgeConfig with auth_provider set.
+        """
         parsed = self._init_config(config, SimpleLLMJudgeConfig)
 
         settings = get_settings()
         self._config = SimpleLLMJudgeConfig(
             model=settings.llm_judge_model or parsed.model,
             api_base=settings.llm_judge_api_base or parsed.api_base,
-            api_key=parsed.api_key,  # explicit per-policy override only
             instructions=parsed.instructions,
             temperature=parsed.temperature,
             max_tokens=parsed.max_tokens,
             on_error=parsed.on_error,
+            max_retries=parsed.max_retries,
+            retry_delay=parsed.retry_delay,
+            auth_provider=parsed.auth_provider,
         )
 
-        # Auth provider (new path) — when set, replaces the legacy key resolution
-        self._auth_provider: AuthProvider | None = None
-        if parsed.auth_provider is not None:
-            self._auth_provider = parse_auth_provider(parsed.auth_provider)
-
-        # DEPRECATED(Step 5b): legacy key fallback — remove when auth_provider is mandatory
-        self._fallback_api_key = settings.llm_judge_api_key or settings.litellm_master_key or None
+        self._auth_provider: AuthProvider = parse_auth_provider(parsed.auth_provider)
 
         if self._config.on_error == "pass":
             logger.warning(
@@ -194,22 +194,13 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         (returning "pass" or "block") so callers never handle None.
         """
         try:
-            if self._auth_provider is not None:
-                credential = await context.credential_manager.resolve(self._auth_provider, context)
-                result = await call_simple_llm_judge(
-                    self._config,
-                    descriptor,
-                    tuple(emitted_blocks),
-                    credential=credential,
-                )
-            else:
-                # DEPRECATED(Step 5b): legacy path — remove when auth_provider is mandatory
-                result = await call_simple_llm_judge(
-                    self._config,
-                    descriptor,
-                    tuple(emitted_blocks),
-                    api_key=self._resolve_judge_api_key(context, self._config.api_key, self._fallback_api_key),
-                )
+            credential = await context.credential_manager.resolve(self._auth_provider, context)
+            result = await call_simple_llm_judge(
+                self._config,
+                descriptor,
+                tuple(emitted_blocks),
+                credential=credential,
+            )
             context.record_event(
                 "policy.simple_llm.judge_result",
                 {
