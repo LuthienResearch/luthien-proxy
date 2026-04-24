@@ -110,7 +110,7 @@ Jordan needs per-user dashboards for team leads, automatic escalation of high-ri
 
 ### Phase 2: Media Attachments
 - [x] Detect and extract attachment metadata from requests — types defined in `llm/types/`
-- [x] Pass attachments through to backend LLM — LiteLLM handles passthrough
+- [x] Pass attachments through to backend LLM — the Anthropic SDK passthrough in `llm/anthropic_client.py` handles this
 - [ ] Store attachment references (not content) in event log
 
 ### Phase 3: Resampling Detection

@@ -205,7 +205,7 @@ Let's trace a single request through the entire system:
    - `gateway.chat_completions` span (root)
      - `control_plane.process_request` span
        - `policy.process_request` span
-     - `litellm.completion` span (LLM call)
+     - `anthropic.complete` / `anthropic.stream` span (backend call via `AnthropicClient`)
      - `control_plane.process_response` span
        - `policy.process_full_response` span
 

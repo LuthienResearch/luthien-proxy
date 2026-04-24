@@ -12,7 +12,7 @@
 
 ## Overview
 
-V2 observability provides comprehensive debugging and monitoring for policy decisions. It reuses existing V1 infrastructure (`conversation_events` table, Redis pub/sub) but wires it directly into the V2 gateway instead of relying on LiteLLM callbacks.
+V2 observability provides comprehensive debugging and monitoring for policy decisions. It reuses existing V1 infrastructure (`conversation_events` table, Redis pub/sub) but wires it directly into the integrated gateway (via `EventEmitter` from `observability/emitter.py`) instead of relying on the callback hooks of a third-party LLM aggregator as earlier revisions did.
 
 ### Key Capabilities
 

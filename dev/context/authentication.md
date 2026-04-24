@@ -57,21 +57,19 @@ Headers are stored lowercase. `BasePolicy._extract_passthrough_key(raw_http_requ
 
 ---
 
-## Judge LLM Key Resolution (2026-03-17, updated 2026-04-10)
+## Judge LLM Credential Resolution (2026-03-17, updated 2026-04-23)
 
-Both `SimpleLLMPolicy` and `ToolCallJudgePolicy` issue a separate judge-model call per decision. Judge calls are routed through `luthien_proxy.llm.judge_client.judge_completion`, which wraps `litellm.acompletion` — LiteLLM is intentionally scoped to this judge path only and is not on the main request pipeline.
+Both `SimpleLLMPolicy` and `ToolCallJudgePolicy` issue a separate judge-model call per decision. Judge calls go through an `InferenceProvider` resolved by `inference.dispatch.resolve_inference_provider(ref, context, registry)`, where `ref` is the parsed `inference_provider:` YAML field on the policy config. Nothing on the judge path is shared with a third-party LLM aggregator.
 
-Key priority (resolved per-request at call time):
+The resolver returns a `DispatchResult(provider, credential_override)`; the policy then calls `provider.complete(..., credential_override=...)`. Three cases:
 
-1. **Explicit policy config `api_key`** — set by admin in the policy config. Highest priority, overrides everything.
-2. **Passthrough key** — the client's incoming API key from `context.raw_http_request.headers`. Default behavior: the client's key is used for judge calls too.
-3. **`LLM_JUDGE_API_KEY` env var** — server-configured key specifically for judge calls.
-4. **`LITELLM_MASTER_KEY` env var** — legacy catch-all fallback (still read by the settings object).
-5. **None** — LiteLLM resolves via its own env var chain (`ANTHROPIC_API_KEY`, etc.).
+1. **`inference_provider: user_credentials`** (default) — build a throwaway `DirectApiProvider` and pass the request's `Credential` (from `PolicyContext.user_credential`) as `credential_override`. Raises `CredentialError` if the request has no user credential.
+2. **`inference_provider: {provider: "<name>"}`** — look the name up in the `InferenceProviderRegistry`; the registered provider already has its credential resolved, so `credential_override=None`.
+3. **`inference_provider: {user_then_provider: {name: "<name>", on_fallback: "warn|fail|fallback"}}`** — try the user credential first; fall back to the named provider per `on_fallback` when the request has no user credential.
 
-This is implemented in `_resolve_api_key(context)` on each policy class (backed by `BasePolicy._extract_passthrough_key()`). The resolved key is passed as `api_key=` kwarg to `call_simple_llm_judge()` / `call_judge()`.
+The legacy `auth_provider:` YAML key still parses (as an alias emitting a deprecation warning). Legacy inner-key names (`server_key:` / `user_then_server:`) map transparently to `provider:` / `user_then_provider:`.
 
-**Why passthrough-first**: In the common case where the client authenticates with their own Anthropic key, judge calls should use the same key — no extra server configuration needed. Admins who need to use a different key for the judge (e.g., a shared org key) can set `LLM_JUDGE_API_KEY` or the per-policy `api_key`.
+**Why user-credentials-first**: in the common case where the client authenticates with their own Anthropic key, judge calls should use the same key — no extra server configuration needed. Operators who need to use a different judge backend (e.g., a shared org key or a `claude -p` subprocess) create an entry in the inference-provider registry and reference it by name.
 
 ---
 

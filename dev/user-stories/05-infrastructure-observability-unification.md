@@ -104,7 +104,7 @@ transaction_processing (root)
 │   ├── policy.on_request_received
 │   └── policy.on_request_processed
 ├── send_upstream
-│   └── litellm.acompletion / litellm.acompletion_stream
+│   └── anthropic.complete / anthropic.stream  (via AnthropicClient)
 ├── process_response
 │   ├── policy.on_chunk_started (streaming, repeated)
 │   ├── policy.on_content_chunk (streaming, repeated)
