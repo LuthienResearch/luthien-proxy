@@ -175,6 +175,36 @@ class TestPolicyTypeSyncIntegration:
                 )
 
     @pytest.mark.asyncio
+    async def test_name_can_collide_across_class_refs(self, db_pool_with_migrations: DatabasePool) -> None:
+        """name is display-only — duplicate names across different class_refs must not block insert.
+
+        Regression for the case where a sync rename produces the same name as another row (e.g.,
+        collision suffix shifts when a new built-in claims a previously-bare name).
+        """
+        async with db_pool_with_migrations.connection() as conn:
+            await conn.execute(
+                "INSERT INTO policy_type (name, definition_type, class_ref, deprecated) "
+                "VALUES ($1, $2, $3, $4)",
+                "shared-name",
+                "built-in",
+                "a:Foo",
+                0,
+            )
+            # Same display name, different class_ref — must succeed.
+            await conn.execute(
+                "INSERT INTO policy_type (name, definition_type, class_ref, deprecated) "
+                "VALUES ($1, $2, $3, $4)",
+                "shared-name",
+                "built-in",
+                "b:Bar",
+                0,
+            )
+            count = await conn.fetchval(
+                "SELECT COUNT(*) FROM policy_type WHERE name = 'shared-name'"
+            )
+        assert count == 2
+
+    @pytest.mark.asyncio
     async def test_class_ref_imports_to_correct_class(self, db_pool_with_migrations: DatabasePool) -> None:
         """After sync, each class_ref resolves to a BasePolicy subclass."""
         await sync_policy_types(db_pool_with_migrations)

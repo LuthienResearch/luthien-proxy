@@ -2,7 +2,7 @@ DROP TABLE IF EXISTS policy_definition;
 
 CREATE TABLE IF NOT EXISTS policy_type (
     id              INTEGER PRIMARY KEY,
-    name            TEXT NOT NULL UNIQUE,
+    name            TEXT NOT NULL,
     description     TEXT,
     definition_type TEXT NOT NULL CHECK (definition_type IN ('built-in')),
     class_ref       TEXT,
