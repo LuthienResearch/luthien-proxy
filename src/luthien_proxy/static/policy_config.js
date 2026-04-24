@@ -503,36 +503,28 @@ function renderChainItemConfig(i) {
     if (!container) return;
 
     const schema = p.config_schema || {};
-    const hasPydanticSchema = Object.values(schema).some(
-        ps => ps && (ps.properties || ps.$defs || ps['x-sub-policy-list'] ||
-            (ps.type === 'array' && ps.items?.type === 'array'))
-    );
+    if (!window.FormRenderer) return;
 
-    if (hasPydanticSchema && window.FormRenderer) {
-        const formData = window.FormRenderer.getDefaultValue(schema, schema);
-        for (const [key, value] of Object.entries(p.example_config || {})) {
-            if (value !== null) formData[key] = value;
-        }
-        for (const [key, value] of Object.entries(item.config || {})) {
-            if (value !== null && value !== undefined) formData[key] = value;
-        }
-        item.config = formData;
-
-        const formHtml = window.FormRenderer.generateForm(schema);
-        const escapedFormData = JSON.stringify(formData)
-            .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
-            .replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-        container.innerHTML = `
-            <div class="config-form" x-data="{ formData: ${escapedFormData} }"
-                 x-init="$watch('formData', value => updateChainConfig(${i}, value))">
-                ${formHtml}
-            </div>`;
-        if (window.Alpine) Alpine.initTree(container);
-    } else {
-        container.innerHTML = `<div class="config-form">${renderLegacyConfigFormInner(p, item.config, 'chain-' + i)}</div>`;
-        bindLegacyConfigInputs('chain-' + i);
+    const formData = window.FormRenderer.getDefaultValue(schema, schema);
+    for (const [key, value] of Object.entries(p.example_config || {})) {
+        if (value !== null) formData[key] = value;
     }
+    for (const [key, value] of Object.entries(item.config || {})) {
+        if (value !== null && value !== undefined) formData[key] = value;
+    }
+    item.config = formData;
+
+    const formHtml = window.FormRenderer.generateForm(schema);
+    const escapedFormData = JSON.stringify(formData)
+        .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    container.innerHTML = `
+        <div class="config-form" x-data="{ formData: ${escapedFormData} }"
+             x-init="$watch('formData', value => updateChainConfig(${i}, value))">
+            ${formHtml}
+        </div>`;
+    if (window.Alpine) Alpine.initTree(container);
 }
 
 function updateChainConfig(index, data) {
@@ -540,95 +532,6 @@ function updateChainConfig(index, data) {
         state.chain[index].config = data;
         updateActivateButton();
     }
-}
-
-// ============================================================
-// Config form rendering (legacy fallback for non-Pydantic schemas)
-// ============================================================
-function renderLegacyConfigFormInner(policy, config, prefix) {
-    const schema = policy.config_schema || {};
-    const keys = Object.keys(schema);
-    if (keys.length === 0) return '';
-
-    let html = '';
-    for (const key of keys) {
-        const ps = schema[key];
-        const val = config[key] ?? ps.default ?? '';
-        const isComplex = ps.type === 'object' || ps.type === 'array';
-        const isPassword = ps.type === 'string' && key.toLowerCase().includes('key');
-
-        if (ps.type === 'boolean') {
-            const checked = (config[key] ?? ps.default ?? false) ? 'checked' : '';
-            html += `<div class="checkbox-row">
-                <input type="checkbox" data-prefix="${prefix}" data-key="${key}" ${checked}>
-                <label>${esc(key)}</label>
-            </div>`;
-        } else if (ps.type === 'number' || ps.type === 'integer') {
-            const step = ps.type === 'number' ? ' step="any"' : '';
-            html += `<label>${esc(key)}</label>`;
-            html += `<input type="number"${step} data-prefix="${prefix}" data-key="${key}" value="${esc(val)}">`;
-            if (ps.nullable) html += `<span class="config-hint">${esc(ps.type)} (optional)</span>`;
-        } else if (isComplex) {
-            html += `<label>${esc(key)}</label>`;
-            const jsonVal = JSON.stringify(config[key] ?? ps.default ?? null, null, 2);
-            html += `<textarea data-prefix="${prefix}" data-key="${key}" data-json="true">${esc(jsonVal)}</textarea>`;
-            html += `<div class="config-error-msg" data-error-for="${prefix}-${key}">Invalid JSON</div>`;
-            html += `<span class="config-hint">${esc(ps.type)}</span>`;
-        } else {
-            html += `<label>${esc(key)}</label>`;
-            const inputType = isPassword ? 'password' : 'text';
-            const placeholder = ps.nullable ? '(optional)' : '';
-            html += `<input type="${inputType}" data-prefix="${prefix}" data-key="${key}" value="${esc(val)}" placeholder="${placeholder}">`;
-            if (ps.nullable) html += `<span class="config-hint">${esc(ps.type)} (optional)</span>`;
-        }
-    }
-    return html;
-}
-
-function bindLegacyConfigInputs(prefix) {
-    document.querySelectorAll(`[data-prefix="${prefix}"][data-key]`).forEach(el => {
-        el.addEventListener('input', () => {
-            const key = el.dataset.key;
-            const isJson = el.dataset.json === 'true';
-            const isCheckbox = el.type === 'checkbox';
-            const isNumber = el.type === 'number';
-            const fieldId = `${prefix}-${key}`;
-
-            let val;
-            if (isCheckbox) {
-                val = el.checked;
-            } else if (isJson) {
-                try {
-                    val = JSON.parse(el.value);
-                    el.classList.remove('invalid');
-                    const errEl = document.querySelector(`[data-error-for="${fieldId}"]`);
-                    if (errEl) errEl.classList.remove('visible');
-                    state.invalidFields.delete(fieldId);
-                } catch {
-                    el.classList.add('invalid');
-                    const errEl = document.querySelector(`[data-error-for="${fieldId}"]`);
-                    if (errEl) errEl.classList.add('visible');
-                    state.invalidFields.add(fieldId);
-                    updateActivateButton();
-                    return;
-                }
-            } else if (isNumber) {
-                val = el.value === '' ? null : Number(el.value);
-            } else {
-                val = el.value;
-            }
-
-            if (prefix.startsWith('chain-')) {
-                const idx = parseInt(prefix.split('-')[1]);
-                state.chain[idx].config[key] = val;
-            }
-            updateActivateButton();
-        });
-
-        if (el.type === 'checkbox') {
-            el.addEventListener('change', () => el.dispatchEvent(new Event('input')));
-        }
-    });
 }
 
 function updateActivateButton() {

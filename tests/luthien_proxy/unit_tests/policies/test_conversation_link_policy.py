@@ -52,7 +52,7 @@ class TestConversationLinkPolicy:
 
     @pytest.mark.asyncio
     async def test_injects_link_on_first_turn(self):
-        policy = ConversationLinkPolicy(base_url="http://localhost:8000")
+        policy = ConversationLinkPolicy({"base_url": "http://localhost:8000"})
         ctx = self._make_context(session_id="sess-abc")
 
         result = await self._run_first_turn(policy, ctx)
@@ -63,7 +63,7 @@ class TestConversationLinkPolicy:
     @pytest.mark.asyncio
     async def test_preflight_does_not_consume_injection(self):
         """Regression: preflight call (max_tokens=1) shouldn't prevent real turn from getting link."""
-        policy = ConversationLinkPolicy(base_url="http://localhost:8000")
+        policy = ConversationLinkPolicy({"base_url": "http://localhost:8000"})
         preflight_ctx = self._make_context(session_id="sess-pre")
         real_ctx = self._make_context(session_id="sess-pre")
 
@@ -81,7 +81,7 @@ class TestConversationLinkPolicy:
 
     @pytest.mark.asyncio
     async def test_no_injection_on_subsequent_turn(self):
-        policy = ConversationLinkPolicy(base_url="http://localhost:8000")
+        policy = ConversationLinkPolicy({"base_url": "http://localhost:8000"})
         ctx = self._make_context(session_id="sess-abc")
 
         result = await self._run_subsequent_turn(policy, ctx)
@@ -90,7 +90,7 @@ class TestConversationLinkPolicy:
 
     @pytest.mark.asyncio
     async def test_no_injection_without_session_id(self):
-        policy = ConversationLinkPolicy(base_url="http://localhost:8000")
+        policy = ConversationLinkPolicy({"base_url": "http://localhost:8000"})
         ctx = self._make_context(session_id=None)
 
         result = await self._run_first_turn(policy, ctx)
@@ -100,7 +100,7 @@ class TestConversationLinkPolicy:
     @pytest.mark.asyncio
     async def test_independent_sessions_both_get_link(self):
         """Each first-turn call gets a link — no cross-session state."""
-        policy = ConversationLinkPolicy(base_url="http://localhost:8000")
+        policy = ConversationLinkPolicy({"base_url": "http://localhost:8000"})
         ctx1 = self._make_context(session_id="sess-1")
         ctx2 = self._make_context(session_id="sess-2")
 
@@ -112,7 +112,7 @@ class TestConversationLinkPolicy:
 
     @pytest.mark.asyncio
     async def test_session_id_with_special_chars_is_url_encoded(self):
-        policy = ConversationLinkPolicy(base_url="http://localhost:8000")
+        policy = ConversationLinkPolicy({"base_url": "http://localhost:8000"})
         ctx = self._make_context(session_id="sess with spaces#fragment")
 
         result = await self._run_first_turn(policy, ctx)
@@ -123,7 +123,7 @@ class TestConversationLinkPolicy:
     @pytest.mark.asyncio
     async def test_multi_text_block_only_first_gets_link(self):
         """When a response has multiple text blocks, only the first is injected."""
-        policy = ConversationLinkPolicy(base_url="http://localhost:8000")
+        policy = ConversationLinkPolicy({"base_url": "http://localhost:8000"})
         ctx = self._make_context(session_id="sess-multi")
         await policy.on_anthropic_request(_first_turn_request(), ctx)
 
@@ -137,7 +137,7 @@ class TestConversationLinkPolicy:
 
     @pytest.mark.asyncio
     async def test_request_passes_through(self):
-        policy = ConversationLinkPolicy(base_url="http://localhost:8000")
+        policy = ConversationLinkPolicy({"base_url": "http://localhost:8000"})
         ctx = self._make_context()
 
         result = await policy.simple_on_request("user message", ctx)
@@ -146,12 +146,12 @@ class TestConversationLinkPolicy:
 
     def test_freeze_configured_state_passes(self):
         """Policy must pass the singleton state validation."""
-        policy = ConversationLinkPolicy(base_url="http://localhost:8000")
+        policy = ConversationLinkPolicy({"base_url": "http://localhost:8000"})
         policy.freeze_configured_state()
 
     def test_get_config_returns_base_url(self):
         """Config should be visible via get_config() for admin API."""
-        policy = ConversationLinkPolicy(base_url="http://example.com:9000")
+        policy = ConversationLinkPolicy({"base_url": "http://example.com:9000"})
 
         config = policy.get_config()
 
@@ -166,7 +166,7 @@ class TestConversationLinkPolicyIntegration:
 
     @pytest.mark.asyncio
     async def test_on_anthropic_response_injects_into_first_text_block(self):
-        policy = ConversationLinkPolicy(base_url="http://localhost:8000")
+        policy = ConversationLinkPolicy({"base_url": "http://localhost:8000"})
         ctx = self._make_context(session_id="sess-resp")
         request = _first_turn_request()
         response = {
@@ -185,7 +185,7 @@ class TestConversationLinkPolicyIntegration:
     @pytest.mark.asyncio
     async def test_tool_use_blocks_pass_through(self):
         """Tool use blocks are not affected by the link injection."""
-        policy = ConversationLinkPolicy(base_url="http://localhost:8000")
+        policy = ConversationLinkPolicy({"base_url": "http://localhost:8000"})
         ctx = self._make_context(session_id="sess-tool")
         request = _first_turn_request()
         response = {
@@ -207,7 +207,7 @@ class TestConversationLinkPolicyIntegration:
     @pytest.mark.asyncio
     async def test_no_injection_on_subsequent_turn_via_response(self):
         """Full integration: subsequent turn through on_anthropic_response."""
-        policy = ConversationLinkPolicy(base_url="http://localhost:8000")
+        policy = ConversationLinkPolicy({"base_url": "http://localhost:8000"})
         ctx = self._make_context(session_id="sess-nope")
         request = _subsequent_turn_request()
         response = {
