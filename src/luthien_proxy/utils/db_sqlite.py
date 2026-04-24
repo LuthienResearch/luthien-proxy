@@ -19,13 +19,27 @@ import aiosqlite
 def _translate_params(query: str, args: tuple[object, ...]) -> tuple[str, tuple[object, ...]]:
     """Translate asyncpg-style $1,$2 parameters to SQLite ? placeholders.
 
+    Handles positional reuse (e.g. `VALUES ($1, $1)`): each occurrence of $N
+    maps to one `?` in the output and the args tuple is rebuilt in the order
+    `?` placeholders appear, so the N-th `?` gets args[ordered[N-1]-1].
+    asyncpg/Postgres accept reuse natively; SQLite's `?` is strictly positional
+    and does not, so we expand on the args side.
+
     Also rewrites PostgreSQL-specific SQL constructs to SQLite equivalents.
     """
-    # Replace $N placeholders with ? (must replace in reverse order to handle $10+ correctly)
-    indices = sorted(set(int(m.group(1)) for m in re.finditer(r"\$(\d+)", query)), reverse=True)
-    translated = query
-    for idx in indices:
-        translated = translated.replace(f"${idx}", "?")
+    # Walk $N occurrences left-to-right, emitting one ? per occurrence and
+    # recording which original arg (1-indexed) each one consumes.
+    consumed: list[int] = []
+
+    def _sub_placeholder(match: re.Match[str]) -> str:
+        consumed.append(int(match.group(1)))
+        return "?"
+
+    translated = re.sub(r"\$(\d+)", _sub_placeholder, query)
+    if consumed:
+        reordered = tuple(args[idx - 1] for idx in consumed)
+    else:
+        reordered = args
 
     # Strip PostgreSQL type casts (::jsonb, ::text, ::float, ::int[], etc.)
     translated = re.sub(r"::\w+(\[\])?", "", translated)
@@ -42,7 +56,7 @@ def _translate_params(query: str, args: tuple[object, ...]) -> tuple[str, tuple[
     # ILIKE → LIKE (SQLite LIKE is case-insensitive for ASCII by default)
     translated = translated.replace(" ILIKE ", " LIKE ")
 
-    return translated, args
+    return translated, reordered
 
 
 def _convert_arg(value: object) -> object:

@@ -77,6 +77,27 @@ class TestTranslateParams:
         assert translated == "SELECT 1"
         assert args == ()
 
+    def test_positional_reuse_duplicates_arg(self):
+        # `$8, $8` must expand to `?, ?` with the arg repeated, matching asyncpg's
+        # positional-reuse semantics.
+        query = "INSERT INTO t VALUES ($1, $2, $2)"
+        translated, args = _translate_params(query, ("a", "b"))
+        assert translated.count("?") == 3
+        assert args == ("a", "b", "b")
+
+    def test_positional_reuse_out_of_order(self):
+        query = "INSERT INTO t VALUES ($2, $1, $2, $1)"
+        translated, args = _translate_params(query, ("x", "y"))
+        assert translated.count("?") == 4
+        assert args == ("y", "x", "y", "x")
+
+    def test_positional_reuse_with_high_numbers(self):
+        query = "VALUES ($1, $2, $10, $10)"
+        translated, args = _translate_params(query, tuple(range(11)))
+        assert translated.count("?") == 4
+        # $1, $2, $10, $10 → args[0], args[1], args[9], args[9]
+        assert args == (0, 1, 9, 9)
+
 
 class TestConvertArg:
     def test_bool_to_int(self):
