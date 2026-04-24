@@ -3,7 +3,7 @@
 Lets the proxy drive Anthropic inference through an operator's Claude
 subscription (OAuth access token) rather than a billed API key. See
 `dev/NOTES.md` for the full experimental investigation that motivated this
-design.
+design (including structured-output envelope shape).
 
 Key decisions (verified experimentally, not assumed):
 
@@ -18,9 +18,27 @@ Key decisions (verified experimentally, not assumed):
 - We isolate `HOME` and `CLAUDE_CONFIG_DIR` to a scratch directory anyway
   as belt-and-suspenders: bare mode doesn't read those paths, but a
   future CLI version might flip defaults.
-- `max_tokens` and `temperature` are accepted for interface uniformity
-  but currently NOT plumbed — the CLI has no flag for either in 2.1.x.
-  Callers that need strict token control should use `DirectApiProvider`.
+- Structured output: when the caller passes
+  `response_format={"type": "json_schema", "schema": {...}}`, we forward
+  the schema to the CLI via `--json-schema <json>` and read
+  `structured_output` from the JSON envelope. Envelope shape:
+
+    {"subtype": "success", "is_error": false,
+     "result": "",                       # free-form text (often empty)
+     "structured_output": {...} | null,  # schema-valid object OR null
+     ...}
+
+    {"subtype": "error_max_structured_output_retries", "is_error": true,
+     ...}
+
+  We treat `structured_output: null` with no explicit error subtype as
+  "model declined to produce structured output" and raise
+  `InferenceStructuredOutputError` — this keeps the interface contract
+  predictable even when the CLI silently shrugs. Callers that want
+  lenient "structured or text" should not pass a schema.
+- `max_tokens` and `temperature` remain unplumbed — the CLI has no flag
+  for either in 2.1.x. Callers that need strict token control should use
+  `DirectApiProvider`.
 
 Multi-turn `messages` support is intentionally coarse: we render the
 message list into a single prompt string with role markers. `stream-json`
@@ -44,7 +62,10 @@ from luthien_proxy.inference.base import (
     InferenceInvalidCredentialError,
     InferenceProvider,
     InferenceProviderError,
+    InferenceResult,
+    InferenceStructuredOutputError,
     InferenceTimeoutError,
+    extract_schema,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,6 +75,10 @@ DEFAULT_CLAUDE_BINARY = "claude"
 
 #: Wall-clock timeout for a single `claude -p` invocation.
 DEFAULT_TIMEOUT_SECONDS = 120.0
+
+#: CLI subtype emitted when the internal structured-output retry loop gives up.
+#: Verified in the shipped claude binary (2.1.119).
+STRUCTURED_OUTPUT_RETRY_EXHAUSTED_SUBTYPE = "error_max_structured_output_retries"
 
 
 class ClaudeCodeProvider(InferenceProvider):
@@ -115,13 +140,13 @@ class ClaudeCodeProvider(InferenceProvider):
         max_tokens: int = 1024,
         response_format: dict[str, Any] | None = None,
         credential_override: Credential | None = None,
-    ) -> str:
-        """Run one `claude -p` subprocess and return its assistant reply.
+    ) -> InferenceResult:
+        """Run one `claude -p` subprocess and return an `InferenceResult`.
 
         `temperature` and `max_tokens` are accepted for interface
         uniformity but are ignored (logged at DEBUG). `response_format`
-        is likewise ignored — the CLI's `--json-schema` flag exists but
-        is not wired through in PR #2.
+        with a JSON schema is honored via `--json-schema`; see module
+        docstring for envelope behavior and failure modes.
         """
         if credential_override is not None:
             raise InferenceCredentialOverrideUnsupported(
@@ -132,24 +157,24 @@ class ClaudeCodeProvider(InferenceProvider):
 
         resolved_model = model if model is not None else self._default_model
         prompt, system_prompt = _render_prompt(messages, system)
+        schema = extract_schema(response_format)
 
-        if max_tokens is not None or temperature != 0.0 or response_format is not None:
+        if temperature != 0.0:
             logger.debug(
-                "inference.claude_code.ignored_params",
-                extra={
-                    "inference_provider_name": self.name,
-                    "inference_backend_type": self.backend_type,
-                    "ignored_temperature": temperature != 0.0,
-                    "ignored_max_tokens": max_tokens is not None,
-                    "ignored_response_format": response_format is not None,
-                },
+                "inference.claude_code.ignored_temperature",
+                extra={"inference_provider_name": self.name},
             )
+        # max_tokens has a default value, so log that we're ignoring it only when
+        # the caller probably cared (non-default). No reliable signal here — the
+        # value has a default — so we don't emit a per-call warning.
 
         args = [self._claude_binary, "-p", "--bare", "--output-format", "json"]
         if resolved_model is not None:
             args.extend(["--model", resolved_model])
         if system_prompt is not None:
             args.extend(["--system-prompt", system_prompt])
+        if schema is not None:
+            args.extend(["--json-schema", json.dumps(schema, ensure_ascii=False)])
         args.append(prompt)
 
         scratch_dir = tempfile.mkdtemp(prefix="luthien-claude-")
@@ -161,6 +186,7 @@ class ClaudeCodeProvider(InferenceProvider):
                 "inference_provider_name": self.name,
                 "inference_backend_type": self.backend_type,
                 "inference_model": resolved_model,
+                "inference_structured": schema is not None,
                 "argv_preview": args[:5],  # no secrets — api key is via env, not argv
             },
         )
@@ -174,23 +200,38 @@ class ClaudeCodeProvider(InferenceProvider):
         finally:
             shutil.rmtree(scratch_dir, ignore_errors=True)
 
-        return self._parse_output(stdout_bytes, stderr_bytes, returncode)
+        return self._parse_output(
+            stdout_bytes,
+            stderr_bytes,
+            returncode,
+            structured_expected=schema is not None,
+        )
 
-    def _parse_output(self, stdout_bytes: bytes, stderr_bytes: bytes, returncode: int) -> str:
+    def _parse_output(
+        self,
+        stdout_bytes: bytes,
+        stderr_bytes: bytes,
+        returncode: int,
+        *,
+        structured_expected: bool,
+    ) -> InferenceResult:
         """Parse the JSON object from `claude -p`'s stdout.
 
-        The CLI emits exactly one JSON object on success. Failure modes:
+        The CLI emits exactly one JSON object. Error shapes we translate:
 
-        - Empty stdout: return an `InferenceProviderError` with stderr
-          and the returncode for triage.
-        - Unparseable stdout: same.
-        - `is_error: true` with `api_error_status == 401`: translate to
+        - Empty / unparseable stdout → `InferenceProviderError`.
+        - `is_error: true`, `api_error_status ∈ {401, 403}` →
           `InferenceInvalidCredentialError`.
-        - Any other `is_error: true`: `InferenceProviderError` carrying
-          the CLI's human-readable `result`.
-        - Non-zero exit code with otherwise-valid JSON: still classify by
-          the JSON body; the CLI occasionally exits 0 on logical errors.
-        - Non-zero exit code with unparseable stdout: `InferenceProviderError`.
+        - `is_error: true`, `subtype ==
+          "error_max_structured_output_retries"` →
+          `InferenceStructuredOutputError`.
+        - Any other `is_error: true` → `InferenceProviderError`.
+        - `is_error: false`, schema requested, `structured_output is None`
+          → `InferenceStructuredOutputError` (the CLI silently returns
+          None when the model declines the schema).
+
+        Non-zero exit codes accompanying otherwise-valid JSON are still
+        classified by the JSON body; exit code is informational only.
         """
         stdout = stdout_bytes.decode("utf-8", errors="replace").strip()
         stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
@@ -214,7 +255,9 @@ class ClaudeCodeProvider(InferenceProvider):
             )
 
         is_error = bool(payload.get("is_error"))
+        subtype = payload.get("subtype")
         result_text = payload.get("result")
+        structured_output = payload.get("structured_output")
 
         if is_error:
             api_status = payload.get("api_error_status")
@@ -223,16 +266,28 @@ class ClaudeCodeProvider(InferenceProvider):
                 raise InferenceInvalidCredentialError(
                     f"{self.name}: claude -p rejected credential (HTTP {api_status}): {message}",
                 )
+            if subtype == STRUCTURED_OUTPUT_RETRY_EXHAUSTED_SUBTYPE:
+                raise InferenceStructuredOutputError(
+                    f"{self.name}: claude -p exhausted structured-output retries: {message}",
+                )
             raise InferenceProviderError(
-                f"{self.name}: claude -p returned error (api_status={api_status}): {message}",
+                f"{self.name}: claude -p returned error (subtype={subtype!r}, api_status={api_status}): {message}",
             )
+
+        if structured_expected:
+            if not isinstance(structured_output, dict):
+                raise InferenceStructuredOutputError(
+                    f"{self.name}: claude -p returned no structured_output for a "
+                    f"schema-constrained request (model likely declined the schema). "
+                    f"result preview: {str(result_text)[:200]!r}",
+                )
+            return InferenceResult.from_structured(structured_output)
 
         if not isinstance(result_text, str):
             raise InferenceProviderError(
                 f"{self.name}: claude -p success payload missing string `result` field",
             )
-
-        return result_text
+        return InferenceResult.from_text(result_text)
 
 
 async def _run_subprocess(

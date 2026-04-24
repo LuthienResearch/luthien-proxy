@@ -175,3 +175,100 @@ keep `ClaudeCodeProvider`'s contract narrow.
   can exit 0 with an error result body (e.g. 401). Rely on the JSON body,
   not the exit code, for success/failure classification. We still capture
   non-zero exit codes and classify them as `InferenceError`.
+
+## 10. Structured output via `--json-schema` (verified)
+
+The `claude` CLI exposes structured output via the `--json-schema <json>`
+flag (visible in `claude --help`; the truncated `claude -p --help` snapshot
+in an earlier session happened to clip the relevant lines). Works with
+`--bare` + OAuth. Full help text:
+
+```
+--json-schema <schema>   JSON Schema for structured output validation.
+                         Example: {"type":"object","properties":{...},"required":[...]}
+```
+
+### Invocation (verified)
+
+```bash
+claude -p --bare --output-format json \
+  --json-schema '{"type":"object","properties":{"city":{"type":"string"},"population":{"type":"integer"}},"required":["city","population"],"additionalProperties":false}' \
+  "Return ONLY a JSON object matching the schema for Paris, France. Just JSON."
+```
+
+Latency: ~4–13 s wall on cold-spawn (higher variance than plain mode;
+model may burn an extra turn or tool call to validate). Not a regression
+for judge use; flagged for future benchmarking.
+
+### Envelope shape (verified)
+
+**Success with structured output:**
+
+```json
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "api_error_status": null,
+  "result": "",                              // usually empty string in this mode
+  "structured_output": {"city":"Paris","population":2161000},
+  "stop_reason": "end_turn",
+  "terminal_reason": "completed",
+  "num_turns": 1,
+  ...
+}
+```
+
+**Model declined the schema (wrote prose instead):**
+
+```json
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "result": "Waves fold into shore,\nsalt and silence trade secrets — ...",
+  "structured_output": null,
+  ...
+}
+```
+
+This is a *surprise*: the CLI does NOT mark `is_error:true` when the
+model ignores the schema; it silently sets `structured_output` to `null`
+and puts free-form text in `result`. Our provider treats this as
+`InferenceStructuredOutputError` because the caller asked for structured
+output and didn't get it — preserving the interface contract predictably.
+
+**Retry exhaustion:**
+
+```json
+{"subtype": "error_max_structured_output_retries", "is_error": true, ...}
+```
+
+Verified the literal string `"error_max_structured_output_retries"`
+exists in the shipped `claude` binary (2.1.119) via `strings | grep`.
+We did not manage to trigger it organically in testing — the model
+complied or declined cleanly with every schema we threw at it, including
+an impossible-regex `^IMPOSSIBLE_PREFIX_[A-Z]{99999}$`. Likely only
+appears when the Anthropic service-level retry count for structured
+output is exceeded mid-generation. The provider handles it from the
+envelope subtype, not from observation.
+
+### Failure modes we observed but do NOT translate
+
+- **Malformed `--json-schema` argument** (non-JSON string, or JSON that
+  isn't a valid JSON Schema): the CLI hangs indefinitely with no output,
+  no exit, no stderr. Neither `strings $(which claude)` nor a quick
+  timeout revealed a graceful error path. Mitigation: our
+  `timeout_seconds` (default 120s) eventually raises
+  `InferenceTimeoutError`. Schemas built by our callers are generally
+  static so this should be rare, but it's worth documenting for PR #3/#4.
+
+### Why `DirectApiProvider` does post-hoc validation instead
+
+LiteLLM accepts `{"type": "json_object"}` uniformly across providers but
+its `{"type": "json_schema", ...}` variant has subtly different wrapper
+shapes per provider (Anthropic vs OpenAI vs Vertex). Rather than carry
+that matrix, our direct-API path sends a `json_object` hint + a
+schema-blurb in the system prompt, and validates with `jsonschema`
+post-hoc. Failures map to the same `InferenceStructuredOutputError`
+class as the CLI path, so callers branch once.
