@@ -6,12 +6,13 @@ Tests the full sync flow against a real SQLite database, including:
 - Deprecation of missing built-ins
 - Resurrection of returning built-ins
 - description pulled from __policy_description__ attribute
-- module_path resolves to valid classes
+- class_ref resolves to valid classes
 """
 
 from __future__ import annotations
 
 import importlib
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
@@ -23,7 +24,7 @@ from luthien_proxy.utils.migration_check import _apply_sqlite_migrations
 
 
 @pytest.fixture
-async def db_pool_with_migrations() -> DatabasePool:
+async def db_pool_with_migrations() -> AsyncIterator[DatabasePool]:
     """Create a fresh in-memory SQLite DatabasePool with all migrations applied."""
     db_pool = DatabasePool("sqlite://:memory:")
     migrations_dir = Path(__file__).resolve().parents[3] / "src" / "luthien_proxy" / "utils" / "sqlite_migrations"
@@ -33,7 +34,7 @@ async def db_pool_with_migrations() -> DatabasePool:
 
 
 @pytest.mark.sqlite_e2e
-class TestPolicTypeSyncIntegration:
+class TestPolicyTypeSyncIntegration:
     """Integration tests for policy_type table sync."""
 
     @pytest.mark.asyncio
@@ -43,7 +44,7 @@ class TestPolicTypeSyncIntegration:
 
         async with db_pool_with_migrations.connection() as conn:
             rows = await conn.fetch(
-                "SELECT name, definition_type, module_path, deprecated FROM policy_type "
+                "SELECT name, definition_type, class_ref, deprecated FROM policy_type "
                 "WHERE definition_type = 'built-in' ORDER BY name"
             )
 
@@ -51,7 +52,7 @@ class TestPolicTypeSyncIntegration:
         for row in rows:
             assert row["name"] is not None
             assert row["definition_type"] == "built-in"
-            assert row["module_path"] is not None
+            assert row["class_ref"] is not None
             assert row["deprecated"] == 0
 
     @pytest.mark.asyncio
@@ -83,54 +84,50 @@ class TestPolicTypeSyncIntegration:
         """Call sync with full list, then with shorter list; dropped class marked deprecated."""
         await sync_policy_types(db_pool_with_migrations)
 
-        # Get all the registered paths
         async with db_pool_with_migrations.connection() as conn:
-            all_rows = await conn.fetch("SELECT module_path FROM policy_type WHERE definition_type = 'built-in'")
-        all_paths = [row["module_path"] for row in all_rows]
+            all_rows = await conn.fetch("SELECT class_ref FROM policy_type WHERE definition_type = 'built-in'")
+        all_refs = [row["class_ref"] for row in all_rows]
 
-        # Sync with shortened list (drop last entry)
         shortened_list = REGISTERED_BUILTINS[:-1]
         await sync_policy_types(db_pool_with_migrations, class_refs=shortened_list)
 
         async with db_pool_with_migrations.connection() as conn:
             deprecated_rows = await conn.fetch(
-                "SELECT module_path FROM policy_type WHERE deprecated = 1 AND definition_type = 'built-in'"
+                "SELECT class_ref FROM policy_type WHERE deprecated = 1 AND definition_type = 'built-in'"
             )
 
-        deprecated_paths = [row["module_path"] for row in deprecated_rows]
-        assert len(deprecated_paths) == 1
-        assert deprecated_paths[0] == all_paths[-1]
+        deprecated_refs = [row["class_ref"] for row in deprecated_rows]
+        assert len(deprecated_refs) == 1
+        assert deprecated_refs[0] == all_refs[-1]
 
     @pytest.mark.asyncio
     async def test_sync_resurrects_class_when_returned_to_list(self, db_pool_with_migrations: DatabasePool) -> None:
         """Deprecate via shortened list, then re-sync with full list; deprecated flips back."""
         await sync_policy_types(db_pool_with_migrations)
 
-        # Get the path that will be dropped
         async with db_pool_with_migrations.connection() as conn:
             dropped_row = await conn.fetchrow(
-                "SELECT module_path FROM policy_type WHERE definition_type = 'built-in' ORDER BY module_path DESC LIMIT 1"
+                "SELECT class_ref FROM policy_type WHERE definition_type = 'built-in' "
+                "ORDER BY class_ref DESC LIMIT 1"
             )
-        dropped_path = dropped_row["module_path"]
+        dropped_ref = dropped_row["class_ref"]
 
-        # Deprecate via shortened list
         shortened_list = REGISTERED_BUILTINS[:-1]
         await sync_policy_types(db_pool_with_migrations, class_refs=shortened_list)
 
         async with db_pool_with_migrations.connection() as conn:
             is_deprecated = await conn.fetchval(
-                "SELECT deprecated FROM policy_type WHERE module_path = ? AND definition_type = 'built-in'",
-                dropped_path,
+                "SELECT deprecated FROM policy_type WHERE class_ref = $1 AND definition_type = 'built-in'",
+                dropped_ref,
             )
         assert is_deprecated == 1
 
-        # Resurrect with full list
         await sync_policy_types(db_pool_with_migrations, class_refs=REGISTERED_BUILTINS)
 
         async with db_pool_with_migrations.connection() as conn:
             is_deprecated = await conn.fetchval(
-                "SELECT deprecated FROM policy_type WHERE module_path = ? AND definition_type = 'built-in'",
-                dropped_path,
+                "SELECT deprecated FROM policy_type WHERE class_ref = $1 AND definition_type = 'built-in'",
+                dropped_ref,
             )
         assert is_deprecated == 0
 
@@ -141,11 +138,11 @@ class TestPolicTypeSyncIntegration:
         await sync_policy_types(db_pool_with_migrations, class_refs=bad_and_good)
 
         async with db_pool_with_migrations.connection() as conn:
-            rows = await conn.fetch("SELECT module_path FROM policy_type WHERE definition_type = 'built-in'")
+            rows = await conn.fetch("SELECT class_ref FROM policy_type WHERE definition_type = 'built-in'")
 
-        paths = [row["module_path"] for row in rows]
-        assert REGISTERED_BUILTINS[0] in paths
-        assert "nonexistent.module:DoesNotExist" not in paths
+        refs = [row["class_ref"] for row in rows]
+        assert REGISTERED_BUILTINS[0] in refs
+        assert "nonexistent.module:DoesNotExist" not in refs
 
     @pytest.mark.asyncio
     async def test_sync_propagates_db_setup_failure(self, db_pool_with_migrations: DatabasePool) -> None:
@@ -156,45 +153,42 @@ class TestPolicTypeSyncIntegration:
             await sync_policy_types(db_pool_with_migrations)
 
     @pytest.mark.asyncio
-    async def test_module_path_uniqueness_enforced_by_db(self, db_pool_with_migrations: DatabasePool) -> None:
-        """Direct INSERT with duplicate module_path raises due to partial unique index."""
-        # First, insert a valid row via sync
+    async def test_class_ref_uniqueness_enforced_by_db(self, db_pool_with_migrations: DatabasePool) -> None:
+        """Direct INSERT with duplicate class_ref raises due to partial unique index."""
         await sync_policy_types(db_pool_with_migrations)
 
-        # Get a path we can try to duplicate
         async with db_pool_with_migrations.connection() as conn:
             sample_row = await conn.fetchrow(
-                "SELECT module_path FROM policy_type WHERE definition_type = 'built-in' LIMIT 1"
+                "SELECT class_ref FROM policy_type WHERE definition_type = 'built-in' LIMIT 1"
             )
-        sample_path = sample_row["module_path"]
+        sample_ref = sample_row["class_ref"]
 
-        # Try to insert a duplicate with same module_path and definition_type='built-in'
         async with db_pool_with_migrations.connection() as conn:
             with pytest.raises(Exception):
                 await conn.execute(
-                    "INSERT INTO policy_type (name, definition_type, module_path, deprecated) VALUES (?, ?, ?, 0)",
+                    "INSERT INTO policy_type (name, definition_type, class_ref, deprecated) "
+                    "VALUES ($1, $2, $3, $4)",
                     "duplicate-name",
                     "built-in",
-                    sample_path,
+                    sample_ref,
+                    0,
                 )
 
     @pytest.mark.asyncio
-    async def test_definition_ref_module_path_imports_to_correct_class(
-        self, db_pool_with_migrations: DatabasePool
-    ) -> None:
-        """After sync, each module_path resolves to a BasePolicy subclass."""
+    async def test_class_ref_imports_to_correct_class(self, db_pool_with_migrations: DatabasePool) -> None:
+        """After sync, each class_ref resolves to a BasePolicy subclass."""
         await sync_policy_types(db_pool_with_migrations)
 
         async with db_pool_with_migrations.connection() as conn:
             rows = await conn.fetch(
-                "SELECT module_path FROM policy_type WHERE definition_type = 'built-in' ORDER BY module_path"
+                "SELECT class_ref FROM policy_type WHERE definition_type = 'built-in' ORDER BY class_ref"
             )
 
         for row in rows:
-            module_path = row["module_path"]
-            module_name, class_name = module_path.split(":", 1)
+            class_ref = row["class_ref"]
+            module_name, class_name = class_ref.split(":", 1)
             module = importlib.import_module(module_name)
             policy_class = getattr(module, class_name)
 
-            assert isinstance(policy_class, type), f"{module_path}: not a type"
-            assert issubclass(policy_class, BasePolicy), f"{module_path}: not a BasePolicy subclass"
+            assert isinstance(policy_class, type), f"{class_ref}: not a type"
+            assert issubclass(policy_class, BasePolicy), f"{class_ref}: not a BasePolicy subclass"

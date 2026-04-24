@@ -5,18 +5,18 @@ CREATE TABLE IF NOT EXISTS policy_type (
     name            TEXT NOT NULL UNIQUE,
     description     TEXT,
     definition_type TEXT NOT NULL CHECK (definition_type IN ('built-in')),
-    module_path     TEXT,
+    class_ref       TEXT,
     config_schema   TEXT,
     deprecated      INTEGER NOT NULL DEFAULT 0,
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
 
-    CONSTRAINT policy_type_builtin_module_path_required
-        CHECK (definition_type <> 'built-in' OR module_path IS NOT NULL)
+    CONSTRAINT policy_type_builtin_class_ref_required
+        CHECK (definition_type <> 'built-in' OR class_ref IS NOT NULL)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_policy_type_builtin_module_path
-    ON policy_type (module_path)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_policy_type_builtin_class_ref
+    ON policy_type (class_ref)
     WHERE definition_type = 'built-in';
 
 CREATE INDEX IF NOT EXISTS idx_policy_type_active

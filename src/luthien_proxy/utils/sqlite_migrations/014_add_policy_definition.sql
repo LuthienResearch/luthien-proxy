@@ -1,5 +1,5 @@
--- Add policy_definition table — catalog of available policy types
--- Decoupled from current_policy. A future policy_instance table will FK into this
+-- Interim policy_definition table. Superseded by 015 which drops this table and replaces it with policy_type.
+-- Kept on disk so dev DBs that already applied 014 get a clean rollback via 015.
 
 CREATE TABLE IF NOT EXISTS policy_definition (
     id              INTEGER PRIMARY KEY,

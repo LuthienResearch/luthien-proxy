@@ -9,6 +9,8 @@ Tests cover:
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from luthien_proxy.policy_types import (
@@ -30,6 +32,7 @@ class TestDeriveBuiltinName:
             ("AllCapsPolicy", "all-caps"),
             ("TextModifierPolicy", "text-modifier"),
             ("LLMPolicy", "llm"),
+            ("HTTPSPolicy", "https"),
         ],
     )
     def test_converts_pascal_to_kebab(self, class_name: str, expected: str) -> None:
@@ -164,9 +167,6 @@ def test_registered_builtins_have_no_name_collisions() -> None:
     discovered = [{"name": class_ref.split(":", 1)[1], "class_ref": class_ref} for class_ref in REGISTERED_BUILTINS]
     result = resolve_collisions(discovered)
 
-    names = [name for name, _ in result]
-    # No entry should have a numeric suffix like "-2", "-3", etc.
-    for name in names:
-        assert not name[-2:].lstrip("-").isdigit() or name.endswith("policy"), (
-            f"Collision in REGISTERED_BUILTINS: {name} has numeric suffix"
-        )
+    suffix_pattern = re.compile(r"-\d+$")
+    for name, _ in result:
+        assert not suffix_pattern.search(name), f"Collision in REGISTERED_BUILTINS: {name} has numeric suffix"

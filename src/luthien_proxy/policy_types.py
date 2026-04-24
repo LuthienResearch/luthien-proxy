@@ -126,20 +126,15 @@ async def sync_policy_types(
 ) -> None:
     """Upsert policy_type rows from the registered built-in list.
 
-    Marks any existing built-in row whose module_path is not in `class_refs` as deprecated.
+    Marks any existing built-in row whose class_ref is not in `class_refs` as deprecated.
 
     Per-class import failures (ImportError, AttributeError, ValueError) are logged and skipped.
     Database-level exceptions propagate (table missing, constraint violations, connection errors are signal).
     """
-    # Build discovered list from class_refs
     discovered = [{"class_ref": ref, "name": ref.split(":", 1)[1]} for ref in class_refs]
-
-    # Resolve name collisions
     resolved = resolve_collisions(discovered)
-
-    # Timestamp for this sync run
     now_iso = datetime.now(UTC).isoformat()
-    seen_module_paths: list[str] = []
+    seen_class_refs: list[str] = []
 
     async with pool.connection() as conn:
         for assigned_name, entry in resolved:
@@ -158,13 +153,14 @@ async def sync_policy_types(
 
             description = _resolve_description(policy_class)
 
+            # Partial-index-aware upsert: ON CONFLICT target matches the partial unique index.
             await conn.execute(
                 """
                 INSERT INTO policy_type
-                    (name, description, definition_type, module_path,
+                    (name, description, definition_type, class_ref,
                      config_schema, deprecated, updated_at)
                 VALUES ($1, $2, 'built-in', $3, $4, $5, $6)
-                ON CONFLICT (module_path) WHERE definition_type = 'built-in' DO UPDATE SET
+                ON CONFLICT (class_ref) WHERE definition_type = 'built-in' DO UPDATE SET
                     name = EXCLUDED.name,
                     description = EXCLUDED.description,
                     deprecated = EXCLUDED.deprecated,
@@ -177,15 +173,14 @@ async def sync_policy_types(
                 False,
                 now_iso,
             )
-            seen_module_paths.append(class_ref)
+            seen_class_refs.append(class_ref)
 
-        # Mark previously-registered built-ins that aren't in the current allowlist as deprecated
-        existing = await conn.fetch("SELECT module_path FROM policy_type WHERE definition_type = 'built-in'")
-        existing_paths = {row["module_path"] for row in existing}
-        to_deprecate = existing_paths - set(seen_module_paths)
-        for path in to_deprecate:
+        existing = await conn.fetch("SELECT class_ref FROM policy_type WHERE definition_type = 'built-in'")
+        existing_refs = {row["class_ref"] for row in existing}
+        to_deprecate = existing_refs - set(seen_class_refs)
+        for ref in to_deprecate:
             await conn.execute(
-                "UPDATE policy_type SET deprecated = $1 WHERE module_path = $2",
+                "UPDATE policy_type SET deprecated = $1 WHERE class_ref = $2",
                 True,
-                path,
+                ref,
             )
