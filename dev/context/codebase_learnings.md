@@ -15,7 +15,6 @@ Integrated single-process gateway. Authoritative module map and request lifecycl
 - **Pipeline** (`src/luthien_proxy/pipeline/`): Request processors for the Anthropic path, including streaming execution.
 - **Policies** (`src/luthien_proxy/policies/`): Concrete policy implementations (noop, simple, tool-call judge, etc.).
 - **Policy Core** (`src/luthien_proxy/policy_core/`): Policy base classes, protocols, per-request `PolicyContext`, Anthropic execution interface.
-- **Storage** (`src/luthien_proxy/storage/`): Conversation event persistence with a background queue.
 - **Observability** (`src/luthien_proxy/observability/`): OpenTelemetry integration and structured transaction recording.
 - **Admin** (`src/luthien_proxy/admin/`): Runtime policy management API.
 - **Debug** (`src/luthien_proxy/debug/`): Endpoints for inspecting conversation events.

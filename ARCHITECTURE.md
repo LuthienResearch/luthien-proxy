@@ -152,11 +152,10 @@ There is no `llm/litellm_client.py` — the gateway no longer proxies via LiteLL
 | `credentials/auth_provider.py` | `AuthProvider` base + `ServerKey`, `UserCredentials`, `UserThenServer` resolvers used by policies that need an outbound credential. |
 | `credentials/store.py` | `CredentialStore` — DB-backed server credential storage (`server_credentials` table) with optional Fernet encryption. |
 
-### Storage & Observability
+### Observability
 
 | Module | Responsibility |
 |--------|---------------|
-| `storage/events.py` | `reconstruct_full_response_from_chunks` — reassembles streamed chunks into a full response dict for history. |
 | `observability/emitter.py` | `EventEmitter` — fire-and-forget multi-sink recorder (stdout + `conversation_calls`/`conversation_events` DB rows + `EventPublisher` + current OTel span as span events). Defines `EventEmitterProtocol` + `NullEventEmitter`. |
 | `observability/event_publisher.py` | `EventPublisherProtocol`, `InProcessEventPublisher` — the SSE activity stream transport. |
 | `observability/redis_event_publisher.py` | `RedisEventPublisher` — Redis pub/sub implementation of the SSE activity stream. |

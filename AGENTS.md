@@ -127,7 +127,6 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
   - `credentials/`: typed credential models (`Credential`, `CredentialType`) and per-policy `AuthProvider` strategies (`UserCredentials`, `ServerKey`, `UserThenServer`), plus the DB-backed credential store
   - `llm/`: Anthropic HTTP client wrapper, per-credential client cache, LiteLLM-based judge client, and shared Anthropic type definitions
   - `observability/`: event emitter, Redis/in-process event publishers, Sentry integration, and the SSE generator (`stream_activity_events`) wired into the activity monitor UI
-  - `storage/`: helpers for persisting and reconstructing conversation events
   - `request_log/`: HTTP-level request/response recording for `/v1/` traffic (gated by `ENABLE_REQUEST_LOGGING`)
   - `usage_telemetry/`: anonymous aggregate usage metrics sent to the central telemetry endpoint
   - `admin/`: admin API routes and policy class discovery
