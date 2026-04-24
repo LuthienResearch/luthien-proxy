@@ -168,9 +168,9 @@ There is no `llm/litellm_client.py` — the gateway no longer proxies via LiteLL
 
 | Module | Responsibility |
 |--------|---------------|
-| `admin/routes.py` | `/api/admin/*` — policy current/set/list, `/models`, `/test/chat`, auth config, cached credentials management, server credentials CRUD, telemetry config, gateway settings (deprecated), unified config get/put/delete |
+| `admin/routes.py` | `/api/admin/*` — policy current/set/list, `/models`, `/test/chat`, auth config, cached credentials management, server credentials CRUD, telemetry config, unified config get/put/delete |
 | `admin/policy_discovery.py` | Discovers installed policy classes for the admin UI dropdown. |
-| `ui/routes.py` | HTML pages and the SSE activity stream. Routes: `/` (landing), `/activity/monitor` (301 → `/history`), `/debug/activity` (raw SSE viewer), `/diffs`, `/policy-config`, `/config` (config dashboard), `/credentials`, `/request-logs/viewer`, `/conversation/live/{id}`, `/client-setup`, and the `GET /api/activity/stream` SSE endpoint. Also redirects deprecated `/debug/diff` and `/admin/*` paths. |
+| `ui/routes.py` | HTML pages and the SSE activity stream. Routes: `/` (landing), `/debug/activity` (raw SSE viewer), `/diffs`, `/policy-config`, `/config` (config dashboard), `/credentials`, `/request-logs/viewer`, `/conversation/live/{id}`, `/client-setup`, and the `GET /api/activity/stream` SSE endpoint. Also redirects deprecated `/admin/*` paths to `/api/admin/*`. |
 | `history/routes.py` | `/history` (list sessions), `/history/session/{id}` (session detail); `/api/history/*` JSON API. |
 | `history/service.py` | Session list + detail query builders, turn reconstruction, markdown/JSONL export. |
 | `history/models.py` | Pydantic models for session list/detail responses. |

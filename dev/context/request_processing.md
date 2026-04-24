@@ -89,7 +89,7 @@ Direct `litellm` imports in `src/luthien_proxy/` are limited to:
 - **Startup config** — `main.py` sets `litellm.drop_params = True` once so judge calls tolerate unknown kwargs.
 - **Admin model listing** — `admin/routes.py` reads `litellm.anthropic_models` for the admin UI model dropdown.
 
-Indirect references (no import, still tied to the judge path): `exceptions.map_litellm_error_type()` maps LiteLLM exception class names to `BackendAPIError` codes via string lookup, and `settings.litellm_master_key` is retained as a legacy judge-key fallback.
+Indirect reference (no import, still tied to the judge path): `exceptions.map_litellm_error_type()` maps LiteLLM exception class names to `BackendAPIError` codes via string lookup.
 
 See `dev/context/codebase_learnings.md` (LiteLLM Usage Boundaries) for the complete list.
 
