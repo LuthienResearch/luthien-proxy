@@ -222,6 +222,7 @@ class ClaudeCodeProvider(InferenceProvider):
                 args,
                 env=env,
                 timeout_seconds=self._timeout_seconds,
+                provider_name=self.name,
             )
         finally:
             shutil.rmtree(scratch_dir, ignore_errors=True)
@@ -335,6 +336,7 @@ async def _run_subprocess(
     *,
     env: dict[str, str],
     timeout_seconds: float,
+    provider_name: str,
 ) -> tuple[bytes, bytes, int]:
     """Spawn the claude CLI, wait with a timeout, return (stdout, stderr, rc).
 
@@ -378,7 +380,7 @@ async def _run_subprocess(
             timeout=timeout_seconds,
         )
     except asyncio.TimeoutError as exc:
-        await _reap_child(proc)
+        await _reap_child(proc, provider_name=provider_name)
         raise InferenceTimeoutError(
             f"claude -p did not complete within {timeout_seconds:.0f}s",
         ) from exc
@@ -389,14 +391,14 @@ async def _run_subprocess(
         # until the child has exited, swallowing any additional
         # `CancelledError`s that arrive mid-cleanup. The exception we
         # caught here is then re-raised naturally by the bare `raise`.
-        await _reap_child(proc)
+        await _reap_child(proc, provider_name=provider_name)
         raise
 
     returncode = proc.returncode if proc.returncode is not None else -1
     return stdout_bytes, stderr_bytes, returncode
 
 
-async def _reap_child(proc: asyncio.subprocess.Process) -> None:
+async def _reap_child(proc: asyncio.subprocess.Process, *, provider_name: str) -> None:
     """Kill `proc` and wait for it to fully exit, resilient to re-cancellation.
 
     `asyncio.shield(inner)` protects the inner task from cancellation,
@@ -418,6 +420,14 @@ async def _reap_child(proc: asyncio.subprocess.Process) -> None:
     via a bare `raise`), so swallowing extra cancellations here doesn't
     swallow the caller's intent — it preserves it while enforcing the
     lifecycle invariant first.
+
+    After the loop exits, we always call `cleanup_task.exception()` to
+    drain the task's exception state — if `_terminate_and_wait` ever
+    raises (it's bulletproof today, but a future refactor could add an
+    exception path), Python would otherwise emit a
+    "Task exception was never retrieved" warning at GC time, and the
+    failure would be invisible. A non-None exception is surfaced at
+    `warning` level with structured fields so observability can catch it.
     """
     cleanup_task = asyncio.ensure_future(_terminate_and_wait(proc))
     while not cleanup_task.done():
@@ -432,12 +442,33 @@ async def _reap_child(proc: asyncio.subprocess.Process) -> None:
         except BaseException:
             # A non-cancel exception inside cleanup (shouldn't happen —
             # `_terminate_and_wait` is bulletproof) should not prevent
-            # us from enforcing the lifecycle invariant. Record nothing
-            # and keep waiting for the task to resolve.
+            # us from enforcing the lifecycle invariant. Keep waiting
+            # for the task to resolve; we'll retrieve the exception
+            # below.
             if not cleanup_task.done():
                 continue
-            # Task resolved with this exception; fall through.
             break
+
+    # Drain the task's exception state so Python doesn't emit
+    # "Task exception was never retrieved" at GC time, and so a future
+    # failure path inside `_terminate_and_wait` doesn't silently vanish.
+    # If the task itself got cancelled (rare — we never cancel it), the
+    # `.exception()` call would raise `CancelledError`; treat that as
+    # "no exception to report."
+    try:
+        cleanup_exc = cleanup_task.exception()
+    except asyncio.CancelledError:
+        cleanup_exc = None
+    if cleanup_exc is not None:
+        logger.warning(
+            "inference.claude_code.reap_child_exception",
+            extra={
+                "inference_provider_name": provider_name,
+                "operation": "reap",
+                "error_type": type(cleanup_exc).__name__,
+                "error": str(cleanup_exc),
+            },
+        )
 
 
 async def _terminate_and_wait(proc: asyncio.subprocess.Process) -> None:

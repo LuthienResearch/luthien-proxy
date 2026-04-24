@@ -563,6 +563,17 @@ class TestCancellationPath:
     `rmtree_saw_returncode == -9` as "cleanup completed before rmtree."
     `rmtree_saw_returncode is None` means rmtree fired while wait was
     still suspended — the orphan-child-during-scratch-teardown scenario.
+
+    TODO(real-subprocess-variant): the fake decouples `wait()` from
+    `kill()` causally (wait doesn't resolve on kill; the test controls
+    it explicitly). That's deliberate — it's what makes the double-cancel
+    test discriminating — but it means this class doesn't exercise the
+    exact asyncio/OS behavior of a real `claude` subprocess under a
+    double-cancel. When CI capability for integration tests with a real
+    `claude` binary lands (see `LUTHIEN_TEST_CLAUDE` gate + scheduled-job
+    TODO in the integration section below), add a real-subprocess
+    variant that spawns a short-lived helper, cancels it twice, and
+    asserts no orphan via `psutil.Process.children(recursive=True)`.
     """
 
     @pytest.mark.asyncio
@@ -686,6 +697,45 @@ class TestCancellationPath:
                 )
             await releaser
         assert h.fake_proc.kill_called is True
+
+    @pytest.mark.asyncio
+    async def test_reap_child_logs_and_swallows_cleanup_exception(self, caplog):
+        """If `_terminate_and_wait` raises, `_reap_child` drains the exception + logs.
+
+        Without draining, Python emits "Task exception was never retrieved"
+        warnings at GC time and a future failure path inside cleanup is
+        silently masked. This test confirms (a) the exception is
+        retrieved (no warning emitted by Python about unretrieved task
+        state), (b) a structured warning log is emitted so observability
+        can catch it, (c) `_reap_child` itself does not re-raise.
+        """
+        from luthien_proxy.inference.claude_code import _reap_child
+
+        class _BrokenProc:
+            """Fake proc whose `kill()` succeeds and `wait()` raises."""
+
+            returncode: int | None = None
+
+            def kill(self):
+                pass
+
+            async def wait(self):
+                raise RuntimeError("simulated cleanup failure")
+
+        caplog.set_level("WARNING", logger="luthien_proxy.inference.claude_code")
+        # Should return normally — no re-raise.
+        await _reap_child(_BrokenProc(), provider_name="test-provider")  # type: ignore[arg-type]
+
+        matching = [
+            r for r in caplog.records if r.name == "luthien_proxy.inference.claude_code" and r.levelname == "WARNING"
+        ]
+        assert len(matching) == 1, f"expected exactly one warning log, got {len(matching)}"
+        record = matching[0]
+        assert record.message == "inference.claude_code.reap_child_exception"
+        assert getattr(record, "error_type", None) == "RuntimeError"
+        assert getattr(record, "error", None) == "simulated cleanup failure"
+        assert getattr(record, "operation", None) == "reap"
+        assert getattr(record, "inference_provider_name", None) == "test-provider"
 
 
 class TestPromptRendering:
