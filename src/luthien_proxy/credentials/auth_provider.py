@@ -139,8 +139,7 @@ def _parse_user_then(val: object, *, key: str) -> UserThenProvider:
         on_fallback = val.get("on_fallback", "warn")
         if on_fallback not in _VALID_FALLBACK_MODES:
             raise ValueError(
-                f"Invalid on_fallback: {on_fallback!r}. "
-                f"Must be one of: {', '.join(sorted(_VALID_FALLBACK_MODES))}"
+                f"Invalid on_fallback: {on_fallback!r}. Must be one of: {', '.join(sorted(_VALID_FALLBACK_MODES))}"
             )
         return UserThenProvider(name=name, on_fallback=on_fallback)
     raise ValueError(f"{key} value must be a string or dict, got {type(val).__name__}")

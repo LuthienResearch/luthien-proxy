@@ -341,6 +341,8 @@ class PolicyContext:
             user_id: Optional user identity for tests exercising user-aware behavior
             user_credential: Optional credential for tests exercising auth
             credential_manager: Optional manager for tests exercising auth providers
+            inference_provider_registry: Optional provider registry for tests
+                exercising named-provider dispatch
             policy_cache_factory: Optional cache factory for tests exercising caching
 
         Returns:

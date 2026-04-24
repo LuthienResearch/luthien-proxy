@@ -39,9 +39,7 @@ class TestParseInferenceProviderNewShape:
         assert result.on_fallback == "warn"
 
     def test_user_then_provider_dict_with_on_fallback(self):
-        result = parse_inference_provider(
-            {"user_then_provider": {"name": "my-key", "on_fallback": "fail"}}
-        )
+        result = parse_inference_provider({"user_then_provider": {"name": "my-key", "on_fallback": "fail"}})
         assert isinstance(result, UserThenProvider)
         assert result.name == "my-key"
         assert result.on_fallback == "fail"
@@ -65,9 +63,7 @@ class TestParseInferenceProviderNewShape:
 
     def test_invalid_on_fallback_raises(self):
         with pytest.raises(ValueError, match="Invalid on_fallback"):
-            parse_inference_provider(
-                {"user_then_provider": {"name": "key", "on_fallback": "warning"}}
-            )
+            parse_inference_provider({"user_then_provider": {"name": "key", "on_fallback": "warning"}})
 
     def test_provider_non_string_name_raises(self):
         with pytest.raises(ValueError, match="provider name must be a string"):
@@ -92,9 +88,7 @@ class TestParseInferenceProviderLegacyInnerKeys:
         assert result.name == "fallback-key"
 
     def test_user_then_server_dict_alias(self):
-        result = parse_inference_provider(
-            {"user_then_server": {"name": "my-key", "on_fallback": "fail"}}
-        )
+        result = parse_inference_provider({"user_then_server": {"name": "my-key", "on_fallback": "fail"}})
         assert isinstance(result, UserThenProvider)
         assert result.name == "my-key"
         assert result.on_fallback == "fail"
