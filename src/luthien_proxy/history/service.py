@@ -288,6 +288,7 @@ _FIRST_MESSAGE_MAX_LENGTH = 100
 
 # Pattern to strip system-reminder tags from content
 _SYSTEM_REMINDER_PATTERN = re.compile(r"<system-reminder>.*?</system-reminder>\s*", re.DOTALL)
+_POLICY_CONTEXT_PATTERN = re.compile(r"<policy-context>.*?</policy-context>\s*", re.DOTALL)
 
 
 def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None:
@@ -330,9 +331,11 @@ def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None
             if content:
                 # Truncate and clean up for display
                 content = content.strip()
-                # Skip system-reminder tags (Claude Code injects these)
+                # Skip system-reminder and policy-context tags (injected by Claude Code / policies)
                 if content.startswith("<system-reminder>"):
                     content = _SYSTEM_REMINDER_PATTERN.sub("", content).strip()
+                if content.startswith("<policy-context>"):
+                    content = _POLICY_CONTEXT_PATTERN.sub("", content).strip()
                 if not content:
                     continue
                 # Replace newlines with spaces for single-line preview
