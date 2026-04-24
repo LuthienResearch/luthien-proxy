@@ -471,6 +471,21 @@
                 </div>`;
             }
 
+            // Pointer cards for operator-managed resources that aren't simple config fields.
+            html += `<div class="section">
+                <h2>Operator-managed resources</h2>
+                <div style="display:flex;gap:12px;flex-wrap:wrap">
+                    <a href="/credentials" style="color:#6b9eff;text-decoration:none;border:1px solid #262626;border-radius:6px;padding:12px 16px;display:inline-block">
+                        <div style="font-weight:600">Credentials</div>
+                        <div style="font-size:12px;color:#888">Auth modes and server credentials</div>
+                    </a>
+                    <a href="/inference-providers" style="color:#6b9eff;text-decoration:none;border:1px solid #262626;border-radius:6px;padding:12px 16px;display:inline-block">
+                        <div style="font-weight:600">Inference Providers</div>
+                        <div style="font-size:12px;color:#888">Named backends for judges and policy tests</div>
+                    </a>
+                </div>
+            </div>`;
+
             for (const cat of categoryOrder) {
                 const catFields = grouped[cat];
                 if (!catFields || catFields.length === 0) continue;
