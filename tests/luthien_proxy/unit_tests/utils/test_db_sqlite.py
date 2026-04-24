@@ -77,6 +77,91 @@ class TestTranslateParams:
         assert translated == "SELECT 1"
         assert args == ()
 
+    def test_positional_reuse_duplicates_arg(self):
+        # `$8, $8` must expand to `?, ?` with the arg repeated, matching asyncpg's
+        # positional-reuse semantics.
+        query = "INSERT INTO t VALUES ($1, $2, $2)"
+        translated, args = _translate_params(query, ("a", "b"))
+        assert translated.count("?") == 3
+        assert args == ("a", "b", "b")
+
+    def test_positional_reuse_out_of_order(self):
+        query = "INSERT INTO t VALUES ($2, $1, $2, $1)"
+        translated, args = _translate_params(query, ("x", "y"))
+        assert translated.count("?") == 4
+        assert args == ("y", "x", "y", "x")
+
+    def test_positional_reuse_with_high_numbers(self):
+        query = "VALUES ($1, $2, $10, $10)"
+        translated, args = _translate_params(query, tuple(range(11)))
+        assert translated.count("?") == 4
+        # $1, $2, $10, $10 → args[0], args[1], args[9], args[9]
+        assert args == (0, 1, 9, 9)
+
+    def test_rejects_dollar_n_inside_single_quoted_literal(self):
+        # Reproducer for the S1 regression: pre-fix this silently corrupted
+        # bind order; between fixes it raised IndexError. Post-fix it raises
+        # a legible ValueError before any substitution happens.
+        query = "SELECT '$5' FROM t WHERE x = $1"
+        with pytest.raises(ValueError, match=r"\$N-looking token"):
+            _translate_params(query, ("x",))
+
+    def test_rejects_dollar_n_inside_literal_even_if_n_is_in_range(self):
+        # The pre-fix regex would rewrite the '$1' inside the literal to '?',
+        # producing 'SELECT ?' and then binding the user's "x" into the literal
+        # position. That's silent SQL corruption, not a crash — catch it.
+        query = "SELECT '$1' FROM t WHERE x = $1"
+        with pytest.raises(ValueError, match=r"\$N-looking token"):
+            _translate_params(query, ("x",))
+
+    def test_rejects_dollar_n_inside_double_quoted_identifier(self):
+        query = 'SELECT "$2" FROM t WHERE x = $1'
+        with pytest.raises(ValueError, match=r"\$N-looking token"):
+            _translate_params(query, ("x",))
+
+    def test_accepts_escaped_quote_inside_literal_with_no_dollar_n(self):
+        # Doubled single quotes escape inside SQL string literals; the literal
+        # here contains 'o''clock' and no $N token, so translation must succeed.
+        query = "SELECT 'o''clock' FROM t WHERE x = $1"
+        translated, args = _translate_params(query, ("x",))
+        assert translated == "SELECT 'o''clock' FROM t WHERE x = ?"
+        assert args == ("x",)
+
+    def test_rejects_dollar_zero_placeholder(self):
+        # `$0` would otherwise silently map to args[-1] via Python negative
+        # indexing, corrupting the bind. Guard in the substitution callback
+        # raises before translation completes.
+        query = "SELECT * FROM t WHERE a = $0"
+        with pytest.raises(ValueError, match=r"Invalid parameter placeholder \$0"):
+            _translate_params(query, ("x",))
+
+    def test_rejects_out_of_range_dollar_n_with_descriptive_error(self):
+        # `$3` with only 2 args should raise a descriptive ValueError naming
+        # both the bad placeholder and the arg count, not a bare IndexError.
+        query = "SELECT * FROM t WHERE a = $1 AND b = $2 AND c = $3"
+        with pytest.raises(ValueError, match=r"Parameter \$3 exceeds number of provided arguments \(2\)"):
+            _translate_params(query, ("x", "y"))
+
+    def test_dollar_n_in_line_comment_is_substituted(self):
+        # Documenting current behavior: `--` line comments are NOT parsed, so a
+        # $N inside a comment gets rewritten. This is usually harmless (the
+        # comment just gets a `?` in it) but is surprising; if this bites,
+        # revisit and add comment-stripping.
+        query = "SELECT $1 -- see $2 below\nFROM t"
+        translated, args = _translate_params(query, ("a", "b"))
+        assert translated.count("?") == 2
+        assert args == ("a", "b")
+
+    def test_dollar_n_in_block_comment_is_substituted(self):
+        # Documenting current behavior: `/* */` block comments are NOT parsed, so a
+        # $N inside a comment gets rewritten. This is usually harmless (the
+        # comment just gets a `?` in it) but is surprising; if this bites,
+        # revisit and add comment-stripping.
+        query = "SELECT $1 /* see $2 here */ FROM t"
+        translated, args = _translate_params(query, ("a", "b"))
+        assert translated.count("?") == 2
+        assert args == ("a", "b")
+
 
 class TestConvertArg:
     def test_bool_to_int(self):
