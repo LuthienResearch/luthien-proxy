@@ -77,14 +77,13 @@ def _translate_params(query: str, args: tuple[object, ...]) -> tuple[str, tuple[
         # via Python's negative indexing without this guard.
         if n < 1:
             raise ValueError(f"Invalid parameter placeholder ${n}: asyncpg placeholders are 1-indexed")
+        if n > len(args):
+            raise ValueError(f"Parameter ${n} exceeds number of provided arguments ({len(args)})")
         consumed.append(n)
         return "?"
 
     translated = _DOLLAR_N.sub(_sub_placeholder, query)
     if consumed:
-        for idx in consumed:
-            if idx > len(args):
-                raise ValueError(f"Parameter ${idx} exceeds number of provided arguments ({len(args)})")
         reordered = tuple(args[idx - 1] for idx in consumed)
     else:
         reordered = args
