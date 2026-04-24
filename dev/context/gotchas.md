@@ -24,7 +24,7 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 ## Observability Checks (2025-10-08, updated 2025-11-11)
 
-- Uses OpenTelemetry for observability - see `dev/observability.md` and `dev/VIEWING_TRACES_GUIDE.md`
+- Uses OpenTelemetry for observability - see `src/luthien_proxy/telemetry.py` and `dev/context/otel-conventions.md`
 - Live activity monitoring available at `/history` on the gateway
 
 ## Documentation Structure (2025-10-10, updated 2026-04-10)

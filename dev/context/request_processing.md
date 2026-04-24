@@ -105,4 +105,4 @@ See `dev/context/codebase_learnings.md` (LiteLLM Usage Boundaries) for the compl
 - `ARCHITECTURE.md` — broader module map (note: known staleness tracked separately on Trello; prefer the source code when in doubt).
 - `dev/context/codebase_learnings.md` — architectural patterns.
 - `dev/context/gotchas.md` — streaming protocol invariants and common debugging pitfalls.
-- `dev/observability.md` — tracing, event recording, and Tempo integration.
+- `dev/context/otel-conventions.md` — OpenTelemetry attribute naming conventions.

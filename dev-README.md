@@ -96,10 +96,7 @@ The gateway is a single FastAPI application:
 **Documentation**:
 
 - **Architecture overview**: [ARCHITECTURE.md](ARCHITECTURE.md) - How the codebase is structured, how requests flow, where to find things
-- Request processing architecture: [dev/REQUEST_PROCESSING_ARCHITECTURE.md](dev/REQUEST_PROCESSING_ARCHITECTURE.md) - How requests flow through the system
-- Live policy updates: [dev/LIVE_POLICY_DEMO.md](dev/LIVE_POLICY_DEMO.md) - Switching policies without restart in Claude Code
-- Observability: [dev/observability.md](dev/observability.md) - Tracing and monitoring
-- Viewing traces: [dev/VIEWING_TRACES_GUIDE.md](dev/VIEWING_TRACES_GUIDE.md) - Using Tempo
+- Request processing: [dev/context/request_processing.md](dev/context/request_processing.md) - How requests flow through the pipeline
 - Context files: [dev/context/](dev/context/) - Architectural patterns, decisions, and gotchas
 
 ## Endpoints
@@ -271,7 +268,6 @@ ENVIRONMENT=development
 
 ### Documentation
 
-- **Usage guide:** [dev/observability.md](dev/observability.md)
 - **Conventions:** [dev/context/otel-conventions.md](dev/context/otel-conventions.md)
 
 ### Services
