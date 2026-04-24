@@ -16,6 +16,7 @@ from litellm.exceptions import APIConnectionError, AuthenticationError, Timeout
 
 from luthien_proxy.credentials.credential import Credential, CredentialType
 from luthien_proxy.inference.base import (
+    MAX_SCHEMA_SERIALIZED_BYTES,
     InferenceInvalidCredentialError,
     InferenceProviderError,
     InferenceStructuredOutputError,
@@ -308,3 +309,79 @@ class TestStructuredOutputFailure:
                     messages=[{"role": "user", "content": "hi"}],
                     response_format={"type": "json_schema", "schema": SIMPLE_SCHEMA},
                 )
+
+
+class TestSchemaPreFlightValidation:
+    """Schemas are checked + size-capped before any backend call."""
+
+    @pytest.mark.asyncio
+    async def test_malformed_schema_rejected_without_call(self):
+        """A malformed schema is rejected before judge_completion runs."""
+        mock_call = AsyncMock(return_value="ok")
+        with patch("luthien_proxy.inference.direct_api.judge_completion", new=mock_call):
+            with pytest.raises(InferenceStructuredOutputError, match="invalid JSON schema"):
+                await _provider().complete(
+                    messages=[{"role": "user", "content": "hi"}],
+                    response_format={"type": "json_schema", "schema": {"type": "notAType"}},
+                )
+        mock_call.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_oversized_schema_rejected_without_call(self):
+        """A schema over the size cap is rejected before judge_completion runs."""
+        huge = {
+            "type": "object",
+            "description": "x" * (MAX_SCHEMA_SERIALIZED_BYTES + 50),
+        }
+        mock_call = AsyncMock(return_value="ok")
+        with patch("luthien_proxy.inference.direct_api.judge_completion", new=mock_call):
+            with pytest.raises(InferenceStructuredOutputError, match="exceeds cap"):
+                await _provider().complete(
+                    messages=[{"role": "user", "content": "hi"}],
+                    response_format={"type": "json_schema", "schema": huge},
+                )
+        mock_call.assert_not_called()
+
+
+class TestEmptyResponseGuard:
+    """A whitespace-only response is treated as a backend error, not silent success."""
+
+    @pytest.mark.asyncio
+    async def test_empty_text_raises_provider_error(self):
+        """Empty text in the no-schema path → InferenceProviderError."""
+        with patch(
+            "luthien_proxy.inference.direct_api.judge_completion",
+            new=AsyncMock(return_value="   \n\t "),
+        ):
+            with pytest.raises(InferenceProviderError, match="empty response"):
+                await _provider().complete(messages=[{"role": "user", "content": "hi"}])
+
+
+class TestMultiBlockContent:
+    """Anthropic-shaped list content in the system message flows through without corruption."""
+
+    @pytest.mark.asyncio
+    async def test_system_message_as_text_blocks_coerced(self):
+        """A system message with list-of-text-blocks content gets concatenated, not repr'd."""
+        model_output = json.dumps({"city": "Paris", "population": 2_161_000})
+        with patch(
+            "luthien_proxy.inference.direct_api.judge_completion",
+            new=AsyncMock(return_value=model_output),
+        ) as mock_call:
+            await _provider().complete(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": [
+                            {"type": "text", "text": "Be "},
+                            {"type": "text", "text": "concise."},
+                        ],
+                    },
+                    {"role": "user", "content": "hi"},
+                ],
+                response_format={"type": "json_schema", "schema": SIMPLE_SCHEMA},
+            )
+        passed_system = mock_call.call_args.kwargs["messages"][0]["content"]
+        assert "Be concise." in passed_system
+        # Make sure we're not leaking a Python list repr.
+        assert "{'text'" not in passed_system

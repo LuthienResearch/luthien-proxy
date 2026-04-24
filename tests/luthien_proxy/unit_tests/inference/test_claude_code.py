@@ -3,19 +3,28 @@
 Subprocess spawning is mocked. The real CLI is exercised only in the
 optional `test_live_claude_roundtrip` test (skipped unless
 `LUTHIEN_TEST_CLAUDE=1` is set and `claude` is on PATH).
+
+TODO(ci-infra): The integration tests below are gated on
+`LUTHIEN_TEST_CLAUDE=1` and therefore never execute in the default CI
+matrix. A scheduled weekly CI job that flips this flag (with an
+operator-provisioned OAuth token in a protected secret) is planned but
+lives in a separate infra PR — tracked but not in scope here.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from luthien_proxy.credentials.credential import Credential, CredentialType
 from luthien_proxy.inference.base import (
+    MAX_SCHEMA_SERIALIZED_BYTES,
     InferenceCredentialOverrideUnsupported,
     InferenceInvalidCredentialError,
     InferenceProviderError,
@@ -25,6 +34,7 @@ from luthien_proxy.inference.base import (
 from luthien_proxy.inference.claude_code import (
     ClaudeCodeProvider,
     _build_child_env,
+    _redact_argv_for_log,
     _render_prompt,
 )
 
@@ -71,9 +81,9 @@ def _mock_run_result(
 
 
 def _provider(**overrides) -> ClaudeCodeProvider:
-    kwargs = dict(name="sub", credential=_oauth_cred())
+    kwargs: dict[str, Any] = dict(name="sub", credential=_oauth_cred())
     kwargs.update(overrides)
-    return ClaudeCodeProvider(**kwargs)  # type: ignore[arg-type]
+    return ClaudeCodeProvider(**kwargs)
 
 
 class TestCredentialValidation:
@@ -119,8 +129,7 @@ class TestSubprocessInvocation:
         assert "-p" in args
         assert "--bare" in args
         assert "--output-format" in args
-        fmt_idx = args.index("--output-format")
-        assert args[fmt_idx + 1] == "json"
+        assert args[args.index("--output-format") + 1] == "json"
 
     @pytest.mark.asyncio
     async def test_api_key_injected_via_env_not_argv(self):
@@ -162,8 +171,7 @@ class TestSubprocessInvocation:
                 model="claude-opus-4-7",
             )
         args = mock_run.call_args.args[0]
-        idx = args.index("--model")
-        assert args[idx + 1] == "claude-opus-4-7"
+        assert args[args.index("--model") + 1] == "claude-opus-4-7"
 
     @pytest.mark.asyncio
     async def test_default_model_used_when_omitted(self):
@@ -297,6 +305,27 @@ class TestOutputParsing:
             with pytest.raises(InferenceProviderError, match="result"):
                 await _provider().complete(messages=[{"role": "user", "content": "hi"}])
 
+    @pytest.mark.asyncio
+    async def test_whitespace_only_result_raises_empty_response(self):
+        """Post-condition: a whitespace-only result is treated as an error."""
+        payload = {"type": "result", "is_error": False, "result": "   \n\t "}
+        with patch(
+            "luthien_proxy.inference.claude_code._run_subprocess",
+            new=AsyncMock(return_value=(json.dumps(payload).encode(), b"", 0)),
+        ):
+            with pytest.raises(InferenceProviderError, match="empty response"):
+                await _provider().complete(messages=[{"role": "user", "content": "hi"}])
+
+    @pytest.mark.asyncio
+    async def test_error_messages_include_returncode(self):
+        """Error messages carry the subprocess exit code for diagnosability."""
+        with patch(
+            "luthien_proxy.inference.claude_code._run_subprocess",
+            new=AsyncMock(return_value=(b"not-json", b"", 42)),
+        ):
+            with pytest.raises(InferenceProviderError, match="exit=42"):
+                await _provider().complete(messages=[{"role": "user", "content": "hi"}])
+
 
 class TestStructuredOutput:
     """`response_format` with a schema flows via `--json-schema` and parses `structured_output`."""
@@ -314,9 +343,7 @@ class TestStructuredOutput:
                 response_format={"type": "json_schema", "schema": SIMPLE_SCHEMA},
             )
         args = mock_run.call_args.args[0]
-        idx = args.index("--json-schema")
-        # The argument is a JSON-encoded string of our schema.
-        assert json.loads(args[idx + 1]) == SIMPLE_SCHEMA
+        assert json.loads(args[args.index("--json-schema") + 1]) == SIMPLE_SCHEMA
 
     @pytest.mark.asyncio
     async def test_structured_output_returned_in_result(self):
@@ -331,7 +358,6 @@ class TestStructuredOutput:
                 response_format={"type": "json_schema", "schema": SIMPLE_SCHEMA},
             )
         assert result.structured == structured
-        # .text stringifies the structured object so unsophisticated callers still work.
         assert json.loads(result.text) == structured
 
     @pytest.mark.asyncio
@@ -392,19 +418,153 @@ class TestStructuredOutput:
         assert "--json-schema" not in args
 
 
-class TestTimeout:
-    """`InferenceTimeoutError` propagates from `_run_subprocess`."""
+class TestSchemaValidation:
+    """Pre-spawn schema checks catch malformed/oversized schemas cleanly."""
 
     @pytest.mark.asyncio
-    async def test_timeout_from_run_subprocess(self):
-        """Bubble up TimeoutError raised by the subprocess runner."""
-        provider = _provider(timeout_seconds=0.01)
+    async def test_invalid_schema_raises_structured_output_error_no_spawn(self):
+        """Malformed schema is rejected before we even try to spawn."""
+        bad_schema = {"type": "notAType"}
+        mock_run = AsyncMock(return_value=_mock_run_result())
+        with patch("luthien_proxy.inference.claude_code._run_subprocess", new=mock_run):
+            with pytest.raises(InferenceStructuredOutputError, match="invalid JSON schema"):
+                await _provider().complete(
+                    messages=[{"role": "user", "content": "hi"}],
+                    response_format={"type": "json_schema", "schema": bad_schema},
+                )
+        mock_run.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_oversized_schema_raises_without_spawn(self):
+        """Schema that serializes over the cap is rejected pre-spawn."""
+        huge_schema = {
+            "type": "object",
+            "description": "x" * (MAX_SCHEMA_SERIALIZED_BYTES + 100),
+        }
+        mock_run = AsyncMock(return_value=_mock_run_result())
+        with patch("luthien_proxy.inference.claude_code._run_subprocess", new=mock_run):
+            with pytest.raises(InferenceStructuredOutputError, match="exceeds cap"):
+                await _provider().complete(
+                    messages=[{"role": "user", "content": "hi"}],
+                    response_format={"type": "json_schema", "schema": huge_schema},
+                )
+        mock_run.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_oserror_on_spawn_wrapped_as_provider_error(self):
+        """A failing `create_subprocess_exec` bubbles up as `InferenceProviderError`.
+
+        Covers the case where a schema sneaks through validation but
+        argv still overflows (e.g. combined with a very long prompt).
+        """
         with patch(
-            "luthien_proxy.inference.claude_code._run_subprocess",
-            new=AsyncMock(side_effect=InferenceTimeoutError("slow")),
+            "luthien_proxy.inference.claude_code.asyncio.create_subprocess_exec",
+            new=AsyncMock(side_effect=OSError(7, "Argument list too long")),
+        ):
+            with pytest.raises(InferenceProviderError, match="spawn"):
+                await _provider().complete(messages=[{"role": "user", "content": "hi"}])
+
+
+class TestCancellationPath:
+    """Caller-side cancellation must terminate the child before the scratch dir is removed.
+
+    These tests build a fake subprocess that can be distinguished from a
+    real one: calling `kill()` marks a flag, `wait()` resolves only after
+    `kill()` has been called at least once. That mirrors the production
+    invariant we care about: the child process cannot outlive the
+    `complete()` call.
+    """
+
+    class _FakeProcess:
+        """A minimal stand-in for `asyncio.subprocess.Process`."""
+
+        def __init__(self, *, hang_on_communicate: bool = True):
+            self.kill_called = False
+            self._wait_event = asyncio.Event()
+            self._hang = hang_on_communicate
+            self.returncode: int | None = None
+
+        async def communicate(self):
+            # Hang until the test cancels or kills us.
+            if self._hang:
+                await asyncio.Event().wait()
+            return b"", b""
+
+        def kill(self):
+            self.kill_called = True
+            self.returncode = -9
+            self._wait_event.set()
+
+        async def wait(self):
+            await self._wait_event.wait()
+            return self.returncode
+
+    @pytest.mark.asyncio
+    async def test_cancel_mid_flight_kills_child_and_propagates(self, tmp_path):
+        """Cancelling a mid-flight `complete()` kills the subprocess and raises CancelledError."""
+        import tempfile as _real_tempfile
+
+        fake_proc = self._FakeProcess(hang_on_communicate=True)
+
+        async def fake_create_subprocess_exec(*args, **kwargs):
+            return fake_proc
+
+        seen_scratch_dirs: list[str] = []
+        # Bind the real function OUTSIDE the wrapper so the patched name
+        # doesn't shadow it during recursion.
+        real_mkdtemp = _real_tempfile.mkdtemp
+
+        def tracking_mkdtemp(*args, **kwargs):
+            path = real_mkdtemp(*args, **kwargs)
+            seen_scratch_dirs.append(path)
+            return path
+
+        with (
+            patch(
+                "luthien_proxy.inference.claude_code.asyncio.create_subprocess_exec",
+                new=fake_create_subprocess_exec,
+            ),
+            patch(
+                "luthien_proxy.inference.claude_code.tempfile.mkdtemp",
+                new=tracking_mkdtemp,
+            ),
+        ):
+            task = asyncio.create_task(
+                _provider(timeout_seconds=30).complete(
+                    messages=[{"role": "user", "content": "hi"}],
+                ),
+            )
+            # Let the subprocess get started before we cancel.
+            await asyncio.sleep(0.02)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        # Post-conditions: kill was called, wait ran (wait resolves when
+        # kill sets the event), and the scratch dir was cleaned up AFTER
+        # the child exited.
+        assert fake_proc.kill_called is True
+        assert fake_proc.returncode is not None  # wait observed the exit
+        assert len(seen_scratch_dirs) == 1
+        assert not os.path.exists(seen_scratch_dirs[0]), "scratch dir must be removed after the child exits"
+
+    @pytest.mark.asyncio
+    async def test_timeout_kills_child(self, tmp_path):
+        """Timeout path also calls kill+wait on the child."""
+        fake_proc = self._FakeProcess(hang_on_communicate=True)
+
+        async def fake_create_subprocess_exec(*args, **kwargs):
+            return fake_proc
+
+        with patch(
+            "luthien_proxy.inference.claude_code.asyncio.create_subprocess_exec",
+            new=fake_create_subprocess_exec,
         ):
             with pytest.raises(InferenceTimeoutError):
-                await provider.complete(messages=[{"role": "user", "content": "hi"}])
+                await _provider(timeout_seconds=0.05).complete(
+                    messages=[{"role": "user", "content": "hi"}],
+                )
+        assert fake_proc.kill_called is True
 
 
 class TestPromptRendering:
@@ -413,6 +573,7 @@ class TestPromptRendering:
     def test_user_messages_labeled(self):
         """Each non-system message becomes a role-labeled line."""
         prompt, sys = _render_prompt(
+            "sub",
             [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}],
             system=None,
         )
@@ -423,6 +584,7 @@ class TestPromptRendering:
     def test_in_message_system_folded_into_system_prompt(self):
         """A system message in the list moves to the system slot."""
         prompt, sys = _render_prompt(
+            "sub",
             [
                 {"role": "system", "content": "Be terse."},
                 {"role": "user", "content": "hi"},
@@ -436,6 +598,7 @@ class TestPromptRendering:
     def test_system_kwarg_wins_over_in_message_system(self):
         """Explicit `system=` beats an in-message system block."""
         _, sys = _render_prompt(
+            "sub",
             [
                 {"role": "system", "content": "OLD"},
                 {"role": "user", "content": "hi"},
@@ -445,22 +608,172 @@ class TestPromptRendering:
         assert sys == "NEW"
 
 
-class TestBuildChildEnv:
-    """Child env contains only the keys we specify."""
+class TestMultiBlockContent:
+    """Anthropic-shaped list content is unwrapped; unsupported block types fail clearly."""
 
-    def test_exact_keys(self):
-        """Only PATH, HOME, CLAUDE_CONFIG_DIR, ANTHROPIC_API_KEY are set."""
+    def test_text_block_list_concatenated(self):
+        """A list of text blocks becomes the concatenated text."""
+        prompt, _ = _render_prompt(
+            "sub",
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "hello "},
+                        {"type": "text", "text": "world"},
+                    ],
+                },
+            ],
+            system=None,
+        )
+        assert "User: hello world" in prompt
+        # Make sure we're not leaking the block list's Python repr.
+        assert "type" not in prompt
+        assert "{'text'" not in prompt
+
+    def test_non_text_block_raises_provider_error(self):
+        """An image/tool-use block raises clearly — PR #2 is text-only."""
+        with pytest.raises(InferenceProviderError, match="unsupported content block type"):
+            _render_prompt(
+                "sub",
+                [
+                    {
+                        "role": "user",
+                        "content": [{"type": "image", "source": {"data": "..."}}],
+                    },
+                ],
+                system=None,
+            )
+
+    def test_non_dict_block_raises_provider_error(self):
+        """A list containing non-dict items raises cleanly."""
+        with pytest.raises(InferenceProviderError, match="non-dict block"):
+            _render_prompt(
+                "sub",
+                [{"role": "user", "content": ["raw string in list"]}],
+                system=None,
+            )
+
+    def test_non_string_content_raises_provider_error(self):
+        """Neither str nor list content → typed error, not silent repr."""
+        with pytest.raises(InferenceProviderError, match="unsupported message content type"):
+            _render_prompt(
+                "sub",
+                [{"role": "user", "content": 42}],
+                system=None,
+            )
+
+
+class TestBuildChildEnv:
+    """Child env includes required keys plus an allowlist from parent env."""
+
+    def test_required_keys_present(self):
+        """HOME, CLAUDE_CONFIG_DIR, ANTHROPIC_API_KEY, PATH are always set."""
         env = _build_child_env("sk-ant-oat01-x", "/tmp/scratch")
-        assert set(env.keys()) == {"PATH", "HOME", "CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY"}
+        # We assert *required* keys rather than the complete set, so
+        # extending the allowlist later doesn't break this test.
         assert env["ANTHROPIC_API_KEY"] == "sk-ant-oat01-x"
         assert env["HOME"] == "/tmp/scratch"
         assert env["CLAUDE_CONFIG_DIR"] == "/tmp/scratch"
+        assert "PATH" in env and env["PATH"]
+
+    def test_locale_env_propagated_when_set(self, monkeypatch):
+        """LANG / LC_ALL / LC_* flow through when present in the parent env."""
+        monkeypatch.setenv("LANG", "en_US.UTF-8")
+        monkeypatch.setenv("LC_ALL", "en_US.UTF-8")
+        monkeypatch.setenv("LC_TIME", "C")
+        env = _build_child_env("k", "/tmp/scratch")
+        assert env.get("LANG") == "en_US.UTF-8"
+        assert env.get("LC_ALL") == "en_US.UTF-8"
+        assert env.get("LC_TIME") == "C"
+
+    def test_tmpdir_propagated(self, monkeypatch):
+        """TMPDIR is forwarded so the child can write scratch files consistently."""
+        monkeypatch.setenv("TMPDIR", "/custom/tmp")
+        env = _build_child_env("k", "/tmp/scratch")
+        assert env.get("TMPDIR") == "/custom/tmp"
+
+    def test_disallowed_env_var_not_forwarded(self, monkeypatch):
+        """A random parent-env var the child shouldn't see is NOT copied."""
+        monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
+        monkeypatch.setenv("SOME_OPERATOR_SECRET", "do-not-leak")
+        env = _build_child_env("k", "/tmp/scratch")
+        assert "CLAUDE_CODE_ENABLE_TELEMETRY" not in env
+        assert "SOME_OPERATOR_SECRET" not in env
+
+    def test_scratch_overrides_any_parent_home(self, monkeypatch):
+        """Even if HOME somehow ended up in the allowlist, our override wins."""
+        monkeypatch.setenv("HOME", "/home/real-user")
+        env = _build_child_env("k", "/tmp/scratch")
+        assert env["HOME"] == "/tmp/scratch"
+
+
+class TestArgvRedactor:
+    """`_redact_argv_for_log` surfaces only safe flag names + values."""
+
+    def test_prompt_never_included(self):
+        """The positional prompt (last arg) is never in the redacted summary."""
+        args = ["/usr/bin/claude", "-p", "--bare", "--output-format", "json", "my-secret-prompt"]
+        summary = _redact_argv_for_log(args)
+        assert all("my-secret-prompt" not in str(v) for v in summary.values())
+
+    def test_schema_body_never_included(self):
+        """Schema body is presence-only, never in the summary."""
+        schema_str = json.dumps({"secret_internal_field": True})
+        args = [
+            "/usr/bin/claude",
+            "-p",
+            "--bare",
+            "--json-schema",
+            schema_str,
+            "prompt",
+        ]
+        summary = _redact_argv_for_log(args)
+        assert summary.get("json-schema_present") is True
+        assert all(schema_str not in str(v) for v in summary.values())
+
+    def test_system_prompt_value_never_included(self):
+        """`--system-prompt` is presence-only."""
+        args = [
+            "/usr/bin/claude",
+            "-p",
+            "--bare",
+            "--system-prompt",
+            "secret-system-content",
+            "user-prompt",
+        ]
+        summary = _redact_argv_for_log(args)
+        assert summary.get("system-prompt_present") is True
+        assert all("secret-system-content" not in str(v) for v in summary.values())
+
+    def test_model_name_is_logged(self):
+        """`--model` value is safe to log (it's a public model name)."""
+        args = ["/usr/bin/claude", "-p", "--bare", "--model", "claude-opus-4-7", "prompt"]
+        summary = _redact_argv_for_log(args)
+        assert summary.get("model") == "claude-opus-4-7"
+
+    def test_reordered_argv_does_not_leak(self):
+        """Argv reorder: schema body still not logged."""
+        args = [
+            "/usr/bin/claude",
+            "--json-schema",
+            json.dumps({"hidden": True}),
+            "-p",
+            "--bare",
+            "prompt",
+        ]
+        summary = _redact_argv_for_log(args)
+        assert all("hidden" not in str(v) for v in summary.values())
 
 
 # ---------------------------------------------------------------------------
-# Optional live integration test. Runs only when the operator opts in and
-# `claude` is on PATH with a working subscription. Marked so it's skipped
+# Optional live integration tests. Runs only when the operator opts in and
+# `claude` is on PATH with a working subscription. Marked so they're skipped
 # from the default `pytest` invocation.
+#
+# TODO(ci-infra): wire these into a scheduled CI job (weekly) so the real
+# CLI contract is exercised outside of local operator boxes. Tracked as a
+# separate infra PR.
 # ---------------------------------------------------------------------------
 
 

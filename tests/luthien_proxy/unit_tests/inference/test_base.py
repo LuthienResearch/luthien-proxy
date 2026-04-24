@@ -7,6 +7,7 @@ import json
 import pytest
 
 from luthien_proxy.inference.base import (
+    MAX_SCHEMA_SERIALIZED_BYTES,
     InferenceCredentialOverrideUnsupported,
     InferenceError,
     InferenceInvalidCredentialError,
@@ -16,6 +17,7 @@ from luthien_proxy.inference.base import (
     InferenceStructuredOutputError,
     InferenceTimeoutError,
     extract_schema,
+    validate_schema,
 )
 
 
@@ -117,3 +119,37 @@ class TestExtractSchema:
     def test_extract_schema(self, response_format, expected):
         """Pulls the schema out only for the `json_schema` shape with a dict schema."""
         assert extract_schema(response_format) == expected
+
+
+class TestValidateSchema:
+    """Pre-flight schema validation: catches bad schemas before any backend spawn/call."""
+
+    def test_valid_schema_returns_serialized(self):
+        """A well-formed schema passes and returns its JSON encoding."""
+        schema = {
+            "type": "object",
+            "properties": {"n": {"type": "integer"}},
+            "required": ["n"],
+        }
+        out = validate_schema(schema, "test-provider")
+        assert json.loads(out) == schema
+
+    def test_malformed_schema_raises_structured_output_error(self):
+        """An invalid JSON Schema raises — provider name is in the message."""
+        with pytest.raises(InferenceStructuredOutputError, match="invalid JSON schema"):
+            validate_schema({"type": "notAType"}, "test-provider")
+
+    def test_oversized_schema_raises_with_size_in_message(self):
+        """A schema over the cap raises with the measured size."""
+        huge = {
+            "type": "object",
+            "description": "x" * (MAX_SCHEMA_SERIALIZED_BYTES + 10),
+        }
+        with pytest.raises(InferenceStructuredOutputError, match="exceeds cap"):
+            validate_schema(huge, "test-provider")
+
+    def test_non_serializable_schema_raises(self):
+        """A schema containing non-JSON-serializable values raises cleanly."""
+        # Set is not JSON-serializable.
+        with pytest.raises(InferenceStructuredOutputError, match="not JSON-serializable"):
+            validate_schema({"type": "object", "const": {1, 2, 3}}, "test-provider")

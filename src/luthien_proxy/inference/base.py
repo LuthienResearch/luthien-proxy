@@ -28,6 +28,8 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+import jsonschema
+
 from luthien_proxy.credentials.credential import Credential
 
 
@@ -225,3 +227,54 @@ def extract_schema(response_format: dict[str, Any] | None) -> dict[str, Any] | N
     if not isinstance(schema, dict):
         return None
     return schema
+
+
+#: Upper bound on the serialized size of a schema we're willing to forward.
+#: Rationale: picked 64 KB because (a) `claude -p --json-schema <string>`
+#: passes the schema as a single argv entry, and most kernels cap argv at
+#: ~128 KB total; 64 KB leaves headroom for the other args + prompt, (b)
+#: real-world JSON Schemas for judge-style structured output are well under
+#: a few KB — anything approaching 64 KB is a policy-authoring bug, not a
+#: legitimate need. Raise `InferenceStructuredOutputError` before spawning
+#: anything so the caller sees a typed error and we never risk an
+#: `OSError: E2BIG` from the syscall.
+MAX_SCHEMA_SERIALIZED_BYTES = 64 * 1024
+
+
+def validate_schema(schema: dict[str, Any], provider_name: str) -> str:
+    """Sanity-check a JSON schema before we hand it to a backend.
+
+    Two checks, both cheap, both before any subprocess spawn or HTTP call:
+
+    1. `jsonschema.Draft7Validator.check_schema` — catches malformed
+       schemas (invalid keywords, wrong types, etc.). Without this,
+       `DirectApiProvider` could leak a bare `SchemaError` and
+       `ClaudeCodeProvider` could hand the CLI a schema that makes it
+       hang (we observed this experimentally; see dev/NOTES.md §10).
+    2. Serialized-size cap (`MAX_SCHEMA_SERIALIZED_BYTES`). Prevents
+       `E2BIG` from `create_subprocess_exec` and bounds argv size.
+
+    Returns the serialized JSON string (so callers don't re-encode).
+    Raises `InferenceStructuredOutputError` on either failure.
+    """
+    try:
+        jsonschema.Draft7Validator.check_schema(schema)
+    except jsonschema.SchemaError as exc:
+        raise InferenceStructuredOutputError(
+            f"{provider_name}: invalid JSON schema: {exc.message}",
+        ) from exc
+
+    try:
+        serialized = json.dumps(schema, ensure_ascii=False)
+    except (TypeError, ValueError) as exc:
+        raise InferenceStructuredOutputError(
+            f"{provider_name}: schema is not JSON-serializable: {exc}",
+        ) from exc
+
+    size = len(serialized.encode("utf-8"))
+    if size > MAX_SCHEMA_SERIALIZED_BYTES:
+        raise InferenceStructuredOutputError(
+            f"{provider_name}: schema serialized size {size} bytes exceeds cap of {MAX_SCHEMA_SERIALIZED_BYTES} bytes",
+        )
+
+    return serialized

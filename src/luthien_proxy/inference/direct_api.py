@@ -44,6 +44,7 @@ from luthien_proxy.inference.base import (
     InferenceStructuredOutputError,
     InferenceTimeoutError,
     extract_schema,
+    validate_schema,
 )
 from luthien_proxy.llm.judge_client import judge_completion
 
@@ -80,7 +81,7 @@ class DirectApiProvider(InferenceProvider):
 
     async def complete(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
         model: str | None = None,
         system: str | None = None,
@@ -94,6 +95,15 @@ class DirectApiProvider(InferenceProvider):
         resolved_model = model if model is not None else self._default_model
 
         schema = extract_schema(response_format)
+        if schema is not None:
+            # Validate the schema itself (not the eventual response) before
+            # spending a network round-trip. Catches malformed schemas that
+            # would later surface as bare `jsonschema.SchemaError` and
+            # size-exceeds-cap schemas that might overflow some backend's
+            # request size. Uses the same helper as ClaudeCodeProvider so
+            # the error shape is consistent.
+            validate_schema(schema, self.name)
+
         effective_messages = _build_messages(messages, system, schema)
         litellm_response_format = _translate_response_format(response_format)
 
@@ -106,6 +116,11 @@ class DirectApiProvider(InferenceProvider):
         }
         logger.debug("inference.direct_api.call", extra=log_extra)
 
+        # TODO(PR #4): LiteLLM exception types, its `json_schema → json_object`
+        # collapse, and its `api_base` kwarg shape are all likely to change
+        # when PR #4 absorbs judge_client.py into a shared helper. Update
+        # the error-mapping block and `_translate_response_format` together
+        # when that refactor lands.
         try:
             text = await judge_completion(
                 credential,
@@ -133,6 +148,13 @@ class DirectApiProvider(InferenceProvider):
             raise InferenceProviderError(f"{self.name}: malformed backend response: {exc}") from exc
 
         if schema is None:
+            # Empty-text guard: a successful completion whose text is
+            # whitespace-only is not useful for any downstream consumer.
+            # Mirrors the same check in ClaudeCodeProvider.
+            if not text.strip():
+                raise InferenceProviderError(
+                    f"{self.name}: backend returned empty response text",
+                )
             return InferenceResult.from_text(text)
 
         # Structured-output path: parse + validate.
@@ -141,10 +163,10 @@ class DirectApiProvider(InferenceProvider):
 
 
 def _build_messages(
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     system: str | None,
     schema: dict[str, Any] | None,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """Produce the message list judge_completion should receive.
 
     If `system` is set, it takes precedence over any existing `system`
@@ -156,13 +178,22 @@ def _build_messages(
     new one) telling the model to emit JSON matching the schema. This is
     prompt-enforcement belt-and-suspenders around LiteLLM's json_object
     format hint: some backends don't honor `response_format` at all.
+
+    Note: non-system messages flow through to LiteLLM unchanged — LiteLLM
+    natively handles Anthropic-style list-of-blocks content. We only
+    flatten the system-message content into a string when we need to
+    concat a schema blurb onto it, because the blurb has to be serialized
+    back into a single-string system value for cross-provider safety.
     """
     filtered = [m for m in messages if m.get("role") != "system"]
     if system is not None:
         effective_system: str | None = system
     else:
         existing = [m for m in messages if m.get("role") == "system"]
-        effective_system = existing[0]["content"] if existing else None
+        if existing:
+            effective_system = _coerce_system_content(existing[0].get("content"))
+        else:
+            effective_system = None
 
     if schema is not None:
         schema_blurb = (
@@ -177,6 +208,29 @@ def _build_messages(
     if effective_system is None:
         return filtered
     return [{"role": "system", "content": effective_system}, *filtered]
+
+
+def _coerce_system_content(content: Any) -> str:
+    """Flatten a system-message content into a string for schema-blurb concat.
+
+    - `str` → returned as-is.
+    - `list` of Anthropic text blocks → concatenated `text` fields.
+    - Anything else → empty string (we don't fail here because a LiteLLM
+      call without a system prompt is still valid — the blurb just
+      replaces a missing one). DirectApiProvider's downstream validation
+      catches malformed responses regardless.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = block.get("text", "")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "".join(parts)
+    return ""
 
 
 def _translate_response_format(

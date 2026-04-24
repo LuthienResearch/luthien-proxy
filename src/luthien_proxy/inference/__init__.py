@@ -22,6 +22,7 @@ by key. PR #5 will surface named providers in the policy-testing UI.
 """
 
 from .base import (
+    MAX_SCHEMA_SERIALIZED_BYTES,
     InferenceCredentialOverrideUnsupported,
     InferenceError,
     InferenceInvalidCredentialError,
@@ -35,6 +36,7 @@ from .claude_code import ClaudeCodeProvider
 from .direct_api import DirectApiProvider
 
 __all__ = [
+    "MAX_SCHEMA_SERIALIZED_BYTES",
     "ClaudeCodeProvider",
     "DirectApiProvider",
     "InferenceCredentialOverrideUnsupported",
