@@ -617,60 +617,6 @@ async def update_telemetry_config(
     return {"success": True, "enabled": body.enabled}
 
 
-# === Gateway Settings ===
-
-
-class GatewaySettingsResponse(BaseModel):
-    """Response with current gateway settings."""
-
-    inject_policy_context: bool
-    dogfood_mode: bool
-
-
-class GatewaySettingsUpdateRequest(BaseModel):
-    """Request to update gateway settings."""
-
-    inject_policy_context: bool | None = None
-    dogfood_mode: bool | None = None
-
-
-@router.get("/gateway/settings", response_model=GatewaySettingsResponse, deprecated=True)
-async def get_gateway_settings(
-    _: str = Depends(verify_admin_token),
-):
-    """Get current gateway settings.
-
-    Deprecated: use GET /api/admin/config instead for all config with provenance.
-    """
-    settings = get_settings()
-    return GatewaySettingsResponse(
-        inject_policy_context=settings.inject_policy_context,
-        dogfood_mode=settings.dogfood_mode,
-    )
-
-
-@router.put("/gateway/settings", response_model=GatewaySettingsResponse, deprecated=True)
-async def update_gateway_settings(
-    body: GatewaySettingsUpdateRequest,
-    _: str = Depends(verify_admin_token),
-    registry: ConfigRegistry = Depends(require_config_registry),
-):
-    """Update gateway settings at runtime.
-
-    Deprecated: use PUT /api/admin/config/{key} instead.
-    Persists to DB via the config registry so values survive restarts.
-    """
-    if body.inject_policy_context is not None:
-        await registry.set_db_value("inject_policy_context", body.inject_policy_context)
-    if body.dogfood_mode is not None:
-        await registry.set_db_value("dogfood_mode", body.dogfood_mode)
-    settings = get_settings()
-    return GatewaySettingsResponse(
-        inject_policy_context=settings.inject_policy_context,
-        dogfood_mode=settings.dogfood_mode,
-    )
-
-
 # === Unified Config Dashboard ===
 
 

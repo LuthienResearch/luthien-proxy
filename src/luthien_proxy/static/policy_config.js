@@ -181,9 +181,11 @@ async function loadModels() {
 
 async function loadGatewaySettings() {
     try {
-        const data = await apiCall('/api/admin/gateway/settings');
-        document.getElementById('set-inject').checked = data.inject_policy_context;
-        document.getElementById('set-dogfood').checked = data.dogfood_mode;
+        // Canonical config API returns { config: [ { name, value, ... }, ... ] }
+        const data = await apiCall('/api/admin/config');
+        const byName = Object.fromEntries((data.config || []).map(f => [f.name, f.value]));
+        document.getElementById('set-inject').checked = Boolean(byName.inject_policy_context);
+        document.getElementById('set-dogfood').checked = Boolean(byName.dogfood_mode);
     } catch (e) {
         console.warn('Failed to load gateway settings:', e);
     }
@@ -230,9 +232,9 @@ function defaultConfigFor(policy) {
 
 async function saveGatewaySetting(field, value) {
     try {
-        await apiCall('/api/admin/gateway/settings', {
+        await apiCall(`/api/admin/config/${encodeURIComponent(field)}`, {
             method: 'PUT',
-            body: JSON.stringify({ [field]: value })
+            body: JSON.stringify({ value })
         });
     } catch (e) {
         console.error('Failed to save gateway setting:', e);
