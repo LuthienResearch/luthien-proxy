@@ -10,10 +10,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING
 
-from litellm import acompletion
-from litellm.types.utils import Choices, Message, ModelResponse
 from pydantic import BaseModel, Field
 
 from luthien_proxy.llm.judge_client import judge_completion
@@ -37,11 +35,6 @@ class SimpleLLMJudgeConfig(BaseModel):
     api_base: str | None = Field(
         default=None,
         description="Optional. Leave blank to use the model's default backend. Set to override, e.g. for a proxy or local endpoint.",
-    )
-    api_key: str | None = Field(
-        default=None,
-        description="API key for authentication",
-        json_schema_extra={"format": "password"},
     )
     instructions: str = Field(description="Plain-English instructions for the judge")
     temperature: float = Field(default=0.0, description="Sampling temperature")
@@ -68,11 +61,14 @@ class SimpleLLMJudgeConfig(BaseModel):
         le=30.0,
         description="Seconds to wait between retries.",
     )
-    auth_provider: str | dict | None = Field(
-        default=None,
+    # Required: declares how the judge obtains credentials. Accepted values:
+    #   'user_credentials'                — forward the caller's request credential
+    #   {'server_key': 'name'}            — use a named server-provisioned key
+    #   {'user_then_server': 'name'}      — caller's creds, fallback to server key
+    auth_provider: str | dict = Field(
         description="How to obtain credentials for judge calls. "
-        "Options: 'user_credentials' (default), {'server_key': 'name'}, "
-        "{'user_then_server': 'name'}. Replaces api_key when set.",
+        "Options: 'user_credentials', {'server_key': 'name'}, "
+        "{'user_then_server': 'name'} (optionally with on_fallback: warn|fallback|fail).",
     )
 
     model_config = {"frozen": True}
@@ -202,18 +198,9 @@ async def call_simple_llm_judge(
     config: SimpleLLMJudgeConfig,
     current_block: BlockDescriptor,
     previous_blocks: tuple[BlockDescriptor, ...],
-    api_key: str | None = None,
-    extra_headers: dict[str, str] | None = None,
-    credential: "Credential | None" = None,
+    credential: "Credential",
 ) -> JudgeAction:
     """Call the judge LLM and return its decision.
-
-    api_key overrides config.api_key (used for passthrough auth). extra_headers
-    is used for OAuth tokens (anthropic-beta header). If neither is set, LiteLLM
-    falls back to its own env-var resolution.
-
-    credential: When provided, uses judge_completion instead of acompletion
-    with raw api_key.
 
     Retries up to config.max_retries times with config.retry_delay between
     attempts. Exceptions propagate to the caller on final failure.
@@ -223,48 +210,18 @@ async def call_simple_llm_judge(
     max_attempts = 1 + config.max_retries
     last_exc: Exception | None = None
 
-    # Both credential and legacy paths are inside the retry loop so
-    # transient failures (network, LLM errors) are retried regardless
-    # of which auth mechanism is used.
     for attempt in range(max_attempts):
         try:
-            if credential is not None:
-                response_text = await judge_completion(
-                    credential,
-                    model=config.model,
-                    messages=prompt,
-                    temperature=config.temperature,
-                    max_tokens=config.max_tokens,
-                    api_base=config.api_base,
-                    response_format={"type": "json_object"},
-                )
-                return parse_judge_action(response_text)
-
-            # Legacy path: use acompletion with api_key
-            resolved_key = api_key or config.api_key
-            kwargs: dict[str, Any] = {
-                "model": config.model,
-                "messages": prompt,
-                "temperature": config.temperature,
-                "max_tokens": config.max_tokens,
-                "response_format": {"type": "json_object"},
-            }
-            if config.api_base:
-                kwargs["api_base"] = config.api_base
-            if resolved_key:
-                kwargs["api_key"] = resolved_key
-            if extra_headers:
-                kwargs["extra_headers"] = extra_headers
-
-            response = await acompletion(**kwargs)
-            response = cast(ModelResponse, response)
-
-            first_choice: Choices = cast(Choices, response.choices[0])
-            message: Message = first_choice.message
-            if message.content is None:
-                raise ValueError("Judge response content is None")
-
-            return parse_judge_action(message.content)
+            response_text = await judge_completion(
+                credential,
+                model=config.model,
+                messages=prompt,
+                temperature=config.temperature,
+                max_tokens=config.max_tokens,
+                api_base=config.api_base,
+                response_format={"type": "json_object"},
+            )
+            return parse_judge_action(response_text)
         except Exception as exc:  # noqa: BLE001
             # Retry all errors, not just network/API errors. Parse failures
             # (malformed JSON, missing fields) can also succeed on a fresh

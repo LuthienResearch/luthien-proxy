@@ -515,6 +515,7 @@ PII_REDACTION_CONFIG: dict = {
     "on_error": "block",
     "temperature": 0.0,
     "max_tokens": 4096,
+    "auth_provider": "user_credentials",
 }
 
 INJECTION_DETECTION_CONFIG: dict = {
@@ -533,4 +534,5 @@ INJECTION_DETECTION_CONFIG: dict = {
     "on_error": "block",
     "temperature": 0.0,
     "max_tokens": 4096,
+    "auth_provider": "user_credentials",
 }

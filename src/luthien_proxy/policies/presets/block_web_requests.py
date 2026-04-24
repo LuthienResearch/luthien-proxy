@@ -30,5 +30,6 @@ class BlockWebRequestsPolicy(SimpleLLMPolicy):
                 temperature=0.0,
                 max_tokens=4096,
                 on_error="block",
+                auth_provider="user_credentials",
             )
         )

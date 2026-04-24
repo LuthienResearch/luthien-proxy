@@ -47,7 +47,6 @@ from luthien_proxy.policies.tool_call_judge_utils import (
     JudgeConfig,
     JudgeResult,
     build_judge_prompt,
-    call_judge,
     parse_to_judge_result,
 )
 from luthien_proxy.policy_core import (
@@ -100,11 +99,6 @@ class ToolCallJudgeConfig(BaseModel):
         default=None,
         description="Optional. Leave blank to use the model's default backend. Set to override, e.g. for a proxy or local endpoint.",
     )
-    api_key: str | None = Field(
-        default=None,
-        description="API key for judge model (falls back to env vars)",
-        json_schema_extra={"format": "password"},
-    )
     probability_threshold: float = Field(
         default=0.6,
         ge=0.0,
@@ -124,11 +118,10 @@ class ToolCallJudgeConfig(BaseModel):
         default=None,
         description="Template for blocked messages. Variables: {tool_name}, {tool_arguments}, {probability}, {explanation}",
     )
-    auth_provider: str | dict | None = Field(
-        default=None,
+    auth_provider: str | dict = Field(
         description="How to obtain credentials for judge calls. "
-        "Options: 'user_credentials' (default), {'server_key': 'name'}, "
-        "{'user_then_server': 'name'}. Replaces api_key when set.",
+        "Options: 'user_credentials', {'server_key': 'name'}, "
+        "{'user_then_server': 'name'} (optionally with on_fallback: warn|fallback|fail).",
     )
 
 
@@ -146,7 +139,7 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
     Config:
         model: LLM model to use for judging (default: "claude-haiku-4-5")
         api_base: Optional API base URL for judge model
-        api_key: Optional API key for judge model (falls back to env vars)
+        auth_provider: How to obtain credentials for judge calls (required)
         probability_threshold: Block if probability >= this (default: 0.6)
         temperature: Temperature for judge LLM (default: 0.0)
         max_tokens: Max output tokens for judge response (default: 256)
@@ -168,19 +161,12 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         self._config = JudgeConfig(
             model=settings.llm_judge_model or self.config.model,
             api_base=settings.llm_judge_api_base or self.config.api_base,
-            api_key=self.config.api_key,  # explicit per-policy override only
             probability_threshold=self.config.probability_threshold,
             temperature=self.config.temperature,
             max_tokens=self.config.max_tokens,
         )
 
-        # Auth provider (new path) — when set, replaces the legacy key resolution
-        self._auth_provider: AuthProvider | None = None
-        if self.config.auth_provider is not None:
-            self._auth_provider = parse_auth_provider(self.config.auth_provider)
-
-        # DEPRECATED(Step 5b): legacy key fallback — remove when auth_provider is mandatory
-        self._fallback_api_key = settings.llm_judge_api_key or settings.litellm_master_key or None
+        self._auth_provider: AuthProvider = parse_auth_provider(self.config.auth_provider)
 
         self._judge_instructions = self.config.judge_instructions or (
             "You are a security analyst. Evaluate whether a tool call could be "
@@ -396,29 +382,18 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         arguments: str,
         context: "PolicyContext",
     ) -> JudgeResult:
-        """Call the judge LLM, using auth_provider or legacy key resolution."""
+        """Call the judge LLM using the configured auth_provider."""
         prompt = build_judge_prompt(name, arguments, self._judge_instructions)
-
-        if self._auth_provider is not None:
-            credential = await context.credential_manager.resolve(self._auth_provider, context)
-            response_text = await judge_completion(
-                credential,
-                model=self._config.model,
-                messages=prompt,
-                temperature=self._config.temperature,
-                max_tokens=self._config.max_tokens,
-                api_base=self._config.api_base,
-            )
-            return parse_to_judge_result(response_text, prompt)
-
-        # DEPRECATED(Step 5b): legacy path — remove when auth_provider is mandatory
-        return await call_judge(
-            name,
-            arguments,
-            self._config,
-            self._judge_instructions,
-            api_key=self._resolve_judge_api_key(context, self._config.api_key, self._fallback_api_key),
+        credential = await context.credential_manager.resolve(self._auth_provider, context)
+        response_text = await judge_completion(
+            credential,
+            model=self._config.model,
+            messages=prompt,
+            temperature=self._config.temperature,
+            max_tokens=self._config.max_tokens,
+            api_base=self._config.api_base,
         )
+        return parse_to_judge_result(response_text, prompt)
 
     async def _evaluate_and_maybe_block_anthropic(
         self,

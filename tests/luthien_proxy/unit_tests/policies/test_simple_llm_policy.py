@@ -51,7 +51,7 @@ def _make_policy(on_error: str = "block") -> SimpleLLMPolicy:
     config = SimpleLLMJudgeConfig(
         instructions="test instructions",
         on_error=on_error,
-        api_key="fake-key",
+        auth_provider="user_credentials",
     )
     return SimpleLLMPolicy(config)
 

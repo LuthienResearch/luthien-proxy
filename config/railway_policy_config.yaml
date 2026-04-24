@@ -32,6 +32,9 @@ policy:
             temperature: 0.0
             max_tokens: 4096
             on_error: "pass"
+            # Forward the caller's Anthropic credentials to the judge LLM
+            # (OAuth passthrough). No separate judge key needed.
+            auth_provider: "user_credentials"
             instructions: |
               You are a safety and quality reviewer for AI assistant responses.
               Review each content block and apply these rules:
