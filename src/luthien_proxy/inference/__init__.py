@@ -34,17 +34,33 @@ from .base import (
 )
 from .claude_code import ClaudeCodeProvider
 from .direct_api import DirectApiProvider
+from .registry import (
+    DEFAULT_BACKEND_FACTORIES,
+    InferenceProviderRegistry,
+    InferenceRegistryError,
+    MissingCredentialError,
+    ProviderNotFoundError,
+    ProviderRecord,
+    UnknownBackendTypeError,
+)
 
 __all__ = [
     "MAX_SCHEMA_SERIALIZED_BYTES",
     "ClaudeCodeProvider",
+    "DEFAULT_BACKEND_FACTORIES",
     "DirectApiProvider",
     "InferenceCredentialOverrideUnsupported",
     "InferenceError",
     "InferenceInvalidCredentialError",
     "InferenceProvider",
     "InferenceProviderError",
+    "InferenceProviderRegistry",
+    "InferenceRegistryError",
     "InferenceResult",
     "InferenceStructuredOutputError",
     "InferenceTimeoutError",
+    "MissingCredentialError",
+    "ProviderNotFoundError",
+    "ProviderRecord",
+    "UnknownBackendTypeError",
 ]
