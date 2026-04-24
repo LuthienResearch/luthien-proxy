@@ -84,16 +84,6 @@ class TestClientSetup:
         assert "https://test" in response.text
 
 
-class TestDeprecatedRedirects:
-    """Test redirect handlers for consolidated views."""
-
-    @pytest.mark.asyncio
-    async def test_activity_monitor_redirects_to_history(self, client: AsyncClient):
-        response = await client.get("/activity/monitor", follow_redirects=False)
-        assert response.status_code == 301
-        assert response.headers["location"] == "/history"
-
-
 class TestLandingPage:
     """Test landing page includes client-setup link."""
 

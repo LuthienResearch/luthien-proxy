@@ -63,12 +63,6 @@ async def landing_page():
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
 
-@router.get("/activity/monitor")
-async def deprecated_activity_monitor_redirect():
-    """Redirect old activity monitor path to history."""
-    return RedirectResponse(url="/history", status_code=301)
-
-
 @router.get("/debug/activity")
 async def debug_activity_monitor(
     request: Request,
@@ -192,13 +186,6 @@ async def client_setup(request: Request):
     html = html.replace("{{BASE_URL}}", html_escape(base_url))
 
     return HTMLResponse(html)
-
-
-# Redirect handlers for deprecated paths
-@router.get("/debug/diff")
-async def deprecated_diff_redirect():
-    """Redirect old debug diff path to new location."""
-    return RedirectResponse(url="/diffs", status_code=301)
 
 
 @router.get("/admin/{path:path}")

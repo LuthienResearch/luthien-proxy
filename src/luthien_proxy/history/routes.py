@@ -11,10 +11,9 @@ from __future__ import annotations
 
 import logging
 import os
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 
 from luthien_proxy.auth import check_auth_or_redirect, verify_admin_token
 from luthien_proxy.dependencies import get_admin_key, get_db_pool
@@ -53,15 +52,6 @@ async def history_list_page(
     if redirect:
         return redirect
     return FileResponse(os.path.join(STATIC_DIR, "history_list.html"))
-
-
-@router.get("/session/{session_id}")
-async def deprecated_history_detail_redirect(session_id: str):
-    """Redirect old history detail path to live conversation view.
-
-    No auth check here — the redirect target handles auth.
-    """
-    return RedirectResponse(url=f"/conversation/live/{quote(session_id, safe='')}", status_code=301)
 
 
 # --- JSON API Endpoints ---
