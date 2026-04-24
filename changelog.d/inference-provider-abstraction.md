@@ -20,7 +20,14 @@ proxy-internal inference), with two initial backends.
   - Cancellation-safe subprocess lifecycle: `CancelledError` from the
     caller now reliably terminates the child `claude` process and reaps
     it before the scratch directory is removed, preventing orphaned
-    processes with OAuth tokens in their environment.
+    processes with OAuth tokens in their environment. Resilient to
+    repeated `task.cancel()` during cleanup (shield-double-cancel
+    footgun closed).
+  - `InferenceResult.text` is consistent across providers in structured
+    mode: always `json.dumps(structured)`, never raw model-wrapper text.
+  - Non-text blocks in `system` message content are now rejected with a
+    clear error on both providers (was silently dropped in
+    `DirectApiProvider`).
   - Pre-flight JSON-schema validation (both backends) rejects malformed
     or oversized schemas before spending a subprocess spawn or network
     call, and maps to `InferenceStructuredOutputError`.

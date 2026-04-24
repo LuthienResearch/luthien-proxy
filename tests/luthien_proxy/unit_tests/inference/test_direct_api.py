@@ -19,6 +19,7 @@ from luthien_proxy.inference.base import (
     MAX_SCHEMA_SERIALIZED_BYTES,
     InferenceInvalidCredentialError,
     InferenceProviderError,
+    InferenceResult,
     InferenceStructuredOutputError,
     InferenceTimeoutError,
 )
@@ -222,18 +223,25 @@ class TestStructuredOutputSuccess:
 
     @pytest.mark.asyncio
     async def test_structured_output_returned(self):
-        """Valid JSON matching schema flows back as `structured`."""
-        model_output = json.dumps({"city": "Paris", "population": 2_161_000})
+        """Valid JSON matching schema flows back as `structured`.
+
+        `.text` is the JSON-encoded form of `.structured`, NOT the raw
+        model output — consistent with ClaudeCodeProvider and with the
+        `InferenceResult.text` docstring.
+        """
+        structured = {"city": "Paris", "population": 2_161_000}
         with patch(
             "luthien_proxy.inference.direct_api.judge_completion",
-            new=AsyncMock(return_value=model_output),
+            new=AsyncMock(return_value=json.dumps(structured)),
         ):
             result = await _provider().complete(
                 messages=[{"role": "user", "content": "info about Paris"}],
                 response_format={"type": "json_schema", "schema": SIMPLE_SCHEMA},
             )
-        assert result.structured == {"city": "Paris", "population": 2_161_000}
-        assert result.text == model_output
+        assert result.structured == structured
+        # .text is the serialized form of structured, not arbitrary
+        # model text. This contract matches ClaudeCodeProvider.
+        assert result.text == InferenceResult.from_structured(structured).text
 
     @pytest.mark.asyncio
     async def test_schema_collapses_to_json_object_for_litellm(self):
@@ -385,3 +393,77 @@ class TestMultiBlockContent:
         assert "Be concise." in passed_system
         # Make sure we're not leaking a Python list repr.
         assert "{'text'" not in passed_system
+
+    @pytest.mark.asyncio
+    async def test_non_text_system_block_raises_provider_error(self):
+        """Non-text blocks in system content are rejected, matching ClaudeCodeProvider.
+
+        Devil round 2 issue D: the old `_coerce_system_content` silently
+        dropped non-text blocks, producing an empty system prompt. Now
+        it raises clearly.
+        """
+        mock_call = AsyncMock(return_value="ok")
+        with patch("luthien_proxy.inference.direct_api.judge_completion", new=mock_call):
+            with pytest.raises(InferenceProviderError, match="unsupported system content block type"):
+                await _provider().complete(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": [
+                                {"type": "text", "text": "prefix "},
+                                {"type": "tool_use", "name": "x", "input": {}},
+                            ],
+                        },
+                        {"role": "user", "content": "hi"},
+                    ],
+                )
+        # The call never reached judge_completion.
+        mock_call.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_non_dict_system_block_raises_provider_error(self):
+        """Non-dict items in system content list are also rejected."""
+        mock_call = AsyncMock(return_value="ok")
+        with patch("luthien_proxy.inference.direct_api.judge_completion", new=mock_call):
+            with pytest.raises(InferenceProviderError, match="non-dict block"):
+                await _provider().complete(
+                    messages=[
+                        {"role": "system", "content": ["raw string in list"]},
+                        {"role": "user", "content": "hi"},
+                    ],
+                )
+        mock_call.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_non_string_non_list_system_content_raises_provider_error(self):
+        """Weird system content types (int, dict, etc.) are rejected cleanly."""
+        mock_call = AsyncMock(return_value="ok")
+        with patch("luthien_proxy.inference.direct_api.judge_completion", new=mock_call):
+            with pytest.raises(InferenceProviderError, match="unsupported system message content type"):
+                await _provider().complete(
+                    messages=[
+                        {"role": "system", "content": 42},
+                        {"role": "user", "content": "hi"},
+                    ],
+                )
+        mock_call.assert_not_called()
+
+
+class TestStructuredTextConsistency:
+    """Cross-provider invariant: `.text` in structured mode equals `json.dumps(structured)`."""
+
+    @pytest.mark.asyncio
+    async def test_text_is_serialized_form_of_structured(self):
+        """.text must equal InferenceResult.from_structured(...).text for DirectApiProvider."""
+        structured = {"city": "Paris", "population": 2_161_000}
+        with patch(
+            "luthien_proxy.inference.direct_api.judge_completion",
+            new=AsyncMock(return_value=json.dumps(structured)),
+        ):
+            result = await _provider().complete(
+                messages=[{"role": "user", "content": "hi"}],
+                response_format={"type": "json_schema", "schema": SIMPLE_SCHEMA},
+            )
+        expected = InferenceResult.from_structured(structured)
+        assert result.text == expected.text
+        assert result.structured == expected.structured

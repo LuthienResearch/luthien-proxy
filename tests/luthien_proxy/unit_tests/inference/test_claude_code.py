@@ -28,6 +28,7 @@ from luthien_proxy.inference.base import (
     InferenceCredentialOverrideUnsupported,
     InferenceInvalidCredentialError,
     InferenceProviderError,
+    InferenceResult,
     InferenceStructuredOutputError,
     InferenceTimeoutError,
 )
@@ -347,7 +348,11 @@ class TestStructuredOutput:
 
     @pytest.mark.asyncio
     async def test_structured_output_returned_in_result(self):
-        """`structured_output` from envelope flows to `result.structured`."""
+        """`structured_output` from envelope flows to `result.structured`.
+
+        Cross-provider invariant: `.text` equals the JSON-encoded form of
+        `.structured`, identical to what `DirectApiProvider` returns.
+        """
         structured = {"city": "Paris", "population": 2_161_000}
         with patch(
             "luthien_proxy.inference.claude_code._run_subprocess",
@@ -358,7 +363,9 @@ class TestStructuredOutput:
                 response_format={"type": "json_schema", "schema": SIMPLE_SCHEMA},
             )
         assert result.structured == structured
-        assert json.loads(result.text) == structured
+        # .text is the serialized form of structured, matching DirectApiProvider.
+        expected = InferenceResult.from_structured(structured)
+        assert result.text == expected.text
 
     @pytest.mark.asyncio
     async def test_retry_exhausted_subtype_raises_structured_error(self):
@@ -465,106 +472,220 @@ class TestSchemaValidation:
                 await _provider().complete(messages=[{"role": "user", "content": "hi"}])
 
 
+class _FakeProcess:
+    """A minimal stand-in for `asyncio.subprocess.Process`.
+
+    Two independent controllable events let tests distinguish between
+    "cleanup started" and "cleanup completed":
+
+    - `started_event`: set when `communicate()` begins. Lets the test
+      synchronize with subprocess startup without a sleep.
+    - `unblock_wait_event`: controls when `wait()` (and `communicate()`)
+      resolves. `kill()` is synchronous and only sets `kill_called`; it
+      does NOT release `wait()`. The test fires `unblock_wait_event` to
+      simulate the child actually exiting.
+
+    This shape is what makes the double-cancel test discriminating:
+    with the broken shield-only code, a second cancel pops out of the
+    shield-await while the inner reap is still suspended inside
+    `proc.wait()`, so `rmtree` fires with `returncode is None`. With
+    the loop-with-shield fix, `rmtree` waits until `wait()` returns,
+    so `returncode == -9`.
+
+    `returncode` is set ONLY when `wait()` observes the unblock event.
+    """
+
+    def __init__(self) -> None:
+        self.kill_called = False
+        self.started_event = asyncio.Event()
+        self.unblock_wait_event = asyncio.Event()
+        self.returncode: int | None = None
+
+    async def communicate(self) -> tuple[bytes, bytes]:
+        self.started_event.set()
+        await self.unblock_wait_event.wait()
+        return b"", b""
+
+    def kill(self) -> None:
+        # kill is synchronous: flip the flag, don't release wait. The
+        # test fires `unblock_wait_event` when it wants wait to return.
+        self.kill_called = True
+
+    async def wait(self) -> int | None:
+        await self.unblock_wait_event.wait()
+        self.returncode = -9
+        return self.returncode
+
+
+class _CancellationHarness:
+    """Bundles the patches the cancellation tests need into one spot.
+
+    Provides a fake `create_subprocess_exec` returning `fake_proc`, a
+    tracking `mkdtemp` that records issued scratch dirs, and a tracking
+    `rmtree` that records what it saw about `fake_proc` state when it
+    was called (so tests can assert kill happened BEFORE rmtree).
+    """
+
+    def __init__(self) -> None:
+        import tempfile as _tempfile
+
+        self.fake_proc = _FakeProcess()
+        self.scratch_dirs: list[str] = []
+        # State observed at the moment rmtree fires.
+        self.rmtree_saw_kill_called: bool | None = None
+        self.rmtree_saw_returncode: int | None = None
+        self._real_mkdtemp = _tempfile.mkdtemp
+        self._real_rmtree = shutil.rmtree
+
+    def mkdtemp(self, *args, **kwargs) -> str:
+        path = self._real_mkdtemp(*args, **kwargs)
+        self.scratch_dirs.append(path)
+        return path
+
+    def rmtree(self, path, *args, **kwargs) -> None:
+        # Snapshot the subprocess state at cleanup time so the test can
+        # assert rmtree only ran AFTER kill+wait finished.
+        self.rmtree_saw_kill_called = self.fake_proc.kill_called
+        self.rmtree_saw_returncode = self.fake_proc.returncode
+        self._real_rmtree(path, *args, **kwargs)
+
+    async def create_subprocess_exec(self, *args, **kwargs):
+        return self.fake_proc
+
+
 class TestCancellationPath:
     """Caller-side cancellation must terminate the child before the scratch dir is removed.
 
-    These tests build a fake subprocess that can be distinguished from a
-    real one: calling `kill()` marks a flag, `wait()` resolves only after
-    `kill()` has been called at least once. That mirrors the production
-    invariant we care about: the child process cannot outlive the
-    `complete()` call.
+    Ordering invariant under test: when `complete()` is cancelled, the
+    scratch dir must not be removed until `proc.wait()` has returned.
+    The fake's `wait()` only resolves when `unblock_wait_event` is set
+    AND it sets `returncode = -9` after resolving, so tests can read
+    `rmtree_saw_returncode == -9` as "cleanup completed before rmtree."
+    `rmtree_saw_returncode is None` means rmtree fired while wait was
+    still suspended — the orphan-child-during-scratch-teardown scenario.
     """
 
-    class _FakeProcess:
-        """A minimal stand-in for `asyncio.subprocess.Process`."""
-
-        def __init__(self, *, hang_on_communicate: bool = True):
-            self.kill_called = False
-            self._wait_event = asyncio.Event()
-            self._hang = hang_on_communicate
-            self.returncode: int | None = None
-
-        async def communicate(self):
-            # Hang until the test cancels or kills us.
-            if self._hang:
-                await asyncio.Event().wait()
-            return b"", b""
-
-        def kill(self):
-            self.kill_called = True
-            self.returncode = -9
-            self._wait_event.set()
-
-        async def wait(self):
-            await self._wait_event.wait()
-            return self.returncode
-
     @pytest.mark.asyncio
-    async def test_cancel_mid_flight_kills_child_and_propagates(self, tmp_path):
-        """Cancelling a mid-flight `complete()` kills the subprocess and raises CancelledError."""
-        import tempfile as _real_tempfile
-
-        fake_proc = self._FakeProcess(hang_on_communicate=True)
-
-        async def fake_create_subprocess_exec(*args, **kwargs):
-            return fake_proc
-
-        seen_scratch_dirs: list[str] = []
-        # Bind the real function OUTSIDE the wrapper so the patched name
-        # doesn't shadow it during recursion.
-        real_mkdtemp = _real_tempfile.mkdtemp
-
-        def tracking_mkdtemp(*args, **kwargs):
-            path = real_mkdtemp(*args, **kwargs)
-            seen_scratch_dirs.append(path)
-            return path
-
+    async def test_cancel_mid_flight_kills_child_and_propagates(self):
+        """Single cancel: reap completes (kill+wait) BEFORE rmtree runs."""
+        h = _CancellationHarness()
         with (
             patch(
                 "luthien_proxy.inference.claude_code.asyncio.create_subprocess_exec",
-                new=fake_create_subprocess_exec,
+                new=h.create_subprocess_exec,
             ),
-            patch(
-                "luthien_proxy.inference.claude_code.tempfile.mkdtemp",
-                new=tracking_mkdtemp,
-            ),
+            patch("luthien_proxy.inference.claude_code.tempfile.mkdtemp", new=h.mkdtemp),
+            patch("luthien_proxy.inference.claude_code.shutil.rmtree", new=h.rmtree),
         ):
             task = asyncio.create_task(
-                _provider(timeout_seconds=30).complete(
-                    messages=[{"role": "user", "content": "hi"}],
-                ),
+                _provider(timeout_seconds=30).complete(messages=[{"role": "user", "content": "hi"}]),
             )
-            # Let the subprocess get started before we cancel.
-            await asyncio.sleep(0.02)
+            await h.fake_proc.started_event.wait()
             task.cancel()
+            # The reap's `wait()` will block on unblock_wait_event until
+            # we fire it. Give the except-handler time to enter the
+            # reap loop, then release wait so the loop can complete.
+            await asyncio.sleep(0)
+            h.fake_proc.unblock_wait_event.set()
             with pytest.raises(asyncio.CancelledError):
                 await task
 
-        # Post-conditions: kill was called, wait ran (wait resolves when
-        # kill sets the event), and the scratch dir was cleaned up AFTER
-        # the child exited.
-        assert fake_proc.kill_called is True
-        assert fake_proc.returncode is not None  # wait observed the exit
-        assert len(seen_scratch_dirs) == 1
-        assert not os.path.exists(seen_scratch_dirs[0]), "scratch dir must be removed after the child exits"
+        # rmtree must have observed `returncode == -9`, meaning the
+        # fake's `wait()` returned BEFORE rmtree ran. `kill_called=True`
+        # is strictly weaker (only checks the synchronous kill call).
+        assert h.rmtree_saw_kill_called is True
+        assert h.rmtree_saw_returncode == -9, "rmtree fired while proc.wait() was still suspended — child not reaped"
+        assert len(h.scratch_dirs) == 1
+        assert not os.path.exists(h.scratch_dirs[0])
 
     @pytest.mark.asyncio
-    async def test_timeout_kills_child(self, tmp_path):
+    async def test_double_cancel_still_reaps_child_before_cleanup(self):
+        """Second cancel during the reap-await does NOT detach the reap.
+
+        This is the devil-round-2 scenario. With a bare
+        `await asyncio.shield(_terminate_and_wait(proc))`, the inner
+        task is protected but the outer `await` is still cancellable.
+        A second `task.cancel()` while the inner reap is suspended in
+        `proc.wait()` raises `CancelledError` at the shield-await;
+        `complete()`'s `finally` then runs `rmtree` against a still-
+        running child whose `wait()` hasn't returned.
+
+        Observable: in that broken flow, `rmtree_saw_returncode is
+        None` because the fake's `wait()` sets `returncode = -9` only
+        AFTER it resolves — and it hasn't resolved yet.
+
+        The loop-with-shield fix keeps awaiting the inner task,
+        swallowing further `CancelledError`s, until cleanup completes.
+        Then rmtree fires and sees `returncode == -9`.
+        """
+        h = _CancellationHarness()
+        with (
+            patch(
+                "luthien_proxy.inference.claude_code.asyncio.create_subprocess_exec",
+                new=h.create_subprocess_exec,
+            ),
+            patch("luthien_proxy.inference.claude_code.tempfile.mkdtemp", new=h.mkdtemp),
+            patch("luthien_proxy.inference.claude_code.shutil.rmtree", new=h.rmtree),
+        ):
+            task = asyncio.create_task(
+                _provider(timeout_seconds=30).complete(messages=[{"role": "user", "content": "hi"}]),
+            )
+            await h.fake_proc.started_event.wait()
+            # First cancel: drives the task into the except-BaseException
+            # arm, which starts the reap loop and awaits the shield.
+            task.cancel()
+            # Let the cancellation propagate to the shield-await point.
+            # One yield is enough: cancellation is delivered at the next
+            # suspension in the task.
+            await asyncio.sleep(0)
+            # Second cancel: lands on the shield-await while the inner
+            # reap is still suspended inside `proc.wait()`.
+            task.cancel()
+            # Let the second cancellation be delivered.
+            await asyncio.sleep(0)
+            # Now release `wait()`. With the fix, the reap loop has been
+            # looping on the shield and is still alive, so this unblocks
+            # it; `complete()` then unwinds and `rmtree` fires with
+            # returncode=-9. With the broken code, the second cancel
+            # already popped out of the shield-await, `complete()`
+            # unwound, `rmtree` fired, and `rmtree_saw_returncode` is
+            # None — firing this event just lets a detached inner task
+            # finish in the background (after the fact).
+            h.fake_proc.unblock_wait_event.set()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert h.rmtree_saw_kill_called is True
+        assert h.rmtree_saw_returncode == -9, (
+            "rmtree ran while the child's wait() was still suspended — "
+            "the reap detached into the background (shield footgun)"
+        )
+        assert len(h.scratch_dirs) == 1
+        assert not os.path.exists(h.scratch_dirs[0])
+
+    @pytest.mark.asyncio
+    async def test_timeout_kills_child(self):
         """Timeout path also calls kill+wait on the child."""
-        fake_proc = self._FakeProcess(hang_on_communicate=True)
-
-        async def fake_create_subprocess_exec(*args, **kwargs):
-            return fake_proc
-
+        h = _CancellationHarness()
         with patch(
             "luthien_proxy.inference.claude_code.asyncio.create_subprocess_exec",
-            new=fake_create_subprocess_exec,
+            new=h.create_subprocess_exec,
         ):
+            # Schedule wait to unblock shortly after the timeout arm starts
+            # its cleanup, so we don't hang the test. The exact timing
+            # doesn't matter for this test — we just need proc.wait()
+            # to return eventually so complete() unwinds.
+            async def _release_wait_after_timeout():
+                await asyncio.sleep(0.1)
+                h.fake_proc.unblock_wait_event.set()
+
+            releaser = asyncio.create_task(_release_wait_after_timeout())
             with pytest.raises(InferenceTimeoutError):
                 await _provider(timeout_seconds=0.05).complete(
                     messages=[{"role": "user", "content": "hi"}],
                 )
-        assert fake_proc.kill_called is True
+            await releaser
+        assert h.fake_proc.kill_called is True
 
 
 class TestPromptRendering:

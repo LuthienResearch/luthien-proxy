@@ -104,7 +104,7 @@ class DirectApiProvider(InferenceProvider):
             # the error shape is consistent.
             validate_schema(schema, self.name)
 
-        effective_messages = _build_messages(messages, system, schema)
+        effective_messages = _build_messages(self.name, messages, system, schema)
         litellm_response_format = _translate_response_format(response_format)
 
         log_extra = {
@@ -157,12 +157,19 @@ class DirectApiProvider(InferenceProvider):
                 )
             return InferenceResult.from_text(text)
 
-        # Structured-output path: parse + validate.
+        # Structured-output path: parse + validate. We route through
+        # `from_structured` so `.text` is the JSON-encoded form of
+        # `.structured` — consistent with ClaudeCodeProvider. The raw
+        # model text (which may be surrounding prose or an empty string
+        # depending on the backend) is discarded; callers that asked for
+        # structured output want the validated object, not the assistant's
+        # wrapper text. `InferenceResult.text`'s docstring documents this.
         structured = _parse_and_validate(self.name, text, schema)
-        return InferenceResult(text=text, structured=structured)
+        return InferenceResult.from_structured(structured)
 
 
 def _build_messages(
+    provider_name: str,
     messages: list[dict[str, Any]],
     system: str | None,
     schema: dict[str, Any] | None,
@@ -191,7 +198,7 @@ def _build_messages(
     else:
         existing = [m for m in messages if m.get("role") == "system"]
         if existing:
-            effective_system = _coerce_system_content(existing[0].get("content"))
+            effective_system = _coerce_system_content(provider_name, existing[0].get("content"))
         else:
             effective_system = None
 
@@ -210,27 +217,49 @@ def _build_messages(
     return [{"role": "system", "content": effective_system}, *filtered]
 
 
-def _coerce_system_content(content: Any) -> str:
+def _coerce_system_content(provider_name: str, content: Any) -> str:
     """Flatten a system-message content into a string for schema-blurb concat.
 
     - `str` → returned as-is.
     - `list` of Anthropic text blocks → concatenated `text` fields.
-    - Anything else → empty string (we don't fail here because a LiteLLM
-      call without a system prompt is still valid — the blurb just
-      replaces a missing one). DirectApiProvider's downstream validation
-      catches malformed responses regardless.
+    - `list` containing a non-`text` block (image, tool_use, tool_result,
+      etc.) → `InferenceProviderError`. Consistent with
+      `ClaudeCodeProvider._content_to_text`: fail loudly rather than
+      silently dropping the block and producing surprising behavior
+      (system prompt unexpectedly empty, or downstream validation
+      failures that the operator can't trace).
+    - Anything else (int, dict, None, etc.) → `InferenceProviderError`.
+      Same rationale: better to reject at call-site boundary than turn
+      silently into a string that confuses later stages.
     """
     if isinstance(content, str):
         return content
     if isinstance(content, list):
         parts: list[str] = []
         for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                text = block.get("text", "")
-                if isinstance(text, str):
-                    parts.append(text)
+            if not isinstance(block, dict):
+                raise InferenceProviderError(
+                    f"{provider_name}: system-message content list contains a non-dict block "
+                    f"({type(block).__name__}); only Anthropic-shaped text blocks are supported",
+                )
+            block_type = block.get("type")
+            if block_type != "text":
+                raise InferenceProviderError(
+                    f"{provider_name}: unsupported system content block type {block_type!r}; "
+                    "DirectApiProvider currently handles only text blocks. "
+                    "Multi-modal/tool-use support is out of scope for PR #2.",
+                )
+            text = block.get("text", "")
+            if not isinstance(text, str):
+                raise InferenceProviderError(
+                    f"{provider_name}: system text block has non-string text field ({type(text).__name__})",
+                )
+            parts.append(text)
         return "".join(parts)
-    return ""
+    raise InferenceProviderError(
+        f"{provider_name}: unsupported system message content type {type(content).__name__}; "
+        "expected str or list of Anthropic text blocks",
+    )
 
 
 def _translate_response_format(

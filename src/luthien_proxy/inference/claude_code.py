@@ -343,19 +343,19 @@ async def _run_subprocess(
     callers are free to immediately clean up the child's working directory
     or env without risking a race with a still-running subprocess.
 
-    Failure modes, all of which land on the same cleanup path:
+    Failure modes, all of which land on the same cleanup path via
+    `_reap_child`, which guarantees kill+wait completes even under
+    repeated caller-side cancellation:
 
-    - Normal success: read stdout+stderr, await `proc.wait()` (it's
-      already exited; `communicate()` ensures that). Return tuple.
+    - Normal success: read stdout+stderr, return tuple. `communicate()`
+      already drained pipes and reaped the child.
     - `OSError` from `create_subprocess_exec` (`E2BIG`, binary missing,
       fork fails): re-raise as `InferenceProviderError`.
-    - Timeout: `proc.kill()` → `await proc.wait()` →
-      raise `InferenceTimeoutError`.
-    - `asyncio.CancelledError` from the caller: `proc.kill()` →
-      `await proc.wait()` (shielded so we ALWAYS wait even while
-      cancelled) → re-raise `CancelledError`.
-    - Any other exception while awaiting `communicate()`: `proc.kill()` →
-      `await proc.wait()` → re-raise.
+    - Timeout: `_reap_child` → raise `InferenceTimeoutError`.
+    - `asyncio.CancelledError` from the caller: `_reap_child` → re-raise.
+      Multiple cancels during cleanup are absorbed; the original
+      cancellation is preserved and re-raised after the child exits.
+    - Any other `BaseException`: `_reap_child` → re-raise.
     """
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -378,29 +378,66 @@ async def _run_subprocess(
             timeout=timeout_seconds,
         )
     except asyncio.TimeoutError as exc:
-        await _terminate_and_wait(proc)
+        await _reap_child(proc)
         raise InferenceTimeoutError(
             f"claude -p did not complete within {timeout_seconds:.0f}s",
         ) from exc
-    except asyncio.CancelledError:
-        # Caller cancelled us. The contract is: cancellation propagates,
-        # but we MUST fully reap the child before unwinding — otherwise
-        # the subprocess keeps running with the OAuth token in /proc/<pid>/environ
-        # and the scratch-dir cleanup in `complete()`'s finally races with
-        # it reading HOME. Use `asyncio.shield` so the kill/wait isn't
-        # itself interrupted by further cancellation attempts.
-        await asyncio.shield(_terminate_and_wait(proc))
-        raise
     except BaseException:
-        # Any other bubble — propagate but still clean up the child.
-        # `BaseException` catches `asyncio.CancelledError` in older
-        # cooperating paths; we handle it explicitly above so this is for
-        # SystemExit / KeyboardInterrupt / random exceptions.
-        await asyncio.shield(_terminate_and_wait(proc))
+        # Handles `CancelledError`, `KeyboardInterrupt`, `SystemExit`,
+        # and any other bubble uniformly. `_reap_child` itself is robust
+        # to repeated cancellation — it loops on a shielded cleanup task
+        # until the child has exited, swallowing any additional
+        # `CancelledError`s that arrive mid-cleanup. The exception we
+        # caught here is then re-raised naturally by the bare `raise`.
+        await _reap_child(proc)
         raise
 
     returncode = proc.returncode if proc.returncode is not None else -1
     return stdout_bytes, stderr_bytes, returncode
+
+
+async def _reap_child(proc: asyncio.subprocess.Process) -> None:
+    """Kill `proc` and wait for it to fully exit, resilient to re-cancellation.
+
+    `asyncio.shield(inner)` protects the inner task from cancellation,
+    but the `await` on the shield result is STILL cancellable — a second
+    `task.cancel()` mid-cleanup would raise `CancelledError` here and
+    leave the inner task running in the background, racing with
+    `complete()`'s scratch-dir `rmtree`. That's the exact orphan-OAuth
+    scenario we're defending against.
+
+    Fix: start the cleanup as a detached task, then loop on
+    `await asyncio.shield(cleanup_task)` until the task is done,
+    swallowing any `CancelledError`s that land on the shield-await
+    itself. The inner task continues running throughout. We only return
+    when `cleanup_task.done()` is true — at which point the child has
+    exited.
+
+    The caller's original `CancelledError` is still in flight on the
+    stack (we're in an `except BaseException:` arm that will re-raise
+    via a bare `raise`), so swallowing extra cancellations here doesn't
+    swallow the caller's intent — it preserves it while enforcing the
+    lifecycle invariant first.
+    """
+    cleanup_task = asyncio.ensure_future(_terminate_and_wait(proc))
+    while not cleanup_task.done():
+        try:
+            await asyncio.shield(cleanup_task)
+        except asyncio.CancelledError:
+            # Extra cancellation arrived while we were waiting on the
+            # shield. The inner cleanup task keeps running; loop and
+            # re-await. Do NOT re-raise here — the caller's original
+            # CancelledError is already on the unwinding stack.
+            continue
+        except BaseException:
+            # A non-cancel exception inside cleanup (shouldn't happen —
+            # `_terminate_and_wait` is bulletproof) should not prevent
+            # us from enforcing the lifecycle invariant. Record nothing
+            # and keep waiting for the task to resolve.
+            if not cleanup_task.done():
+                continue
+            # Task resolved with this exception; fall through.
+            break
 
 
 async def _terminate_and_wait(proc: asyncio.subprocess.Process) -> None:
@@ -412,6 +449,15 @@ async def _terminate_and_wait(proc: asyncio.subprocess.Process) -> None:
 
     Split out so tests can mock it directly to verify kill+wait happened
     on the cancellation path.
+
+    TODO(zombie-grandchild): `proc.wait()` blocks on the child's
+    process-group exit. If `claude` ever spawns a detached grandchild
+    (e.g. via `setsid`), the grandchild's ownership of pipe FDs could
+    make `wait()` hang indefinitely. Not currently a realistic failure
+    mode for `claude -p --bare`, but a future defense-in-depth improvement
+    would be: `proc.terminate()` (SIGTERM) → bounded wait (say, 5s) →
+    `proc.kill()` (SIGKILL) → bounded wait with a final timeout fallback
+    that logs-and-returns rather than hanging the call site.
     """
     if proc.returncode is None:
         try:
