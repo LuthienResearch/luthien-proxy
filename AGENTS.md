@@ -63,12 +63,10 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 
    - If the branch already exists, run `git checkout <short-handle>` instead of creating it.
    - Write the objective statement into `dev/scratch/OBJECTIVE.md` (gitignored — scoped to this worktree, never merged to main). Use it to stay oriented across compactions.
-   - Commit the changelog stub first (it's required at wrap-up anyway — creating it at the start just reorders):
+   - Mark the branch start with an empty commit; the commit message is the objective and feeds the PR body via `--fill`:
 
      ```bash
-     # create changelog.d/<short-handle>.md per changelog.d/README.md
-     git add changelog.d/<short-handle>.md
-     git commit -m "chore: set objective to <short description>"
+     git commit --allow-empty -m "chore: set objective to <short description>"
      git push -u origin <short-handle>
      gh pr create --draft --fill
      ```
@@ -90,7 +88,7 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
    git status
    ```
 
-   - Flesh out the changelog fragment at `changelog.d/<short-handle>.md` (stubbed at objective start; fill in final detail now — see `changelog.d/README.md` for format).
+   - Add a changelog fragment to `changelog.d/<short-handle>.md` (see `changelog.d/README.md` for format).
    - `dev/scratch/` is gitignored — no cleanup needed. (Note: `git worktree remove` refuses if untracked files remain; pass `--force` or delete scratch first.)
 
    ```bash
