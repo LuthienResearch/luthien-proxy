@@ -62,7 +62,13 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
    ```
 
    - If the branch already exists, run `git checkout <short-handle>` instead of creating it.
-   - Write the objective statement into `dev/scratch/OBJECTIVE.md` (gitignored — scoped to this worktree, never merged to main). Use it to stay oriented across compactions.
+   - Create the scratch dir if it doesn't exist, then write the objective statement into `dev/scratch/OBJECTIVE.md` (gitignored — scoped to this worktree, never merged to main). Use it to stay oriented across compactions.
+
+     ```bash
+     mkdir -p dev/scratch
+     # then write dev/scratch/OBJECTIVE.md
+     ```
+
    - Mark the branch start with an empty commit; the commit message is the objective and feeds the PR body via `--fill`:
 
      ```bash
