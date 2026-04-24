@@ -188,7 +188,6 @@ async def client_setup(request: Request):
     return HTMLResponse(html)
 
 
-# Redirect handlers for deprecated paths
 @router.get("/admin/{path:path}")
 async def deprecated_admin_redirect(path: str):
     """Redirect old admin paths to new API location."""

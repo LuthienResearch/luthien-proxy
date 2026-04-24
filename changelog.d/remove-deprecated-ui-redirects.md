@@ -1,5 +1,6 @@
 ---
 category: Chores & Docs
+pr: 597
 ---
 
 **Remove deprecated UI redirect routes**: Dropped legacy backwards-compat redirects with no internal callers.
