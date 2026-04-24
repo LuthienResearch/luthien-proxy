@@ -10,7 +10,7 @@ This module is primarily covered by integration tests rather than unit tests.
 ### Rationale
 
 - Contains FastAPI endpoints with complex async streaming logic
-- Testing requires mocking FastAPI Request objects, app state, and LiteLLM
+- Testing requires mocking FastAPI Request objects, app state, and the Anthropic SDK client
 - Heavy mocking would create tests that diverge from actual behavior
 - Integration tests provide better coverage by testing actual HTTP endpoints
 

@@ -174,13 +174,13 @@ policy:
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `model` | `claude-haiku-4-5` | Any LiteLLM model string |
+| `model` | `claude-haiku-4-5` | Model identifier passed to the judge backend (e.g. `claude-haiku-4-5`, `claude-sonnet-4-6`). |
 | `instructions` | *(required; presets hardcode this)* | Plain-English instructions for the judge |
 | `on_error` | `pass` | `"pass"` = allow with warning, `"block"` = reject on judge failure |
 | `temperature` | `0.0` | Sampling temperature for judge |
 | `max_tokens` | `4096` | Max output tokens for judge |
-| `api_base` | `null` | Override API endpoint (e.g., for a local model) |
-| `api_key` | `null` | Override API key (falls back to env vars) |
+| `api_base` | `null` | Override the Anthropic endpoint used by the passthrough provider (mostly for tests / local mocks). Ignored when `inference_provider` names a registered provider. |
+| `inference_provider` | `user_credentials` | How to obtain credentials for judge calls: `"user_credentials"`, `{provider: "<name>"}`, or `{user_then_provider: {name: "<name>", on_fallback: "warn|fail|fallback"}}`. See [Inference providers](#inference-providers). |
 | `max_retries` | `2` | Retry attempts on transient judge failures |
 | `retry_delay` | `0.5` | Seconds between retries |
 
@@ -206,12 +206,12 @@ policy:
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `model` | `claude-haiku-4-5` | Any LiteLLM model string |
+| `model` | `claude-haiku-4-5` | Model identifier passed to the judge backend (e.g. `claude-haiku-4-5`, `claude-sonnet-4-6`). |
 | `probability_threshold` | `0.6` | Block tool calls with risk probability >= this value (0.0–1.0) |
 | `temperature` | `0.0` | Sampling temperature for judge |
 | `max_tokens` | `256` | Max output tokens for judge |
-| `api_base` | `null` | Override API endpoint |
-| `api_key` | `null` | Override API key |
+| `api_base` | `null` | Override the Anthropic endpoint used by the passthrough provider (mostly for tests / local mocks). |
+| `inference_provider` | `user_credentials` | How to obtain credentials for judge calls (see `SimpleLLMPolicy` row above for the shape). |
 | `judge_instructions` | *(built-in)* | Custom system prompt for the judge |
 | `blocked_message_template` | *(built-in)* | Template with `{tool_name}`, `{tool_arguments}`, `{probability}`, `{explanation}` |
 

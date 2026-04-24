@@ -1,10 +1,10 @@
 # Request Processing & Streaming Pipeline Architecture
 
-**Last Updated**: 2026-04-10
+**Last Updated**: 2026-04-23
 
 This document describes how Anthropic `/v1/messages` requests flow through the gateway in the current code (`src/luthien_proxy/`). The authoritative source is `src/luthien_proxy/pipeline/anthropic_processor.py` — read that file if anything here disagrees.
 
-> **Historical note**: Earlier revisions of this document described a short-lived queue-based pipeline (`PolicyOrchestrator` + `PolicyExecutor` + `ClientFormatter` + `Queue[ModelResponse]`) built around LiteLLM's `ModelResponse` type. Those modules no longer exist. The gateway now talks to Anthropic through the Anthropic SDK directly and runs policies via a hook-based execution interface.
+> **Historical note**: Earlier revisions of this document described a short-lived queue-based pipeline (`PolicyOrchestrator` + `PolicyExecutor` + `ClientFormatter` + `Queue[ModelResponse]`) built around a third-party LLM aggregator's `ModelResponse` type. Those modules no longer exist. The gateway now talks to Anthropic through the Anthropic SDK directly on both the main request path and the judge-inference path, and runs policies via a hook-based execution interface.
 
 ---
 
@@ -79,30 +79,26 @@ Mid-stream errors after headers have been sent produce an in-stream Anthropic er
 | `EventEmitterProtocol` | `observability/emitter.py` | Records transaction + policy events to storage and Redis |
 | `validate_anthropic_event_ordering` | `pipeline/stream_protocol_validator.py` | Post-stream protocol-ordering check |
 
-## LiteLLM Scope
+## Inference Backend Scope
 
-LiteLLM is **not** on the main `/v1/messages` path. Backend calls are always `AnthropicClient` -> Anthropic SDK. `pipeline/anthropic_processor.py` does not import `litellm` at all.
+The gateway uses the Anthropic SDK for all outbound LLM traffic — both the main `/v1/messages` path and judge-side decisions. No third-party multi-provider aggregator is on either path as of PR #609.
 
-Direct `litellm` imports in `src/luthien_proxy/` are limited to:
+- **Main `/v1/messages` path**: `pipeline/anthropic_processor.py` calls `AnthropicClient` (wrapping the Anthropic SDK) directly. It does not touch the `inference/` package.
+- **Judge-LLM calls**: `SimpleLLMPolicy` and `ToolCallJudgePolicy` declare an `inference_provider:` reference in YAML config. At call time, `inference.dispatch.resolve_inference_provider(ref, context, registry)` returns a concrete `InferenceProvider` plus optional `credential_override`. The current concrete providers are `DirectApiProvider` (Anthropic SDK) and `ClaudeCodeProvider` (`claude -p` subprocess); named registry entries live in the `inference_providers` DB table.
+- **Admin model listing**: `admin/routes.py` uses a small hand-curated list of current Claude models for the admin-UI model dropdown.
 
-- **Judge-LLM calls** — `llm/judge_client.py`, `policies/simple_llm_utils.py`, `policies/tool_call_judge_utils.py` call `litellm.acompletion` to ask a judge model for a decision. `judge_client.judge_completion` is the common wrapper.
-- **Startup config** — `main.py` sets `litellm.drop_params = True` once so judge calls tolerate unknown kwargs.
-- **Admin model listing** — `admin/routes.py` reads `litellm.anthropic_models` for the admin UI model dropdown.
-
-Indirect reference (no import, still tied to the judge path): `exceptions.map_litellm_error_type()` maps LiteLLM exception class names to `BackendAPIError` codes via string lookup.
-
-See `dev/context/codebase_learnings.md` (LiteLLM Usage Boundaries) for the complete list.
+See `dev/context/codebase_learnings.md` ("Inference Backend Boundaries") for the key rule about where new backends plug in.
 
 ## Troubleshooting
 
 - **Stream hangs or truncates**: inspect `pipeline/anthropic_processor.py` `_handle_execution_streaming` and the policy's `on_anthropic_stream_event` / `on_anthropic_stream_complete` hooks — the SSE iterator pulls directly from whatever those hooks yield.
 - **Protocol-ordering violations in logs**: `streaming.protocol_violation` events indicate the policy emitted events out of Anthropic's required order (all `content_block_*` must precede `message_delta`). See `gotchas.md` under "Anthropic Streaming: All Content Blocks Must Precede message_delta".
 - **Empty stream 500**: the policy returned without yielding any events; `_handle_execution_streaming` converts that into an explicit Anthropic error event and logs `policy.execution.empty_stream`.
-- **Judge LLM call failures**: these come from `judge_client.judge_completion`, not the main request path; check the policy's `auth_provider` config, whether `context.user_credential` is populated (requires `passthrough`/`both` auth mode for `user_credentials`), and the upstream LiteLLM configuration.
+- **Judge LLM call failures**: these come from `InferenceProvider.complete()` (usually `DirectApiProvider` → `AnthropicClient`), not the main request path. Check the policy's `inference_provider:` YAML reference, the user credential on `PolicyContext.user_credential`, and any named entries in the `inference_providers` DB table.
 
 ## Related Documentation
 
 - `ARCHITECTURE.md` — broader module map (note: known staleness tracked separately on Trello; prefer the source code when in doubt).
 - `dev/context/codebase_learnings.md` — architectural patterns.
 - `dev/context/gotchas.md` — streaming protocol invariants and common debugging pitfalls.
-- `dev/context/otel-conventions.md` — OpenTelemetry attribute naming conventions.
+- `dev/observability.md` — tracing, event recording, and Tempo integration.
