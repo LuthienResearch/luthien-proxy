@@ -11,6 +11,8 @@ document.addEventListener('alpine:init', () => {
             { href: '/history', label: 'History' },
             { href: '/policy-config', label: 'Policies' },
             { href: '/diffs', label: 'Diffs' },
+            { href: '/credentials', label: 'Credentials' },
+            { href: '/inference-providers', label: 'Providers' },
             { href: '/config', label: 'Config' },
         ],
         async init() {
