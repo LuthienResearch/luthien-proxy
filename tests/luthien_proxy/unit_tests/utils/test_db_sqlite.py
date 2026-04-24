@@ -127,6 +127,21 @@ class TestTranslateParams:
         assert translated == "SELECT 'o''clock' FROM t WHERE x = ?"
         assert args == ("x",)
 
+    def test_rejects_dollar_zero_placeholder(self):
+        # `$0` would otherwise silently map to args[-1] via Python negative
+        # indexing, corrupting the bind. Guard in the substitution callback
+        # raises before translation completes.
+        query = "SELECT * FROM t WHERE a = $0"
+        with pytest.raises(ValueError, match=r"Invalid parameter placeholder \$0"):
+            _translate_params(query, ("x",))
+
+    def test_rejects_out_of_range_dollar_n_with_descriptive_error(self):
+        # `$3` with only 2 args should raise a descriptive ValueError naming
+        # both the bad placeholder and the arg count, not a bare IndexError.
+        query = "SELECT * FROM t WHERE a = $1 AND b = $2 AND c = $3"
+        with pytest.raises(ValueError, match=r"Parameter \$3 exceeds number of provided arguments \(2\)"):
+            _translate_params(query, ("x", "y"))
+
     def test_dollar_n_in_line_comment_is_substituted(self):
         # Documenting current behavior: `--` line comments are NOT parsed, so a
         # $N inside a comment gets rewritten. This is usually harmless (the
