@@ -98,7 +98,7 @@ See `dev/context/codebase_learnings.md` (LiteLLM Usage Boundaries) for the compl
 - **Stream hangs or truncates**: inspect `pipeline/anthropic_processor.py` `_handle_execution_streaming` and the policy's `on_anthropic_stream_event` / `on_anthropic_stream_complete` hooks — the SSE iterator pulls directly from whatever those hooks yield.
 - **Protocol-ordering violations in logs**: `streaming.protocol_violation` events indicate the policy emitted events out of Anthropic's required order (all `content_block_*` must precede `message_delta`). See `gotchas.md` under "Anthropic Streaming: All Content Blocks Must Precede message_delta".
 - **Empty stream 500**: the policy returned without yielding any events; `_handle_execution_streaming` converts that into an explicit Anthropic error event and logs `policy.execution.empty_stream`.
-- **Judge LLM call failures**: these come from `judge_client.judge_completion`, not the main request path; check `LLM_JUDGE_API_KEY`, per-policy `api_key`, and the upstream LiteLLM configuration.
+- **Judge LLM call failures**: these come from `judge_client.judge_completion`, not the main request path; check the policy's `auth_provider` config, whether `context.user_credential` is populated (requires `passthrough`/`both` auth mode for `user_credentials`), and the upstream LiteLLM configuration.
 
 ## Related Documentation
 
