@@ -14,6 +14,13 @@ from tests.luthien_proxy.e2e_tests.test_mock_admin_api import (
     test_policy_list_includes_known_policies,
 )
 
+# --- Inference provider registry ---
+from tests.luthien_proxy.e2e_tests.test_mock_inference_providers import (
+    test_inference_provider_crud_roundtrip,
+    test_inference_provider_delete_missing_returns_404,
+    test_inference_provider_unknown_backend_returns_400,
+)
+
 # --- Basic passthrough ---
 from tests.luthien_proxy.e2e_tests.test_mock_basic import (
     test_default_response_when_queue_empty,
@@ -100,6 +107,10 @@ __all__ = [
     "test_missing_messages_field_returns_400",
     # admin
     "test_policy_list_includes_known_policies",
+    # inference provider registry
+    "test_inference_provider_crud_roundtrip",
+    "test_inference_provider_unknown_backend_returns_400",
+    "test_inference_provider_delete_missing_returns_404",
     # policy management
     "test_get_current_policy_returns_policy_info",
     "test_set_policy_changes_active_policy",

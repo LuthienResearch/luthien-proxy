@@ -1221,3 +1221,152 @@ class TestConfigRoutes:
         with pytest.raises(HTTPException) as exc_info:
             await delete_config_value(key="nonexistent", _=AUTH_TOKEN, registry=mock_registry)
         assert exc_info.value.status_code == 404
+
+
+class TestInferenceProviderRoutes:
+    """Test inference-provider admin route handlers."""
+
+    @pytest.mark.asyncio
+    async def test_put_inference_provider_success(self):
+        from luthien_proxy.admin.routes import (
+            InferenceProviderRequest,
+            put_inference_provider,
+        )
+
+        mock_registry = MagicMock()
+        mock_registry.put = AsyncMock()
+
+        request = InferenceProviderRequest(
+            name="judge-one",
+            backend_type="claude_code",
+            credential_name="judge-cred",
+            default_model="claude-sonnet-4-6",
+            config={"timeout_seconds": 30},
+        )
+
+        result = await put_inference_provider(body=request, _=AUTH_TOKEN, registry=mock_registry)
+
+        assert result == {"success": True, "name": "judge-one"}
+        mock_registry.put.assert_awaited_once()
+        record = mock_registry.put.await_args[0][0]
+        assert record.name == "judge-one"
+        assert record.backend_type == "claude_code"
+        assert record.credential_name == "judge-cred"
+        assert record.default_model == "claude-sonnet-4-6"
+        assert record.config == {"timeout_seconds": 30}
+
+    @pytest.mark.asyncio
+    async def test_put_inference_provider_unknown_backend_returns_400(self):
+        from luthien_proxy.admin.routes import (
+            InferenceProviderRequest,
+            put_inference_provider,
+        )
+        from luthien_proxy.inference.registry import UnknownBackendTypeError
+
+        mock_registry = MagicMock()
+        mock_registry.put = AsyncMock(side_effect=UnknownBackendTypeError("no such backend"))
+
+        request = InferenceProviderRequest(
+            name="p",
+            backend_type="nope",
+            credential_name=None,
+            default_model="m",
+            config={},
+        )
+        with pytest.raises(HTTPException) as exc:
+            await put_inference_provider(body=request, _=AUTH_TOKEN, registry=mock_registry)
+        assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_put_inference_provider_registry_error_returns_503(self):
+        from luthien_proxy.admin.routes import (
+            InferenceProviderRequest,
+            put_inference_provider,
+        )
+        from luthien_proxy.inference.registry import InferenceRegistryError
+
+        mock_registry = MagicMock()
+        mock_registry.put = AsyncMock(side_effect=InferenceRegistryError("db down"))
+
+        request = InferenceProviderRequest(
+            name="p",
+            backend_type="claude_code",
+            credential_name=None,
+            default_model="m",
+            config={},
+        )
+        with pytest.raises(HTTPException) as exc:
+            await put_inference_provider(body=request, _=AUTH_TOKEN, registry=mock_registry)
+        assert exc.value.status_code == 503
+
+    @pytest.mark.asyncio
+    async def test_put_inference_provider_name_validation(self):
+        from luthien_proxy.admin.routes import InferenceProviderRequest
+
+        with pytest.raises(ValidationError):
+            InferenceProviderRequest(
+                name="invalid name!!",
+                backend_type="claude_code",
+                credential_name=None,
+                default_model="m",
+                config={},
+            )
+
+    @pytest.mark.asyncio
+    async def test_list_inference_providers_returns_records(self):
+        from luthien_proxy.admin.routes import list_inference_providers
+        from luthien_proxy.inference.registry import ProviderRecord
+
+        mock_registry = MagicMock()
+        mock_registry.list = AsyncMock(
+            return_value=[
+                ProviderRecord(
+                    name="a",
+                    backend_type="claude_code",
+                    credential_name="cred",
+                    default_model="m",
+                    config={"k": "v"},
+                    created_at="2026-01-01",
+                    updated_at="2026-01-02",
+                ),
+            ]
+        )
+
+        result = await list_inference_providers(_=AUTH_TOKEN, registry=mock_registry)
+        assert result.count == 1
+        assert result.providers[0].name == "a"
+        assert result.providers[0].credential_name == "cred"
+        assert result.providers[0].config == {"k": "v"}
+
+    @pytest.mark.asyncio
+    async def test_delete_inference_provider_success(self):
+        from luthien_proxy.admin.routes import delete_inference_provider
+
+        mock_registry = MagicMock()
+        mock_registry.delete = AsyncMock(return_value=True)
+
+        result = await delete_inference_provider(name="p", _=AUTH_TOKEN, registry=mock_registry)
+        assert result == {"success": True, "name": "p"}
+
+    @pytest.mark.asyncio
+    async def test_delete_inference_provider_not_found_returns_404(self):
+        from luthien_proxy.admin.routes import delete_inference_provider
+
+        mock_registry = MagicMock()
+        mock_registry.delete = AsyncMock(return_value=False)
+
+        with pytest.raises(HTTPException) as exc:
+            await delete_inference_provider(name="p", _=AUTH_TOKEN, registry=mock_registry)
+        assert exc.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_inference_provider_registry_error_returns_503(self):
+        from luthien_proxy.admin.routes import delete_inference_provider
+        from luthien_proxy.inference.registry import InferenceRegistryError
+
+        mock_registry = MagicMock()
+        mock_registry.delete = AsyncMock(side_effect=InferenceRegistryError("db down"))
+
+        with pytest.raises(HTTPException) as exc:
+            await delete_inference_provider(name="p", _=AUTH_TOKEN, registry=mock_registry)
+        assert exc.value.status_code == 503
