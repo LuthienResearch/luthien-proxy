@@ -3,18 +3,31 @@
 Operators define providers in the `inference_providers` table (via admin
 API or the `/inference-providers` UI). Callers look them up by name.
 
-Design mirrors `CredentialManager`'s server-credential store:
+Design notes:
+
 - Single-row-per-name DB table (see `migrations/**/014_add_inference_providers.sql`).
-- In-memory TTL cache so hot paths don't hit the DB per call.
+- We cache the `ProviderRecord` (DB row), not the constructed provider
+  instance, and rebuild the provider on every `get()`. Construction is
+  pure-Python cheap for both current backends (no httpx client spin-up,
+  no subprocess), so the cost is negligible and the correctness win is
+  real: credential rotation propagates immediately. If a future backend
+  holds long-lived async state, switch to an instance cache then — not
+  speculatively now.
+- Cold-cache concurrency is guarded by a single `asyncio.Lock`. Under
+  `asyncio.gather(get("p"), get("p"))` from an empty cache, the DB read
+  runs exactly once. The lock is held only across the record fetch, not
+  across credential resolution or provider construction.
 - Dispatch on `backend_type` via a constructor map. Unknown types raise
   a typed error rather than KeyError'ing deep in provider code.
-- Credential resolution is a *soft* reference: the registry looks up
-  `credential_name` in `CredentialManager` at `get()` time, so cred
-  deletion doesn't break providers until someone tries to use them. The
-  error at use-time clearly names the missing credential.
-- Provider instances are cached with a 60s TTL. When a provider is
-  updated or deleted, the cache entry is dropped and any held provider
-  is `close()`d so HTTP clients / subprocess resources don't leak.
+- Credential resolution is a *soft* reference: we look up
+  `credential_name` via `CredentialManager.resolve_server_credential`
+  at every `get()`, so cred deletion surfaces as a clear error only
+  when someone tries to use the dangling reference.
+- Backends that can tolerate a missing configured credential (currently
+  `direct_api`, which supports per-call `credential_override`) are built
+  in a "null-credential" mode that raises on `complete()` entry if no
+  override is supplied. Backends that can't (currently `claude_code`)
+  raise `MissingCredentialError` at construction time.
 
 PR #4 wires judge policies onto the registry; PR #5 adds a `/ping`
 endpoint for the policy-testing UI. Neither is implemented here.
@@ -22,25 +35,36 @@ endpoint for the policy-testing UI. Neither is implemented here.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any, Callable
 
 from luthien_proxy.credential_manager import CredentialManager
 from luthien_proxy.credentials.credential import Credential, CredentialError, CredentialType
-from luthien_proxy.inference.base import InferenceProvider, InferenceProviderError
+from luthien_proxy.inference.base import InferenceError, InferenceProvider, InferenceProviderError, InferenceResult
 from luthien_proxy.inference.claude_code import ClaudeCodeProvider
 from luthien_proxy.inference.direct_api import DirectApiProvider
 from luthien_proxy.utils.db import DatabasePool
 
 logger = logging.getLogger(__name__)
 
-#: How long a constructed provider instance stays in the in-memory cache.
-#: Matches `CredentialManager._server_key_ttl` so a restart-free cred
-#: rotation propagates in ~1 TTL regardless of which layer you poke.
+#: How long a `ProviderRecord` stays in the in-memory cache.
+#:
+#: This caches only the DB row (not a constructed provider + credential),
+#: so the TTL bounds *config* staleness after an `inference_providers`
+#: edit. Credentials are always resolved fresh on `get()`, so this TTL
+#: does not delay credential rotations.
 DEFAULT_CACHE_TTL_SECONDS = 60.0
+
+#: Hard cap on the serialized size of the `config` JSON column.
+#:
+#: Same budget as PR #605's policy-config ceiling: keeps UI rendering
+#: responsive and prevents a hostile/misconfigured operator from
+#: wedging the admin page with a megabyte of dict.
+MAX_CONFIG_JSON_BYTES = 64 * 1024
 
 
 class InferenceRegistryError(InferenceProviderError):
@@ -75,6 +99,17 @@ class MissingCredentialError(InferenceRegistryError):
     """
 
 
+class NullCredentialError(InferenceError):
+    """Null-credential provider was called without `credential_override`.
+
+    A provider constructed with `credential_name IS NULL` got a
+    `complete()` call that didn't supply a per-request override. Only
+    `direct_api` providers can reach this state (via
+    `NullCredentialDirectApiProvider`); `claude_code` refuses at
+    construction time because the CLI has no override path.
+    """
+
+
 @dataclass(frozen=True)
 class ProviderRecord:
     """DB row for an `inference_providers` entry."""
@@ -91,12 +126,52 @@ class ProviderRecord:
 #: Callable that builds an `InferenceProvider` from a record + resolved cred.
 #:
 #: The credential is `None` if the record has `credential_name IS NULL`.
-#: Each backend decides whether it tolerates that (DirectApi does —
-#: credentials flow via `credential_override`; ClaudeCode does not).
+#: Each backend decides whether it tolerates that (DirectApi does, via
+#: the null-credential wrapper below; ClaudeCode does not).
 ProviderFactory = Callable[
     [ProviderRecord, Any],  # (record, Credential | None)
     InferenceProvider,
 ]
+
+
+class NullCredentialDirectApiProvider(DirectApiProvider):
+    """A `DirectApiProvider` that refuses `complete()` without an override.
+
+    Built when a `direct_api` row has `credential_name IS NULL`. The
+    provider is a valid registry entry — per-call `credential_override`
+    is the documented path — but sending `authorization: Bearer ` to
+    Anthropic would produce a 401 with no useful diagnostic. This
+    wrapper fails early with a clear `NullCredentialError` instead.
+    """
+
+    async def complete(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        model: str | None = None,
+        system: str | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 1024,
+        response_format: dict[str, Any] | None = None,
+        credential_override: Credential | None = None,
+    ) -> InferenceResult:
+        """Require a `credential_override`; otherwise raise."""
+        if credential_override is None:
+            raise NullCredentialError(
+                f"DirectApiProvider {self.name!r} was configured without a credential. "
+                "This provider only serves requests that supply `credential_override` "
+                "(e.g. user-credential passthrough). Configure a `credential_name` on "
+                "the provider row to accept credential-less calls."
+            )
+        return await super().complete(
+            messages,
+            model=model,
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format=response_format,
+            credential_override=credential_override,
+        )
 
 
 def _build_claude_code(record: ProviderRecord, credential: Any) -> InferenceProvider:
@@ -123,26 +198,31 @@ def _build_direct_api(record: ProviderRecord, credential: Any) -> InferenceProvi
     """Construct a DirectApiProvider from a DB record.
 
     Unlike claude_code, a direct_api provider without a configured
-    credential is valid — callers pass `credential_override` per-request.
-    We use a sentinel-less dummy to satisfy the constructor's required
-    arg when no credential is configured; the dummy is never used because
-    every call path goes through `credential_override`.
+    credential is a legitimate mode (per-request `credential_override`),
+    but we build the null-credential wrapper so a forgotten override
+    fails loudly at entry instead of shipping an empty Bearer header.
     """
+    api_base = record.config.get("api_base")
+    resolved_api_base = api_base if isinstance(api_base, str) else None
     if credential is None:
-        # DirectApi supports per-request override. We still need a value
-        # for the stored credential; construct a placeholder that the
-        # provider will log-and-fail if ever used unadorned.
-        credential = Credential(
+        # Placeholder credential satisfies the base constructor; the
+        # wrapper guarantees it's never actually used.
+        placeholder = Credential(
             value="",
             credential_type=CredentialType.API_KEY,
             platform="anthropic",
         )
-    api_base = record.config.get("api_base")
+        return NullCredentialDirectApiProvider(
+            name=record.name,
+            credential=placeholder,
+            default_model=record.default_model,
+            api_base=resolved_api_base,
+        )
     return DirectApiProvider(
         name=record.name,
         credential=credential,
         default_model=record.default_model,
-        api_base=api_base if isinstance(api_base, str) else None,
+        api_base=resolved_api_base,
     )
 
 
@@ -155,12 +235,15 @@ DEFAULT_BACKEND_FACTORIES: dict[str, ProviderFactory] = {
 
 
 class InferenceProviderRegistry:
-    """Loads, caches, and exposes named `InferenceProvider` instances.
+    """Loads and exposes named `InferenceProvider` instances.
 
     Lifecycle: constructed at startup with a DB pool and the already-
     initialized `CredentialManager`. `await initialize()` is currently a
-    no-op (reserved for future eager-warm behavior). `await close()`
-    drains cached providers that hold async resources.
+    no-op (reserved for future eager-warm behavior). `await close()` is
+    also a no-op — we no longer cache provider instances, so there's no
+    persistent async state for the registry to release. We keep the
+    method so the lifespan wiring in `main.py` can stay symmetric with
+    `CredentialManager.close()`.
     """
 
     def __init__(
@@ -178,17 +261,24 @@ class InferenceProviderRegistry:
                 disables persistence (the registry still validates names
                 but every lookup returns `ProviderNotFoundError`).
             credential_manager: The already-initialized manager used to
-                resolve `credential_name` -> `Credential` on `get()`.
+                resolve `credential_name` -> `Credential` on each `get()`.
             factories: Override the `backend_type` -> constructor map.
                 Useful in tests.
-            cache_ttl_seconds: How long to keep a constructed provider in
+            cache_ttl_seconds: How long to keep a `ProviderRecord` in
                 the in-memory cache.
         """
         self._db_pool = db_pool
         self._credential_manager = credential_manager
         self._factories = dict(factories or DEFAULT_BACKEND_FACTORIES)
         self._cache_ttl = cache_ttl_seconds
-        self._cache: dict[str, tuple[float, InferenceProvider]] = {}
+        # Cache of DB rows only. Credentials resolve fresh per get() so
+        # cred rotations propagate without a TTL-length stale window.
+        self._record_cache: dict[str, tuple[float, ProviderRecord]] = {}
+        # Single lock is enough for v1: guards concurrent cold-cache DB
+        # reads against the same name. Per-name locks would be a throughput
+        # win only once we see many concurrent cache-misses on *different*
+        # names, which the judge workload doesn't do.
+        self._cache_lock = asyncio.Lock()
 
     async def initialize(self) -> None:
         """Reserved for future eager-load behavior. Currently a no-op."""
@@ -206,7 +296,12 @@ class InferenceProviderRegistry:
         return [_row_to_record(dict(row)) for row in rows]
 
     async def get_record(self, name: str) -> ProviderRecord | None:
-        """Fetch a single record by name, or `None` if absent."""
+        """Fetch a single record by name, or `None` if absent.
+
+        Bypasses the record cache — used by the admin API where we want
+        the authoritative row. `get()` uses `_resolve_record` instead,
+        which shares the cache and the lock.
+        """
         if self._db_pool is None:
             return None
         pool = await self._db_pool.get_pool()
@@ -220,25 +315,19 @@ class InferenceProviderRegistry:
         return _row_to_record(dict(row))
 
     async def get(self, name: str) -> InferenceProvider:
-        """Resolve `name` to a live `InferenceProvider`.
+        """Resolve `name` to a fresh `InferenceProvider` instance.
 
-        Cached instances are served if fresh; on miss we load the record,
-        resolve its credential, and build a provider via the factory map.
+        Cache semantics:
+        - The DB row is cached for `cache_ttl_seconds` (bounded config
+          staleness after an admin-API edit).
+        - The resolved `Credential` is NOT cached at the registry layer
+          (the `CredentialManager`'s 60s cache still applies, but it
+          invalidates on writes, so rotation takes effect immediately).
+        - The provider instance is NOT cached; a fresh one is built per
+          call. Construction is pure-Python cheap for both current
+          backends.
         """
-        now = time.time()
-        cached = self._cache.get(name)
-        if cached is not None:
-            cached_at, provider = cached
-            if now - cached_at < self._cache_ttl:
-                return provider
-            # Expired — drop and rebuild. Best-effort close on the stale
-            # instance so HTTP clients / subprocesses aren't orphaned.
-            self._cache.pop(name, None)
-            await _safe_close(provider)
-
-        record = await self.get_record(name)
-        if record is None:
-            raise ProviderNotFoundError(f"Inference provider {name!r} not found")
+        record = await self._resolve_record(name)
 
         factory = self._factories.get(record.backend_type)
         if factory is None:
@@ -247,33 +336,64 @@ class InferenceProviderRegistry:
                 f"which is not registered. Known: {sorted(self._factories)!r}"
             )
 
-        credential = None
+        credential: Credential | None = None
         if record.credential_name is not None:
             try:
-                credential = await self._credential_manager._get_server_key(record.credential_name)
+                credential = await self._credential_manager.resolve_server_credential(record.credential_name)
             except CredentialError as exc:
                 raise MissingCredentialError(
                     f"Provider {name!r} references credential_name={record.credential_name!r}, "
                     f"but it could not be resolved: {exc}"
                 ) from exc
 
-        provider = factory(record, credential)
-        self._cache[name] = (now, provider)
-        return provider
+        return factory(record, credential)
+
+    async def _resolve_record(self, name: str) -> ProviderRecord:
+        """Return a `ProviderRecord`, serving from cache when fresh.
+
+        The lock serializes only cold-cache DB reads; callers that land
+        inside the TTL see the cached record without waiting. The
+        two-phase check (outside lock, then inside lock) avoids stampeding
+        the DB under concurrent cold-cache `get()` on the same name.
+        """
+        cached = self._record_cache.get(name)
+        now = time.time()
+        if cached is not None and now - cached[0] < self._cache_ttl:
+            return cached[1]
+
+        async with self._cache_lock:
+            cached = self._record_cache.get(name)
+            now = time.time()
+            if cached is not None and now - cached[0] < self._cache_ttl:
+                return cached[1]
+
+            record = await self.get_record(name)
+            if record is None:
+                # Drop any stale entry so a deleted row doesn't linger.
+                self._record_cache.pop(name, None)
+                raise ProviderNotFoundError(f"Inference provider {name!r} not found")
+            self._record_cache[name] = (now, record)
+            return record
 
     async def put(self, record: ProviderRecord) -> None:
-        """Insert or update a provider row; drops any cached instance.
-
-        We pass `created_at`/`updated_at` as distinct positional args to
-        avoid the SQLite translator's positional-arg-reuse bug (fixed in
-        PR #600, not yet merged into this branch's base).
-        """
+        """Insert or update a provider row; drops the cached record."""
         if self._db_pool is None:
             raise InferenceRegistryError("No DB pool configured; cannot persist provider")
         _validate_record(record, self._factories)
 
         pool = await self._db_pool.get_pool()
         config_json = json.dumps(record.config, ensure_ascii=False)
+        # We passed Pydantic's size gate; re-check here so direct put()
+        # callers (tests, PR #4's policy wiring) can't accidentally
+        # bypass the UI ceiling.
+        if len(config_json.encode("utf-8")) > MAX_CONFIG_JSON_BYTES:
+            raise InferenceRegistryError(
+                f"Provider {record.name!r}: config JSON exceeds {MAX_CONFIG_JSON_BYTES} bytes."
+            )
+        # NOTE: `created_at` / `updated_at` are written as NOW() literals
+        # in the DDL default. We pass them explicitly here to keep the
+        # SQL readable AND to avoid PR #600's positional-arg-reuse bug
+        # (`$N, $N` → `?, ?`). Two literal `NOW()` calls are cheap.
         await pool.execute(
             """
             INSERT INTO inference_providers
@@ -292,7 +412,7 @@ class InferenceProviderRegistry:
             record.default_model,
             config_json,
         )
-        await self._invalidate(record.name)
+        self._invalidate(record.name)
         logger.info(
             "Inference provider %r stored (backend=%s, credential=%s)",
             record.name,
@@ -311,37 +431,32 @@ class InferenceProviderRegistry:
         )
         count_str = str(result).rsplit(" ", 1)[-1]
         deleted = count_str != "0"
-        await self._invalidate(name)
+        self._invalidate(name)
         if deleted:
             logger.info("Inference provider %r deleted", name)
         return deleted
 
     async def close(self) -> None:
-        """Drain cached providers and release any held resources."""
-        cached = list(self._cache.values())
-        self._cache.clear()
-        for _, provider in cached:
-            await _safe_close(provider)
+        """Clear the record cache.
 
-    async def _invalidate(self, name: str) -> None:
-        """Drop a cached provider (on update or delete), closing it first."""
-        cached = self._cache.pop(name, None)
-        if cached is not None:
-            _, provider = cached
-            await _safe_close(provider)
+        No provider instances are held, so there's nothing async to
+        drain. Kept for lifespan symmetry with `CredentialManager.close()`.
+        """
+        self._record_cache.clear()
 
+    def _invalidate(self, name: str) -> None:
+        """Drop a cached record on update / delete."""
+        self._record_cache.pop(name, None)
 
-async def _safe_close(provider: InferenceProvider) -> None:
-    """Call `provider.close()` and swallow any error to a warning.
+    def known_backend_types(self) -> tuple[str, ...]:
+        """Return the backend_type keys this registry can construct.
 
-    We don't want a bad `close()` on one provider to block cleanup of
-    the rest of the cache during shutdown.
-    """
-    close: Callable[[], Awaitable[None]] = provider.close
-    try:
-        await close()
-    except Exception as exc:  # noqa: BLE001 - best-effort cleanup
-        logger.warning("Error closing inference provider %r: %r", provider.name, exc)
+        Surfaced on admin-API list responses so the UI can mark rows
+        with an unregistered backend_type (operator-written row whose
+        backend was removed or hasn't been deployed yet) rather than
+        silently rewriting them on edit.
+        """
+        return tuple(sorted(self._factories))
 
 
 def _row_to_record(row: dict[str, Any]) -> ProviderRecord:
@@ -349,6 +464,13 @@ def _row_to_record(row: dict[str, Any]) -> ProviderRecord:
 
     `config` is stored as JSONB in postgres and as TEXT in sqlite;
     normalize both to a Python dict.
+
+    TODO(post-merge): normalize `created_at` / `updated_at` to an
+    ISO8601 string with a trailing `Z`. Postgres returns a timezone-
+    aware datetime stringified as `2026-01-01 00:00:00+00:00`; SQLite
+    returns a naive `2026-01-01 00:00:00`. Callers currently see raw
+    str(datetime) in both shapes; the UI doesn't parse either today,
+    so the drift is cosmetic — fix in a small follow-up PR.
     """
     raw_config = row["config"]
     if isinstance(raw_config, str):
@@ -373,7 +495,15 @@ def _row_to_record(row: dict[str, Any]) -> ProviderRecord:
 
 
 def _validate_record(record: ProviderRecord, factories: dict[str, ProviderFactory]) -> None:
-    """Cheap pre-write checks so invalid rows don't land in the DB."""
+    """Cheap pre-write checks so invalid rows don't land in the DB.
+
+    TODO(post-merge): add a DB-level CHECK on `credential_name` regex.
+    Today Pydantic validates incoming API bodies and this function
+    validates programmatic writes, but a direct SQL INSERT could still
+    seed an invalid name. Same goes for `list()` pagination — the UI
+    currently renders every row; fine for single-digit counts, add an
+    offset/limit once registries routinely hold >50 providers.
+    """
     if record.backend_type not in factories:
         raise UnknownBackendTypeError(
             f"backend_type={record.backend_type!r} is not registered. Known: {sorted(factories)!r}"
@@ -384,9 +514,12 @@ def _validate_record(record: ProviderRecord, factories: dict[str, ProviderFactor
 
 __all__ = [
     "DEFAULT_BACKEND_FACTORIES",
+    "MAX_CONFIG_JSON_BYTES",
     "InferenceProviderRegistry",
     "InferenceRegistryError",
     "MissingCredentialError",
+    "NullCredentialDirectApiProvider",
+    "NullCredentialError",
     "ProviderFactory",
     "ProviderNotFoundError",
     "ProviderRecord",
