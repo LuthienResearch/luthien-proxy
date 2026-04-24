@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from typing import Any
 
 import httpx
 import litellm
 from fastapi import APIRouter, Depends, HTTPException, Path
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from luthien_proxy.admin.policy_discovery import discover_policies, validate_policy_config
 from luthien_proxy.auth import verify_admin_token
@@ -25,6 +26,7 @@ from luthien_proxy.dependencies import (
     require_inference_provider_registry,
 )
 from luthien_proxy.inference.registry import (
+    MAX_CONFIG_JSON_BYTES,
     InferenceProviderRegistry,
     InferenceRegistryError,
     ProviderRecord,
@@ -598,6 +600,19 @@ class InferenceProviderRequest(BaseModel):
         "Validated per-backend at provider-construction time.",
     )
 
+    @field_validator("config")
+    @classmethod
+    def _check_config_size(cls, config: dict[str, Any]) -> dict[str, Any]:
+        """Reject config blobs that exceed the registry's byte ceiling.
+
+        Enforced at the request boundary so the admin UI gets a clear
+        422 rather than a DB-level payload failure.
+        """
+        encoded = json.dumps(config, ensure_ascii=False).encode("utf-8")
+        if len(encoded) > MAX_CONFIG_JSON_BYTES:
+            raise ValueError(f"config JSON is {len(encoded)} bytes, exceeds maximum of {MAX_CONFIG_JSON_BYTES} bytes")
+        return config
+
 
 class InferenceProviderResponse(BaseModel):
     """Single provider record in API responses."""
@@ -609,6 +624,12 @@ class InferenceProviderResponse(BaseModel):
     config: dict[str, Any]
     created_at: str | None
     updated_at: str | None
+    known_backend: bool = Field(
+        ...,
+        description="True if this provider's backend_type is registered in the running gateway. "
+        "False means the row was written against a backend that's been removed or isn't "
+        "deployed yet; the UI should mark it and disable in-place edit.",
+    )
 
 
 class InferenceProviderListResponse(BaseModel):
@@ -616,9 +637,14 @@ class InferenceProviderListResponse(BaseModel):
 
     providers: list[InferenceProviderResponse]
     count: int
+    known_backend_types: list[str] = Field(
+        default_factory=list,
+        description="All backend_type keys the running gateway can construct. Lets the UI "
+        "render the create/edit dropdown and flag unknown backends.",
+    )
 
 
-def _record_to_response(record: ProviderRecord) -> InferenceProviderResponse:
+def _record_to_response(record: ProviderRecord, known: set[str]) -> InferenceProviderResponse:
     """Shape a registry record for JSON serialization."""
     return InferenceProviderResponse(
         name=record.name,
@@ -628,6 +654,7 @@ def _record_to_response(record: ProviderRecord) -> InferenceProviderResponse:
         config=record.config,
         created_at=record.created_at,
         updated_at=record.updated_at,
+        known_backend=record.backend_type in known,
     )
 
 
@@ -662,8 +689,13 @@ async def list_inference_providers(
 ):
     """List configured inference providers."""
     records = await registry.list()
-    responses = [_record_to_response(r) for r in records]
-    return InferenceProviderListResponse(providers=responses, count=len(responses))
+    known = set(registry.known_backend_types())
+    responses = [_record_to_response(r, known) for r in records]
+    return InferenceProviderListResponse(
+        providers=responses,
+        count=len(responses),
+        known_backend_types=sorted(known),
+    )
 
 
 @router.delete("/inference-providers/{name}")
