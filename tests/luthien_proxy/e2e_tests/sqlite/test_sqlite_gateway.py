@@ -14,13 +14,6 @@ from tests.luthien_proxy.e2e_tests.test_mock_admin_api import (
     test_policy_list_includes_known_policies,
 )
 
-# --- Inference provider registry ---
-from tests.luthien_proxy.e2e_tests.test_mock_inference_providers import (
-    test_inference_provider_crud_roundtrip,
-    test_inference_provider_delete_missing_returns_404,
-    test_inference_provider_unknown_backend_returns_400,
-)
-
 # --- Basic passthrough ---
 from tests.luthien_proxy.e2e_tests.test_mock_basic import (
     test_default_response_when_queue_empty,
@@ -35,6 +28,13 @@ from tests.luthien_proxy.e2e_tests.test_mock_error_handling import (
     test_backend_500_propagates_error_response,
     test_missing_auth_header_returns_401,
     test_missing_messages_field_returns_400,
+)
+
+# --- Inference provider registry ---
+from tests.luthien_proxy.e2e_tests.test_mock_inference_providers import (
+    test_inference_provider_crud_roundtrip,
+    test_inference_provider_delete_missing_returns_404,
+    test_inference_provider_unknown_backend_returns_400,
 )
 
 # --- Onboarding policy ---

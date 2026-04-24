@@ -59,6 +59,9 @@ async def test_inference_provider_crud_roundtrip(
         assert provider["backend_type"] == "direct_api"
         assert provider["default_model"] == "claude-sonnet-4-6"
         assert provider["config"] == {"api_base": "https://api.anthropic.com"}
+        assert provider["known_backend"] is True
+        assert "direct_api" in listed["known_backend_types"]
+        assert "claude_code" in listed["known_backend_types"]
 
         # Delete
         delete_resp = await client.delete(

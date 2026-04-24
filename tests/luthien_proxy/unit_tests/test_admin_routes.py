@@ -1331,12 +1331,55 @@ class TestInferenceProviderRoutes:
                 ),
             ]
         )
+        mock_registry.known_backend_types = MagicMock(return_value=("claude_code", "direct_api"))
 
         result = await list_inference_providers(_=AUTH_TOKEN, registry=mock_registry)
         assert result.count == 1
         assert result.providers[0].name == "a"
         assert result.providers[0].credential_name == "cred"
         assert result.providers[0].config == {"k": "v"}
+        assert result.providers[0].known_backend is True
+        assert result.known_backend_types == ["claude_code", "direct_api"]
+
+    @pytest.mark.asyncio
+    async def test_list_inference_providers_flags_unknown_backend(self):
+        from luthien_proxy.admin.routes import list_inference_providers
+        from luthien_proxy.inference.registry import ProviderRecord
+
+        mock_registry = MagicMock()
+        mock_registry.list = AsyncMock(
+            return_value=[
+                ProviderRecord(
+                    name="legacy",
+                    backend_type="retired_backend",
+                    credential_name=None,
+                    default_model="m",
+                    config={},
+                    created_at=None,
+                    updated_at=None,
+                ),
+            ]
+        )
+        mock_registry.known_backend_types = MagicMock(return_value=("claude_code", "direct_api"))
+
+        result = await list_inference_providers(_=AUTH_TOKEN, registry=mock_registry)
+        assert result.providers[0].known_backend is False
+
+    @pytest.mark.asyncio
+    async def test_put_inference_provider_rejects_oversized_config(self):
+        from luthien_proxy.admin.routes import InferenceProviderRequest
+        from luthien_proxy.inference.registry import MAX_CONFIG_JSON_BYTES
+
+        # 65 KiB — 1 KiB over the ceiling.
+        oversized = {"x": "a" * (MAX_CONFIG_JSON_BYTES + 1024)}
+        with pytest.raises(ValidationError):
+            InferenceProviderRequest(
+                name="p",
+                backend_type="claude_code",
+                credential_name=None,
+                default_model="m",
+                config=oversized,
+            )
 
     @pytest.mark.asyncio
     async def test_delete_inference_provider_success(self):
