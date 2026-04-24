@@ -5,10 +5,11 @@ from pathlib import Path
 # import hooks activate, so it can't import from tests.constants.
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-# Force-set BEFORE any other imports. litellm's __init__ calls load_dotenv()
-# which picks up SENTRY_ENABLED=true from the repo's .env. pytest_sessionstart
-# runs too late (after conftest imports), so setdefault can't win the race.
-# Force-override ensures Sentry is never initialized during tests.
+# Force-set BEFORE any other imports. pydantic-settings picks up
+# SENTRY_ENABLED=true from the repo's .env when any module imports Settings;
+# pytest_sessionstart runs too late (after conftest imports), so setdefault
+# can't win the race. Force-override ensures Sentry is never initialized
+# during tests.
 os.environ["SENTRY_ENABLED"] = "false"
 os.environ["SENTRY_DSN"] = ""
 

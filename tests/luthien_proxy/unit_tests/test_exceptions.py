@@ -1,16 +1,8 @@
 """Tests for custom exceptions module."""
 
 import pytest
-from litellm.exceptions import (
-    APIConnectionError,
-    AuthenticationError,
-    BadRequestError,
-    InternalServerError,
-    RateLimitError,
-    ServiceUnavailableError,
-)
 
-from luthien_proxy.exceptions import BackendAPIError, map_litellm_error_type
+from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.pipeline.client_format import ClientFormat
 
 
@@ -82,50 +74,3 @@ class TestBackendAPIError:
             )
 
         assert exc_info.value.status_code == 503
-
-
-class TestMapLitellmErrorType:
-    """Tests for map_litellm_error_type function."""
-
-    def test_authentication_error(self):
-        """AuthenticationError maps to authentication_error."""
-        exc = AuthenticationError(message="bad key", llm_provider="anthropic", model="claude")
-        assert map_litellm_error_type(exc) == "authentication_error"
-
-    def test_rate_limit_error(self):
-        """RateLimitError maps to rate_limit_error."""
-        exc = RateLimitError(message="too many requests", llm_provider="openai", model="gpt-4")
-        assert map_litellm_error_type(exc) == "rate_limit_error"
-
-    def test_bad_request_error(self):
-        """BadRequestError maps to invalid_request_error."""
-        exc = BadRequestError(message="invalid params", llm_provider="anthropic", model="claude")
-        assert map_litellm_error_type(exc) == "invalid_request_error"
-
-    def test_api_connection_error(self):
-        """APIConnectionError maps to api_connection_error."""
-        exc = APIConnectionError(message="connection failed", llm_provider="openai", model="gpt-4")
-        assert map_litellm_error_type(exc) == "api_connection_error"
-
-    def test_service_unavailable_error(self):
-        """ServiceUnavailableError maps to overloaded_error."""
-        exc = ServiceUnavailableError(message="try again", llm_provider="anthropic", model="claude")
-        assert map_litellm_error_type(exc) == "overloaded_error"
-
-    def test_internal_server_error(self):
-        """InternalServerError maps to api_error."""
-        exc = InternalServerError(message="internal error", llm_provider="openai", model="gpt-4")
-        assert map_litellm_error_type(exc) == "api_error"
-
-    def test_unknown_exception_returns_api_error(self):
-        """Unknown exception types default to api_error."""
-
-        class CustomError(Exception):
-            pass
-
-        assert map_litellm_error_type(CustomError("unknown")) == "api_error"
-
-    def test_standard_exception_returns_api_error(self):
-        """Standard Python exceptions map to api_error."""
-        assert map_litellm_error_type(ValueError("bad value")) == "api_error"
-        assert map_litellm_error_type(RuntimeError("runtime issue")) == "api_error"

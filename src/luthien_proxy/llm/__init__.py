@@ -1,4 +1,4 @@
-"""LLM integration using LiteLLM as a library."""
+"""LLM integration via the Anthropic SDK."""
 
 from .types import (
     # Anthropic messages

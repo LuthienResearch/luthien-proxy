@@ -249,7 +249,6 @@ def _compose_system(
     Precedence: the `system` kwarg wins over any `system`-role message.
     For unstructured `json_object` requests we append a JSON-only
     instruction so the model doesn't emit prose.
->>>>>>> 16505246 (refactor(inference): swap DirectApiProvider internals to Anthropic SDK)
     """
     if system is not None:
         effective: str | None = system
