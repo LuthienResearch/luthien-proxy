@@ -152,6 +152,16 @@ class TestTranslateParams:
         assert translated.count("?") == 2
         assert args == ("a", "b")
 
+    def test_dollar_n_in_block_comment_is_substituted(self):
+        # Documenting current behavior: `/* */` block comments are NOT parsed, so a
+        # $N inside a comment gets rewritten. This is usually harmless (the
+        # comment just gets a `?` in it) but is surprising; if this bites,
+        # revisit and add comment-stripping.
+        query = "SELECT $1 /* see $2 here */ FROM t"
+        translated, args = _translate_params(query, ("a", "b"))
+        assert translated.count("?") == 2
+        assert args == ("a", "b")
+
 
 class TestConvertArg:
     def test_bool_to_int(self):
