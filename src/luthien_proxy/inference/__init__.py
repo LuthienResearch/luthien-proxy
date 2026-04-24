@@ -36,9 +36,12 @@ from .claude_code import ClaudeCodeProvider
 from .direct_api import DirectApiProvider
 from .registry import (
     DEFAULT_BACKEND_FACTORIES,
+    MAX_CONFIG_JSON_BYTES,
     InferenceProviderRegistry,
     InferenceRegistryError,
     MissingCredentialError,
+    NullCredentialDirectApiProvider,
+    NullCredentialError,
     ProviderNotFoundError,
     ProviderRecord,
     UnknownBackendTypeError,
@@ -59,7 +62,10 @@ __all__ = [
     "InferenceResult",
     "InferenceStructuredOutputError",
     "InferenceTimeoutError",
+    "MAX_CONFIG_JSON_BYTES",
     "MissingCredentialError",
+    "NullCredentialDirectApiProvider",
+    "NullCredentialError",
     "ProviderNotFoundError",
     "ProviderRecord",
     "UnknownBackendTypeError",
