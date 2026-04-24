@@ -49,9 +49,8 @@ Current references to LiteLLM in `src/luthien_proxy/`:
   - `policies/simple_llm_utils.py` and `policies/tool_call_judge_utils.py` — call `acompletion` directly for judge decisions (these are the underlying utilities for `SimpleLLMPolicy` and `ToolCallJudgePolicy`).
   - `main.py` — sets `litellm.drop_params = True` once at startup so judge calls tolerate unknown kwargs.
   - `admin/routes.py` — reads `litellm.anthropic_models` to list available Claude models in the admin UI.
-- **Indirect references** (no `import litellm`, but tied to the judge path):
+- **Indirect reference** (no `import litellm`, but tied to the judge path):
   - `exceptions.py` — `map_litellm_error_type()` maps LiteLLM exception **class names** onto `BackendAPIError` codes via string lookup (`type(exception).__name__`).
-  - `config_fields.py` / `settings.py` — retain `litellm_master_key` as a legacy fallback when resolving judge API keys (env var name only; no module import).
 
 **Key rule**: Do not introduce new LiteLLM imports from gateway request processing, streaming, or the `pipeline/` package. Judge-LLM calls (and the startup/admin touches listed above) are the only supported entry points today.
 
