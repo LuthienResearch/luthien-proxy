@@ -21,12 +21,14 @@ pytestmark = pytest.mark.mock_e2e
 
 _SIMPLE_LLM_POLICY = "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
 
-# Judge pointed at an unreachable URL to force failure
+# Judge pointed at an unreachable URL to force failure. `user_credentials`
+# is the default reference; the unreachable `api_base` is what induces the
+# connection error the tests exercise.
 _UNREACHABLE_JUDGE = {
     "instructions": "Block all content",
     "model": "claude-haiku-4-5",
     "api_base": "http://127.0.0.1:19999",
-    "auth_provider": "user_credentials",
+    "inference_provider": "user_credentials",
 }
 
 _BASE_REQUEST = {
