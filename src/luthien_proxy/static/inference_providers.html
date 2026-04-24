@@ -366,14 +366,59 @@
             })[c]);
         }
 
+        // Known backend types learned from the last list response.
+        // Used so the create/edit dropdown reflects what the gateway can
+        // actually construct (not a hardcoded JS constant).
+        let knownBackendTypes = ['claude_code', 'direct_api'];
+
+        // Last-seen list, keyed by name. Lets `editProvider(name)` look up
+        // the row without embedding JSON in the HTML.
+        // TODO(post-merge): refactor row buttons to `addEventListener` +
+        // dataset; inline `onclick` works today because `escapeHtml` covers
+        // the name regex but is still the wrong idiom.
+        const providersByName = Object.create(null);
+
+        function populateBackendDropdown(types, selected) {
+            const select = document.getElementById('field-backend');
+            const current = selected !== undefined ? selected : select.value;
+            select.innerHTML = '';
+            for (const t of types) {
+                const opt = document.createElement('option');
+                opt.value = t;
+                opt.textContent = t;
+                select.appendChild(opt);
+            }
+            // If the current value isn't in the known set, preserve it
+            // with an "(unknown)" label so editing doesn't silently
+            // rewrite the row to the first registered backend.
+            if (current && !types.includes(current)) {
+                const opt = document.createElement('option');
+                opt.value = current;
+                opt.textContent = current + ' (unknown in this build)';
+                opt.selected = true;
+                select.appendChild(opt);
+            } else if (current) {
+                select.value = current;
+            }
+        }
+
         async function loadProviders() {
             try {
                 const resp = await fetchApi('/inference-providers');
                 if (!resp.ok) throw new Error(await resp.text());
                 const data = await resp.json();
 
+                if (Array.isArray(data.known_backend_types) && data.known_backend_types.length > 0) {
+                    knownBackendTypes = data.known_backend_types;
+                    populateBackendDropdown(knownBackendTypes);
+                }
+
                 document.getElementById('providers-count').textContent =
                     data.count + ' provider' + (data.count !== 1 ? 's' : '');
+
+                // Rebuild lookup table.
+                for (const k of Object.keys(providersByName)) delete providersByName[k];
+                for (const p of data.providers) providersByName[p.name] = p;
 
                 const content = document.getElementById('providers-content');
                 if (data.count === 0) {
@@ -383,14 +428,20 @@
                     html += '<th>Name</th><th>Backend</th><th>Credential</th><th>Default model</th><th>Config</th><th></th>';
                     html += '</tr></thead><tbody>';
                     for (const p of data.providers) {
+                        const backendLabel = p.known_backend
+                            ? escapeHtml(p.backend_type)
+                            : escapeHtml(p.backend_type) + ' <span style="color:#fca5a5;font-size:11px;border:1px solid #f87171;padding:1px 4px;border-radius:3px">unknown</span>';
+                        const editAttrs = p.known_backend
+                            ? ''
+                            : ' disabled title="Backend type is not registered in this build — edit would coerce it to a registered type."';
                         html += '<tr>';
                         html += '<td class="mono">' + escapeHtml(p.name) + '</td>';
-                        html += '<td>' + escapeHtml(p.backend_type) + '</td>';
+                        html += '<td>' + backendLabel + '</td>';
                         html += '<td>' + (p.credential_name ? escapeHtml(p.credential_name) : '<span style="color:#666">—</span>') + '</td>';
                         html += '<td class="mono">' + escapeHtml(p.default_model) + '</td>';
                         html += '<td class="mono">' + escapeHtml(JSON.stringify(p.config)) + '</td>';
                         html += '<td><div class="button-row">';
-                        html += '<button onclick="editProvider(' + JSON.stringify(JSON.stringify(p)) + ')">Edit</button>';
+                        html += '<button onclick="editProvider(\'' + escapeHtml(p.name) + '\')"' + editAttrs + '>Edit</button>';
                         html += '<button class="danger" onclick="deleteProvider(\'' + escapeHtml(p.name) + '\')">Delete</button>';
                         html += '</div></td>';
                         html += '</tr>';
@@ -427,10 +478,14 @@
             }
         }
 
-        function editProvider(json) {
-            const p = JSON.parse(json);
+        function editProvider(name) {
+            const p = providersByName[name];
+            if (!p) return;
             document.getElementById('field-name').value = p.name;
-            document.getElementById('field-backend').value = p.backend_type;
+            // populateBackendDropdown preserves the current value with an
+            // "(unknown)" label if it's not in the known set, so editing
+            // a row with a removed backend doesn't silently rewrite it.
+            populateBackendDropdown(knownBackendTypes, p.backend_type);
             document.getElementById('field-credential').value = p.credential_name || '';
             document.getElementById('field-model').value = p.default_model;
             document.getElementById('field-config').value = JSON.stringify(p.config, null, 2);
