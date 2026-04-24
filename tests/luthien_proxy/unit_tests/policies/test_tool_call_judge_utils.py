@@ -9,10 +9,31 @@ from __future__ import annotations
 
 import pytest
 
+from luthien_proxy.policies.tool_call_judge_policy import ToolCallJudgeConfig
 from luthien_proxy.policies.tool_call_judge_utils import (
     build_judge_prompt,
     parse_judge_response,
 )
+
+
+def _make_config(**overrides) -> ToolCallJudgeConfig:
+    """Build a config with the now-required auth_provider already set."""
+    overrides.setdefault("auth_provider", "user_credentials")
+    return ToolCallJudgeConfig(**overrides)
+
+
+class TestToolCallJudgeConfig:
+    """Test config model validation and defaults."""
+
+    def test_auth_provider_required(self):
+        """Building a config without auth_provider now raises a validation error."""
+        with pytest.raises(Exception):
+            ToolCallJudgeConfig()  # type: ignore[call-arg]
+
+    def test_frozen(self):
+        config = _make_config()
+        with pytest.raises(Exception):
+            config.model = "other"  # type: ignore[misc]
 
 
 class TestBuildJudgePrompt:

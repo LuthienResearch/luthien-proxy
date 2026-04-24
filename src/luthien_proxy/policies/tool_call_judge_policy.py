@@ -14,7 +14,7 @@ Example config:
         config:
           model: "claude-haiku-4-5"
           api_base: "http://localhost:11434/v1"
-          api_key: null
+          auth_provider: "user_credentials"
           probability_threshold: 0.6
           temperature: 0.0
           max_tokens: 256  # see DEFAULT_JUDGE_MAX_TOKENS
@@ -124,6 +124,8 @@ class ToolCallJudgeConfig(BaseModel):
         "{'user_then_server': 'name'} (optionally with on_fallback: warn|fallback|fail).",
     )
 
+    model_config = {"frozen": True}
+
 
 class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
     """Policy that evaluates tool calls with a judge LLM and blocks harmful ones.
@@ -154,7 +156,11 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         return "ToolJudge"
 
     def __init__(self, config: ToolCallJudgeConfig | None = None):
-        """Initialize with optional config. Also accepts a dict at runtime."""
+        """Initialize with optional config. Also accepts a dict at runtime.
+
+        Note: config=None will fail at runtime with ValidationError since auth_provider is required.
+        Pass an explicit ToolCallJudgeConfig with auth_provider set.
+        """
         self.config = self._init_config(config, ToolCallJudgeConfig)
 
         settings = get_settings()

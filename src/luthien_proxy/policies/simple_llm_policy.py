@@ -119,7 +119,11 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         return "SimpleLLM"
 
     def __init__(self, config: SimpleLLMJudgeConfig | None = None):
-        """Initialize with judge config."""
+        """Initialize with judge config.
+
+        Note: config=None will fail at runtime with ValidationError since auth_provider is required.
+        Pass an explicit SimpleLLMJudgeConfig with auth_provider set.
+        """
         parsed = self._init_config(config, SimpleLLMJudgeConfig)
 
         settings = get_settings()
