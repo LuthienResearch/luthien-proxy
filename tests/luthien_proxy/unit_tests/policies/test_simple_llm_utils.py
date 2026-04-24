@@ -3,17 +3,17 @@
 Tests for the utility functions used by SimpleLLMPolicy:
 - Judge prompt building
 - Judge action parsing (pass/replace with text and tool blocks)
-- Judge LLM calling with configuration
+- Judge call via an `InferenceProvider`
 """
 
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from luthien_proxy.credentials.credential import Credential, CredentialType
+from luthien_proxy.inference.base import InferenceResult
 from luthien_proxy.policies.simple_llm_utils import (
     BlockDescriptor,
     SimpleLLMJudgeConfig,
@@ -23,22 +23,23 @@ from luthien_proxy.policies.simple_llm_utils import (
 )
 
 
-def _make_credential(value: str = "test-api-key") -> Credential:
-    return Credential(value=value, credential_type=CredentialType.API_KEY)
+def _mock_provider(text: str) -> MagicMock:
+    provider = MagicMock()
+    provider.complete = AsyncMock(return_value=InferenceResult.from_text(text))
+    return provider
 
 
-def _make_config(**overrides) -> SimpleLLMJudgeConfig:
-    """Build a config with the now-required auth_provider already set."""
-    overrides.setdefault("instructions", "Be safe")
-    overrides.setdefault("auth_provider", "user_credentials")
-    return SimpleLLMJudgeConfig(**overrides)
+def _mock_provider_raising(exc: Exception) -> MagicMock:
+    provider = MagicMock()
+    provider.complete = AsyncMock(side_effect=exc)
+    return provider
 
 
 class TestSimpleLLMJudgeConfig:
     """Test config model validation and defaults."""
 
     def test_defaults(self):
-        config = _make_config()
+        config = SimpleLLMJudgeConfig(instructions="Be safe")
         assert config.model == "claude-haiku-4-5"
         assert config.api_base is None
         assert config.temperature == 0.0
@@ -46,22 +47,19 @@ class TestSimpleLLMJudgeConfig:
         assert config.on_error == "pass"
         assert config.max_retries == 2
         assert config.retry_delay == 0.5
-
-    def test_auth_provider_required(self):
-        """Building a config without auth_provider now raises a validation error."""
-        with pytest.raises(Exception):
-            SimpleLLMJudgeConfig(instructions="Be safe")  # type: ignore[call-arg]
+        assert config.inference_provider is None
+        assert config.auth_provider is None
 
     def test_frozen(self):
-        config = _make_config()
+        config = SimpleLLMJudgeConfig(instructions="Be safe")
         with pytest.raises(Exception):
             config.model = "other"  # type: ignore[misc]
 
     def test_on_error_validation(self):
-        _make_config(on_error="pass")
-        _make_config(on_error="block")
+        SimpleLLMJudgeConfig(instructions="Be safe", on_error="pass")
+        SimpleLLMJudgeConfig(instructions="Be safe", on_error="block")
         with pytest.raises(Exception):
-            _make_config(on_error="ignore")
+            SimpleLLMJudgeConfig(instructions="Be safe", on_error="ignore")
 
 
 class TestBlockDescriptor:
@@ -249,174 +247,152 @@ class TestBuildJudgePrompt:
 
 
 class TestCallSimpleLLMJudge:
-    """Tests for call_simple_llm_judge via the credential-based judge path.
-
-    The function mocks luthien_proxy.policies.simple_llm_utils.judge_completion
-    (the credential-aware wrapper around LiteLLM acompletion).
-    """
+    """Test the judge-call wrapper against a mocked `InferenceProvider`."""
 
     @pytest.mark.asyncio
     async def test_pass_result(self):
-        config = _make_config(model="test-model")
-
-        with patch(
-            "luthien_proxy.policies.simple_llm_utils.judge_completion",
-            new=AsyncMock(return_value='{"action": "pass"}'),
-        ):
-            result = await call_simple_llm_judge(
-                config=config,
-                current_block=BlockDescriptor(type="text", content="hello"),
-                previous_blocks=(),
-                credential=_make_credential(),
-            )
-
+        config = SimpleLLMJudgeConfig(instructions="Be safe", model="test-model")
+        provider = _mock_provider('{"action": "pass"}')
+        result = await call_simple_llm_judge(
+            config=config,
+            current_block=BlockDescriptor(type="text", content="hello"),
+            previous_blocks=(),
+            provider=provider,
+        )
         assert result.action == "pass"
 
     @pytest.mark.asyncio
     async def test_replace_result(self):
-        config = _make_config(model="test-model")
-
+        config = SimpleLLMJudgeConfig(instructions="Be safe", model="test-model")
         response_data = json.dumps(
             {
                 "action": "replace",
                 "blocks": [{"type": "text", "text": "sanitized"}],
             }
         )
-
-        with patch(
-            "luthien_proxy.policies.simple_llm_utils.judge_completion",
-            new=AsyncMock(return_value=response_data),
-        ):
-            result = await call_simple_llm_judge(
-                config=config,
-                current_block=BlockDescriptor(type="text", content="bad"),
-                previous_blocks=(),
-                credential=_make_credential(),
-            )
-
+        provider = _mock_provider(response_data)
+        result = await call_simple_llm_judge(
+            config=config,
+            current_block=BlockDescriptor(type="text", content="bad"),
+            previous_blocks=(),
+            provider=provider,
+        )
         assert result.action == "replace"
         assert result.blocks is not None
         assert result.blocks[0].text == "sanitized"
 
     @pytest.mark.asyncio
     async def test_uses_json_response_format(self):
-        """judge_completion is called with response_format={'type': 'json_object'}."""
-        config = _make_config(model="test-model")
-        mock_jc = AsyncMock(return_value='{"action": "pass"}')
-
-        with patch("luthien_proxy.policies.simple_llm_utils.judge_completion", new=mock_jc):
-            await call_simple_llm_judge(
-                config=config,
-                current_block=BlockDescriptor(type="text", content="hello"),
-                previous_blocks=(),
-                credential=_make_credential(),
-            )
-
-        call_kwargs = mock_jc.call_args.kwargs
+        config = SimpleLLMJudgeConfig(instructions="Be safe", model="test-model")
+        provider = _mock_provider('{"action": "pass"}')
+        await call_simple_llm_judge(
+            config=config,
+            current_block=BlockDescriptor(type="text", content="hello"),
+            previous_blocks=(),
+            provider=provider,
+        )
+        call_kwargs = provider.complete.call_args.kwargs
         assert call_kwargs["response_format"] == {"type": "json_object"}
 
     @pytest.mark.asyncio
-    async def test_forwards_credential_and_model_args(self):
-        config = _make_config(model="test-model", api_base="http://localhost:8080")
-        mock_jc = AsyncMock(return_value='{"action": "pass"}')
-        credential = _make_credential("my-key")
-
-        with patch("luthien_proxy.policies.simple_llm_utils.judge_completion", new=mock_jc):
-            await call_simple_llm_judge(
-                config=config,
-                current_block=BlockDescriptor(type="text", content="hello"),
-                previous_blocks=(),
-                credential=credential,
-            )
-
-        args, kwargs = mock_jc.call_args
-        assert args[0] is credential
-        assert kwargs["model"] == "test-model"
-        assert kwargs["api_base"] == "http://localhost:8080"
+    async def test_passes_credential_override(self):
+        """`credential_override` is forwarded to the provider."""
+        config = SimpleLLMJudgeConfig(instructions="Be safe", model="test-model")
+        provider = _mock_provider('{"action": "pass"}')
+        fake_cred = object()  # sentinel — provider is mocked, type doesn't matter
+        await call_simple_llm_judge(
+            config=config,
+            current_block=BlockDescriptor(type="text", content="hello"),
+            previous_blocks=(),
+            provider=provider,
+            credential_override=fake_cred,  # type: ignore[arg-type]
+        )
+        call_kwargs = provider.complete.call_args.kwargs
+        assert call_kwargs["credential_override"] is fake_cred
 
     @pytest.mark.asyncio
     async def test_error_propagation_after_retries(self):
         """All attempts fail → raises the last exception."""
-        config = _make_config(model="test-model", max_retries=2, retry_delay=0)
-
-        mock_jc = AsyncMock(side_effect=RuntimeError("LLM failed"))
-        with patch("luthien_proxy.policies.simple_llm_utils.judge_completion", new=mock_jc):
-            with pytest.raises(RuntimeError, match="LLM failed"):
-                await call_simple_llm_judge(
-                    config=config,
-                    current_block=BlockDescriptor(type="text", content="hello"),
-                    previous_blocks=(),
-                    credential=_make_credential(),
-                )
-            assert mock_jc.call_count == 3  # 1 initial + 2 retries
+        config = SimpleLLMJudgeConfig(
+            instructions="Be safe",
+            model="test-model",
+            max_retries=2,
+            retry_delay=0,
+        )
+        provider = _mock_provider_raising(RuntimeError("LLM failed"))
+        with pytest.raises(RuntimeError, match="LLM failed"):
+            await call_simple_llm_judge(
+                config=config,
+                current_block=BlockDescriptor(type="text", content="hello"),
+                previous_blocks=(),
+                provider=provider,
+            )
+        assert provider.complete.call_count == 3  # 1 initial + 2 retries
 
     @pytest.mark.asyncio
     async def test_no_retries_when_max_retries_zero(self):
-        config = _make_config(model="test-model", max_retries=0, retry_delay=0)
-
-        mock_jc = AsyncMock(side_effect=RuntimeError("LLM failed"))
-        with patch("luthien_proxy.policies.simple_llm_utils.judge_completion", new=mock_jc):
-            with pytest.raises(RuntimeError, match="LLM failed"):
-                await call_simple_llm_judge(
-                    config=config,
-                    current_block=BlockDescriptor(type="text", content="hello"),
-                    previous_blocks=(),
-                    credential=_make_credential(),
-                )
-            assert mock_jc.call_count == 1
+        config = SimpleLLMJudgeConfig(
+            instructions="Be safe",
+            model="test-model",
+            max_retries=0,
+            retry_delay=0,
+        )
+        provider = _mock_provider_raising(RuntimeError("LLM failed"))
+        with pytest.raises(RuntimeError, match="LLM failed"):
+            await call_simple_llm_judge(
+                config=config,
+                current_block=BlockDescriptor(type="text", content="hello"),
+                previous_blocks=(),
+                provider=provider,
+            )
+        assert provider.complete.call_count == 1
 
     @pytest.mark.asyncio
     async def test_retry_succeeds_on_second_attempt(self):
-        config = _make_config(model="test-model", max_retries=2, retry_delay=0)
-
-        mock_jc = AsyncMock(side_effect=[RuntimeError("transient"), '{"action": "pass"}'])
-        with patch("luthien_proxy.policies.simple_llm_utils.judge_completion", new=mock_jc):
-            result = await call_simple_llm_judge(
-                config=config,
-                current_block=BlockDescriptor(type="text", content="hello"),
-                previous_blocks=(),
-                credential=_make_credential(),
-            )
-
+        config = SimpleLLMJudgeConfig(
+            instructions="Be safe",
+            model="test-model",
+            max_retries=2,
+            retry_delay=0,
+        )
+        provider = MagicMock()
+        provider.complete = AsyncMock(
+            side_effect=[
+                RuntimeError("transient"),
+                InferenceResult.from_text('{"action": "pass"}'),
+            ]
+        )
+        result = await call_simple_llm_judge(
+            config=config,
+            current_block=BlockDescriptor(type="text", content="hello"),
+            previous_blocks=(),
+            provider=provider,
+        )
         assert result.action == "pass"
-        assert mock_jc.call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_retry_delay_is_applied(self):
-        config = _make_config(model="test-model", max_retries=1, retry_delay=0.5)
-
-        mock_jc = AsyncMock(side_effect=[RuntimeError("transient"), '{"action": "pass"}'])
-        with (
-            patch("luthien_proxy.policies.simple_llm_utils.judge_completion", new=mock_jc),
-            patch(
-                "luthien_proxy.policies.simple_llm_utils.asyncio.sleep",
-                return_value=None,
-            ) as mock_sleep,
-        ):
-            result = await call_simple_llm_judge(
-                config=config,
-                current_block=BlockDescriptor(type="text", content="hello"),
-                previous_blocks=(),
-                credential=_make_credential(),
-            )
-
-        assert result.action == "pass"
-        mock_sleep.assert_called_once_with(0.5)
+        assert provider.complete.call_count == 2
 
     @pytest.mark.asyncio
     async def test_retry_on_parse_failure(self):
         """Parse failure on first attempt, valid response on retry."""
-        config = _make_config(model="test-model", max_retries=1, retry_delay=0)
-
-        mock_jc = AsyncMock(side_effect=["not valid json", '{"action": "pass"}'])
-        with patch("luthien_proxy.policies.simple_llm_utils.judge_completion", new=mock_jc):
-            result = await call_simple_llm_judge(
-                config=config,
-                current_block=BlockDescriptor(type="text", content="hello"),
-                previous_blocks=(),
-                credential=_make_credential(),
-            )
-
+        config = SimpleLLMJudgeConfig(
+            instructions="Be safe",
+            model="test-model",
+            max_retries=1,
+            retry_delay=0,
+        )
+        provider = MagicMock()
+        provider.complete = AsyncMock(
+            side_effect=[
+                InferenceResult.from_text("not valid json"),
+                InferenceResult.from_text('{"action": "pass"}'),
+            ]
+        )
+        result = await call_simple_llm_judge(
+            config=config,
+            current_block=BlockDescriptor(type="text", content="hello"),
+            previous_blocks=(),
+            provider=provider,
+        )
         assert result.action == "pass"
 
 
