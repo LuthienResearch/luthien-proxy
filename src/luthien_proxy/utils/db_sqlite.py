@@ -15,6 +15,37 @@ from typing import AsyncIterator, Mapping, Sequence
 
 import aiosqlite
 
+_STRING_LITERAL_DOLLAR_N = re.compile(
+    r"""
+    '(?:''|[^'])*'      # single-quoted string literal (SQL-standard, '' = escaped quote)
+    |
+    "(?:""|[^"])*"      # double-quoted identifier/literal
+    """,
+    re.VERBOSE,
+)
+_DOLLAR_N = re.compile(r"\$(\d+)")
+
+
+def _reject_dollar_n_in_literals(query: str) -> None:
+    """Raise if a quoted string/identifier contains a $N-looking token.
+
+    The translator's $N -> ? substitution is regex-based and does not parse SQL.
+    A literal like '$5' would be rewritten as '?' and either silently corrupt
+    arg binding (pre-PR #600) or raise IndexError (post-PR #600). Callers that
+    genuinely need a literal '$' followed by digits must concatenate the digits
+    separately (e.g. '$' || '5') or avoid the translator entirely.
+    """
+    for match in _STRING_LITERAL_DOLLAR_N.finditer(query):
+        literal = match.group(0)
+        if _DOLLAR_N.search(literal):
+            raise ValueError(
+                f"SQL string literal contains a $N-looking token ({literal!r}). "
+                "The SQLite translator cannot distinguish this from a parameter "
+                "placeholder. Rewrite the literal (e.g. concatenate '$' with the "
+                "digits separately) or avoid routing this query through the SQLite "
+                "adapter."
+            )
+
 
 def _translate_params(query: str, args: tuple[object, ...]) -> tuple[str, tuple[object, ...]]:
     """Translate asyncpg-style $1,$2 parameters to SQLite ? placeholders.
@@ -25,8 +56,17 @@ def _translate_params(query: str, args: tuple[object, ...]) -> tuple[str, tuple[
     asyncpg/Postgres accept reuse natively; SQLite's `?` is strictly positional
     and does not, so we expand on the args side.
 
+    Does NOT parse SQL. `$N`-substitution, `::` cast stripping, and LEAST/NOW
+    rewriting all run as regex over the raw query. If a quoted literal contains
+    a `$N`-looking token, the translator rejects the query up-front with a
+    ValueError rather than silently corrupting arg binding. SQL comments
+    (`--`, `/* */`) are also not parsed; a `$N` inside a comment will be
+    rewritten to `?`, which is usually harmless but can still shift arg counts.
+
     Also rewrites PostgreSQL-specific SQL constructs to SQLite equivalents.
     """
+    _reject_dollar_n_in_literals(query)
+
     # Walk $N occurrences left-to-right, emitting one ? per occurrence and
     # recording which original arg (1-indexed) each one consumes.
     consumed: list[int] = []
@@ -35,7 +75,7 @@ def _translate_params(query: str, args: tuple[object, ...]) -> tuple[str, tuple[
         consumed.append(int(match.group(1)))
         return "?"
 
-    translated = re.sub(r"\$(\d+)", _sub_placeholder, query)
+    translated = _DOLLAR_N.sub(_sub_placeholder, query)
     if consumed:
         reordered = tuple(args[idx - 1] for idx in consumed)
     else:
