@@ -19,7 +19,7 @@ from luthien_proxy.utils.migration_check import check_migrations
 
 
 @pytest.fixture
-async def sqlite_db_pool() -> DatabasePool:
+async def sqlite_db_pool():
     """In-memory SQLite DatabasePool with all migrations applied.
 
     Runs the real migration runner (`check_migrations`) instead of an inlined
@@ -29,7 +29,10 @@ async def sqlite_db_pool() -> DatabasePool:
     db = DatabasePool("sqlite://:memory:")
     await db.get_pool()  # eagerly open so check_migrations sees the same pool
     await check_migrations(db)
-    return db
+    try:
+        yield db
+    finally:
+        await db.close()
 
 
 @pytest.mark.asyncio
