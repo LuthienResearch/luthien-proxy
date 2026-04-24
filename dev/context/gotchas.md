@@ -12,7 +12,7 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 - E2E tests (`pytest -m e2e`) are SLOW - use sparingly, prefer unit tests for rapid iteration
 - Always run `./scripts/dev_checks.sh` before committing - formats, lints, type-checks, and tests
 - **OTel disabled in tests**: Set `OTEL_ENABLED=false` in test environment to avoid connection errors to Tempo endpoint. Module-level `tracer = trace.get_tracer()` calls trigger OTel initialization at import time.
-- **LiteLLM type warnings (judge policies only)**: `judge_client.judge_completion` and the judge-side utilities in `simple_llm_utils.py` / `tool_call_judge_utils.py` still call `litellm.acompletion` and receive `ModelResponse`. When constructing judge-call fixtures, use proper typed objects (`Choices`, `Message`) to avoid Pydantic serialization warnings. The main gateway request path is Anthropic-SDK-only and does not touch these types.
+- **Judge-policy test fixtures**: Judge-side utilities in `simple_llm_utils.py` / `tool_call_judge_utils.py` receive `InferenceResult` values from an `InferenceProvider`. Mock the provider (`provider.complete = AsyncMock(return_value=InferenceResult.from_text(...))`) rather than mocking HTTP at a lower layer; tests in `tests/luthien_proxy/unit_tests/policies/test_simple_llm_utils.py` show the pattern. (Pre-PR-#609 fixtures used `litellm.types.utils.ModelResponse`; those shapes are gone.)
 
 ## Docker Development (2025-10-08, updated 2026-02-03)
 
@@ -79,11 +79,11 @@ See `SimplePolicy.on_stream_complete()` for the pattern.
 - **Fixed (PR #104)**: Validation error - changed `Request.messages` to `list[dict[str, Any]]`, added image block conversion
 - **Still broken**: Claude sometimes describes wrong image
 - **Tracking**: Issue #108 has full troubleshooting logs
-- **Stale caveat**: The original note attributed this to a "LiteLLM→Anthropic conversion issue" from an older architecture where the gateway went through LiteLLM. The Anthropic path no longer uses LiteLLM, so the root cause needs to be re-investigated if this still reproduces.
+- **Stale caveat**: The original note attributed this to a format-conversion issue from an older architecture where the gateway proxied through a third-party LLM aggregator. The gateway now talks to Anthropic through the SDK directly on both the main path and the judge path (via `DirectApiProvider`), so the root cause needs to be re-investigated if this still reproduces.
 
 ## Extended Thinking Blocks (2026-01-14, superseded 2026-04-10)
 
-**Historical only.** Earlier notes in this section described thinking-block handling from the era when the gateway ran backend calls through LiteLLM and had to untangle `thinking_blocks` / `reasoning_content` / `signature_delta` ordering, along with referenced modules (`anthropic_sse_assembler.py`, `response_normalizer.py`, `litellm_client.py`, `litellm_test_utils.py`) that no longer exist. The current Anthropic path uses the Anthropic SDK directly and consumes `MessageStreamEvent` values (from `anthropic.lib.streaming`) unmodified, so those workarounds do not apply. If thinking-block ordering bugs resurface, re-investigate against `pipeline/anthropic_processor.py` and the SDK event types rather than the old LiteLLM behavior.
+**Historical only.** Earlier notes in this section described thinking-block handling from the era when the gateway ran backend calls through a third-party LLM aggregator and had to untangle `thinking_blocks` / `reasoning_content` / `signature_delta` ordering, along with referenced modules (`anthropic_sse_assembler.py`, `response_normalizer.py`, and aggregator-specific client/test modules) that no longer exist. The current Anthropic path uses the Anthropic SDK directly and consumes `MessageStreamEvent` values (from `anthropic.lib.streaming`) unmodified, so those workarounds do not apply. If thinking-block ordering bugs resurface, re-investigate against `pipeline/anthropic_processor.py` and the SDK event types rather than the old pre-SDK behavior.
 
 Still relevant from that era: the **Anthropic API invariant** that all content-block events must complete before `message_delta` (see "Anthropic Streaming: All Content Blocks Must Precede message_delta" below) and the general requirement that `thinking` / `redacted_thinking` blocks appear before plain text in an assistant message.
 
@@ -136,7 +136,7 @@ if stream_state.finish_reason:
 2. **Compare streaming chunks**: Enable debug logging to see each SSE chunk as it flows through pipeline
 3. **Isolate the layer**: Is it request conversion? Response assembly? Policy transformation?
 4. **Reproduce minimally**: Strip the request down to simplest failing case
-5. **Check the Anthropic SDK version**: Gateway request processing is SDK-direct. If upstream stream events change shape, `pipeline/anthropic_processor.py` is where the breakage will surface. LiteLLM is only used inside judge policies and is isolated from the main request path.
+5. **Check the Anthropic SDK version**: Gateway request processing is SDK-direct on both the main path and the judge path (via `DirectApiProvider`). If upstream stream events or response shapes change, `pipeline/anthropic_processor.py` and `inference/direct_api.py` are where the breakage will surface.
 
 **Tools available**:
 - History/Conversation view: `/history` - conversation sessions and live details

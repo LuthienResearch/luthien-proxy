@@ -15,11 +15,13 @@ Integrated single-process gateway. Authoritative module map and request lifecycl
 - **Pipeline** (`src/luthien_proxy/pipeline/`): Request processors for the Anthropic path, including streaming execution.
 - **Policies** (`src/luthien_proxy/policies/`): Concrete policy implementations (noop, simple, tool-call judge, etc.).
 - **Policy Core** (`src/luthien_proxy/policy_core/`): Policy base classes, protocols, per-request `PolicyContext`, Anthropic execution interface.
+- **Storage** (`src/luthien_proxy/storage/`): Conversation event persistence with a background queue.
 - **Observability** (`src/luthien_proxy/observability/`): OpenTelemetry integration and structured transaction recording.
 - **Admin** (`src/luthien_proxy/admin/`): Runtime policy management API.
 - **Debug** (`src/luthien_proxy/debug/`): Endpoints for inspecting conversation events.
 - **UI** (`src/luthien_proxy/ui/`): Activity monitoring and diff viewer interfaces.
-- **LLM** (`src/luthien_proxy/llm/`): `AnthropicClient` (Anthropic SDK wrapper) plus a LiteLLM-backed `judge_client` used by judge-driven policies. The main request path does not go through LiteLLM.
+- **LLM** (`src/luthien_proxy/llm/`): `AnthropicClient` (Anthropic SDK wrapper) plus the per-credential client cache. Used by both the main `/v1/messages` path and, indirectly (through `DirectApiProvider`), judge-LLM calls.
+- **Inference** (`src/luthien_proxy/inference/`): `InferenceProvider` interface, `ClaudeCodeProvider` (`claude -p` subprocess), `DirectApiProvider` (Anthropic SDK), the DB-backed `InferenceProviderRegistry`, and the dispatch helper that resolves an `InferenceProviderRef` (`UserCredentials` / `Provider` / `UserThenProvider`) to a concrete provider at judge-call time.
 
 ## Anthropic Runtime Model (2026-02-27, updated 2026-04-10)
 
@@ -38,21 +40,23 @@ Integrated single-process gateway. Authoritative module map and request lifecycl
 - **Background persistence**: `SequentialTaskQueue` ensures non-blocking event emission to database
 - **OpenTelemetry**: Distributed tracing with automatic span creation and log correlation
 
-## LiteLLM Usage Boundaries (2025-10-17, updated 2026-04-10)
+## Inference Backend Boundaries (2025-10-17, updated 2026-04-23)
 
-LiteLLM is NOT on the main request path. Anthropic `/v1/messages` traffic is handled by `AnthropicClient` (Anthropic SDK) in `pipeline/anthropic_processor.py`, and the processor never imports `litellm`.
+The gateway talks to Anthropic through the Anthropic SDK in both directions:
 
-Current references to LiteLLM in `src/luthien_proxy/`:
+- **Main request path** (`/v1/messages`): `pipeline/anthropic_processor.py` uses `AnthropicClient` directly. The processor does not touch the `inference/` package.
+- **Judge-LLM calls** (`SimpleLLMPolicy`, `ToolCallJudgePolicy`): the policy's declared `inference_provider:` YAML field parses to an `InferenceProviderRef`, which `inference.dispatch.resolve_inference_provider()` resolves to a concrete `InferenceProvider` plus an optional `credential_override`. The policy then calls `provider.complete(...)`.
 
-- **Direct imports** (`import litellm` / `from litellm import ...`):
-  - `llm/judge_client.py` — wraps `litellm.acompletion` for judge-LLM calls.
-  - `policies/simple_llm_utils.py` and `policies/tool_call_judge_utils.py` — call `acompletion` directly for judge decisions (these are the underlying utilities for `SimpleLLMPolicy` and `ToolCallJudgePolicy`).
-  - `main.py` — sets `litellm.drop_params = True` once at startup so judge calls tolerate unknown kwargs.
-  - `admin/routes.py` — reads `litellm.anthropic_models` to list available Claude models in the admin UI.
-- **Indirect reference** (no `import litellm`, but tied to the judge path):
-  - `exceptions.py` — `map_litellm_error_type()` maps LiteLLM exception **class names** onto `BackendAPIError` codes via string lookup (`type(exception).__name__`).
+Concrete backends today:
 
-**Key rule**: Do not introduce new LiteLLM imports from gateway request processing, streaming, or the `pipeline/` package. Judge-LLM calls (and the startup/admin touches listed above) are the only supported entry points today.
+- `inference/claude_code.py::ClaudeCodeProvider` — runs `claude -p` in a subprocess with the operator credential injected via env vars. No per-call credential override.
+- `inference/direct_api.py::DirectApiProvider` — wraps `AnthropicClient`; accepts `credential_override` for user-credential passthrough. Structured outputs use Anthropic tool-use (single forced tool whose `input_schema` is the caller's schema).
+
+Named provider lookups flow through `InferenceProviderRegistry` (backed by the `inference_providers` table). The registry caches the DB row but resolves the credential fresh on every `get()` so credential rotations propagate immediately.
+
+**Key rule**: new backends plug in as additional `InferenceProvider` subclasses registered in `DEFAULT_BACKEND_FACTORIES` (`inference/registry.py`). Gateway request processing, streaming, and the `pipeline/` package must stay on the Anthropic SDK only — do not introduce a multi-provider aggregator library there.
+
+Historical note: through 2026-04-10 the judge path went through LiteLLM (`litellm.acompletion`, `litellm.anthropic_models`, `LITELLM_MASTER_KEY`, etc.). PR #609 retired LiteLLM entirely; the helpers, config keys, and dependency have been removed.
 
 ## E2E Test Infrastructure (2025-10-17, updated 2026-03-25)
 
@@ -211,16 +215,18 @@ Request → get_request_credential() → Credential (from headers)
 - `CredentialType` is determined by transport header: `Authorization: Bearer` → AUTH_TOKEN, `x-api-key` → API_KEY. No prefix heuristics.
 - `x-anthropic-api-key` header overrides the forwarding credential (what the backend sees) without affecting auth validation.
 
-**Auth providers** (policy config): Policies declare how to obtain credentials via `auth_provider` in YAML config:
-- `user_credentials` (default) — use the request's credential
-- `server_key: <name>` — look up operator-provisioned key from `CredentialStore`
-- `user_then_server: <name>` — try user creds, fall back to server key (with `on_fallback: fallback|warn|fail`)
+**Inference provider references** (policy config): Judge policies declare how to obtain the target backend via `inference_provider:` in YAML. As of PR #609 this field replaces the earlier `auth_provider:` key (the old name still parses and logs a deprecation warning). Accepted shapes:
+- `user_credentials` (default) — forward the request's credential to a passthrough `DirectApiProvider`
+- `{provider: "<name>"}` — look up a named entry in the `InferenceProviderRegistry` (backend + credential resolved together)
+- `{user_then_provider: {name: "<name>", on_fallback: "warn|fail|fallback"}}` — try the request credential first, fall back to the named provider
 
-**Resolution**: `CredentialManager.resolve(auth_provider, context)` is the single entry point. It dispatches on auth provider type and returns a `Credential`. Server credentials are encrypted at rest (Fernet) and cached in memory with a 60s TTL.
+**Resolution**: `inference.dispatch.resolve_inference_provider(ref, context, registry)` returns a `DispatchResult(provider, credential_override)` pair. Credential-only resolution (for anything not tied to an inference provider) still flows through `CredentialManager.resolve(...)`. Server credentials are encrypted at rest (Fernet) and cached in memory with a 60s TTL.
 
-**Admin CRUD**: `POST/GET/DELETE /api/admin/credentials` for server credential management. Names validated against `^[a-zA-Z0-9_-]{1,128}$`.
+**Admin CRUD**:
+- `POST/GET/DELETE /api/admin/credentials` — server credential management. Names validated against `^[a-zA-Z0-9_-]{1,128}$`.
+- `POST/GET/DELETE /api/admin/inference-providers` — named inference-provider management.
 
-**Key files**: `credentials/credential.py`, `credentials/auth_provider.py`, `credentials/store.py`, `credential_manager.py`
+**Key files**: `credentials/credential.py`, `credentials/auth_provider.py` (reference types + parsers), `credentials/store.py`, `credential_manager.py`, `inference/dispatch.py`, `inference/registry.py`
 
 ---
 
