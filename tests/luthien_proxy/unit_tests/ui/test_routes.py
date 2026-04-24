@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from luthien_proxy.dependencies import get_admin_key
+from luthien_proxy.dependencies import get_admin_key, get_api_key
 from luthien_proxy.ui.routes import router
 
 app = FastAPI()
@@ -14,6 +14,7 @@ app.include_router(router)
 # With no admin key configured, check_auth_or_redirect treats requests as
 # authenticated — matches the dockerless/unconfigured dev default.
 app.dependency_overrides[get_admin_key] = lambda: None
+app.dependency_overrides[get_api_key] = lambda: None
 
 
 @pytest.fixture
