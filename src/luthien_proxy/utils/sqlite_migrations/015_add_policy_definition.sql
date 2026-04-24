@@ -1,5 +1,5 @@
--- Interim policy_definition table. Superseded by 015 which drops this table and replaces it with policy_type.
--- Kept on disk so dev DBs that already applied 014 get a clean rollback via 015.
+-- Interim policy_definition table. Superseded by 016 which drops this table and replaces it with policy_type.
+-- Kept on disk so dev DBs that already applied this migration get a clean rollback via 016.
 
 CREATE TABLE IF NOT EXISTS policy_definition (
     id              INTEGER PRIMARY KEY,

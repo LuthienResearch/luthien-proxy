@@ -74,35 +74,22 @@ def resolve_collisions(
     Sort by class_ref lexicographically; first to claim a name wins; collisions get -2, -3, etc.
     Returns tuples in INPUT order.
     """
-    # Create indexed entries to track original positions
-    indexed_entries = [(i, entry) for i, entry in enumerate(discovered)]
+    sorted_entries = sorted(enumerate(discovered), key=lambda pair: pair[1]["class_ref"])
 
-    # Sort by class_ref lexicographically
-    sorted_entries = sorted(indexed_entries, key=lambda x: x[1]["class_ref"])
-
-    # Assign names with collision detection
-    assigned_names: dict[str, int] = {}  # Maps base_name -> next suffix number to use
-    result: list[tuple[str, dict[str, Any]]] = [None] * len(discovered)  # type: ignore[assignment]
+    assigned_by_idx: dict[int, str] = {}
+    next_suffix: dict[str, int] = {}
 
     for original_idx, entry in sorted_entries:
-        class_name = entry["name"]
-        base_name = derive_builtin_name(class_name)
-
-        # Check if this name is already taken
-        if base_name not in assigned_names:
-            # First to claim this name
-            assigned_name = base_name
-            assigned_names[base_name] = 2  # Next collision gets -2
+        base_name = derive_builtin_name(entry["name"])
+        if base_name not in next_suffix:
+            assigned_by_idx[original_idx] = base_name
+            next_suffix[base_name] = 2
         else:
-            # Collision: append suffix
-            suffix = assigned_names[base_name]
-            assigned_name = f"{base_name}-{suffix}"
-            assigned_names[base_name] = suffix + 1
+            suffix = next_suffix[base_name]
+            assigned_by_idx[original_idx] = f"{base_name}-{suffix}"
+            next_suffix[base_name] = suffix + 1
 
-        # Store result in original order
-        result[original_idx] = (assigned_name, entry)
-
-    return result
+    return [(assigned_by_idx[i], entry) for i, entry in enumerate(discovered)]
 
 
 def _resolve_description(policy_class: type) -> str | None:
@@ -136,7 +123,7 @@ async def sync_policy_types(
     now_iso = datetime.now(UTC).isoformat()
     seen_class_refs: list[str] = []
 
-    async with pool.connection() as conn:
+    async with pool.connection() as conn, conn.transaction():
         for assigned_name, entry in resolved:
             class_ref = entry["class_ref"]
             try:
@@ -144,11 +131,11 @@ async def sync_policy_types(
                 module = importlib.import_module(module_path)
                 policy_class = getattr(module, class_name)
             except (ImportError, AttributeError, ValueError) as exc:
-                logger.warning(f"Skipping {class_ref}: {exc}")
+                logger.warning("Skipping %s: %s", class_ref, exc)
                 continue
 
             if not (isinstance(policy_class, type) and issubclass(policy_class, BasePolicy)):
-                logger.warning(f"Skipping {class_ref}: not a BasePolicy subclass")
+                logger.warning("Skipping %s: not a BasePolicy subclass", class_ref)
                 continue
 
             description = _resolve_description(policy_class)

@@ -1,4 +1,4 @@
--- ABOUTME: Replace 014's policy_definition with v5 schema (policy_type)
+-- ABOUTME: Replace 015's policy_definition with policy_type
 -- ABOUTME: Drops the prior table; class_ref is the stable identity for built-in types
 
 DROP TABLE IF EXISTS policy_definition;
