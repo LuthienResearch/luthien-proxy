@@ -76,7 +76,6 @@ const EXAMPLES = {
 const state = {
     policies: [],
     currentPolicy: null,
-    invalidFields: new Set(),
     chain: [],
     availableModels: [],
     selectedModel: DEFAULT_MODEL,
@@ -267,7 +266,6 @@ function addToChain(classRef, event) {
     if (!p) return;
     state.chain.push({ classRef, config: defaultConfigFor(p) });
     state.expandedChainIndex = state.chain.length - 1;
-    state.invalidFields.clear();
     renderAll();
 }
 
@@ -537,14 +535,6 @@ function updateChainConfig(index, data) {
 function updateActivateButton() {
     const btn = document.getElementById('btn-activate');
     if (!btn) return;
-
-    if (state.invalidFields.size > 0) {
-        btn.disabled = true;
-        btn.textContent = 'Fix errors to activate';
-        btn.classList.add('error-state');
-        return;
-    }
-    btn.classList.remove('error-state');
 
     btn.disabled = state.isActivating;
     const label = state.chain.length > 1
@@ -822,10 +812,6 @@ async function runTest(side) {
 async function handleActivateChain() {
     if (state.chain.length === 0) return;
     if (state.isActivating) return;
-    if (state.invalidFields.size > 0) {
-        showStatus('proposed-status', 'error', 'Fix errors before activating');
-        return;
-    }
 
     state.isActivating = true;
     updateActivateButton();

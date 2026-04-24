@@ -157,6 +157,14 @@ class TestConversationLinkPolicy:
 
         assert config["base_url"] == "http://example.com:9000"
 
+    def test_no_args_uses_default_config(self):
+        """ConversationLinkPolicy() with no args should use default base_url."""
+        policy = ConversationLinkPolicy()
+
+        config = policy.get_config()
+
+        assert config["base_url"] == "http://localhost:8000"
+
 
 class TestConversationLinkPolicyIntegration:
     """Test through the real SimplePolicy entry point (on_anthropic_response)."""
