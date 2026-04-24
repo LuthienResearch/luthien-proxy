@@ -304,11 +304,12 @@
 
             <div class="form-group">
                 <label for="field-backend">Backend type</label>
-                <select class="select-input" id="field-backend">
+                <select class="select-input" id="field-backend" data-known="true">
                     <option value="claude_code">claude_code</option>
                     <option value="direct_api">direct_api</option>
                 </select>
                 <span class="hint">claude_code spawns the Claude CLI; direct_api calls the provider HTTP API.</span>
+                <div id="unknown-backend-warning" class="status-message error" style="display:none;margin-top:8px"></div>
             </div>
 
             <div class="form-group">
@@ -391,14 +392,48 @@
             // If the current value isn't in the known set, preserve it
             // with an "(unknown)" label so editing doesn't silently
             // rewrite the row to the first registered backend.
+            let known;
             if (current && !types.includes(current)) {
                 const opt = document.createElement('option');
                 opt.value = current;
                 opt.textContent = current + ' (unknown in this build)';
                 opt.selected = true;
                 select.appendChild(opt);
+                known = false;
             } else if (current) {
                 select.value = current;
+                known = types.includes(current);
+            } else {
+                known = true;
+            }
+            // Data attribute so CSS / JS consumers can observe without
+            // re-deriving. Also drives the Save-disabled trap below.
+            select.setAttribute('data-known', known ? 'true' : 'false');
+            updateSaveEnabled();
+        }
+
+        // Save is disabled whenever the selected backend_type isn't
+        // registered in this gateway. registry.put() would reject with
+        // 400 anyway; disabling at the UI avoids a submit that the
+        // operator has no way to satisfy.
+        function updateSaveEnabled() {
+            const select = document.getElementById('field-backend');
+            const submit = document.getElementById('submit-btn');
+            const warnBox = document.getElementById('unknown-backend-warning');
+            const known = select.getAttribute('data-known') !== 'false';
+            submit.disabled = !known;
+            if (!known) {
+                submit.title = 'Backend type is not registered in this build.';
+                if (warnBox) {
+                    warnBox.style.display = 'block';
+                    warnBox.textContent =
+                        'Backend type "' + select.value + '" is not registered in this build; ' +
+                        'the gateway would reject any save. Contact the operator to register ' +
+                        'this backend, or pick a registered value from the dropdown.';
+                }
+            } else {
+                submit.title = '';
+                if (warnBox) warnBox.style.display = 'none';
             }
         }
 
@@ -519,6 +554,15 @@
             } catch {
                 e.target.style.borderColor = '#f87171';
             }
+        });
+
+        // Re-evaluate save-enabled state when the backend changes so
+        // typing an unknown value manually (or switching away from one)
+        // updates the button without a full reload.
+        document.getElementById('field-backend').addEventListener('change', (e) => {
+            const known = knownBackendTypes.includes(e.target.value);
+            e.target.setAttribute('data-known', known ? 'true' : 'false');
+            updateSaveEnabled();
         });
 
         async function submitProvider() {
