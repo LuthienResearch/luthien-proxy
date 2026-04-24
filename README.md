@@ -211,8 +211,11 @@ POLICY_CONFIG=./config/policy_config.yaml
 ```bash
 # Configuration for judge-based policies (ToolCallJudgePolicy)
 LLM_JUDGE_MODEL=anthropic/claude-haiku-4-5-20251001   # Model for judge
-LLM_JUDGE_API_KEY=your_judge_api_key                 # optional — only if judge needs a different key than the client's
 ```
+
+Judge credentials are no longer configured via env — each judge policy declares an
+`auth_provider` in its YAML config (`user_credentials`, `{"server_key": <name>}`, or
+`{"user_then_server": <name>}`).
 
 See `.env.example` for all available options and defaults.
 

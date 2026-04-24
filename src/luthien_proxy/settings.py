@@ -78,10 +78,8 @@ class Settings(_SettingsBase):
 
     # ── llm ─────────────────────────────────────────────────────────
     anthropic_api_key: str | None = None
-    litellm_master_key: str | None = None
     llm_judge_model: str | None = None
     llm_judge_api_base: str | None = None
-    llm_judge_api_key: str | None = None
     anthropic_client_cache_size: int = 16
 
     # ── security ────────────────────────────────────────────────────

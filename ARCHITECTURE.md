@@ -277,7 +277,7 @@ All policies inherit from `BasePolicy`. It provides:
 - `active_policy_names()` returning this policy's leaf names (multi-policies recurse; `NoOpPolicy` returns `[]`).
 - `get_config()` auto-extracts configuration from Pydantic-model instance attributes.
 - `freeze_configured_state()` — load-time check that rejects mutable container attributes on the instance (policies are singletons shared across concurrent requests).
-- `_resolve_judge_api_key()` — priority chain (explicit → passthrough → server fallback) for policies that make their own backend calls.
+- Policies that make their own backend calls (judges) declare an `auth_provider` in config (`user_credentials`, `{"server_key": ...}`, or `{"user_then_server": ...}`) and resolve it via `CredentialManager.resolve(provider, context)` at call time.
 
 ### AnthropicExecutionInterface
 

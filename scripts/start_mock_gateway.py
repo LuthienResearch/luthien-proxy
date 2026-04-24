@@ -62,7 +62,12 @@ def main():
     # the bearer matches CLIENT_API_KEY.
     _conn = sqlite3.connect(db_path)
     try:
-        _conn.execute("UPDATE auth_config SET auth_mode = 'passthrough', validate_credentials = 0 WHERE id = 1")
+        _cur = _conn.execute("UPDATE auth_config SET auth_mode = 'passthrough', validate_credentials = 0 WHERE id = 1")
+        if _cur.rowcount != 1:
+            raise RuntimeError(
+                f"auth_config seed row missing after migrations (rowcount={_cur.rowcount}); "
+                "migration 007 should have INSERTed id=1"
+            )
         _conn.commit()
     finally:
         _conn.close()
