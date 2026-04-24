@@ -210,11 +210,13 @@ def _make_request(headers: dict[str, str] | None = None, path: str = "/live") ->
 
 
 class TestCheckAuthOrRedirectNoKey:
-    """When admin_key is None, everything passes through."""
+    """When admin_key is None (ADMIN_API_KEY not configured), redirect to error page."""
 
-    def test_returns_none_when_no_admin_key(self):
+    def test_redirects_to_not_configured_when_no_admin_key(self):
         result = check_auth_or_redirect(_make_request(), admin_key=None)
-        assert result is None
+        assert isinstance(result, RedirectResponse)
+        assert result.status_code == 303
+        assert "not_configured" in result.headers["location"]
 
 
 class TestCheckAuthOrRedirectBearer:
@@ -401,3 +403,118 @@ class TestLocalhostBypassVerifyAdminToken:
             response = client.get("/api/admin/policy")
             assert response.status_code == 200
             assert response.json()["token"] == "localhost-bypass"
+
+
+def _make_app_with_keys(api_key: str | None, admin_key: str | None) -> FastAPI:
+    """Helper: create a FastAPI app with both api_key and admin_key configured."""
+    app = FastAPI()
+    mock_policy_manager = MagicMock(spec=PolicyManager)
+    mock_policy_manager.current_policy = NoOpPolicy()
+    deps = Dependencies(
+        db_pool=None,
+        redis_client=None,
+        policy_manager=mock_policy_manager,
+        emitter=NullEventEmitter(),
+        api_key=api_key,
+        admin_key=admin_key,
+    )
+    app.state.dependencies = deps
+
+    @app.get("/admin")
+    async def admin_endpoint(token: str = Depends(verify_admin_token)):
+        return {"authenticated": True, "token": token}
+
+    return app
+
+
+class TestVerifyAdminTokenRejectsClientApiKey:
+    """CLIENT_API_KEY must not grant access to admin endpoints.
+
+    When a request presents the CLIENT_API_KEY (api_key) on an admin endpoint,
+    it should receive a 403 with a clear message — not a generic auth failure.
+    This enforces role separation: proxy key ≠ admin key.
+    """
+
+    def test_client_api_key_bearer_rejected_with_403(self):
+        """CLIENT_API_KEY presented as Bearer token → 403 on admin endpoint."""
+        app = _make_app_with_keys(api_key="proxy-key", admin_key="admin-key")
+        with TestClient(app) as client:
+            response = client.get("/admin", headers={"Authorization": "Bearer proxy-key"})
+        assert response.status_code == 403
+        assert "proxy" in response.json()["detail"].lower() or "admin" in response.json()["detail"].lower()
+
+    def test_client_api_key_x_api_key_rejected_with_403(self):
+        """CLIENT_API_KEY presented as x-api-key header → 403 on admin endpoint."""
+        app = _make_app_with_keys(api_key="proxy-key", admin_key="admin-key")
+        with TestClient(app) as client:
+            response = client.get("/admin", headers={"x-api-key": "proxy-key"})
+        assert response.status_code == 403
+        assert "proxy" in response.json()["detail"].lower() or "admin" in response.json()["detail"].lower()
+
+    def test_admin_key_still_accepted(self):
+        """ADMIN_API_KEY still grants access — regression guard."""
+        app = _make_app_with_keys(api_key="proxy-key", admin_key="admin-key")
+        with TestClient(app) as client:
+            response = client.get("/admin", headers={"Authorization": "Bearer admin-key"})
+        assert response.status_code == 200
+        assert response.json()["authenticated"] is True
+
+    def test_same_key_for_both_is_accepted(self):
+        """When CLIENT_API_KEY == ADMIN_API_KEY (local dev), access is granted.
+
+        The admin key check passes first, so the key is treated as an admin key.
+        This is intentional: local dev convenience where one key serves both roles.
+        """
+        app = _make_app_with_keys(api_key="shared-key", admin_key="shared-key")
+        with TestClient(app) as client:
+            response = client.get("/admin", headers={"Authorization": "Bearer shared-key"})
+        assert response.status_code == 200
+
+    def test_no_client_api_key_configured_falls_through_to_normal_auth(self):
+        """When CLIENT_API_KEY is not set, behavior is unchanged (no false rejections)."""
+        app = _make_app_with_keys(api_key=None, admin_key="admin-key")
+        with TestClient(app) as client:
+            # Wrong key → generic 403 (not a proxy-key rejection)
+            response = client.get("/admin", headers={"Authorization": "Bearer some-random-key"})
+        assert response.status_code == 403
+
+    def test_no_client_api_key_configured_admin_key_accepted(self):
+        """When CLIENT_API_KEY is not set, ADMIN_API_KEY still works."""
+        app = _make_app_with_keys(api_key=None, admin_key="admin-key")
+        with TestClient(app) as client:
+            response = client.get("/admin", headers={"Authorization": "Bearer admin-key"})
+        assert response.status_code == 200
+
+
+class TestCheckAuthOrRedirectRejectsClientApiKey:
+    """CLIENT_API_KEY must not pass check_auth_or_redirect on admin/UI endpoints."""
+
+    def test_client_api_key_bearer_redirects(self):
+        """CLIENT_API_KEY as Bearer → redirect (not None) on UI endpoint."""
+        request = _make_request(headers={"authorization": "Bearer proxy-key"})
+        result = check_auth_or_redirect(request, admin_key="admin-key", client_api_key="proxy-key")
+        assert isinstance(result, RedirectResponse)
+
+    def test_client_api_key_x_api_key_redirects(self):
+        """CLIENT_API_KEY as x-api-key → redirect on UI endpoint."""
+        request = _make_request(headers={"x-api-key": "proxy-key"})
+        result = check_auth_or_redirect(request, admin_key="admin-key", client_api_key="proxy-key")
+        assert isinstance(result, RedirectResponse)
+
+    def test_admin_key_still_passes(self):
+        """ADMIN_API_KEY still returns None (authenticated) — regression guard."""
+        request = _make_request(headers={"authorization": "Bearer admin-key"})
+        result = check_auth_or_redirect(request, admin_key="admin-key", client_api_key="proxy-key")
+        assert result is None
+
+    def test_same_key_for_both_passes(self):
+        """When CLIENT_API_KEY == ADMIN_API_KEY, access is granted (local dev)."""
+        request = _make_request(headers={"authorization": "Bearer shared-key"})
+        result = check_auth_or_redirect(request, admin_key="shared-key", client_api_key="shared-key")
+        assert result is None
+
+    def test_no_client_api_key_configured_unchanged(self):
+        """When client_api_key=None, behavior is unchanged."""
+        request = _make_request(headers={"authorization": "Bearer admin-key"})
+        result = check_auth_or_redirect(request, admin_key="admin-key", client_api_key=None)
+        assert result is None

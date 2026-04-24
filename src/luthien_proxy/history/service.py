@@ -1,7 +1,7 @@
 """Service layer for conversation history functionality.
 
 Provides pure business logic for:
-- Fetching session lists with summaries
+- Fetching session lists with summaries (with optional server-side search/filter)
 - Fetching full session details with conversation turns
 - Exporting sessions to markdown format
 """
@@ -23,6 +23,7 @@ from .models import (
     PolicyAnnotation,
     SessionDetail,
     SessionListResponse,
+    SessionSearchParams,
     SessionSummary,
 )
 
@@ -147,7 +148,7 @@ def _safe_parse_json(s: str) -> dict[str, Any] | None:
         result = json.loads(s)
         return result if isinstance(result, dict) else None
     except (json.JSONDecodeError, TypeError) as e:
-        logger.debug(f"JSON parse failed in _safe_parse_json: {repr(e)}")
+        logger.debug("JSON parse failed in _safe_parse_json: %r", e)
         return None
 
 
@@ -201,8 +202,7 @@ def _parse_request_messages(request: dict[str, Any]) -> list[ConversationMessage
                         if block.get("type") == "tool_result":
                             result_content = block.get("content")
                             text = extract_text_content(result_content) if result_content is not None else ""
-                            # False/None → None; only True propagates
-                            is_error = block.get("is_error") or None
+                            is_error = True if block.get("is_error") else None
                             messages.append(
                                 ConversationMessage(
                                     message_type=MessageType.TOOL_RESULT,
@@ -288,6 +288,7 @@ _FIRST_MESSAGE_MAX_LENGTH = 100
 
 # Pattern to strip system-reminder tags from content
 _SYSTEM_REMINDER_PATTERN = re.compile(r"<system-reminder>.*?</system-reminder>\s*", re.DOTALL)
+_POLICY_CONTEXT_PATTERN = re.compile(r"<policy-context>.*?</policy-context>\s*", re.DOTALL)
 
 
 def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None:
@@ -317,7 +318,7 @@ def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None
             if int(max_tokens) <= 1:
                 return None
         except (TypeError, ValueError) as e:
-            logger.debug(f"max_tokens conversion failed: {repr(e)}")
+            logger.debug("max_tokens conversion failed: %r", e)
 
     messages = request.get("messages", [])
 
@@ -330,9 +331,11 @@ def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None
             if content:
                 # Truncate and clean up for display
                 content = content.strip()
-                # Skip system-reminder tags (Claude Code injects these)
+                # Skip system-reminder and policy-context tags (injected by Claude Code / policies)
                 if content.startswith("<system-reminder>"):
                     content = _SYSTEM_REMINDER_PATTERN.sub("", content).strip()
+                if content.startswith("<policy-context>"):
+                    content = _POLICY_CONTEXT_PATTERN.sub("", content).strip()
                 if not content:
                     continue
                 # Replace newlines with spaces for single-line preview
@@ -344,214 +347,283 @@ def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None
     return None
 
 
-async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0) -> SessionListResponse:
+async def fetch_session_list(
+    limit: int,
+    db_pool: DatabasePool,
+    offset: int = 0,
+    search: SessionSearchParams | None = None,
+) -> SessionListResponse:
     """Fetch list of recent sessions with summaries.
 
     Args:
         limit: Maximum number of sessions to return
         db_pool: Database connection pool
         offset: Number of sessions to skip for pagination
+        search: Optional search/filter parameters. When None or empty, returns
+            all sessions (original behavior, fully backward compatible).
 
     Returns:
         List of session summaries ordered by most recent activity
     """
-    if db_pool.is_sqlite:
-        return await _fetch_session_list_sqlite(limit, db_pool, offset)
-    return await _fetch_session_list_pg(limit, db_pool, offset)
+    if search is None:
+        search = SessionSearchParams()
 
+    # SECURITY INVARIANT: This function builds SQL via f-string interpolation for
+    # structural parts (dialect-specific expressions, column lists, event-type IN
+    # clauses). All user-supplied values MUST go through add_param() to be
+    # passed as query parameters — never interpolated directly. Violating this
+    # invariant introduces SQL injection. If you add a new filter, use
+    # add_param(user_value) for any scalar that originated from user input.
+    params: list[Any] = []
+    param_idx = 1
 
-async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int = 0) -> SessionListResponse:
-    """PostgreSQL version using PG-specific features (FILTER, DISTINCT ON, array_agg)."""
-    async with db_pool.connection() as conn:
-        total_count = await conn.fetchval(
-            """
-            SELECT COUNT(DISTINCT session_id)
-            FROM conversation_events
-            WHERE session_id IS NOT NULL
-            """
+    def add_param(value: Any) -> str:
+        nonlocal param_idx
+        placeholder = f"${param_idx}"
+        params.append(value)
+        param_idx += 1
+        return placeholder
+
+    def escape_like(value: str) -> str:
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+    def model_expr_on(alias: str) -> str:
+        return (
+            f"{alias}.payload->>'final_model'"
+            if db_pool.is_postgres
+            else f"json_extract({alias}.payload, '$.final_model')"
         )
 
-        rows = await conn.fetch(
-            """
-            WITH session_stats AS (
-                SELECT
-                    session_id,
-                    MIN(created_at) as first_ts,
-                    MAX(created_at) as last_ts,
-                    COUNT(*) as total_events,
-                    COUNT(DISTINCT call_id) as turn_count,
-                    COUNT(*) FILTER (
-                        WHERE event_type LIKE 'policy.%'
-                        AND event_type NOT LIKE 'policy.judge.evaluation%'
-                    ) as policy_interventions
-                FROM conversation_events
-                WHERE session_id IS NOT NULL
-                GROUP BY session_id
-            ),
-            session_models AS (
-                SELECT DISTINCT
-                    session_id,
-                    payload->>'final_model' as model
-                FROM conversation_events
-                WHERE session_id IS NOT NULL
-                AND event_type = 'transaction.request_recorded'
-                AND payload->>'final_model' IS NOT NULL
-            ),
-            session_first_message AS (
-                SELECT DISTINCT ON (session_id)
-                    session_id,
-                    payload as request_payload
-                FROM conversation_events
-                WHERE session_id IS NOT NULL
-                AND event_type = 'transaction.request_recorded'
-                -- Skip probe requests: max_tokens=1 means internal probe (token counting, quota).
-                -- COALESCE to 2 so requests without max_tokens are not skipped.
-                AND COALESCE((payload->'final_request'->>'max_tokens')::int, 2) > 1
-                ORDER BY session_id, created_at ASC
+    # Bare-column expressions for standalone queries (no table alias needed).
+    model_expr = "payload->>'final_model'" if db_pool.is_postgres else "json_extract(payload, '$.final_model')"
+    max_tokens_expr = (
+        "payload->'final_request'->>'max_tokens'"
+        if db_pool.is_postgres
+        else "json_extract(payload, '$.final_request.max_tokens')"
+    )
+    policy_count_expr = (
+        "COUNT(*) FILTER (WHERE ce.event_type LIKE 'policy.%' AND ce.event_type NOT LIKE 'policy.judge.evaluation%')"
+        if db_pool.is_postgres
+        else "SUM(CASE WHEN ce.event_type LIKE 'policy.%' AND ce.event_type NOT LIKE 'policy.judge.evaluation%' THEN 1 ELSE 0 END)"
+    )
+
+    qualifying_where = ["ce.session_id IS NOT NULL"]
+    qualifying_having: list[str] = []
+
+    if search.user is not None:
+        qualifying_where.append(f"ce.user_id LIKE {add_param(escape_like(search.user) + '%')} ESCAPE '\\'")
+
+    if search.model is not None:
+        model_placeholder = add_param(search.model)
+        qualifying_where.append(
+            f"""
+            EXISTS (
+                SELECT 1
+                FROM conversation_events ce_model
+                WHERE ce_model.session_id = ce.session_id
+                AND ce_model.event_type = 'transaction.request_recorded'
+                AND ce_model.session_id IS NOT NULL
+                AND {model_expr_on("ce_model")} = {model_placeholder}
             )
+            """.strip()
+        )
+
+    if search.q is not None:
+        if db_pool.is_postgres:
+            q_placeholder = add_param(search.q)
+            qualifying_where.append(
+                f"""
+                EXISTS (
+                    SELECT 1
+                    FROM conversation_events ce_search
+                    WHERE ce_search.session_id = ce.session_id
+                    AND ce_search.session_id IS NOT NULL
+                    AND ce_search.search_vector @@ plainto_tsquery('english', {q_placeholder})
+                )
+                """.strip()
+            )
+        else:
+            escaped_q = f"%{escape_like(search.q)}%"
+            request_content_placeholder = add_param(escaped_q)
+            request_block_placeholder = add_param(escaped_q)
+            response_content_placeholder = add_param(escaped_q)
+            qualifying_where.append(
+                f"""
+                EXISTS (
+                    SELECT 1
+                    FROM conversation_events ce_search
+                    WHERE ce_search.session_id = ce.session_id
+                    AND ce_search.session_id IS NOT NULL
+                    AND ce_search.event_type IN (
+                        'transaction.request_recorded',
+                        'transaction.streaming_response_recorded',
+                        'transaction.non_streaming_response_recorded'
+                    )
+                    AND (
+                        EXISTS (
+                            SELECT 1
+                            FROM json_tree(ce_search.payload, '$.final_request.messages') jt
+                            WHERE jt.type = 'text'
+                            AND (
+                                (
+                                    jt.fullkey GLOB '$.final_request.messages[*].content'
+                                    AND jt.value LIKE {request_content_placeholder} ESCAPE '\\'
+                                    AND EXISTS (
+                                        SELECT 1
+                                        FROM json_tree(ce_search.payload, '$.final_request.messages') role_node
+                                        WHERE role_node.fullkey = substr(jt.fullkey, 1, length(jt.fullkey) - length('.content')) || '.role'
+                                        AND role_node.value = 'user'
+                                    )
+                                )
+                                OR (
+                                    jt.fullkey GLOB '$.final_request.messages[*].content[*].text'
+                                    AND jt.value LIKE {request_block_placeholder} ESCAPE '\\'
+                                    AND EXISTS (
+                                        SELECT 1
+                                        FROM json_tree(ce_search.payload, '$.final_request.messages') role_node
+                                        WHERE role_node.fullkey = substr(jt.fullkey, 1, instr(jt.fullkey, '.content') - 1) || '.role'
+                                        AND role_node.value = 'user'
+                                    )
+                                )
+                            )
+                        )
+                        OR (
+                            EXISTS (
+                                SELECT 1
+                                FROM json_tree(ce_search.payload, '$.final_response') jt
+                                WHERE jt.type = 'text'
+                                AND jt.value LIKE {response_content_placeholder} ESCAPE '\\'
+                                AND (
+                                    jt.fullkey = '$.final_response.content'
+                                    OR jt.fullkey GLOB '$.final_response.content[*].text'
+                                )
+                            )
+                        )
+                    )
+                )
+                """.strip()
+            )
+
+    if search.from_time is not None:
+        qualifying_having.append(
+            f"MAX(ce.created_at) >= {add_param(search.from_time if db_pool.is_postgres else search.from_time.isoformat())}"
+        )
+
+    if search.to_time is not None:
+        qualifying_having.append(
+            f"MAX(ce.created_at) <= {add_param(search.to_time if db_pool.is_postgres else search.to_time.isoformat())}"
+        )
+
+    qualifying_where_sql = " AND ".join(qualifying_where)
+    qualifying_having_sql = f"HAVING {' AND '.join(qualifying_having)}" if qualifying_having else ""
+    policy_having_sql = f"HAVING {policy_count_expr} > 0" if search.policy_intervention else ""
+
+    common_ctes = f"""
+        WITH qualifying_sessions AS (
+            SELECT ce.session_id
+            FROM conversation_events ce
+            WHERE {qualifying_where_sql}
+            GROUP BY ce.session_id
+            {qualifying_having_sql}
+        ),
+        session_stats AS (
             SELECT
-                s.session_id,
-                s.first_ts,
-                s.last_ts,
-                s.total_events,
-                s.turn_count,
-                s.policy_interventions,
-                COALESCE(
-                    array_agg(DISTINCT m.model) FILTER (WHERE m.model IS NOT NULL),
-                    ARRAY[]::text[]
-                ) as models,
-                f.request_payload
-            FROM session_stats s
-            LEFT JOIN session_models m ON s.session_id = m.session_id
-            LEFT JOIN session_first_message f ON s.session_id = f.session_id
-            GROUP BY s.session_id, s.first_ts, s.last_ts,
-                     s.total_events, s.turn_count, s.policy_interventions,
-                     f.request_payload
-            ORDER BY s.last_ts DESC
-            LIMIT $1 OFFSET $2
-            """,
-            limit,
-            offset,
+                ce.session_id,
+                MIN(ce.created_at) as first_ts,
+                MAX(ce.created_at) as last_ts,
+                COUNT(*) as total_events,
+                COUNT(DISTINCT ce.call_id) as turn_count,
+                {policy_count_expr} as policy_interventions
+            FROM conversation_events ce
+            INNER JOIN qualifying_sessions qs ON qs.session_id = ce.session_id
+            GROUP BY ce.session_id
+            {policy_having_sql}
         )
-
-    sessions = [
-        SessionSummary(
-            session_id=str(row["session_id"]),
-            first_timestamp=parse_db_ts(row["first_ts"]).isoformat(),
-            last_timestamp=parse_db_ts(row["last_ts"]).isoformat(),
-            turn_count=int(row["turn_count"]),  # type: ignore[arg-type]
-            total_events=int(row["total_events"]),  # type: ignore[arg-type]
-            policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
-            models_used=list(row["models"]) if row["models"] else [],  # type: ignore[arg-type]
-            preview_message=_extract_preview_message(cast(_PreviewPayload, row["request_payload"])),
-        )
-        for row in rows
-    ]
-
-    total = int(total_count) if total_count is not None else 0  # type: ignore[arg-type]
-    has_more = offset + len(sessions) < total
-
-    return SessionListResponse(sessions=sessions, total=total, offset=offset, has_more=has_more)
-
-
-async def _fetch_session_list_sqlite(limit: int, db_pool: DatabasePool, offset: int = 0) -> SessionListResponse:
-    """SQLite version: 3 queries total (vs PostgreSQL's 2).
-
-    Avoids N+1 by batching models and previews for the whole page in one
-    query each, then merging in Python. PostgreSQL uses array_agg/DISTINCT ON
-    in a single CTE; SQLite lacks those, so we use IN (session_ids) instead.
     """
+
+    count_params = list(params)
+    limit_placeholder = add_param(limit)
+    offset_placeholder = add_param(offset)
+    row_params = list(params)
+
     async with db_pool.connection() as conn:
         total_count = await conn.fetchval(
-            """
-            SELECT COUNT(DISTINCT session_id)
-            FROM conversation_events
-            WHERE session_id IS NOT NULL
-            """
+            f"""
+            {common_ctes}
+            SELECT COUNT(*) FROM session_stats
+            """,
+            *count_params,
         )
 
         rows = await conn.fetch(
-            """
+            f"""
+            {common_ctes}
             SELECT
                 session_id,
-                MIN(created_at) as first_ts,
-                MAX(created_at) as last_ts,
-                COUNT(*) as total_events,
-                COUNT(DISTINCT call_id) as turn_count,
-                SUM(CASE
-                    WHEN event_type LIKE 'policy.%'
-                    AND event_type NOT LIKE 'policy.judge.evaluation%'
-                    THEN 1 ELSE 0
-                END) as policy_interventions
-            FROM conversation_events
-            WHERE session_id IS NOT NULL
-            GROUP BY session_id
+                first_ts,
+                last_ts,
+                total_events,
+                turn_count,
+                policy_interventions
+            FROM session_stats
             ORDER BY last_ts DESC
-            LIMIT $1 OFFSET $2
+            LIMIT {limit_placeholder} OFFSET {offset_placeholder}
             """,
-            limit,
-            offset,
+            *row_params,
         )
 
         total = int(total_count) if total_count is not None else 0  # type: ignore[arg-type]
-
         if not rows:
             return SessionListResponse(sessions=[], total=total, offset=offset, has_more=False)
 
         session_ids = [str(row["session_id"]) for row in rows]
-        placeholders = ", ".join(f"${i + 1}" for i in range(len(session_ids)))
+        session_id_placeholders = ", ".join(f"${i + 1}" for i in range(len(session_ids)))
 
-        # One query for all models on this page
         model_rows = await conn.fetch(
             f"""
-            SELECT session_id, json_extract(payload, '$.final_model') as model
+            SELECT session_id, {model_expr} as model
             FROM conversation_events
-            WHERE session_id IN ({placeholders})
+            WHERE session_id IN ({session_id_placeholders})
             AND event_type = 'transaction.request_recorded'
-            AND json_extract(payload, '$.final_model') IS NOT NULL
+            AND {model_expr} IS NOT NULL
             """,
             *session_ids,
         )
 
-        # One query for first qualifying preview per session on this page
         preview_rows = await conn.fetch(
             f"""
             SELECT session_id, payload as request_payload
             FROM conversation_events
-            WHERE session_id IN ({placeholders})
+            WHERE session_id IN ({session_id_placeholders})
             AND event_type = 'transaction.request_recorded'
-            AND COALESCE(
-                CAST(json_extract(payload, '$.final_request.max_tokens') AS INTEGER),
-                2
-            ) > 1
+            AND COALESCE(CAST({max_tokens_expr} AS INTEGER), 2) > 1
             ORDER BY session_id, created_at ASC
             """,
             *session_ids,
         )
 
-    # Build per-session lookup maps from the bulk results
     models_by_session: dict[str, list[str]] = {}
-    for r in model_rows:
-        sid = str(r["session_id"])
-        model = str(r["model"])
+    for model_row in model_rows:
+        sid = str(model_row["session_id"])
+        model = str(model_row["model"])
         session_models = models_by_session.setdefault(sid, [])
         if model not in session_models:
             session_models.append(model)
 
     preview_by_session: dict[str, str | None] = {}
-    for r in preview_rows:
-        sid = str(r["session_id"])
+    for preview_row in preview_rows:
+        sid = str(preview_row["session_id"])
         if sid not in preview_by_session:
-            preview_by_session[sid] = _extract_preview_message(cast(_PreviewPayload, r["request_payload"]))
+            preview_by_session[sid] = _extract_preview_message(cast(_PreviewPayload, preview_row["request_payload"]))
 
     sessions = [
         SessionSummary(
             session_id=str(row["session_id"]),
             first_timestamp=parse_db_ts(row["first_ts"]).isoformat(),
             last_timestamp=parse_db_ts(row["last_ts"]).isoformat(),
-            turn_count=int(row["turn_count"]),  # type: ignore[arg-type]
-            total_events=int(row["total_events"]),  # type: ignore[arg-type]
-            policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
+            turn_count=int(row["turn_count"] or 0),  # type: ignore[arg-type]
+            total_events=int(row["total_events"] or 0),  # type: ignore[arg-type]
+            policy_interventions=int(row["policy_interventions"] or 0),  # type: ignore[arg-type]
             models_used=models_by_session.get(str(row["session_id"]), []),
             preview_message=preview_by_session.get(str(row["session_id"])),
         )
@@ -622,7 +694,11 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
     # Sort call_ids by their first event timestamp to ensure chronological order
     sorted_call_ids = sorted(calls.keys(), key=lambda cid: calls[cid][0]["created_at"])
     for call_id in sorted_call_ids:
-        turn = _build_turn(call_id, calls[call_id])
+        try:
+            turn = _build_turn(call_id, calls[call_id])
+        except (ValueError, KeyError, TypeError) as e:
+            logger.warning("Skipping corrupt turn %s in session %s: %r", call_id, session_id, e)
+            continue
         turns.append(turn)
         if turn.model:
             all_models.add(turn.model)
@@ -683,7 +759,7 @@ def _build_turn(call_id: str, events: list[StoredEvent]) -> ConversationTurn:
             final_req = payload.get("final_request")
 
             if final_req is None:
-                raise KeyError("transaction.request_recorded missing 'final_request'")
+                raise ValueError("transaction.request_recorded missing 'final_request'")
 
             request_messages = _parse_request_messages(final_req)
 

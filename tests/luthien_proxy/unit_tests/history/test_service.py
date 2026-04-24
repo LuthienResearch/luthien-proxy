@@ -162,6 +162,84 @@ class TestExtractPreviewMessage:
         }
         assert _extract_preview_message(payload) == "Hello"
 
+    def test_strips_policy_context_string_prefix(self):
+        """Test that policy-context injected as string prefix is stripped.
+
+        When inject_policy_context is enabled, the policy awareness text is
+        prepended to the first user message as a string prefix. The preview
+        should show the actual user content, not the policy-context tag.
+        """
+        policy_context = (
+            "<policy-context>Your responses may be modified by the following active "
+            "policies before reaching the user: TestPolicy. This is expected "
+            "behavior — do not try to compensate for or reverse these modifications."
+            "</policy-context>"
+        )
+        user_message = "What is the capital of France?"
+        content = f"{policy_context}\n\n{user_message}"
+        payload = {"final_request": {"messages": [{"role": "user", "content": content}]}}
+        assert _extract_preview_message(payload) == user_message
+
+    def test_strips_policy_context_block_prefix(self):
+        """Test that policy-context injected as first content block is stripped.
+
+        When the user message content is a list of blocks, the policy awareness
+        text is prepended as the first text block. The preview should show the
+        actual user content from subsequent blocks.
+        """
+        policy_context = (
+            "<policy-context>Your responses may be modified by the following active "
+            "policies before reaching the user: TestPolicy. This is expected "
+            "behavior — do not try to compensate for or reverse these modifications."
+            "</policy-context>"
+        )
+        user_message = "What is the capital of France?"
+        content = [
+            {"type": "text", "text": policy_context},
+            {"type": "text", "text": user_message},
+        ]
+        payload = {"final_request": {"messages": [{"role": "user", "content": content}]}}
+        assert _extract_preview_message(payload) == user_message
+
+    def test_strips_policy_context_only_content_falls_through_to_next_message(self):
+        """Test that if policy-context is the only content, we fall through to next user message."""
+        policy_context = (
+            "<policy-context>Your responses may be modified by the following active "
+            "policies before reaching the user: TestPolicy. This is expected "
+            "behavior — do not try to compensate for or reverse these modifications."
+            "</policy-context>"
+        )
+        payload = {
+            "final_request": {
+                "messages": [
+                    {"role": "user", "content": policy_context},
+                    {"role": "assistant", "content": "Paris."},
+                    {"role": "user", "content": "Follow-up question"},
+                ]
+            }
+        }
+        assert _extract_preview_message(payload) == "Follow-up question"
+
+    def test_strips_policy_context_multiple_policies(self):
+        """Test stripping policy-context with multiple policy names."""
+        policy_context = (
+            "<policy-context>Your responses may be modified by the following active "
+            "policies before reaching the user: PolicyA, PolicyB, PolicyC. This is expected "
+            "behavior — do not try to compensate for or reverse these modifications."
+            "</policy-context>"
+        )
+        user_message = "Tell me a joke"
+        content = f"{policy_context}\n\n{user_message}"
+        payload = {"final_request": {"messages": [{"role": "user", "content": content}]}}
+        assert _extract_preview_message(payload) == user_message
+
+    def test_no_policy_context_unaffected(self):
+        """Test that messages without policy-context are unaffected by the fix."""
+        payload = {
+            "final_request": {"messages": [{"role": "user", "content": "Normal message without policy context"}]}
+        }
+        assert _extract_preview_message(payload) == "Normal message without policy context"
+
 
 class TestSafeParseJson:
     """Test safe JSON parsing."""
@@ -825,7 +903,7 @@ class TestBuildTurn:
             },
         ]
 
-        with pytest.raises(KeyError, match="final_request"):
+        with pytest.raises(ValueError, match="final_request"):
             _build_turn("call-123", events)
 
     def test_missing_final_response_raises_error(self):
@@ -910,75 +988,12 @@ class TestBuildTurn:
 
 
 class TestFetchSessionList:
-    """Test fetching session list from database."""
+    """Test fetching session list from database.
 
-    @pytest.mark.asyncio
-    async def test_successful_fetch(self):
-        """Test successful session list fetching."""
-        mock_rows = [
-            {
-                "session_id": "session-1",
-                "first_ts": datetime(2025, 1, 15, 10, 0, 0),
-                "last_ts": datetime(2025, 1, 15, 11, 0, 0),
-                "total_events": 10,
-                "turn_count": 3,
-                "policy_interventions": 1,
-                "models": ["gpt-4", "claude-3"],
-                "request_payload": {"final_request": {"messages": [{"role": "user", "content": "Hello world"}]}},
-            },
-        ]
-
-        mock_conn = AsyncMock()
-        mock_conn.fetchval.return_value = 1  # Total count
-        mock_conn.fetch.return_value = mock_rows
-
-        mock_pool = MagicMock()
-        mock_pool.is_sqlite = False
-        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
-
-        result = await fetch_session_list(limit=10, db_pool=mock_pool)
-
-        assert result.total == 1
-        assert result.offset == 0
-        assert result.has_more is False
-        assert len(result.sessions) == 1
-        assert result.sessions[0].session_id == "session-1"
-        assert result.sessions[0].turn_count == 3
-        assert result.sessions[0].policy_interventions == 1
-        assert "gpt-4" in result.sessions[0].models_used
-        assert result.sessions[0].preview_message == "Hello world"
-
-    @pytest.mark.asyncio
-    async def test_fetch_with_offset(self):
-        """Test fetching with offset for pagination."""
-        mock_rows = [
-            {
-                "session_id": "session-2",
-                "first_ts": datetime(2025, 1, 15, 10, 0, 0),
-                "last_ts": datetime(2025, 1, 15, 11, 0, 0),
-                "total_events": 5,
-                "turn_count": 2,
-                "policy_interventions": 0,
-                "models": ["gpt-4"],
-                "request_payload": None,  # Test with no first message
-            },
-        ]
-
-        mock_conn = AsyncMock()
-        mock_conn.fetchval.return_value = 100  # Total count
-        mock_conn.fetch.return_value = mock_rows
-
-        mock_pool = MagicMock()
-        mock_pool.is_sqlite = False
-        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
-
-        result = await fetch_session_list(limit=10, db_pool=mock_pool, offset=50)
-
-        assert result.total == 100
-        assert result.offset == 50
-        assert result.has_more is True  # 50 + 1 < 100
-        assert len(result.sessions) == 1
-        assert result.sessions[0].preview_message is None
+    Full-behavior SQL coverage lives in `test_service_sqlite.py` and
+    `test_search_regressions.py` (real in-memory SQLite). Only backend-agnostic
+    edge cases that don't depend on row shape belong here.
+    """
 
     @pytest.mark.asyncio
     async def test_empty_result(self):

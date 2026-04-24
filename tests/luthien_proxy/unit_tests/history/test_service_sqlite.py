@@ -1,7 +1,7 @@
-"""Tests for SQLite-specific path in conversation history service.
+"""Tests for conversation history service against real in-memory SQLite.
 
-Tests the `_fetch_session_list_sqlite` code path using a real in-memory
-SQLite database with the schema applied.
+Exercises fetch_session_list with the SQLite dialect branches (JSON access
+via json_extract, LIKE-based content search, SUM(CASE) aggregates).
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from luthien_proxy.history.models import SessionSearchParams
 from luthien_proxy.history.service import fetch_session_list
 from luthien_proxy.utils.db import DatabasePool
 
@@ -711,6 +712,88 @@ class TestFetchSessionListSqlite:
 
         assert len(result.sessions) == 1
         assert result.sessions[0].session_id == "session-flag"
+
+
+class TestUserIdFilter:
+    """user filter must match on user_id column, not session_id."""
+
+    @pytest.mark.asyncio
+    async def test_user_filter_matches_user_id(self, sqlite_pool: DatabasePool):
+        """Sessions with matching user_id are returned; others are excluded."""
+        async with sqlite_pool.connection() as conn:
+            for call_id, session_id, user_id in [
+                ("c1", "sess-alice", "alice@example.com"),
+                ("c2", "sess-bob", "bob@example.com"),
+            ]:
+                await conn.execute(
+                    "INSERT INTO conversation_calls (call_id, model_name, provider, status, session_id, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    call_id,
+                    "claude-opus-4-6",
+                    "anthropic",
+                    "completed",
+                    session_id,
+                    user_id,
+                    "2026-01-15T10:00:00",
+                )
+                await conn.execute(
+                    "INSERT INTO conversation_events (id, call_id, event_type, payload, session_id, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    f"e-{call_id}",
+                    call_id,
+                    "transaction.request_recorded",
+                    json.dumps(
+                        {
+                            "final_model": "claude-opus-4-6",
+                            "final_request": {"messages": [{"role": "user", "content": "hi"}]},
+                        }
+                    ),
+                    session_id,
+                    user_id,
+                    "2026-01-15T10:00:00",
+                )
+
+        search = SessionSearchParams(user="alice")
+        result = await fetch_session_list(limit=10, db_pool=sqlite_pool, search=search)
+
+        assert len(result.sessions) == 1
+        assert result.sessions[0].session_id == "sess-alice"
+
+    @pytest.mark.asyncio
+    async def test_user_filter_does_not_match_session_id(self, sqlite_pool: DatabasePool):
+        """user filter must not match session_id — only user_id."""
+        async with sqlite_pool.connection() as conn:
+            await conn.execute(
+                "INSERT INTO conversation_calls (call_id, model_name, provider, status, session_id, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "c1",
+                "claude-opus-4-6",
+                "anthropic",
+                "completed",
+                "sess-targetuser",
+                "different-user",
+                "2026-01-15T10:00:00",
+            )
+            await conn.execute(
+                "INSERT INTO conversation_events (id, call_id, event_type, payload, session_id, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "e1",
+                "c1",
+                "transaction.request_recorded",
+                json.dumps(
+                    {
+                        "final_model": "claude-opus-4-6",
+                        "final_request": {"messages": [{"role": "user", "content": "hi"}]},
+                    }
+                ),
+                "sess-targetuser",
+                "different-user",
+                "2026-01-15T10:00:00",
+            )
+
+        search = SessionSearchParams(user="targetuser")
+        result = await fetch_session_list(limit=10, db_pool=sqlite_pool, search=search)
+
+        assert len(result.sessions) == 0, (
+            "regression: user filter matched session_id 'sess-targetuser' for query 'targetuser'. "
+            "The filter must only match user_id, not session_id."
+        )
 
 
 __all__ = []

@@ -1,17 +1,22 @@
-"""Session ID extraction from client requests.
+"""Session ID and user identity extraction from client requests.
 
-Extracts session identifiers from incoming requests to enable tracking
-conversations across multiple API calls.
+Extracts session identifiers and user identities from incoming requests to enable
+tracking conversations across multiple API calls and attributing requests to users.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 from typing import Any
 
 # Header name for clients to provide session ID (used by Claude Code and other integrations)
 SESSION_ID_HEADER = "x-session-id"
+
+# Header name for clients or upstream proxies to provide user identity.
+# Takes precedence over JWT sub claim extraction.
+USER_ID_HEADER = "x-luthien-user-id"
 
 # Pattern to extract session UUID from Anthropic metadata.user_id
 # Format: user_<hash>_account__session_<uuid>
@@ -75,8 +80,84 @@ def extract_session_id_from_headers(headers: dict[str, str]) -> str | None:
     return value if value else None
 
 
+_USER_ID_MAX_LENGTH = 256
+
+
+def extract_user_id_from_headers(headers: dict[str, str], *, trust_header: bool) -> str | None:
+    """Extract user identity from the X-Luthien-User-Id request header.
+
+    Only consulted when ``trust_header`` is True (set via TRUST_USER_ID_HEADER config).
+    Values are trimmed, truncated to 256 chars, and stripped of control characters
+    to prevent log injection and storage overflow.
+
+    Args:
+        headers: Request headers (keys should be lowercase)
+        trust_header: When False, always returns None regardless of header value.
+            Controlled by TRUST_USER_ID_HEADER setting.
+
+    Returns:
+        Sanitized user ID string, or None if header absent, empty, or untrusted
+    """
+    if not trust_header:
+        return None
+    value = headers.get(USER_ID_HEADER)
+    if not value:
+        return None
+    # Strip control characters (0x00-0x1F, 0x7F) that could corrupt logs or
+    # downstream JSON. Keep printable ASCII + unicode identity letters.
+    cleaned = "".join(ch for ch in value if ord(ch) >= 0x20 and ord(ch) != 0x7F).strip()
+    if not cleaned:
+        return None
+    return cleaned[:_USER_ID_MAX_LENGTH]
+
+
+def extract_user_id_from_bearer_token(token: str | None) -> str | None:
+    """Extract user identity from the ``sub`` claim of a Bearer JWT token.
+
+    Decodes the JWT payload without signature verification — this is used for
+    identity attribution only, not authentication. Malformed or opaque tokens
+    (e.g. Anthropic API keys) return None gracefully.
+
+    Args:
+        token: Raw Bearer token string (without "Bearer " prefix), or None
+
+    Returns:
+        The ``sub`` claim string if present and valid, None otherwise
+    """
+    if not token:
+        return None
+
+    # JWTs have exactly three dot-separated parts
+    parts = token.split(".")
+    if len(parts) != 3:
+        return None
+
+    payload_b64 = parts[1]
+    try:
+        # Add padding back — JWT base64url strips trailing '='
+        padding = 4 - len(payload_b64) % 4
+        if padding != 4:
+            payload_b64 += "=" * padding
+        payload_bytes = base64.urlsafe_b64decode(payload_b64)
+        payload = json.loads(payload_bytes)
+    except Exception:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    sub = payload.get("sub")
+    if not isinstance(sub, str) or not sub:
+        return None
+    cleaned = "".join(ch for ch in sub if ord(ch) >= 0x20 and ord(ch) != 0x7F).strip()
+    return cleaned[:_USER_ID_MAX_LENGTH] if cleaned else None
+
+
 __all__ = [
     "SESSION_ID_HEADER",
+    "USER_ID_HEADER",
     "extract_session_id_from_anthropic_body",
     "extract_session_id_from_headers",
+    "extract_user_id_from_bearer_token",
+    "extract_user_id_from_headers",
 ]
