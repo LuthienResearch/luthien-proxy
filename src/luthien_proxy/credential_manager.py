@@ -22,7 +22,7 @@ from luthien_proxy.credentials.auth_provider import (
     UserCredentials,
     UserThenServer,
 )
-from luthien_proxy.credentials.credential import Credential, CredentialError
+from luthien_proxy.credentials.credential import Credential, CredentialError, ServerCredentialNotFoundError
 from luthien_proxy.credentials.store import CredentialStore
 from luthien_proxy.utils.credential_cache import CredentialCacheProtocol
 from luthien_proxy.utils.db import DatabasePool
@@ -444,8 +444,14 @@ class CredentialManager:
             A resolved `Credential` ready to hand to a provider or HTTP client.
 
         Raises:
-            CredentialError: No credential store is configured, or no row
-                with that name exists.
+            ServerCredentialNotFoundError: No row with that name exists
+                (typo, stale reference to a deleted credential, etc.).
+                Subclass of `CredentialError` so existing catches still
+                work; use the specific type to tell a missing name apart
+                from an infrastructure failure.
+            CredentialError: Any other resolution failure — no
+                credential store configured, decryption error, expiry
+                past, etc.
         """
         return await self._get_server_key(name)
 
@@ -463,7 +469,11 @@ class CredentialManager:
 
         cred = await self._store.get(name)
         if cred is None:
-            raise CredentialError(f"Server key '{name}' not found")
+            # Distinct subclass so operator logs can tell "typo /
+            # deleted reference" apart from "no DB configured" or
+            # "decryption failed". Callers that don't care still catch
+            # it via the CredentialError base.
+            raise ServerCredentialNotFoundError(f"Server key '{name}' not found")
         self._server_key_cache[name] = (time.time(), cred)
         return cred
 
