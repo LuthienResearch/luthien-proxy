@@ -490,6 +490,25 @@ class CredentialManager:
             raise CredentialError("No user credential on request context")
         return context.user_credential
 
+    async def resolve_server_credential(self, name: str) -> Credential:
+        """Resolve a server credential by name.
+
+        Public companion to the internal `_get_server_key` path. Checks
+        the in-memory TTL cache first, then the DB. Cache miss or expiry
+        causes a fresh store read.
+
+        Args:
+            name: The stored-credential name (regex `^[a-zA-Z0-9_-]{1,128}$`).
+
+        Returns:
+            A resolved `Credential` ready to hand to a provider or HTTP client.
+
+        Raises:
+            CredentialError: No credential store is configured, or no row
+                with that name exists.
+        """
+        return await self._get_server_key(name)
+
     async def _get_server_key(self, name: str) -> Credential:
         if self._store is None:
             raise CredentialError("No credential store configured (no database)")
