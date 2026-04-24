@@ -32,8 +32,12 @@ from typing import TYPE_CHECKING, TypedDict
 from anthropic.lib.streaming import MessageStreamEvent
 from pydantic import BaseModel, Field
 
-from luthien_proxy.credentials import AuthProvider, parse_auth_provider
-from luthien_proxy.llm.judge_client import judge_completion
+from luthien_proxy.credentials import (
+    InferenceProviderRef,
+    parse_auth_provider,
+    parse_inference_provider,
+)
+from luthien_proxy.inference.dispatch import resolve_inference_provider
 from luthien_proxy.policies.tool_call_judge_utils import (
     JudgeConfig,
     JudgeResult,
@@ -70,16 +74,38 @@ class ToolCallDict(TypedDict):
     arguments: str
 
 
+def _parse_tool_judge_provider_ref(
+    inference_provider: str | dict | None,
+    auth_provider: str | dict | None,
+) -> InferenceProviderRef:
+    """Parse inference-provider reference for the tool-call judge.
+
+    Accepts either the new `inference_provider:` field or the deprecated
+    `auth_provider:` alias (not both). `None`/`None` defaults to
+    `user_credentials`.
+    """
+    if inference_provider is not None and auth_provider is not None:
+        raise ValueError(
+            "Policy config has both 'inference_provider' and 'auth_provider'; "
+            "use only 'inference_provider' (the old name is deprecated)."
+        )
+    if inference_provider is not None:
+        return parse_inference_provider(inference_provider)
+    if auth_provider is not None:
+        return parse_auth_provider(auth_provider)
+    return parse_inference_provider(None)
+
+
 class ToolCallJudgeConfig(BaseModel):
     """Configuration for ToolCallJudgePolicy."""
 
     model: str = Field(
         default="claude-haiku-4-5",
-        description="Any LiteLLM model string, e.g. 'claude-haiku-4-5', 'anthropic/claude-sonnet-4-5', 'ollama/llama3'",
+        description="Model identifier for the judge call (e.g. 'claude-haiku-4-5').",
     )
     api_base: str | None = Field(
         default=None,
-        description="Optional. Leave blank to use the model's default backend. Set to override, e.g. for a proxy or local endpoint.",
+        description="Optional override for the judge backend endpoint. Leave null to use the provider's default.",
     )
     probability_threshold: float = Field(
         default=0.6,
@@ -100,10 +126,20 @@ class ToolCallJudgeConfig(BaseModel):
         default=None,
         description="Template for blocked messages. Variables: {tool_name}, {tool_arguments}, {probability}, {explanation}",
     )
-    auth_provider: str | dict = Field(
-        description="How to obtain credentials for judge calls. "
-        "Options: 'user_credentials', {'server_key': 'name'}, "
-        "{'user_then_server': 'name'} (optionally with on_fallback: warn|fallback|fail).",
+    inference_provider: str | dict | None = Field(
+        default=None,
+        description=(
+            "Judge-side inference provider reference. Options: 'user_credentials' "
+            "(default), {'provider': 'name'}, {'user_then_provider': {'name': 'x', "
+            "'on_fallback': 'warn'}}."
+        ),
+    )
+    auth_provider: str | dict | None = Field(
+        default=None,
+        description=(
+            "DEPRECATED — use 'inference_provider' instead. Accepted for "
+            "backwards compatibility; logs a warning when set."
+        ),
     )
 
     model_config = {"frozen": True}
@@ -150,7 +186,10 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
             max_tokens=self.config.max_tokens,
         )
 
-        self._auth_provider: AuthProvider = parse_auth_provider(self.config.auth_provider)
+        self._inference_provider_ref: InferenceProviderRef = _parse_tool_judge_provider_ref(
+            inference_provider=self.config.inference_provider,
+            auth_provider=self.config.auth_provider,
+        )
 
         self._judge_instructions = self.config.judge_instructions or (
             "You are a security analyst. Evaluate whether a tool call could be "
@@ -228,18 +267,24 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         arguments: str,
         context: "PolicyContext",
     ) -> JudgeResult:
-        """Call the judge LLM using the configured auth_provider."""
+        """Resolve the inference provider and run a judge call."""
         prompt = build_judge_prompt(name, arguments, self._judge_instructions)
-        credential = await context.credential_manager.resolve(self._auth_provider, context)
-        response_text = await judge_completion(
-            credential,
+        dispatch = await resolve_inference_provider(
+            self._inference_provider_ref,
+            context,
+            context.inference_provider_registry,
+            passthrough_default_model=self._config.model,
+            passthrough_api_base=self._config.api_base,
+            passthrough_name="tool_call_judge_passthrough",
+        )
+        result = await dispatch.provider.complete(
+            prompt,
             model=self._config.model,
-            messages=prompt,
             temperature=self._config.temperature,
             max_tokens=self._config.max_tokens,
-            api_base=self._config.api_base,
+            credential_override=dispatch.credential_override,
         )
-        return parse_to_judge_result(response_text, prompt)
+        return parse_to_judge_result(result.text, prompt)
 
     async def _evaluate_and_maybe_block(
         self,

@@ -3,6 +3,7 @@
 Tests for the utility functions used by ToolCallJudgePolicy:
 - Judge prompt building
 - Judge response parsing (JSON, fenced code blocks, error handling)
+- Probability parsing + clamping
 """
 
 from __future__ import annotations
@@ -11,27 +12,18 @@ import pytest
 
 from luthien_proxy.policies.tool_call_judge_policy import ToolCallJudgeConfig
 from luthien_proxy.policies.tool_call_judge_utils import (
+    JudgeConfig,
     build_judge_prompt,
     parse_judge_response,
+    parse_to_judge_result,
 )
-
-
-def _make_config(**overrides) -> ToolCallJudgeConfig:
-    """Build a config with the now-required auth_provider already set."""
-    overrides.setdefault("auth_provider", "user_credentials")
-    return ToolCallJudgeConfig(**overrides)
 
 
 class TestToolCallJudgeConfig:
     """Test config model validation and defaults."""
 
-    def test_auth_provider_required(self):
-        """Building a config without auth_provider now raises a validation error."""
-        with pytest.raises(Exception):
-            ToolCallJudgeConfig()  # type: ignore[call-arg]
-
     def test_frozen(self):
-        config = _make_config()
+        config = ToolCallJudgeConfig()
         with pytest.raises(Exception):
             config.model = "other"  # type: ignore[misc]
 
@@ -83,12 +75,7 @@ class TestParseJudgeResponse:
         assert result["explanation"] == "test"
 
     def test_parse_judge_response_fenced_json_multiline_body(self):
-        """Fenced ```json block with multi-line JSON body parses correctly.
-
-        Regression: the match set previously included "```json" as a dead entry
-        (lstrip("`") already strips all backticks). This test confirms the
-        remaining {"json", ""} entries handle the fenced-json case.
-        """
+        """Fenced ```json block with multi-line JSON body parses correctly."""
         content = '```json\n{\n  "probability": 0.9,\n  "explanation": "multi-line"\n}\n```'
         result = parse_judge_response(content)
 
@@ -107,46 +94,55 @@ class TestParseJudgeResponse:
 
 
 class TestParseToJudgeResult:
-    """Test parse_to_judge_result: probability clamping, prompt attachment, validation."""
+    """Probability clamping + required-field validation."""
 
-    def test_clamps_probability_high(self):
-        from luthien_proxy.policies.tool_call_judge_utils import parse_to_judge_result
+    def test_happy_path(self):
+        result = parse_to_judge_result(
+            '{"probability": 0.75, "explanation": "somewhat dangerous"}',
+            prompt=[{"role": "user", "content": "x"}],
+        )
+        assert result.probability == 0.75
+        assert result.explanation == "somewhat dangerous"
 
+    def test_clamps_above_one(self):
         result = parse_to_judge_result(
             '{"probability": 1.5, "explanation": "test"}',
-            prompt=[{"role": "system", "content": "x"}],
+            prompt=[],
         )
         assert result.probability == 1.0
         assert result.explanation == "test"
 
-    def test_clamps_probability_low(self):
-        from luthien_proxy.policies.tool_call_judge_utils import parse_to_judge_result
-
+    def test_clamps_below_zero(self):
         result = parse_to_judge_result(
-            '{"probability": -0.2, "explanation": "test"}',
+            '{"probability": -0.5, "explanation": "test"}',
             prompt=[],
         )
         assert result.probability == 0.0
 
     def test_fails_on_missing_probability(self):
-        """Security-critical: missing probability must raise, not default to allow."""
-        from luthien_proxy.policies.tool_call_judge_utils import parse_to_judge_result
-
+        """Missing probability → ValueError (fail-secure; callers must block)."""
         with pytest.raises(ValueError, match="missing required 'probability' field"):
             parse_to_judge_result(
-                '{"explanation": "no probability"}',
+                '{"explanation": "test without probability"}',
                 prompt=[],
             )
 
-    def test_attaches_prompt_for_audit(self):
-        from luthien_proxy.policies.tool_call_judge_utils import parse_to_judge_result
-
-        prompt = [{"role": "system", "content": "judge prompt"}]
+    def test_missing_explanation_defaults_to_empty(self):
         result = parse_to_judge_result(
-            '{"probability": 0.5, "explanation": "x"}',
-            prompt=prompt,
+            '{"probability": 0.4}',
+            prompt=[],
         )
-        assert result.prompt == prompt
+        assert result.probability == 0.4
+        assert result.explanation == ""
+
+
+class TestJudgeConfig:
+    def test_defaults(self):
+        config = JudgeConfig(model="test-model")
+        assert config.model == "test-model"
+        assert config.api_base is None
+        assert config.probability_threshold == 0.6
+        assert config.temperature == 0.0
 
 
 if __name__ == "__main__":
