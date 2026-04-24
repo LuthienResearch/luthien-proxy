@@ -27,6 +27,8 @@ from .base import (
     InferenceInvalidCredentialError,
     InferenceProvider,
     InferenceProviderError,
+    InferenceResult,
+    InferenceStructuredOutputError,
     InferenceTimeoutError,
 )
 from .claude_code import ClaudeCodeProvider
@@ -40,5 +42,7 @@ __all__ = [
     "InferenceInvalidCredentialError",
     "InferenceProvider",
     "InferenceProviderError",
+    "InferenceResult",
+    "InferenceStructuredOutputError",
     "InferenceTimeoutError",
 ]
