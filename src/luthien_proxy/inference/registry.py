@@ -5,7 +5,7 @@ API or the `/inference-providers` UI). Callers look them up by name.
 
 Design notes:
 
-- Single-row-per-name DB table (see `migrations/**/014_add_inference_providers.sql`).
+- Single-row-per-name DB table (see `migrations/**/017_add_inference_providers.sql`).
 - We cache the `ProviderRecord` (DB row), not the constructed provider
   instance, and rebuild the provider on every `get()`. Construction is
   pure-Python cheap for both current backends (no httpx client spin-up,
@@ -43,7 +43,12 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from luthien_proxy.credential_manager import CredentialManager
-from luthien_proxy.credentials.credential import Credential, CredentialError, CredentialType
+from luthien_proxy.credentials.credential import (
+    Credential,
+    CredentialError,
+    CredentialType,
+    ServerCredentialNotFoundError,
+)
 from luthien_proxy.inference.base import InferenceError, InferenceProvider, InferenceProviderError, InferenceResult
 from luthien_proxy.inference.claude_code import ClaudeCodeProvider
 from luthien_proxy.inference.direct_api import DirectApiProvider
@@ -57,6 +62,12 @@ logger = logging.getLogger(__name__)
 #: so the TTL bounds *config* staleness after an `inference_providers`
 #: edit. Credentials are always resolved fresh on `get()`, so this TTL
 #: does not delay credential rotations.
+#:
+#: TODO(post-merge, I'): Add an end-to-end rotation test against a live
+#: `CredentialManager` (no mock on `resolve_server_credential`). Today's
+#: coverage stubs the resolver, which pins behavior but doesn't catch a
+#: future regression where the CredentialManager cache leaks a stale
+#: value across put_server_credential.
 DEFAULT_CACHE_TTL_SECONDS = 60.0
 
 #: Hard cap on the serialized size of the `config` JSON column.
@@ -64,6 +75,11 @@ DEFAULT_CACHE_TTL_SECONDS = 60.0
 #: Same budget as PR #605's policy-config ceiling: keeps UI rendering
 #: responsive and prevents a hostile/misconfigured operator from
 #: wedging the admin page with a megabyte of dict.
+#:
+#: TODO(post-merge, M'): Serialized byte size is a coarse proxy for
+#: render cost. A deeply-nested dict under 64 KiB can still freeze the
+#: UI via pretty-printed JSON. Add a max-depth + element-count cap in
+#: a follow-up PR.
 MAX_CONFIG_JSON_BYTES = 64 * 1024
 
 
@@ -96,6 +112,20 @@ class MissingCredentialError(InferenceRegistryError):
     rather than at write time. An operator who deletes a credential
     doesn't cascade-break all providers — the breakage surfaces only
     when something actually tries to use the dangling reference.
+
+    Distinguish from `CredentialResolutionError`, which covers
+    infrastructure failures (no store, decryption error, expired
+    credential) where the name IS known to the store.
+    """
+
+
+class CredentialResolutionError(InferenceRegistryError):
+    """A provider's credential name is valid but resolution failed.
+
+    Catches infrastructure-level failures: no credential store
+    configured, decryption failed (wrong encryption key), credential
+    expired. Separate from `MissingCredentialError` so operator logs
+    can tell a typo / stale reference apart from a broken store.
     """
 
 
@@ -142,7 +172,35 @@ class NullCredentialDirectApiProvider(DirectApiProvider):
     is the documented path — but sending `authorization: Bearer ` to
     Anthropic would produce a 401 with no useful diagnostic. This
     wrapper fails early with a clear `NullCredentialError` instead.
+
+    Structural guard: after the base init we null out `self._credential`
+    so any code path that bypasses the override check and reads the
+    stored credential directly crashes with a loud `AttributeError`
+    rather than silently shipping an empty-string Bearer token. The
+    `complete()` override below is first-line defense; this nulling is
+    structural defense-in-depth if a future refactor moves the override
+    resolution order.
     """
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        credential: Credential,
+        default_model: str,
+        api_base: str | None = None,
+    ) -> None:
+        """Initialize the base and then strip the stored credential."""
+        super().__init__(
+            name=name,
+            credential=credential,
+            default_model=default_model,
+            api_base=api_base,
+        )
+        # Replace the placeholder with None so direct access raises.
+        # DirectApiProvider.complete never reads self._credential on the
+        # override path today, but relying on that ordering is fragile.
+        self._credential = None  # type: ignore[assignment]
 
     async def complete(
         self,
@@ -163,6 +221,9 @@ class NullCredentialDirectApiProvider(DirectApiProvider):
                 "(e.g. user-credential passthrough). Configure a `credential_name` on "
                 "the provider row to accept credential-less calls."
             )
+        # Defense-in-depth: the raise above is the user-visible error; this
+        # assertion tripwires a future refactor that might bypass the check.
+        assert credential_override is not None, "null-credential provider called without override"
         return await super().complete(
             messages,
             model=model,
@@ -340,10 +401,17 @@ class InferenceProviderRegistry:
         if record.credential_name is not None:
             try:
                 credential = await self._credential_manager.resolve_server_credential(record.credential_name)
-            except CredentialError as exc:
+            except ServerCredentialNotFoundError as exc:
+                # Dangling soft-reference — typo or deleted credential.
                 raise MissingCredentialError(
                     f"Provider {name!r} references credential_name={record.credential_name!r}, "
-                    f"but it could not be resolved: {exc}"
+                    f"which is not configured: {exc}"
+                ) from exc
+            except CredentialError as exc:
+                # Resolution failure with a known name: misconfig.
+                raise CredentialResolutionError(
+                    f"Provider {name!r} references credential_name={record.credential_name!r}, "
+                    f"but resolution failed: {exc}"
                 ) from exc
 
         return factory(record, credential)
@@ -513,10 +581,11 @@ def _validate_record(record: ProviderRecord, factories: dict[str, ProviderFactor
 
 
 __all__ = [
+    "CredentialResolutionError",
     "DEFAULT_BACKEND_FACTORIES",
-    "MAX_CONFIG_JSON_BYTES",
     "InferenceProviderRegistry",
     "InferenceRegistryError",
+    "MAX_CONFIG_JSON_BYTES",
     "MissingCredentialError",
     "NullCredentialDirectApiProvider",
     "NullCredentialError",

@@ -1,7 +1,7 @@
 """Unit tests for `InferenceProviderRegistry`.
 
 Covers dispatch, record-caching + concurrency, credential rotation,
-and DB round-trip against a real in-memory SQLite with the #014
+and DB round-trip against a real in-memory SQLite with the #017
 migration applied (so we're not asserting against a hand-rolled schema
 stub).
 """
@@ -16,10 +16,16 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from luthien_proxy.credential_manager import CredentialManager
-from luthien_proxy.credentials.credential import Credential, CredentialError, CredentialType
+from luthien_proxy.credentials.credential import (
+    Credential,
+    CredentialError,
+    CredentialType,
+    ServerCredentialNotFoundError,
+)
 from luthien_proxy.inference.base import InferenceProvider, InferenceResult
 from luthien_proxy.inference.registry import (
     MAX_CONFIG_JSON_BYTES,
+    CredentialResolutionError,
     InferenceProviderRegistry,
     InferenceRegistryError,
     MissingCredentialError,
@@ -200,11 +206,15 @@ async def test_get_raises_for_unknown_backend_type(registry: InferenceProviderRe
 
 
 @pytest.mark.asyncio
-async def test_get_raises_on_missing_credential(
+async def test_get_raises_missing_credential_when_name_not_found(
     registry: InferenceProviderRegistry, mock_credential_manager: MagicMock
 ) -> None:
+    """Name-not-found raises the specific `MissingCredentialError` so
+    operator logs can tell a typo / deleted reference apart from
+    infrastructure failure.
+    """
     mock_credential_manager.resolve_server_credential = AsyncMock(
-        side_effect=CredentialError("Server key 'gone' not found")
+        side_effect=ServerCredentialNotFoundError("Server key 'gone' not found")
     )
     await registry.put(
         ProviderRecord(name="p", backend_type="stub", credential_name="gone", default_model="m", config={})
@@ -213,6 +223,24 @@ async def test_get_raises_on_missing_credential(
         await registry.get("p")
     assert "p" in str(exc.value)
     assert "gone" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_get_raises_credential_resolution_for_other_failures(
+    registry: InferenceProviderRegistry, mock_credential_manager: MagicMock
+) -> None:
+    """Infrastructure-level failures (store misconfig, decryption error,
+    expiry) raise `CredentialResolutionError`, not `MissingCredentialError`.
+    """
+    mock_credential_manager.resolve_server_credential = AsyncMock(
+        side_effect=CredentialError("No credential store configured")
+    )
+    await registry.put(ProviderRecord(name="p", backend_type="stub", credential_name="c", default_model="m", config={}))
+    with pytest.raises(CredentialResolutionError) as exc:
+        await registry.get("p")
+    # Subclass-of-InferenceRegistryError preserved so existing catches work.
+    assert isinstance(exc.value, InferenceRegistryError)
+    assert not isinstance(exc.value, MissingCredentialError)
 
 
 # --- Concurrency (F) ---
@@ -245,6 +273,13 @@ async def test_concurrent_cold_get_fetches_record_once(
     async def counting_get_record(name: str):
         nonlocal db_reads
         db_reads += 1
+        # Force an await-point so the event loop can interleave to
+        # sibling gather coroutines WHILE this one is "in" get_record.
+        # Without the asyncio.Lock, every sibling reaches the same
+        # cache-miss branch and stampedes the DB. aiosqlite's own
+        # serialization would otherwise paper over the race on SQLite
+        # specifically — we want the test to fail on broken source.
+        await asyncio.sleep(0)
         return await original_get_record(name)
 
     reg.get_record = counting_get_record  # type: ignore[method-assign]

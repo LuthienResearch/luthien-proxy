@@ -37,6 +37,7 @@ from .direct_api import DirectApiProvider
 from .registry import (
     DEFAULT_BACKEND_FACTORIES,
     MAX_CONFIG_JSON_BYTES,
+    CredentialResolutionError,
     InferenceProviderRegistry,
     InferenceRegistryError,
     MissingCredentialError,
@@ -50,6 +51,7 @@ from .registry import (
 __all__ = [
     "MAX_SCHEMA_SERIALIZED_BYTES",
     "ClaudeCodeProvider",
+    "CredentialResolutionError",
     "DEFAULT_BACKEND_FACTORIES",
     "DirectApiProvider",
     "InferenceCredentialOverrideUnsupported",
