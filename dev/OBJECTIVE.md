@@ -1,43 +1,33 @@
-# Objective: InferenceProvider interface + ClaudeCode/DirectApi backends
+# Objective: Inference provider registry (DB + admin API + UI)
 
-PR #2 of a 5-PR inference-provider initiative.
+PR #3 of a 5-PR inference-provider initiative. Stacked on PR #605.
 
 ## Scope
 
-Introduce a server-side `InferenceProvider` abstraction for proxy-originated LLM
-calls (judges, policy-testing, any future proxy-internal inference). Server-side
-inference bypasses the gateway and active policy — it is proxy-defined logic
-that policies may depend on, so looping through the policy pipeline would create
-circular dependencies.
+Build a named registry for `InferenceProvider` instances, mirroring the
+operator workflow we already have for server credentials: DB-backed,
+admin-API surface, dedicated UI page.
 
-Deliverables:
-
-1. **`InferenceProvider` abstract base** at `src/luthien_proxy/inference/base.py`
-   with a `complete()` async method and typed `InferenceError` hierarchy.
-2. **`ClaudeCodeProvider`** at `src/luthien_proxy/inference/claude_code.py` —
-   spawns `claude -p --bare` as a subprocess, auths via an OAuth access token
-   stored as a named `Credential`.
-3. **`DirectApiProvider`** at `src/luthien_proxy/inference/direct_api.py` —
-   wraps `llm.judge_client.judge_completion` (reuse, don't duplicate). Handles
-   both configured server creds and `credential_override` passthrough.
-4. Unit tests mirroring the package layout under
-   `tests/luthien_proxy/unit_tests/inference/`.
-5. Changelog fragment at `changelog.d/inference-provider-abstraction.md`.
+Concretely:
+- New `inference_providers` DB table (dual postgres/sqlite migrations, #014).
+- `InferenceProviderRegistry` class with TTL cache + close-lifecycle.
+- Admin API: POST / GET / DELETE `/api/admin/inference-providers`.
+- `/inference-providers` UI page matching `credentials.html` style.
+- Nav entry + config dashboard pointer card + discoverability link from
+  `/credentials`.
+- Unit tests and one sqlite_e2e round-trip test.
 
 ## Out of scope
 
-- Provider registry / DB table / admin API / UI (PR #3).
-- Callsite changes — `judge_client.py` and its callers keep working exactly
-  as they do today.
-- Policy YAML schema changes (`auth_provider:` → `inference_provider:`) (PR #4).
-- Policy-testing UI changes (PR #5).
-- Deleting `judge_client.py`.
+- Policy YAML rename `auth_provider:` → `inference_provider:` (PR #4).
+- Migrating judge policies to use the registry (PR #4).
+- `/ping` endpoint on providers (PR #5).
 
 ## Acceptance
 
-- `./scripts/dev_checks.sh` passes.
-- New unit tests pass and mock the subprocess for `ClaudeCodeProvider`.
-- An optional integration test (skipped in CI unless `LUTHIEN_TEST_CLAUDE=1`)
-  does an end-to-end `claude -p` call.
-- PR opens as draft with a summary linking to the 5-PR plan and to the
-  `dev/NOTES.md` claude-p investigation findings.
+- Can create, list, delete providers via admin API against a running
+  gateway.
+- `/inference-providers` page loads, lists providers, creates via form,
+  deletes with confirmation.
+- `dev_checks.sh` is clean.
+- Changelog fragment added.
