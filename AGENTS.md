@@ -5,7 +5,7 @@
 ## Purpose & Scope
 
 - Core goal: implement AI Control for LLMs with integrated gateway architecture.
-- Architecture: FastAPI gateway with integrated control plane, using event-driven policies. LiteLLM handles judge/LLM policy calls.
+- Architecture: FastAPI gateway with integrated control plane, using event-driven policies. Judge/LLM policy calls go through `InferenceProvider` implementations (currently `ClaudeCodeProvider` via `claude -p` and `DirectApiProvider` via the Anthropic SDK), resolved by name through the `InferenceProviderRegistry`.
 - **Read `ARCHITECTURE.md` first** when you need to understand how modules connect, how requests flow, or where to make changes. It covers the request lifecycle, module map, key abstractions, and data model.
 - Select a policy via `POLICY_CONFIG` that points to a YAML file (defaults to `config/policy_config.yaml`).
   - Example: `export POLICY_CONFIG=./config/policy_config.yaml`
@@ -124,8 +124,9 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
   - `pipeline/`: request processing pipeline — request entry point, client format detection, policy-context injection, stream protocol validation
   - `policies/`: concrete policy implementations; `policies/presets/` holds reusable rule presets (e.g. `block_dangerous_commands`, `no_yapping`)
   - `policy_core/`: policy contract layer — `BasePolicy`, `AnthropicExecutionInterface`, `AnthropicHookPolicy`, `PolicyContext`, `TextModifierPolicy`
-  - `credentials/`: typed credential models (`Credential`, `CredentialType`) and per-policy `AuthProvider` strategies (`UserCredentials`, `ServerKey`, `UserThenServer`), plus the DB-backed credential store
-  - `llm/`: Anthropic HTTP client wrapper, per-credential client cache, LiteLLM-based judge client, and shared Anthropic type definitions
+  - `credentials/`: typed credential models (`Credential`, `CredentialType`) and per-policy `InferenceProviderRef` shapes (`UserCredentials`, `Provider`, `UserThenProvider`), plus the DB-backed credential store
+  - `inference/`: the `InferenceProvider` interface, `ClaudeCodeProvider` (subprocess via `claude -p`), `DirectApiProvider` (Anthropic SDK), the DB-backed `InferenceProviderRegistry`, and the dispatch helper that resolves an `InferenceProviderRef` to a concrete provider + credential override at judge-call time
+  - `llm/`: Anthropic HTTP client wrapper, per-credential client cache, and shared Anthropic type definitions
   - `observability/`: event emitter, Redis/in-process event publishers, Sentry integration, and the SSE generator (`stream_activity_events`) wired into the activity monitor UI
   - `storage/`: helpers for persisting and reconstructing conversation events
   - `request_log/`: HTTP-level request/response recording for `/v1/` traffic (gated by `ENABLE_REQUEST_LOGGING`)

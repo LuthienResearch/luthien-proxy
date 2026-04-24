@@ -139,17 +139,28 @@ Shared helpers: `multi_policy_utils.py`, `simple_llm_utils.py`, `tool_call_judge
 |--------|---------------|
 | `llm/anthropic_client.py` | `AnthropicClient` — async wrapper around the Anthropic SDK for `complete()` and `stream()`; supports API key and OAuth bearer auth. |
 | `llm/anthropic_client_cache.py` | LRU cache of `AnthropicClient` instances keyed by credential, so passthrough requests reuse connection pools. |
-| `llm/judge_client.py` | `judge_completion` — thin wrapper around LiteLLM `acompletion` used by judge/LLM policies (LiteLLM is retained only as a multi-provider client for judge calls, not for gateway traffic). |
 | `llm/types/anthropic.py` | `AnthropicRequest`, `AnthropicResponse`, `AnthropicContentBlock`, `build_usage` — TypedDicts used throughout the pipeline. |
 
-There is no `llm/litellm_client.py` — the gateway no longer proxies via LiteLLM.
+No third-party LLM aggregator library is on the request path — both the main `/v1/messages` traffic and judge-side inference go through the Anthropic SDK via `AnthropicClient`. Judge-specific dispatch lives in `inference/` (below).
+
+### Inference Providers
+
+Judge/LLM policy calls go through the `InferenceProvider` abstraction so policy code doesn't need to know which backend answers a decision (a `claude` subprocess, a direct Anthropic HTTP call, or a named operator-configured provider).
+
+| Module | Responsibility |
+|--------|---------------|
+| `inference/base.py` | `InferenceProvider` ABC, `InferenceResult`, and the `InferenceError` hierarchy (`InferenceInvalidCredentialError`, `InferenceTimeoutError`, `InferenceProviderError`, `InferenceStructuredOutputError`, `InferenceCredentialOverrideUnsupported`). |
+| `inference/claude_code.py` | `ClaudeCodeProvider` — shells out to `claude -p`, injecting the operator credential via env vars. Cannot accept a per-call credential override. |
+| `inference/direct_api.py` | `DirectApiProvider` — wraps `AnthropicClient`. Supports per-call `credential_override` for user-credential passthrough. Structured outputs use Anthropic's native tool-use (single forced tool with the caller's JSON schema). |
+| `inference/registry.py` | `InferenceProviderRegistry` — DB-backed (`inference_providers` table) lookup from name to a freshly-built `InferenceProvider`. Credentials resolve fresh on every `get()` so rotations propagate immediately. |
+| `inference/dispatch.py` | `resolve_inference_provider(ref, context, registry)` — takes a policy's declared `InferenceProviderRef` and returns a concrete `(provider, credential_override)` pair. Handles the `UserCredentials` / `Provider(name)` / `UserThenProvider(name, on_fallback)` branches. |
 
 ### Credentials
 
 | Module | Responsibility |
 |--------|---------------|
 | `credentials/credential.py` | `Credential` (frozen dataclass), `CredentialType` (`API_KEY`, `AUTH_TOKEN`), `CredentialError`. |
-| `credentials/auth_provider.py` | `AuthProvider` base + `ServerKey`, `UserCredentials`, `UserThenServer` resolvers used by policies that need an outbound credential. |
+| `credentials/auth_provider.py` | `InferenceProviderRef` shapes (`UserCredentials`, `Provider`, `UserThenProvider`) parsed from policy YAML via `parse_inference_provider`. Legacy `ServerKey` / `UserThenServer` names are back-compat aliases; `parse_auth_provider` is an alias that logs a deprecation warning. |
 | `credentials/store.py` | `CredentialStore` — DB-backed server credential storage (`server_credentials` table) with optional Fernet encryption. |
 
 ### Storage & Observability
