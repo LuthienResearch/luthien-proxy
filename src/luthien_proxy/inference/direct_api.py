@@ -212,8 +212,7 @@ def _build_request(
             {
                 "name": _STRUCTURED_OUTPUT_TOOL_NAME,
                 "description": (
-                    "Return the structured response. Populate input strictly "
-                    "according to the provided input_schema."
+                    "Return the structured response. Populate input strictly according to the provided input_schema."
                 ),
                 "input_schema": schema,
             }
@@ -247,10 +246,7 @@ def _compose_system(
         return effective
 
     if response_format is not None and response_format.get("type") == "json_object":
-        hint = (
-            "Respond with ONLY a JSON object. "
-            "No prose, no markdown fences, no commentary."
-        )
+        hint = "Respond with ONLY a JSON object. No prose, no markdown fences, no commentary."
         return f"{effective}\n\n{hint}" if effective else hint
 
     return effective
