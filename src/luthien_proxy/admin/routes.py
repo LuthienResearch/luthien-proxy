@@ -8,7 +8,6 @@ import logging
 from typing import Any
 
 import httpx
-import litellm
 from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
@@ -157,13 +156,26 @@ class CachedCredentialsListResponse(BaseModel):
     count: int
 
 
-def get_available_models() -> list[str]:
-    """Get available Anthropic models for testing.
+#: Curated list of current Claude models surfaced in the admin test-chat UI.
+#:
+#: Previously sourced from a third-party SDK's static model list, which
+#: was periodically stale anyway — the list is small enough to maintain
+#: by hand, and updating it is a one-line change when Anthropic ships a
+#: new model. If the hardcoding ever becomes painful, `GET https://api.anthropic.com/v1/models`
+#: is the live source; wiring that in would require an API key + HTTP
+#: round-trip on every admin-UI render, which isn't worth it today.
+_AVAILABLE_MODELS: tuple[str, ...] = (
+    "claude-opus-4-1",
+    "claude-opus-4-5",
+    "claude-sonnet-4-5",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5",
+)
 
-    Returns a list of Claude models available via litellm.
-    """
-    anthropic_models = [m for m in litellm.anthropic_models if "claude" in m.lower()]
-    return sorted(anthropic_models, reverse=True)
+
+def get_available_models() -> list[str]:
+    """Get available Anthropic models for admin test-chat UI."""
+    return sorted(_AVAILABLE_MODELS, reverse=True)
 
 
 @router.get("/policy/current", response_model=PolicyCurrentResponse)
@@ -299,7 +311,7 @@ async def list_models(
 ):
     """List available models for testing.
 
-    Returns a list of Anthropic Claude models available via litellm.
+    Returns a curated list of Anthropic Claude models.
     Requires admin authentication.
     """
     return {"models": get_available_models()}

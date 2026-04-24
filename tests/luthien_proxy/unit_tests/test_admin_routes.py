@@ -223,21 +223,16 @@ class TestSetPolicyRoute:
 class TestGetAvailableModels:
     """Test get_available_models function."""
 
-    @patch("luthien_proxy.admin.routes.litellm")
-    def test_returns_models_from_litellm(self, mock_litellm):
-        """Test that get_available_models returns filtered Anthropic models from litellm."""
-        mock_litellm.anthropic_models = [
-            "claude-3-5-sonnet-20241022",
-            "claude-3-haiku-20240307",
-            "some-other-model",  # Should be filtered out (no 'claude')
-        ]
-
+    def test_returns_curated_claude_list(self):
+        """Test that get_available_models returns the curated Claude model list."""
         models = get_available_models()
 
-        # Check that only Anthropic models are returned
-        assert "claude-3-5-sonnet-20241022" in models
-        assert "claude-3-haiku-20240307" in models
-        assert "some-other-model" not in models
+        # Curated list — every entry should be a Claude model.
+        assert all("claude" in m for m in models)
+        # Sorted descending so newest (highest version) appears first.
+        assert models == sorted(models, reverse=True)
+        # Non-empty and contains at least one of the currently shipped tiers.
+        assert any(tier in m for tier in ("opus", "sonnet", "haiku") for m in models)
 
 
 class TestListModelsRoute:
