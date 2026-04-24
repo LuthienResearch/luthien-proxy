@@ -52,9 +52,9 @@ class _ConversationLinkState:
 class ConversationLinkPolicy(SimplePolicy):
     """Injects a conversation viewer link into the first response of each conversation."""
 
-    def __init__(self, base_url: str = "http://localhost:8000", **kwargs: object) -> None:
-        """Initialize with base URL for building viewer links."""
-        self.config = ConversationLinkPolicyConfig(base_url=base_url)
+    def __init__(self, config: ConversationLinkPolicyConfig | dict | None = None) -> None:
+        """Initialize with optional config. Accepts dict or Pydantic model."""
+        self.config = self._init_config(config, ConversationLinkPolicyConfig)
 
     @property
     def short_policy_name(self) -> str:
