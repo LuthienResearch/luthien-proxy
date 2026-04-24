@@ -26,9 +26,8 @@
 5. Implement the OBJECTIVE. Add any items that should be done but are out of scope for the current OBJECTIVE to the [Trello board](https://trello.com/b/ehoxykPf/luthien?filter=label:luthien-proxy%20TODO) (e.g. noticing an implementation bug, incorrect documentation, or code that should be refactored).
 6. Regularly run `scripts/dev_checks.sh`, then commit and push any formatting/lint fixes along with your changes to origin (on the feature branch).
 7. When the OBJECTIVE is complete, add a changelog fragment to `changelog.d/` (see `changelog.d/README.md`)
-8. Clear `dev/OBJECTIVE.md` and `dev/NOTES.md`
-9. Mark the PR as ready.
-10. Mark the Trello ticket as done.
+8. Mark the PR as ready.
+9. Mark the Trello ticket as done.
 
 ### One PR = One Concern
 
@@ -63,13 +62,19 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
    ```
 
    - If the branch already exists, run `git checkout <short-handle>` instead of creating it.
-   - Update `dev/OBJECTIVE.md`, then:
+   - Create the scratch dir if it doesn't exist, then write the objective statement into `dev/scratch/OBJECTIVE.md` (gitignored — scoped to this worktree, never merged to main). Use it to stay oriented across compactions.
 
      ```bash
-     git add dev/OBJECTIVE.md
-     git commit -m "chore: set objective to <short description>"
-     git push -u origin objective/<short-handle>
-     gh pr create --draft --fill --title "<Objective Title>"
+     mkdir -p dev/scratch
+     # then write dev/scratch/OBJECTIVE.md
+     ```
+
+   - Mark the branch start with an empty commit; the commit message is the objective and feeds the PR body via `--fill`:
+
+     ```bash
+     git commit --allow-empty -m "chore: set objective to <short description>"
+     git push -u origin <short-handle>
+     gh pr create --draft --fill
      ```
 
 2. **Develop**
@@ -90,7 +95,7 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
    ```
 
    - Add a changelog fragment to `changelog.d/<short-handle>.md` (see `changelog.d/README.md` for format).
-   - Clear `dev/NOTES.md` and `dev/OBJECTIVE.md`.
+   - `dev/scratch/` is gitignored — no cleanup needed. (Note: `git worktree remove` refuses if untracked files remain; pass `--force` or delete scratch first.)
 
    ```bash
    git commit -a -m "<objective> is ready"
@@ -100,14 +105,13 @@ Note that both Claude Code and Codex agents work in this repo and may read from 
 ## Project Structure & Module Organization
 
 - `dev-README.md`: **Development guide** — dev commands, releasing, architecture, endpoints, policy system
-- `dev/`: Tracking current development information
-  - `OBJECTIVE.md`: Succinct statement of the active objective with acceptance check.
-  - `NOTES.md`: Scratchpad for implementation details while the current objective is in progress.
-  - `*plan.md`: Medium- and long-term development plans may be recorded here.
-  - `context/`: Persistent knowledge accumulated across sessions (check these into git)
+- `dev/`: Development notes and persistent knowledge
+  - `scratch/`: **Gitignored.** Per-worktree planning space — `OBJECTIVE.md`, `NOTES.md`, in-flight plans, design iterations all live here. Scoped to the worktree's life; never merged to main. To elevate something, move it explicitly to `context/` or `archive/`.
+  - `context/`: Persistent knowledge accumulated across sessions (tracked in git)
     - `codebase_learnings.md`: Patterns, architecture insights, gotchas discovered while working
     - `decisions.md`: Technical decisions made and their rationale
     - `gotchas.md`: Non-obvious behaviors, edge cases, things that are easy to get wrong
+  - `archive/`: Curated historical planning docs worth preserving (tracked in git). Convention: one topic per subdirectory (e.g. `conversation_trace/`, `litellm_streaming/`) with numbered or descriptive files inside. Don't add loose `.md` files at the `archive/` root.
 - `CHANGELOG.md`: Record changes as we make them (typically updated when we complete an OBJECTIVE)
 - `src/luthien_proxy/`: core gateway package
   - `main.py`: FastAPI app factory, lifespan wiring, CLI entry point
