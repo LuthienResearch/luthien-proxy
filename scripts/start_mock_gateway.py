@@ -11,6 +11,7 @@ import os
 import shutil
 import signal
 import socket
+import sqlite3
 import sys
 import tempfile
 import threading
@@ -51,6 +52,20 @@ def main():
 
     loop = asyncio.new_event_loop()
     loop.run_until_complete(check_migrations(db_pool))
+
+    # Configure auth for mock e2e: passthrough so the client's bearer becomes
+    # the forwarding credential (which judge policies read via UserCredentials
+    # auth provider), and validate_credentials=0 so the gateway does not probe
+    # the mock backend's /count_tokens endpoint (which the mock server does not
+    # implement). Without this, judge policies fail with "No user credential
+    # on request context" because BOTH mode attaches no user_credential when
+    # the bearer matches CLIENT_API_KEY.
+    _conn = sqlite3.connect(db_path)
+    try:
+        _conn.execute("UPDATE auth_config SET auth_mode = 'passthrough', validate_credentials = 0 WHERE id = 1")
+        _conn.commit()
+    finally:
+        _conn.close()
 
     os.environ["ANTHROPIC_BASE_URL"] = f"http://localhost:{mock_port}"
     os.environ["ANTHROPIC_API_KEY"] = "mock-key"
