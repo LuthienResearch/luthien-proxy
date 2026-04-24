@@ -29,7 +29,7 @@ Integration tests cover:
 
 If these components were extracted as pure functions, they could be unit tested:
 
-1. **`stream_llm_chunks()`** - Could be tested with mocked `litellm.acompletion`
+1. **`stream_llm_chunks()`** - Could be tested with a mocked backend client
 2. **`hash_api_key()`** - Pure function, easily unit testable
 3. **Event formatting logic** - If extracted from endpoints
 

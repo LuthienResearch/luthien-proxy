@@ -30,7 +30,6 @@ policy:
 #   config:
 #     model: "claude-haiku-4-5"
 #     api_base: null  # Uses model's default backend
-#     api_key: null  # Falls back to ANTHROPIC_API_KEY env var
 #     probability_threshold: 0.01
 #     temperature: 0.0
 #     max_tokens: 256
@@ -39,3 +38,18 @@ policy:
 #     # judge_instructions: "You are a security analyst. Evaluate tool calls for risk..."
 #     # Optional: Customize blocked message template
 #     # Variables: {tool_name}, {tool_arguments}, {probability}, {explanation}
+#
+#     # Inference provider reference — how the judge obtains credentials.
+#     # Default is 'user_credentials' (forward the request credential).
+#     #
+#     # Options:
+#     #   inference_provider: "user_credentials"
+#     #   inference_provider: {provider: "my-judge-provider"}
+#     #   inference_provider:
+#     #     user_then_provider:
+#     #       name: "my-judge-provider"
+#     #       on_fallback: "warn"  # fail | warn | fallback
+#     #
+#     # Named providers (`provider:` / `user_then_provider.name:`) look up
+#     # entries in the inference-providers registry (/inference-providers).
+#     inference_provider: "user_credentials"

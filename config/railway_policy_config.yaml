@@ -28,10 +28,11 @@ policy:
       - class: "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
         config:
           config:
-            model: "anthropic/claude-haiku-4-5-20251001"
+            model: "claude-haiku-4-5-20251001"
             temperature: 0.0
             max_tokens: 4096
             on_error: "pass"
+            inference_provider: "user_credentials"
             instructions: |
               You are a safety and quality reviewer for AI assistant responses.
               Review each content block and apply these rules:

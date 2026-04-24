@@ -149,11 +149,6 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         sensitive=True, category="llm",
     ),
     ConfigFieldMeta(
-        "litellm_master_key", "LITELLM_MASTER_KEY", str, None,
-        "LiteLLM master key for multi-tenant deployments",
-        sensitive=True, category="llm",
-    ),
-    ConfigFieldMeta(
         "llm_judge_model", "LLM_JUDGE_MODEL", str, None,
         "Model ID for the LLM judge policy",
         category="llm",
@@ -162,11 +157,6 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         "llm_judge_api_base", "LLM_JUDGE_API_BASE", str, None,
         "Custom API base URL for the judge model",
         category="llm",
-    ),
-    ConfigFieldMeta(
-        "llm_judge_api_key", "LLM_JUDGE_API_KEY", str, None,
-        "API key for the judge model",
-        sensitive=True, category="llm",
     ),
     ConfigFieldMeta(
         "anthropic_client_cache_size", "ANTHROPIC_CLIENT_CACHE_SIZE", int, 16,

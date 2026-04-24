@@ -1,4 +1,4 @@
-"""Luthien - integrated FastAPI + LiteLLM proxy with OpenTelemetry observability."""
+"""Luthien - integrated FastAPI + Anthropic SDK proxy with OpenTelemetry observability."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from collections.abc import MutableMapping
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-import litellm
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.exceptions import HTTPException as FastAPIHTTPException
@@ -184,10 +183,6 @@ def create_app(
         )
         await _config_registry.initialize()
         logger.info("Config registry initialized")
-
-        # Configure litellm globally (moved from policy file to prevent import side effects)
-        litellm.drop_params = True
-        logger.info("Configured litellm: drop_params=True")
 
         # Create event publisher (Redis or in-process)
         _event_publisher: EventPublisherProtocol
@@ -574,9 +569,10 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
 def configure_local_mode() -> None:
     """Force-set env vars for dockerless local mode.
 
-    Infrastructure vars (DATABASE_URL, REDIS_URL, etc.) are force-set because
-    litellm calls dotenv.load_dotenv() at import time, polluting os.environ
-    with Docker-internal values from .env.
+    Infrastructure vars (DATABASE_URL, REDIS_URL, etc.) are force-set to
+    override whatever `.env` loading populates, so the local SQLite /
+    no-Redis path stays deterministic even when a Docker-shaped `.env` is
+    checked in.
     """
     data_dir = os.path.join(os.path.expanduser("~"), ".luthien")
     os.makedirs(data_dir, exist_ok=True)
