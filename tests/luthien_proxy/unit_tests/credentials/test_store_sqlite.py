@@ -15,32 +15,20 @@ from cryptography.fernet import Fernet
 from luthien_proxy.credentials.credential import Credential, CredentialType
 from luthien_proxy.credentials.store import CredentialStore
 from luthien_proxy.utils.db import DatabasePool
-
-# Schema matches migrations/sqlite/010_add_server_credentials.sql. Inlined so
-# the test stays independent of the migration runner.
-CREATE_SERVER_CREDENTIALS_SQL = """
-CREATE TABLE server_credentials (
-    name TEXT UNIQUE NOT NULL PRIMARY KEY,
-    platform TEXT NOT NULL DEFAULT 'anthropic',
-    platform_url TEXT,
-    credential_type TEXT NOT NULL DEFAULT 'api_key',
-    credential_value TEXT NOT NULL,
-    is_encrypted INTEGER NOT NULL DEFAULT 0,
-    expiry TEXT,
-    owner TEXT,
-    scope TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-)
-"""
+from luthien_proxy.utils.migration_check import check_migrations
 
 
 @pytest.fixture
 async def sqlite_db_pool() -> DatabasePool:
-    """In-memory SQLite DatabasePool with the server_credentials schema applied."""
+    """In-memory SQLite DatabasePool with all migrations applied.
+
+    Runs the real migration runner (`check_migrations`) instead of an inlined
+    CREATE TABLE so schema drift between migrations/sqlite/*.sql and this test
+    fails loudly here instead of silently passing while production breaks.
+    """
     db = DatabasePool("sqlite://:memory:")
-    pool = await db.get_pool()
-    await pool.execute(CREATE_SERVER_CREDENTIALS_SQL)
+    await db.get_pool()  # eagerly open so check_migrations sees the same pool
+    await check_migrations(db)
     return db
 
 
