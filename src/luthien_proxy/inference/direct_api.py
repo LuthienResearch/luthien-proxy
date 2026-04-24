@@ -220,6 +220,12 @@ def _build_messages(
 def _coerce_system_content(provider_name: str, content: Any) -> str:
     """Flatten a system-message content into a string for schema-blurb concat.
 
+    Only invoked when the caller did NOT pass the `system=` kwarg to
+    `complete()`: the `system=` kwarg unconditionally wins over any
+    in-messages system block (see `_build_messages`). This function is
+    only reached when we're folding an in-messages system block into
+    the effective system prompt ourselves.
+
     - `str` → returned as-is.
     - `list` of Anthropic text blocks → concatenated `text` fields.
     - `list` containing a non-`text` block (image, tool_use, tool_result,

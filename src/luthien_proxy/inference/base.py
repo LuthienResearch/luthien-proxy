@@ -103,6 +103,21 @@ class InferenceResult:
             output (`response_format={"type": "json_schema", "schema": ...}`)
             and the backend produced a schema-valid object. Otherwise
             `None`.
+
+    Cross-provider invariant (convention, not structurally enforced):
+    when `structured is not None`, `text == json.dumps(structured,
+    ensure_ascii=False)` — i.e. `text` is the JSON encoding of
+    `structured`, not arbitrary model-wrapper text. Both providers
+    currently route structured success through `from_structured` to
+    maintain this. There are unit tests in both
+    `test_direct_api.py::TestStructuredTextConsistency` and
+    `test_claude_code.py::TestStructuredOutput` that pin it.
+
+    TODO(structural-check): if future providers bypass `from_structured`
+    and start populating `text` + `structured` directly, add a
+    `__post_init__` assertion here that raises if the invariant is
+    violated. Not worth the runtime cost today with only two providers,
+    both of which go through `from_structured`.
     """
 
     text: str
