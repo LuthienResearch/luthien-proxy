@@ -118,6 +118,6 @@ async def test_admin_endpoint_accepts_admin_key(gateway_healthy, gateway_url, ad
 # NOTE: A test for "admin endpoints require auth in non-localhost mode" is not
 # implemented here because mock_e2e tests run against an out-of-process gateway,
 # making in-process patching of is_localhost_request ineffective.
-# To test this properly: add localhost_auth_bypass to the admin settings API
-# (PUT /api/admin/gateway/settings), then toggle it off, assert 401, toggle back.
+# To test this properly: add localhost_auth_bypass to the admin config API
+# (PUT /api/admin/config/{key}), then toggle it off, assert 401, toggle back.
 # Alternatively, implement as a sqlite_e2e test where the gateway runs in-process.
