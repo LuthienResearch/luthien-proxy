@@ -1,13 +1,19 @@
 """Tests for UI route handlers."""
 
+from pathlib import Path
+
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from luthien_proxy.dependencies import get_admin_key
 from luthien_proxy.ui.routes import router
 
 app = FastAPI()
 app.include_router(router)
+# With no admin key configured, check_auth_or_redirect treats requests as
+# authenticated — matches the dockerless/unconfigured dev default.
+app.dependency_overrides[get_admin_key] = lambda: None
 
 
 @pytest.fixture
@@ -93,3 +99,40 @@ class TestLandingPage:
         response = await client.get("/")
         assert response.status_code == 200
         assert "/client-setup" in response.text
+
+
+class TestCredentialsPage:
+    """Test the /credentials UI route."""
+
+    @pytest.mark.asyncio
+    async def test_returns_200(self, client: AsyncClient):
+        """Credentials page loads successfully when auth is not configured."""
+        response = await client.get("/credentials")
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_returns_html(self, client: AsyncClient):
+        """Credentials page returns HTML content."""
+        response = await client.get("/credentials")
+        assert "text/html" in response.headers["content-type"]
+
+    @pytest.mark.asyncio
+    async def test_contains_server_credentials_section(self, client: AsyncClient):
+        """Server-credentials CRUD UI is present on the page."""
+        response = await client.get("/credentials")
+        # The section the new UI introduces — guards against a future refactor
+        # that removes the server-credential CRUD without a nav/route update.
+        assert "server-credentials-section" in response.text
+        assert "server-cred-form" in response.text
+
+
+class TestNavCredentialsLink:
+    """Nav entry for /credentials must exist so the page is reachable."""
+
+    def test_nav_js_lists_credentials_link(self):
+        nav_js = Path(__file__).resolve().parents[4] / "src" / "luthien_proxy" / "static" / "nav.js"
+        content = nav_js.read_text()
+        # Belt-and-suspenders: future refactors that rebuild the link list
+        # should preserve the Credentials entry.
+        assert "'/credentials'" in content
+        assert "'Credentials'" in content
