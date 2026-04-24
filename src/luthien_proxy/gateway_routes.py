@@ -200,6 +200,7 @@ async def anthropic_messages(
         usage_collector=usage_collector,
         user_credential=forwarding_credential,
         credential_manager=credential_manager,
+        inference_provider_registry=deps.inference_provider_registry,
     )
 
 

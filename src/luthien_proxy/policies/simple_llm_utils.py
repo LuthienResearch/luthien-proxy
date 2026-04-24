@@ -1,8 +1,13 @@
 """Utilities for SimpleLLMPolicy judge calls.
 
-Handles prompt construction, LiteLLM judge calls, and response parsing
-for the simple LLM policy that applies plain-English instructions to
-response blocks.
+Handles prompt construction, judge invocation, and response parsing for
+the simple LLM policy that applies plain-English instructions to response
+blocks.
+
+As of PR #609 this module talks to `InferenceProvider` instances (usually
+a `DirectApiProvider` against Anthropic) instead of LiteLLM. The caller
+passes the resolved provider + optional credential override directly; we
+don't own credential resolution at this layer.
 """
 
 from __future__ import annotations
@@ -10,19 +15,16 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING
 
-from litellm import acompletion
-from litellm.types.utils import Choices, Message, ModelResponse
 from pydantic import BaseModel, Field
 
-from luthien_proxy.llm.judge_client import judge_completion
+from luthien_proxy.policies.tool_call_judge_utils import parse_judge_response
 
 if TYPE_CHECKING:
     from luthien_proxy.credentials.credential import Credential
-
-from luthien_proxy.llm.types.anthropic import JSONObject
-from luthien_proxy.policies.tool_call_judge_utils import parse_judge_response
+    from luthien_proxy.inference.base import InferenceProvider
+    from luthien_proxy.llm.types.anthropic import JSONObject
 
 logger = logging.getLogger(__name__)
 
@@ -32,16 +34,11 @@ class SimpleLLMJudgeConfig(BaseModel):
 
     model: str = Field(
         default="claude-haiku-4-5",
-        description="Any LiteLLM model string, e.g. 'claude-haiku-4-5', 'anthropic/claude-sonnet-4-5', 'ollama/llama3'",
+        description="Model identifier for the judge call (e.g. 'claude-haiku-4-5').",
     )
     api_base: str | None = Field(
         default=None,
-        description="Optional. Leave blank to use the model's default backend. Set to override, e.g. for a proxy or local endpoint.",
-    )
-    api_key: str | None = Field(
-        default=None,
-        description="API key for authentication",
-        json_schema_extra={"format": "password"},
+        description="Optional override for the judge backend endpoint. Leave null to use the provider's default.",
     )
     instructions: str = Field(description="Plain-English instructions for the judge")
     temperature: float = Field(default=0.0, description="Sampling temperature")
@@ -68,11 +65,20 @@ class SimpleLLMJudgeConfig(BaseModel):
         le=30.0,
         description="Seconds to wait between retries.",
     )
+    inference_provider: str | dict | None = Field(
+        default=None,
+        description=(
+            "Judge-side inference provider reference. Options: 'user_credentials' "
+            "(default), {'provider': 'name'}, {'user_then_provider': {'name': 'x', "
+            "'on_fallback': 'warn'}}."
+        ),
+    )
     auth_provider: str | dict | None = Field(
         default=None,
-        description="How to obtain credentials for judge calls. "
-        "Options: 'user_credentials' (default), {'server_key': 'name'}, "
-        "{'user_then_server': 'name'}. Replaces api_key when set.",
+        description=(
+            "DEPRECATED — use 'inference_provider' instead. Accepted for "
+            "backwards compatibility; logs a warning when set."
+        ),
     )
 
     model_config = {"frozen": True}
@@ -93,7 +99,7 @@ class ReplacementBlock:
     type: str
     text: str | None = None
     name: str | None = None
-    input: JSONObject | None = None
+    input: "JSONObject | None" = None
 
 
 @dataclass(frozen=True)
@@ -202,73 +208,35 @@ async def call_simple_llm_judge(
     config: SimpleLLMJudgeConfig,
     current_block: BlockDescriptor,
     previous_blocks: tuple[BlockDescriptor, ...],
-    api_key: str | None = None,
-    extra_headers: dict[str, str] | None = None,
-    credential: "Credential | None" = None,
+    *,
+    provider: "InferenceProvider",
+    credential_override: "Credential | None" = None,
 ) -> JudgeAction:
-    """Call the judge LLM and return its decision.
+    """Call the judge via an `InferenceProvider` and return its decision.
 
-    api_key overrides config.api_key (used for passthrough auth). extra_headers
-    is used for OAuth tokens (anthropic-beta header). If neither is set, LiteLLM
-    falls back to its own env-var resolution.
-
-    credential: When provided, uses judge_completion instead of acompletion
-    with raw api_key.
-
-    Retries up to config.max_retries times with config.retry_delay between
-    attempts. Exceptions propagate to the caller on final failure.
+    Retries up to `config.max_retries` times with `config.retry_delay`
+    seconds between attempts. The last exception propagates on final
+    failure.
     """
     prompt = build_judge_prompt(config.instructions, current_block, previous_blocks)
 
     max_attempts = 1 + config.max_retries
     last_exc: Exception | None = None
 
-    # Both credential and legacy paths are inside the retry loop so
-    # transient failures (network, LLM errors) are retried regardless
-    # of which auth mechanism is used.
     for attempt in range(max_attempts):
         try:
-            if credential is not None:
-                response_text = await judge_completion(
-                    credential,
-                    model=config.model,
-                    messages=prompt,
-                    temperature=config.temperature,
-                    max_tokens=config.max_tokens,
-                    api_base=config.api_base,
-                    response_format={"type": "json_object"},
-                )
-                return parse_judge_action(response_text)
-
-            # Legacy path: use acompletion with api_key
-            resolved_key = api_key or config.api_key
-            kwargs: dict[str, Any] = {
-                "model": config.model,
-                "messages": prompt,
-                "temperature": config.temperature,
-                "max_tokens": config.max_tokens,
-                "response_format": {"type": "json_object"},
-            }
-            if config.api_base:
-                kwargs["api_base"] = config.api_base
-            if resolved_key:
-                kwargs["api_key"] = resolved_key
-            if extra_headers:
-                kwargs["extra_headers"] = extra_headers
-
-            response = await acompletion(**kwargs)
-            response = cast(ModelResponse, response)
-
-            first_choice: Choices = cast(Choices, response.choices[0])
-            message: Message = first_choice.message
-            if message.content is None:
-                raise ValueError("Judge response content is None")
-
-            return parse_judge_action(message.content)
+            result = await provider.complete(
+                prompt,
+                model=config.model,
+                temperature=config.temperature,
+                max_tokens=config.max_tokens,
+                response_format={"type": "json_object"},
+                credential_override=credential_override,
+            )
+            return parse_judge_action(result.text)
         except Exception as exc:  # noqa: BLE001
-            # Retry all errors, not just network/API errors. Parse failures
-            # (malformed JSON, missing fields) can also succeed on a fresh
-            # LLM call since the model may produce valid output next time.
+            # Retry all errors — parse failures can succeed on retry if the
+            # model produces valid output next time.
             last_exc = exc
             is_last_attempt = attempt == max_attempts - 1
             if is_last_attempt:

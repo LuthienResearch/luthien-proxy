@@ -3,21 +3,18 @@
 Tests for the utility functions used by ToolCallJudgePolicy:
 - Judge prompt building
 - Judge response parsing (JSON, fenced code blocks, error handling)
-- Judge LLM calling with configuration
+- Probability parsing + clamping
 """
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pytest
-from litellm.types.utils import ModelResponse
 
 from luthien_proxy.policies.tool_call_judge_utils import (
     JudgeConfig,
     build_judge_prompt,
-    call_judge,
     parse_judge_response,
+    parse_to_judge_result,
 )
 
 
@@ -68,12 +65,7 @@ class TestParseJudgeResponse:
         assert result["explanation"] == "test"
 
     def test_parse_judge_response_fenced_json_multiline_body(self):
-        """Fenced ```json block with multi-line JSON body parses correctly.
-
-        Regression: the match set previously included "```json" as a dead entry
-        (lstrip("`") already strips all backticks). This test confirms the
-        remaining {"json", ""} entries handle the fenced-json case.
-        """
+        """Fenced ```json block with multi-line JSON body parses correctly."""
         content = '```json\n{\n  "probability": 0.9,\n  "explanation": "multi-line"\n}\n```'
         result = parse_judge_response(content)
 
@@ -91,222 +83,55 @@ class TestParseJudgeResponse:
             parse_judge_response("[1, 2, 3]")
 
 
-class TestCallJudge:
-    """Test the judge calling functionality."""
+class TestParseToJudgeResult:
+    """Probability clamping + required-field validation."""
 
-    @pytest.mark.asyncio
-    async def test_call_judge_success(self):
-        """Test successful judge call and result parsing."""
-        config = JudgeConfig(
-            model="test-model",
-            api_base=None,
-            api_key=None,
-            probability_threshold=0.5,
-            temperature=0.0,
-            max_tokens=256,
+    def test_happy_path(self):
+        result = parse_to_judge_result(
+            '{"probability": 0.75, "explanation": "somewhat dangerous"}',
+            prompt=[{"role": "user", "content": "x"}],
         )
-
-        # Mock acompletion
-        mock_response = ModelResponse(
-            id="test",
-            object="chat.completion",
-            created=123,
-            model="test",
-            choices=[
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": '{"probability": 0.75, "explanation": "somewhat dangerous"}',
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-        )
-
-        with patch("luthien_proxy.policies.tool_call_judge_utils.acompletion", return_value=mock_response):
-            result = await call_judge(
-                name="test_tool",
-                arguments='{"key": "value"}',
-                config=config,
-                judge_instructions="You are a judge",
-            )
-
         assert result.probability == 0.75
         assert result.explanation == "somewhat dangerous"
-        assert len(result.prompt) == 2
 
-    @pytest.mark.asyncio
-    async def test_call_judge_clamps_probability(self):
-        """Test that probabilities outside [0,1] are clamped."""
-        config = JudgeConfig(
-            model="test-model",
-            api_base=None,
-            api_key=None,
-            probability_threshold=0.5,
-            temperature=0.0,
-            max_tokens=256,
+    def test_clamps_above_one(self):
+        result = parse_to_judge_result(
+            '{"probability": 1.5, "explanation": "test"}',
+            prompt=[],
         )
-
-        # Mock response with out-of-range probability
-        mock_response = ModelResponse(
-            id="test",
-            object="chat.completion",
-            created=123,
-            model="test",
-            choices=[
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": '{"probability": 1.5, "explanation": "test"}',
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-        )
-
-        with patch("luthien_proxy.policies.tool_call_judge_utils.acompletion", return_value=mock_response):
-            result = await call_judge(
-                name="test_tool",
-                arguments="{}",
-                config=config,
-                judge_instructions="You are a judge",
-            )
-
-        # Should be clamped to 1.0
         assert result.probability == 1.0
 
-    @pytest.mark.asyncio
-    async def test_call_judge_uses_response_format_for_supported_models(self):
-        """Test that response_format is used for supported models."""
-        config = JudgeConfig(
-            model="gpt-4o",  # Supported model
-            api_base=None,
-            api_key=None,
-            probability_threshold=0.5,
-            temperature=0.0,
-            max_tokens=256,
+    def test_clamps_below_zero(self):
+        result = parse_to_judge_result(
+            '{"probability": -0.5, "explanation": "test"}',
+            prompt=[],
         )
+        assert result.probability == 0.0
 
-        mock_response = ModelResponse(
-            id="test",
-            object="chat.completion",
-            created=123,
-            model="test",
-            choices=[
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": '{"probability": 0.5, "explanation": "test"}',
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-        )
-
-        with patch(
-            "luthien_proxy.policies.tool_call_judge_utils.acompletion", return_value=mock_response
-        ) as mock_acompletion:
-            await call_judge(
-                name="test_tool",
-                arguments="{}",
-                config=config,
-                judge_instructions="You are a judge",
+    def test_fails_on_missing_probability(self):
+        """Missing probability → ValueError (fail-secure; callers must block)."""
+        with pytest.raises(ValueError, match="missing required 'probability' field"):
+            parse_to_judge_result(
+                '{"explanation": "test without probability"}',
+                prompt=[],
             )
 
-        # Verify response_format was passed
-        call_kwargs = mock_acompletion.call_args[1]
-        assert "response_format" in call_kwargs
-        assert call_kwargs["response_format"]["type"] == "json_object"
-
-    @pytest.mark.asyncio
-    async def test_call_judge_skips_response_format_for_base_gpt4(self):
-        """Test that response_format is NOT used for base gpt-4."""
-        config = JudgeConfig(
-            model="gpt-4",  # Base model doesn't support response_format
-            api_base=None,
-            api_key=None,
-            probability_threshold=0.5,
-            temperature=0.0,
-            max_tokens=256,
+    def test_missing_explanation_defaults_to_empty(self):
+        result = parse_to_judge_result(
+            '{"probability": 0.4}',
+            prompt=[],
         )
+        assert result.probability == 0.4
+        assert result.explanation == ""
 
-        mock_response = ModelResponse(
-            id="test",
-            object="chat.completion",
-            created=123,
-            model="test",
-            choices=[
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": '{"probability": 0.5, "explanation": "test"}',
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-        )
 
-        with patch(
-            "luthien_proxy.policies.tool_call_judge_utils.acompletion", return_value=mock_response
-        ) as mock_acompletion:
-            await call_judge(
-                name="test_tool",
-                arguments="{}",
-                config=config,
-                judge_instructions="You are a judge",
-            )
-
-        # Verify response_format was NOT passed
-        call_kwargs = mock_acompletion.call_args[1]
-        assert "response_format" not in call_kwargs
-
-    @pytest.mark.asyncio
-    async def test_call_judge_fails_on_missing_probability(self):
-        """Test that missing probability field raises ValueError (fail-secure).
-
-        This is a security-critical test: if the judge response is malformed
-        and lacks a probability field, we must NOT default to 0.0 (allow).
-        Instead, we raise an exception to block the request.
-        """
-        config = JudgeConfig(
-            model="test-model",
-            api_base=None,
-            api_key=None,
-            probability_threshold=0.5,
-            temperature=0.0,
-            max_tokens=256,
-        )
-
-        # Response missing the required 'probability' field
-        mock_response = ModelResponse(
-            id="test",
-            object="chat.completion",
-            created=123,
-            model="test",
-            choices=[
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": '{"explanation": "test without probability"}',
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-        )
-
-        with patch("luthien_proxy.policies.tool_call_judge_utils.acompletion", return_value=mock_response):
-            with pytest.raises(ValueError, match="missing required 'probability' field"):
-                await call_judge(
-                    name="test_tool",
-                    arguments="{}",
-                    config=config,
-                    judge_instructions="You are a judge",
-                )
+class TestJudgeConfig:
+    def test_defaults(self):
+        config = JudgeConfig(model="test-model")
+        assert config.model == "test-model"
+        assert config.api_base is None
+        assert config.probability_threshold == 0.6
+        assert config.temperature == 0.0
 
 
 if __name__ == "__main__":

@@ -37,7 +37,12 @@ from anthropic.types import (
     ToolUseBlock,
 )
 
-from luthien_proxy.credentials import AuthProvider, parse_auth_provider
+from luthien_proxy.credentials import (
+    InferenceProviderRef,
+    parse_auth_provider,
+    parse_inference_provider,
+)
+from luthien_proxy.inference.dispatch import resolve_inference_provider
 from luthien_proxy.policies.simple_llm_utils import (
     BlockDescriptor,
     JudgeAction,
@@ -87,6 +92,28 @@ def _blocked_tool_judge_failed_message(name: str) -> str:
     return f"[Tool call `{name}` blocked: policy evaluation unavailable]"
 
 
+def _parse_provider_ref(
+    inference_provider: str | dict | None,
+    auth_provider: str | dict | None,
+) -> InferenceProviderRef:
+    """Parse inference-provider reference, accepting the legacy `auth_provider` key.
+
+    Requires exactly one of the two fields to be set. Both None defaults to
+    `user_credentials` for back-compat with the pre-PR-#609 behavior that
+    PR #603 made mandatory.
+    """
+    if inference_provider is not None and auth_provider is not None:
+        raise ValueError(
+            "Policy config has both 'inference_provider' and 'auth_provider'; "
+            "use only 'inference_provider' (the old name is deprecated)."
+        )
+    if inference_provider is not None:
+        return parse_inference_provider(inference_provider)
+    if auth_provider is not None:
+        return parse_auth_provider(auth_provider)
+    return parse_inference_provider(None)
+
+
 @dataclass
 class _SimpleLLMAnthropicState:
     text_buffer: dict[int, str] = field(default_factory=dict)
@@ -126,20 +153,18 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         self._config = SimpleLLMJudgeConfig(
             model=settings.llm_judge_model or parsed.model,
             api_base=settings.llm_judge_api_base or parsed.api_base,
-            api_key=parsed.api_key,  # explicit per-policy override only
             instructions=parsed.instructions,
             temperature=parsed.temperature,
             max_tokens=parsed.max_tokens,
             on_error=parsed.on_error,
+            inference_provider=parsed.inference_provider,
+            auth_provider=parsed.auth_provider,
         )
 
-        # Auth provider (new path) — when set, replaces the legacy key resolution
-        self._auth_provider: AuthProvider | None = None
-        if parsed.auth_provider is not None:
-            self._auth_provider = parse_auth_provider(parsed.auth_provider)
-
-        # DEPRECATED(Step 5b): legacy key fallback — remove when auth_provider is mandatory
-        self._fallback_api_key = settings.llm_judge_api_key or settings.litellm_master_key or None
+        self._inference_provider_ref: InferenceProviderRef = _parse_provider_ref(
+            inference_provider=parsed.inference_provider,
+            auth_provider=parsed.auth_provider,
+        )
 
         if self._config.on_error == "pass":
             logger.warning(
@@ -194,22 +219,21 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         (returning "pass" or "block") so callers never handle None.
         """
         try:
-            if self._auth_provider is not None:
-                credential = await context.credential_manager.resolve(self._auth_provider, context)
-                result = await call_simple_llm_judge(
-                    self._config,
-                    descriptor,
-                    tuple(emitted_blocks),
-                    credential=credential,
-                )
-            else:
-                # DEPRECATED(Step 5b): legacy path — remove when auth_provider is mandatory
-                result = await call_simple_llm_judge(
-                    self._config,
-                    descriptor,
-                    tuple(emitted_blocks),
-                    api_key=self._resolve_judge_api_key(context, self._config.api_key, self._fallback_api_key),
-                )
+            dispatch = await resolve_inference_provider(
+                self._inference_provider_ref,
+                context,
+                context.inference_provider_registry,
+                passthrough_default_model=self._config.model,
+                passthrough_api_base=self._config.api_base,
+                passthrough_name="simple_llm_judge_passthrough",
+            )
+            result = await call_simple_llm_judge(
+                self._config,
+                descriptor,
+                tuple(emitted_blocks),
+                provider=dispatch.provider,
+                credential_override=dispatch.credential_override,
+            )
             context.record_event(
                 "policy.simple_llm.judge_result",
                 {

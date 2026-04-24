@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from opentelemetry.trace import Span
 
     from luthien_proxy.credential_manager import CredentialManager
+    from luthien_proxy.inference.registry import InferenceProviderRegistry
     from luthien_proxy.utils.policy_cache import PolicyCache, PolicyCacheFactory
 
 _tracer = trace.get_tracer(__name__)
@@ -57,6 +58,7 @@ class PolicyContext:
         session_id: str | None = None,
         user_credential: Credential | None = None,
         credential_manager: "CredentialManager | None" = None,
+        inference_provider_registry: "InferenceProviderRegistry | None" = None,
         policy_cache_factory: "PolicyCacheFactory | None" = None,
     ) -> None:
         """Initialize policy context for a request.
@@ -73,6 +75,11 @@ class PolicyContext:
                              (accounts for x-anthropic-api-key overrides).
             credential_manager: Shared credential manager for auth provider
                                 resolution. Policies access via the property.
+            inference_provider_registry: Shared registry of named
+                                inference providers. Policies that declare
+                                an `inference_provider` reference to a
+                                named registry entry access via the
+                                property.
             policy_cache_factory: Factory to create policy-scoped caches. If not
                                   provided, policy caching is unavailable.
         """
@@ -82,6 +89,7 @@ class PolicyContext:
         self.session_id: str | None = session_id
         self.user_credential: Credential | None = user_credential
         self._credential_manager: "CredentialManager | None" = credential_manager
+        self._inference_provider_registry: "InferenceProviderRegistry | None" = inference_provider_registry
         self._policy_cache_factory: "PolicyCacheFactory | None" = policy_cache_factory
         self._emitter: EventEmitterProtocol = emitter or NullEventEmitter()
         self._scratchpad: dict[str, Any] = {}
@@ -114,10 +122,21 @@ class PolicyContext:
         if self._credential_manager is None:
             raise CredentialError(
                 "No credential manager configured. "
-                "Policies using auth_provider require a running gateway with "
+                "Policies using inference_provider require a running gateway with "
                 "CredentialManager initialized."
             )
         return self._credential_manager
+
+    @property
+    def inference_provider_registry(self) -> "InferenceProviderRegistry | None":
+        """Access the shared `InferenceProviderRegistry`, if configured.
+
+        Returns `None` when the gateway was started without a DB pool. The
+        dispatch layer decides whether a missing registry is fatal based on
+        the policy's declared reference (registry-less is OK for the
+        `user_credentials` branch; fatal for named-provider branches).
+        """
+        return self._inference_provider_registry
 
     def policy_cache(self, policy_name: str) -> "PolicyCache":
         """Get a DB-backed cache scoped to the given policy name.
@@ -272,6 +291,7 @@ class PolicyContext:
         new_ctx.raw_http_request = self.raw_http_request  # read-only after creation
         new_ctx.user_credential = self.user_credential  # frozen dataclass
         new_ctx._credential_manager = self._credential_manager  # holds db/cache pools
+        new_ctx._inference_provider_registry = self._inference_provider_registry  # holds db pool
         new_ctx._policy_cache_factory = self._policy_cache_factory  # infrastructure, not per-request state
         new_ctx._emitter = self._emitter  # holds db/redis pool — share, not copy
 
@@ -297,6 +317,7 @@ class PolicyContext:
         session_id: str | None = None,
         user_credential: Credential | None = None,
         credential_manager: "CredentialManager | None" = None,
+        inference_provider_registry: "InferenceProviderRegistry | None" = None,
         policy_cache_factory: "PolicyCacheFactory | None" = None,
     ) -> "PolicyContext":
         """Create a PolicyContext suitable for unit tests.
@@ -323,6 +344,7 @@ class PolicyContext:
             session_id=session_id,
             user_credential=user_credential,
             credential_manager=credential_manager,
+            inference_provider_registry=inference_provider_registry,
             policy_cache_factory=policy_cache_factory,
         )
 

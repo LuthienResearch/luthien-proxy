@@ -1,10 +1,12 @@
 """Utilities for tool call judging with LLM.
 
-This module provides the core judging functionality used by ToolCallJudgePolicy:
-- Calling judge LLM to evaluate tool calls
+This module provides the core judging pieces used by ToolCallJudgePolicy:
 - Building judge prompts
-- Parsing judge responses
-- Creating blocked response messages
+- Parsing judge responses into a validated `JudgeResult`
+
+As of PR #609 there is no LiteLLM-based helper here; the actual judge call
+runs through an `InferenceProvider` that the caller resolves from its
+`inference_provider:` YAML config.
 """
 
 from __future__ import annotations
@@ -12,10 +14,8 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
-from litellm import acompletion
-from litellm.types.utils import Choices, Message, ModelResponse
 from pydantic import BaseModel, Field
 
 from luthien_proxy.utils.constants import DEFAULT_JUDGE_MAX_TOKENS
@@ -24,19 +24,14 @@ logger = logging.getLogger(__name__)
 
 
 class JudgeConfig(BaseModel):
-    """Configuration for LLM judge."""
+    """Configuration for LLM judge (runtime view the policy passes to the provider)."""
 
     model: str = Field(
-        description="Any LiteLLM model string, e.g. 'claude-haiku-4-5', 'anthropic/claude-sonnet-4-5', 'ollama/llama3'",
+        description="Model identifier used for the judge call (e.g. 'claude-haiku-4-5').",
     )
     api_base: str | None = Field(
         default=None,
-        description="Optional. Leave blank to use the model's default backend. Set to override, e.g. for a proxy or local endpoint.",
-    )
-    api_key: str | None = Field(
-        default=None,
-        description="API key for authentication",
-        json_schema_extra={"format": "password"},
+        description="Optional override for the judge backend endpoint. Used for the passthrough provider.",
     )
     probability_threshold: float = Field(
         default=0.6,
@@ -61,80 +56,6 @@ class JudgeResult:
     explanation: str
     prompt: list[dict[str, str]]
     response_text: str
-
-
-# TODO: This should use dependency injection for the LLM client
-async def call_judge(
-    name: str,
-    arguments: str,
-    config: JudgeConfig,
-    judge_instructions: str,
-    api_key: str | None = None,
-    extra_headers: dict[str, str] | None = None,
-) -> JudgeResult:
-    """Call LLM judge to evaluate a tool call.
-
-    api_key overrides config.api_key (used for passthrough auth). extra_headers
-    is used for OAuth tokens (anthropic-beta header). If neither is set, LiteLLM
-    falls back to its own env-var resolution.
-
-    Args:
-        name: Tool call name
-        arguments: Tool call arguments (JSON string)
-        config: Judge configuration
-        judge_instructions: System prompt for judge
-        api_key: API key override (e.g. from request passthrough)
-        extra_headers: Extra HTTP headers (e.g. OAuth beta header)
-
-    Returns:
-        JudgeResult with probability and explanation
-
-    Raises:
-        Exception: If judge LLM call fails or response cannot be parsed
-    """
-    prompt = build_judge_prompt(name, arguments, judge_instructions)
-    resolved_key = api_key or config.api_key
-
-    try:
-        kwargs: dict[str, Any] = {
-            "model": config.model,
-            "temperature": config.temperature,
-            "max_tokens": config.max_tokens,
-            "messages": prompt,
-        }
-
-        # Only use response_format for models that support it
-        # (gpt-4-turbo, gpt-4o, gpt-3.5-turbo-1106+, etc.)
-        # Skip for base gpt-4 which doesn't support it
-        model_lower = config.model.lower()
-        if "gpt-4o" in model_lower or "gpt-4-turbo" in model_lower or "gpt-3.5-turbo" in model_lower:
-            kwargs["response_format"] = {"type": "json_object"}
-
-        if config.api_base:
-            kwargs["api_base"] = config.api_base
-        if resolved_key:
-            kwargs["api_key"] = resolved_key
-        if extra_headers:
-            kwargs["extra_headers"] = extra_headers
-
-        response = await acompletion(**kwargs)
-        response = cast(ModelResponse, response)
-
-    except Exception as exc:
-        logger.error(f"LLM judge request failed: {exc}")
-        raise
-
-    # Extract response content
-    first_choice: Choices = cast(Choices, response.choices[0])
-    message: Message = first_choice.message
-    if message.content is None:
-        raise ValueError("Judge response content is None")
-    content: str = message.content
-
-    if not isinstance(content, str):
-        raise ValueError("Judge response content must be a string")
-
-    return parse_to_judge_result(content, prompt)
 
 
 def parse_judge_response(content: str) -> dict[str, Any]:
@@ -178,8 +99,8 @@ def parse_to_judge_result(
 ) -> JudgeResult:
     """Parse raw judge response text into a validated JudgeResult.
 
-    Shared between call_judge (legacy) and credential-based judge paths
-    to ensure consistent parsing, validation, and probability clamping.
+    Clamps `probability` into `[0, 1]` and requires an explanation field
+    even if blank — callers log it for triage.
     """
     data = parse_judge_response(response_text)
 
@@ -225,7 +146,7 @@ def build_judge_prompt(name: str, arguments: str, judge_instructions: str) -> li
 __all__ = [
     "JudgeConfig",
     "JudgeResult",
-    "call_judge",
     "parse_judge_response",
+    "parse_to_judge_result",
     "build_judge_prompt",
 ]
