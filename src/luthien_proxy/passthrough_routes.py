@@ -10,12 +10,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+import uuid
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 
 from luthien_proxy.passthrough_auth import verify_passthrough_token
+from luthien_proxy.request_log.recorder import create_recorder
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -99,11 +101,30 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
     request.state.luthien_agent = request.headers.get("x-luthien-agent")
     request.state.luthien_model = request.headers.get("x-luthien-model")
 
+    deps = getattr(request.app.state, "dependencies", None)
+    recorder = create_recorder(
+        db_pool=deps.db_pool if deps is not None else None,
+        transaction_id=str(uuid.uuid4()),
+        enabled=deps.enable_request_logging if deps is not None else False,
+    )
+    recorder.record_inbound_request(
+        method=request.method,
+        url=str(request.url),
+        headers=dict(request.headers),
+        body={},
+        session_id=request.state.luthien_session_id,
+        agent=request.state.luthien_agent,
+        model=request.state.luthien_model,
+        endpoint=f"/{provider}/{path}",
+    )
+
     streaming = _is_streaming(path, body)
 
     if streaming:
 
         async def stream_chunks():
+            status = 200
+            error: str | None = None
             try:
                 async with _streaming_client.stream(
                     request.method,
@@ -111,10 +132,16 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
                     headers=headers,
                     content=body or None,
                 ) as response:
+                    status = response.status_code
                     async for chunk in response.aiter_bytes():
                         yield chunk
             except httpx.RequestError as exc:
                 logger.warning("Streaming passthrough error for %s/%s: %s", provider, path, repr(exc))
+                status = 502
+                error = repr(exc)
+            finally:
+                recorder.record_inbound_response(status=status, error=error)
+                recorder.flush()
 
         return StreamingResponse(stream_chunks(), media_type="text/event-stream")
 
@@ -127,7 +154,12 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
         )
     except httpx.RequestError as exc:
         logger.warning("Buffered passthrough error for %s/%s: %s", provider, path, repr(exc))
+        recorder.record_inbound_response(status=502, error=repr(exc))
+        recorder.flush()
         raise HTTPException(status_code=502, detail="Failed to connect to upstream API")
+
+    recorder.record_inbound_response(status=response.status_code)
+    recorder.flush()
 
     return Response(
         content=response.content,
