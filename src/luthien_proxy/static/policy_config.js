@@ -63,6 +63,16 @@ const EXAMPLES = {
         input: 'I\'d be happy to help! Let me delve into this comprehensive topic \u2014 it\'s certainly a pivotal one.',
         output: 'Let me look at this topic, it\'s an important one.',
     },
+    'luthien_proxy.policies.presets.no_yapping:NoYappingPolicy': {
+        desc: null,
+        input: 'Certainly! Great question! Let me walk you through the solution step by step.',
+        output: 'Here\'s the solution:',
+    },
+    'luthien_proxy.policies.presets.no_apologies:NoApologiesPolicy': {
+        desc: null,
+        input: 'I apologize for the confusion. The correct answer is 42.',
+        output: 'The correct answer is 42.',
+    },
 };
 
 // ============================================================

@@ -368,8 +368,7 @@ async def send_chat(
     if not test_api_key:
         return ChatResponse(
             success=False,
-            error="No credential available — set CLIENT_API_KEY or route a request "
-            "through the proxy first",
+            error="No credential available — set CLIENT_API_KEY or route a request through the proxy first",
             model=body.model,
         )
 

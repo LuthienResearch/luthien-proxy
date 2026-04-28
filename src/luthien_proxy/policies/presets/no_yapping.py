@@ -10,7 +10,7 @@ class NoYappingPolicy(SimpleLLMPolicy):
     and excessive qualifiers, leaving only substantive content.
     """
 
-    category = "simple_utilities"
+    category = "fun_and_goofy"
     display_name = "No Yapping"
     short_description = "Enforces concise responses by cutting filler, hedging, and preamble."
     badges = ()

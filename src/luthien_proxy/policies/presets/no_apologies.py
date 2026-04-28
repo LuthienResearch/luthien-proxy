@@ -10,7 +10,7 @@ class NoApologiesPolicy(SimpleLLMPolicy):
     direct and focused on the actual content.
     """
 
-    category = "simple_utilities"
+    category = "fun_and_goofy"
     display_name = "No Apologies"
     short_description = "Removes 'I apologize', 'I'm sorry', and other apologetic filler."
     badges = ()
