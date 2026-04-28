@@ -39,6 +39,7 @@ from luthien_proxy.observability.event_publisher import (
 )
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.observability.sentry import init_sentry
+from luthien_proxy.passthrough_routes import router as passthrough_router
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.request_log import router as request_log_router
 from luthien_proxy.retention.archiver import S3ConversationArchiver
@@ -391,6 +392,7 @@ def create_app(
     app.include_router(history_routes.router)  # /history/* (conversation history UI)
     app.include_router(history_routes.api_router)  # /api/history/* (conversation history API)
     app.include_router(request_log_router)  # /request-logs/* (HTTP-level logging)
+    app.include_router(passthrough_router)  # /openai/*, /gemini/*, /anthropic/* (Track A bridge)
 
     # Simple utility endpoints
     @app.get("/health")
