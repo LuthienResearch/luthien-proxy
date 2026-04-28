@@ -21,7 +21,10 @@ EVIDENCE_DIR="$REPO_ROOT/.sisyphus/evidence/track-a-17-smoke"
 
 # Load .env
 if [ -f "$REPO_ROOT/.env" ]; then
-    set -a; source "$REPO_ROOT/.env"; set +a
+    set -a
+    # shellcheck source=/dev/null
+    source "$REPO_ROOT/.env"
+    set +a
 fi
 
 A6_FALLBACK="${1:-}"
