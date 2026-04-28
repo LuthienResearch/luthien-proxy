@@ -52,6 +52,10 @@ class _ConversationLinkState:
 class ConversationLinkPolicy(SimplePolicy):
     """Injects a conversation viewer link into the first response of each conversation."""
 
+    category = "simple_utilities"
+    display_name = "Conversation Link"
+    short_description = "Adds a link to the conversation viewer in the first response."
+
     def __init__(self, config: ConversationLinkPolicyConfig | dict | None = None) -> None:
         """Initialize with optional config. Accepts dict or Pydantic model."""
         self.config = self._init_config(config, ConversationLinkPolicyConfig)

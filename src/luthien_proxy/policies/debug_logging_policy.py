@@ -44,6 +44,10 @@ class DebugLoggingPolicy(BasePolicy, AnthropicHookPolicy):
     DB persistence, and pass data through unchanged.
     """
 
+    category = "internal"
+    display_name = "Debug Logging"
+    short_description = "Logs full requests, responses, and streaming events for debugging."
+
     @property
     def short_policy_name(self) -> str:
         """Return 'DebugLogging'."""

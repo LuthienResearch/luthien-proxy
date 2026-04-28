@@ -13,6 +13,10 @@ class SimpleNoOpPolicy(SimplePolicy):
     and as an MVP example of extending SimplePolicy.
     """
 
+    category = "internal"
+    display_name = "Simple No-Op"
+    short_description = "Buffered no-op for testing streaming reconstruction."
+
     pass
 
 

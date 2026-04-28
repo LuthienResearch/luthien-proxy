@@ -10,6 +10,11 @@ class BlockWebRequestsPolicy(SimpleLLMPolicy):
     network requests. Text content discussing these commands is allowed.
     """
 
+    category = "active_monitoring"
+    display_name = "Block Web Requests"
+    short_description = "Blocks curl, wget, and other outbound network requests."
+    badges = ("Blocks",)
+
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""
         super().__init__(

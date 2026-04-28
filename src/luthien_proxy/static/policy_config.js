@@ -6,25 +6,15 @@ const NOOP_CLASS_REF = 'luthien_proxy.policies.noop_policy:NoOpPolicy';
 const DEFAULT_MODEL = 'claude-haiku-4-5-20241022';
 const MULTI_SERIAL_CLASS_REF = 'luthien_proxy.policies.multi_serial_policy:MultiSerialPolicy';
 
-// Policies shown in the "Simple" group (top of Available column)
-const SIMPLE_POLICIES = [
-    'AllCapsPolicy',
-    'StringReplacementPolicy',
-    'SimpleLLMPolicy',
-    'ToolCallJudgePolicy',
-];
-
-// Hidden from default view — internal/meta policies users don't pick directly.
-// Names must match the `name` field from the /api/admin/policy/list discovery API.
-const HIDDEN_POLICIES = new Set([
-    'DebugLoggingPolicy',
-    'NoOpPolicy',
-    'SimpleNoOpPolicy',
-    'PlainDashesPolicy',
-    'MultiSerialPolicy',
-    'SimplePolicy',
-    'SamplePydanticPolicy',
-]);
+// Category display order and labels — server provides `category` per policy.
+const CATEGORY_ORDER = ['simple_utilities', 'active_monitoring', 'fun_and_goofy', 'advanced'];
+const CATEGORY_LABELS = {
+    simple_utilities: 'Simple Utilities',
+    active_monitoring: 'Active Monitoring & Editing',
+    fun_and_goofy: 'Fun & Goofy',
+    advanced: 'Advanced / Debugging',
+    internal: 'Internal',
+};
 
 // Inline examples shown on policy cards
 const EXAMPLES = {
@@ -68,6 +58,21 @@ const EXAMPLES = {
         input: 'Hello!',
         output: 'Hello!  (non-streaming)',
     },
+    'luthien_proxy.policies.presets.deslop:DeSlopPolicy': {
+        desc: null,
+        input: 'I\'d be happy to help! Let me delve into this comprehensive topic \u2014 it\'s certainly a pivotal one.',
+        output: 'Let me look at this topic, it\'s an important one.',
+    },
+    'luthien_proxy.policies.presets.no_yapping:NoYappingPolicy': {
+        desc: null,
+        input: 'Certainly! Great question! Let me walk you through the solution step by step.',
+        output: 'Here\'s the solution:',
+    },
+    'luthien_proxy.policies.presets.no_apologies:NoApologiesPolicy': {
+        desc: null,
+        input: 'I apologize for the confusion. The correct answer is 42.',
+        output: 'The correct answer is 42.',
+    },
 };
 
 // ============================================================
@@ -85,6 +90,7 @@ const state = {
     showHidden: false,
     expandedChainIndex: -1,
     expandedAvailablePolicy: null,
+    collapsedCategories: new Set(['fun_and_goofy', 'advanced']),
 };
 
 // Order-insensitive deep equality for config objects
@@ -141,9 +147,19 @@ document.addEventListener('alpine:init', () => {
     Alpine.store('drawer', { open: false, path: '', index: -1 });
 });
 
+const DEFAULT_PROPOSED_REF = 'luthien_proxy.policies.presets.deslop:DeSlopPolicy';
+
 document.addEventListener('DOMContentLoaded', async () => {
     initFilterInput();
     await Promise.all([loadPolicies(), loadCurrentPolicy(), loadModels(), loadGatewaySettings()]);
+    // Auto-propose De-Slop if nothing is in the chain yet
+    if (state.chain.length === 0) {
+        const defaultPolicy = getPolicy(DEFAULT_PROPOSED_REF);
+        if (defaultPolicy) {
+            state.chain.push({ classRef: DEFAULT_PROPOSED_REF, config: defaultConfigFor(defaultPolicy) });
+            state.expandedChainIndex = 0;
+        }
+    }
     renderAll();
 });
 
@@ -289,52 +305,53 @@ function renderExampleBlock(classRef, large) {
 }
 
 // ============================================================
-// Render: Available column (with Simple/Advanced grouping)
+// Render: Available column (category accordion)
 // ============================================================
 function renderAvailable() {
     const filter = document.getElementById('filter-input').value.toLowerCase();
     const list = document.getElementById('available-list');
     list.innerHTML = '';
 
-    const simple = [];
-    const advanced = [];
+    // Group by category from server
+    const groups = {};
     let hiddenCount = 0;
-
     for (const p of state.policies) {
         if (filter && !p.name.toLowerCase().includes(filter) && !(p.description || '').toLowerCase().includes(filter)) continue;
-        const isHidden = HIDDEN_POLICIES.has(p.name);
-        if (isHidden) hiddenCount++;
-        if (!state.showHidden && isHidden) continue;
-        if (SIMPLE_POLICIES.includes(p.name)) {
-            simple.push(p);
-        } else {
-            advanced.push(p);
+        const cat = p.category || 'advanced';
+        if (cat === 'internal') { hiddenCount++; if (!state.showHidden) continue; }
+        if (!groups[cat]) groups[cat] = [];
+        groups[cat].push(p);
+    }
+
+    // Render in order
+    const allCats = [...CATEGORY_ORDER];
+    if (state.showHidden) allCats.push('internal');
+    for (const cat of Object.keys(groups)) { if (!allCats.includes(cat)) allCats.push(cat); }
+
+    for (const cat of allCats) {
+        const policies = groups[cat];
+        if (!policies || policies.length === 0) continue;
+        const isCollapsed = state.collapsedCategories.has(cat);
+
+        const section = document.createElement('div');
+        section.className = 'category-section';
+
+        const label = document.createElement('div');
+        label.className = 'group-label';
+        const labelText = document.createElement('span');
+        labelText.textContent = CATEGORY_LABELS[cat] || cat;
+        const arrow = document.createElement('span');
+        arrow.className = 'category-arrow';
+        arrow.textContent = isCollapsed ? '\u25B6' : '\u25BC';
+        label.appendChild(labelText);
+        label.appendChild(arrow);
+        label.onclick = () => toggleCategory(cat);
+        section.appendChild(label);
+
+        if (!isCollapsed) {
+            for (const p of policies) renderPolicyCard(p, section);
         }
-    }
-
-    simple.sort((a, b) => SIMPLE_POLICIES.indexOf(a.name) - SIMPLE_POLICIES.indexOf(b.name));
-
-    if (state.chain.length === 0) {
-        const hint = document.createElement('div');
-        hint.className = 'available-hint';
-        hint.textContent = 'Press + on a policy to add it to your chain';
-        list.appendChild(hint);
-    }
-
-    if (simple.length > 0) {
-        const label = document.createElement('div');
-        label.className = 'group-label';
-        label.textContent = 'Simple';
-        list.appendChild(label);
-        for (const p of simple) renderPolicyCard(p, list);
-    }
-
-    if (advanced.length > 0) {
-        const label = document.createElement('div');
-        label.className = 'group-label';
-        label.textContent = 'Advanced';
-        list.appendChild(label);
-        for (const p of advanced) renderPolicyCard(p, list);
+        list.appendChild(section);
     }
 
     if (hiddenCount > 0) {
@@ -346,50 +363,77 @@ function renderAvailable() {
     }
 
     if (list.children.length === 0 && state.policies.length > 0) {
-        list.innerHTML = '<div class="empty-state">No policies match filter</div>';
+        const el = document.createElement('div');
+        el.className = 'empty-state';
+        el.textContent = 'No policies match filter';
+        list.appendChild(el);
     }
+}
+
+function toggleCategory(cat) {
+    if (state.collapsedCategories.has(cat)) state.collapsedCategories.delete(cat);
+    else state.collapsedCategories.add(cat);
+    renderAvailable();
+}
+
+function displayName(p) {
+    return p.display_name || p.name;
 }
 
 function renderPolicyCard(p, container) {
     const div = document.createElement('div');
     div.className = 'policy-card';
-    div.setAttribute('role', 'button');
-    div.setAttribute('tabindex', '0');
     const inActiveChain = isInActiveChain(p.class_ref);
     if (isCurrentActive(p.class_ref) || inActiveChain) div.className += ' is-active';
+    if (state.chain.some(c => c.classRef === p.class_ref)) div.className += ' in-chain';
 
-    const inChain = state.chain.some(c => c.classRef === p.class_ref);
-    if (inChain) div.className += ' in-chain';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'p-name';
 
-    const isExpanded = state.expandedAvailablePolicy === p.class_ref;
-    if (isExpanded) div.className += ' expanded';
-
-    const cc = configParamCount(p);
-    const configHint = cc > 0 ? ` <span class="p-config-hint">(${cc} setting${cc > 1 ? 's' : ''})</span>` : '';
-    const dot = isCurrentActive(p.class_ref) ? '<span class="active-dot" title="Currently active"></span>' : '';
-
-    const firstLine = (p.description || '').split('.')[0];
-    const exampleHtml = renderExampleBlock(p.class_ref, false);
-
-    let expandedHtml = '';
-    if (isExpanded) {
-        const fullDesc = p.description || '';
-        expandedHtml = `<div class="p-full-desc">${esc(fullDesc)}</div>`;
-        expandedHtml += exampleHtml;
-        if (cc > 0) expandedHtml += `<div class="p-config-detail">${cc} configurable setting${cc > 1 ? 's' : ''}</div>`;
+    if (isCurrentActive(p.class_ref)) {
+        const dot = document.createElement('span');
+        dot.className = 'active-dot';
+        dot.title = 'Currently active';
+        nameEl.appendChild(dot);
     }
 
-    div.innerHTML = `
-        <div class="p-name">${dot}${esc(p.name)}<button class="p-add-btn">+<span class="p-add-tooltip">Add to policy chain</span></button></div>
-        <div class="p-desc">${esc(firstLine)}.${configHint}</div>${isExpanded ? expandedHtml : ''}`;
-    div.querySelector('.p-add-btn').onclick = (e) => addToChain(p.class_ref, e);
-    div.onclick = () => togglePolicyExpand(p.class_ref);
-    div.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePolicyExpand(p.class_ref); } };
+    const nameText = document.createElement('span');
+    nameText.textContent = displayName(p);
+    nameEl.appendChild(nameText);
+
+    // Badges
+    if (p.badges && p.badges.length > 0) {
+        for (const badge of p.badges) {
+            const badgeEl = document.createElement('span');
+            badgeEl.className = 'p-badge';
+            badgeEl.textContent = badge;
+            nameEl.appendChild(badgeEl);
+        }
+    }
+
+    const addBtn = document.createElement('button');
+    addBtn.className = 'p-add-btn';
+    addBtn.textContent = '+';
+    addBtn.onclick = (e) => addToChain(p.class_ref, e);
+    nameEl.appendChild(addBtn);
+
+    div.appendChild(nameEl);
+
+    // Short description
+    const descText = p.short_description || p.description || '';
+    if (descText) {
+        const descEl = document.createElement('div');
+        descEl.className = 'p-short-desc';
+        descEl.textContent = descText;
+        div.appendChild(descEl);
+    }
+
+    div.onclick = () => addToChain(p.class_ref);
     container.appendChild(div);
 }
 
 // ============================================================
-// Render: Proposed column — always chain view
+// Render: Proposed column — single-policy-first, chain when >1
 // ============================================================
 function renderProposed() {
     const col = document.getElementById('col-proposed');
@@ -400,24 +444,147 @@ function renderProposed() {
     const content = document.getElementById('proposed-content');
 
     if (state.chain.length === 0) {
-        empty.innerHTML = '<div class="empty-chain-state">' +
-            '<div class="empty-chain-icon">+</div>' +
-            '<div class="empty-chain-title">Build a Policy Chain</div>' +
-            '<div class="empty-chain-desc">Click policies on the left to add them here. ' +
-            'Policies run in order, top to bottom.</div>' +
-            '</div>';
         empty.style.display = ''; content.style.display = 'none';
+        empty.innerHTML = '';
+        const emptyEl = document.createElement('div');
+        emptyEl.className = 'empty-chain-state';
+        const icon = document.createElement('div');
+        icon.className = 'empty-chain-icon';
+        icon.textContent = '+';
+        const title = document.createElement('div');
+        title.className = 'empty-chain-title';
+        title.textContent = 'Select a Policy';
+        const desc = document.createElement('div');
+        desc.className = 'empty-chain-desc';
+        desc.textContent = 'Click a policy on the left to configure it here.';
+        emptyEl.appendChild(icon);
+        emptyEl.appendChild(title);
+        emptyEl.appendChild(desc);
+        empty.appendChild(emptyEl);
         return;
     }
 
     empty.style.display = 'none'; content.style.display = '';
 
-    let html = '<div class="chain-header-row">';
-    html += '<span class="chain-title">Policy Chain</span>';
-    html += `<span class="chain-count">${state.chain.length} ${state.chain.length === 1 ? 'policy' : 'policies'}</span>`;
-    html += '</div>';
+    if (state.chain.length === 1) {
+        renderProposedSingle(content);
+    } else {
+        renderProposedChain(content);
+    }
+}
 
-    html += '<ul class="chain-list">';
+function renderProposedSingle(content) {
+    const item = state.chain[0];
+    const p = getPolicy(item.classRef);
+    if (!p) return;
+    const hasConfig = configParamCount(p) > 0;
+
+    content.innerHTML = '';
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'proposed-name';
+    nameEl.textContent = displayName(p);
+    content.appendChild(nameEl);
+
+    // Badges
+    if (p.badges && p.badges.length > 0) {
+        const badgeRow = document.createElement('div');
+        badgeRow.className = 'proposed-badges';
+        for (const badge of p.badges) {
+            const badgeEl = document.createElement('span');
+            badgeEl.className = 'p-badge p-badge-lg';
+            badgeEl.textContent = badge;
+            badgeRow.appendChild(badgeEl);
+        }
+        content.appendChild(badgeRow);
+    }
+
+    // Instructions summary (like whiteboard "Instructions for judge LLM" box)
+    if (p.instructions_summary) {
+        const instrEl = document.createElement('div');
+        instrEl.className = 'proposed-instructions';
+        const instrLabel = document.createElement('div');
+        instrLabel.className = 'proposed-instructions-label';
+        instrLabel.textContent = 'Instructions for judge LLM';
+        const instrText = document.createElement('div');
+        instrText.className = 'proposed-instructions-text';
+        instrText.textContent = p.instructions_summary;
+        instrEl.appendChild(instrLabel);
+        instrEl.appendChild(instrText);
+        content.appendChild(instrEl);
+    } else {
+        const descEl = document.createElement('div');
+        descEl.className = 'proposed-desc';
+        descEl.textContent = p.description || p.short_description || '';
+        content.appendChild(descEl);
+    }
+
+    // User alert preview
+    if (p.user_alert_template) {
+        const alertEl = document.createElement('div');
+        alertEl.className = 'proposed-alert-preview';
+        const alertLabel = document.createElement('div');
+        alertLabel.className = 'alert-preview-label';
+        alertLabel.textContent = 'User sees when policy acts:';
+        const alertText = document.createElement('div');
+        alertText.className = 'alert-preview-text';
+        alertText.textContent = p.user_alert_template;
+        alertEl.appendChild(alertLabel);
+        alertEl.appendChild(alertText);
+        content.appendChild(alertEl);
+    }
+
+    if (hasConfig) {
+        const configContainer = document.createElement('div');
+        configContainer.id = 'chain-config-0';
+        configContainer.className = 'chain-config-container';
+        content.appendChild(configContainer);
+    } else {
+        const noConfig = document.createElement('div');
+        noConfig.className = 'no-config';
+        noConfig.textContent = 'No configuration needed';
+        content.appendChild(noConfig);
+    }
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'deactivate-link';
+    removeBtn.textContent = 'Remove';
+    removeBtn.onclick = () => removeChain(0);
+    content.appendChild(removeBtn);
+
+    const statusDiv = document.createElement('div');
+    statusDiv.id = 'proposed-status';
+    content.appendChild(statusDiv);
+
+    const activateBtn = document.createElement('button');
+    activateBtn.className = 'btn-activate';
+    activateBtn.id = 'btn-activate';
+    activateBtn.textContent = 'Activate';
+    activateBtn.onclick = handleActivateChain;
+    content.appendChild(activateBtn);
+
+    state.expandedChainIndex = 0;
+    if (hasConfig) renderChainItemConfig(0);
+}
+
+function renderProposedChain(content) {
+    content.innerHTML = '';
+
+    const headerRow = document.createElement('div');
+    headerRow.className = 'chain-header-row';
+    const chainTitle = document.createElement('span');
+    chainTitle.className = 'chain-title';
+    chainTitle.textContent = 'Policy Chain';
+    const chainCount = document.createElement('span');
+    chainCount.className = 'chain-count';
+    chainCount.textContent = state.chain.length + ' policies';
+    headerRow.appendChild(chainTitle);
+    headerRow.appendChild(chainCount);
+    content.appendChild(headerRow);
+
+    const ul = document.createElement('ul');
+    ul.className = 'chain-list';
+
     for (let i = 0; i < state.chain.length; i++) {
         const item = state.chain[i];
         const p = getPolicy(item.classRef);
@@ -425,47 +592,91 @@ function renderProposed() {
         const isExpanded = state.expandedChainIndex === i;
         const hasConfig = configParamCount(p) > 0;
 
-        html += `<li class="chain-item${isExpanded ? ' expanded' : ''}">`;
-        html += '<div class="chain-item-header">';
-        html += `<span class="chain-num">${i + 1}</span>`;
-        html += `<span class="chain-item-name" onclick="toggleChainExpand(${i})">${esc(p.name)}</span>`;
-        html += '<span class="chain-actions">';
-        html += `<button class="chain-btn" onclick="event.stopPropagation();moveChain(${i},-1)" title="Move up" ${i === 0 ? 'disabled' : ''}>&uarr;</button>`;
-        html += `<button class="chain-btn" onclick="event.stopPropagation();moveChain(${i},1)" title="Move down" ${i === state.chain.length - 1 ? 'disabled' : ''}>&darr;</button>`;
-        html += `<button class="chain-btn chain-btn-remove" onclick="event.stopPropagation();removeChain(${i})" title="Remove">&times;</button>`;
-        html += '</span></div>';
+        const li = document.createElement('li');
+        li.className = 'chain-item' + (isExpanded ? ' expanded' : '');
+
+        const header = document.createElement('div');
+        header.className = 'chain-item-header';
+        const num = document.createElement('span');
+        num.className = 'chain-num';
+        num.textContent = i + 1;
+        header.appendChild(num);
+        const name = document.createElement('span');
+        name.className = 'chain-item-name';
+        name.textContent = displayName(p);
+        name.onclick = ((idx) => () => toggleChainExpand(idx))(i);
+        header.appendChild(name);
+
+        const actions = document.createElement('span');
+        actions.className = 'chain-actions';
+        const upBtn = document.createElement('button');
+        upBtn.className = 'chain-btn';
+        upBtn.innerHTML = '&uarr;';
+        upBtn.disabled = i === 0;
+        upBtn.onclick = ((idx) => (e) => { e.stopPropagation(); moveChain(idx, -1); })(i);
+        actions.appendChild(upBtn);
+        const downBtn = document.createElement('button');
+        downBtn.className = 'chain-btn';
+        downBtn.innerHTML = '&darr;';
+        downBtn.disabled = i === state.chain.length - 1;
+        downBtn.onclick = ((idx) => (e) => { e.stopPropagation(); moveChain(idx, 1); })(i);
+        actions.appendChild(downBtn);
+        const rmBtn = document.createElement('button');
+        rmBtn.className = 'chain-btn chain-btn-remove';
+        rmBtn.innerHTML = '&times;';
+        rmBtn.onclick = ((idx) => (e) => { e.stopPropagation(); removeChain(idx); })(i);
+        actions.appendChild(rmBtn);
+        header.appendChild(actions);
+        li.appendChild(header);
 
         if (isExpanded) {
-            html += `<div class="chain-item-desc">${esc(p.description || '')}</div>`;
+            const desc = document.createElement('div');
+            desc.className = 'chain-item-desc';
+            desc.textContent = p.description || '';
+            li.appendChild(desc);
             if (hasConfig) {
-                html += `<div id="chain-config-${i}" class="chain-config-container"></div>`;
+                const cfg = document.createElement('div');
+                cfg.id = 'chain-config-' + i;
+                cfg.className = 'chain-config-container';
+                li.appendChild(cfg);
             } else {
-                html += '<div class="no-config">No configuration needed</div>';
+                const nc = document.createElement('div');
+                nc.className = 'no-config';
+                nc.textContent = 'No configuration needed';
+                li.appendChild(nc);
             }
         } else if (hasConfig) {
-            html += `<div class="chain-item-config-hint" onclick="toggleChainExpand(${i})">Click to configure</div>`;
+            const hint = document.createElement('div');
+            hint.className = 'chain-item-config-hint';
+            hint.textContent = 'Click to configure';
+            hint.onclick = ((idx) => () => toggleChainExpand(idx))(i);
+            li.appendChild(hint);
         }
 
-        html += '</li>';
-        if (i < state.chain.length - 1) html += '<div class="chain-divider">&darr;</div>';
+        ul.appendChild(li);
+        if (i < state.chain.length - 1) {
+            const divider = document.createElement('div');
+            divider.className = 'chain-divider';
+            divider.innerHTML = '&darr;';
+            ul.appendChild(divider);
+        }
     }
-    html += '</ul>';
+    content.appendChild(ul);
 
-    html += '<div class="chain-add-hint">Press <strong>+</strong> on any policy in the Available panel to add it here</div>';
+    const statusDiv = document.createElement('div');
+    statusDiv.id = 'proposed-status';
+    content.appendChild(statusDiv);
 
-    html += '<div id="proposed-status"></div>';
-    const activateLabel = state.chain.length > 1
-        ? `Activate Chain (${state.chain.length} policies)`
-        : 'Activate';
-    html += `<button class="btn-activate" id="btn-activate" onclick="handleActivateChain()">${activateLabel}</button>`;
-    html += renderTestSection('proposed');
-    content.innerHTML = html;
+    const activateBtn = document.createElement('button');
+    activateBtn.className = 'btn-activate';
+    activateBtn.id = 'btn-activate';
+    activateBtn.textContent = 'Activate Chain (' + state.chain.length + ' policies)';
+    activateBtn.onclick = handleActivateChain;
+    content.appendChild(activateBtn);
+
     for (let i = 0; i < state.chain.length; i++) {
-        if (state.expandedChainIndex === i) {
-            renderChainItemConfig(i);
-        }
+        if (state.expandedChainIndex === i) renderChainItemConfig(i);
     }
-    bindTestSection('proposed');
 }
 
 function moveChain(i, dir) {
@@ -559,7 +770,7 @@ function renderActive() {
     const isChain = cp.class_ref === MULTI_SERIAL_CLASS_REF;
     const p = getPolicy(cp.class_ref);
 
-    const name = isChain ? 'Chain' : (p ? p.name : cp.policy);
+    const name = isChain ? 'Chain' : (p ? displayName(p) : cp.policy);
     const desc = isChain ? '' : (p ? p.description : '');
 
     let html = '<div class="active-label">Currently Running</div>';
@@ -573,7 +784,7 @@ function renderActive() {
         config.policies.forEach((sub, i) => {
             const classRef = sub.class_ref || sub.class;
             const subPolicy = getPolicy(classRef);
-            const subName = subPolicy ? subPolicy.name : (classRef || 'Unknown').split(':').pop();
+            const subName = subPolicy ? displayName(subPolicy) : (classRef || 'Unknown').split(':').pop();
             html += '<div class="active-chain-item">';
             html += `<span class="chain-num">${i + 1}</span>`;
             html += `<span>${esc(subName)}</span>`;
@@ -607,8 +818,8 @@ function renderActive() {
     }
     html += '<div id="active-status"></div>';
 
-    html += renderTestSection('active');
     body.innerHTML = html;
+    body.appendChild(renderTestSection('active'));
     bindTestSection('active');
 }
 
@@ -660,60 +871,167 @@ function onCredSourceChange(side, value) {
 // Test section
 // ============================================================
 function renderTestSection(side) {
-    const hasAnyCreds = state.cachedCredentials.length > 0 || state.credentialSource === 'custom';
-    let html = '<div class="test-section">';
-    html += '<div class="test-section-title">Test This Policy</div>';
+    const container = document.createElement('div');
+    container.className = 'test-section';
 
-    html += '<div class="test-cred-row">';
-    html += '<label class="test-cred-label">Credentials:</label>';
-    html += `<select class="test-cred-select" id="cred-select-${side}" onchange="onCredSourceChange('${side}', this.value)">`;
-    html += '<option value="server"' + (state.credentialSource === 'server' ? ' selected' : '') + '>Server API Key</option>';
-    html += '<option value="custom"' + (state.credentialSource === 'custom' ? ' selected' : '') + '>Enter API key...</option>';
-    html += '</select>';
-    html += '</div>';
+    const title = document.createElement('div');
+    title.className = 'test-section-title';
+    title.textContent = 'Test this policy with a prompt';
+    container.appendChild(title);
+
+    // Model row (collapsed by default)
+    const advancedToggle = document.createElement('details');
+    advancedToggle.className = 'test-advanced';
+    const summary = document.createElement('summary');
+    summary.className = 'test-advanced-toggle';
+    summary.textContent = 'Advanced options';
+    advancedToggle.appendChild(summary);
+
+    const advancedBody = document.createElement('div');
+    advancedBody.className = 'test-advanced-body';
+
+    // Model
+    const modelRow = document.createElement('div');
+    modelRow.className = 'test-model-row';
+    const modelInput = document.createElement('input');
+    modelInput.type = 'text';
+    modelInput.className = 'test-model-input';
+    modelInput.id = 'test-model-' + side;
+    modelInput.placeholder = 'Model...';
+    modelInput.value = state.selectedModel;
+    modelInput.setAttribute('list', 'model-list-' + side);
+    modelRow.appendChild(modelInput);
+    const datalist = document.createElement('datalist');
+    datalist.id = 'model-list-' + side;
+    for (const m of state.availableModels) {
+        const opt = document.createElement('option');
+        opt.value = m;
+        datalist.appendChild(opt);
+    }
+    modelRow.appendChild(datalist);
+    advancedBody.appendChild(modelRow);
+
+    // Mock checkbox
+    const mockRow = document.createElement('div');
+    mockRow.className = 'test-mock-row';
+    const mockLabel = document.createElement('label');
+    mockLabel.className = 'test-mock-label';
+    const mockCb = document.createElement('input');
+    mockCb.type = 'checkbox';
+    mockCb.id = 'test-mock-' + side;
+    mockCb.className = 'test-mock-checkbox';
+    mockLabel.appendChild(mockCb);
+    const mockText = document.createElement('span');
+    mockText.textContent = 'Mock';
+    mockLabel.appendChild(mockText);
+    const mockInfo = document.createElement('span');
+    mockInfo.className = 'test-mock-info';
+    mockInfo.title = 'Skip the real LLM call. Echoes your message back (no API credits).';
+    mockInfo.textContent = '\u2139';
+    mockLabel.appendChild(mockInfo);
+    mockRow.appendChild(mockLabel);
+    advancedBody.appendChild(mockRow);
+
+    // Credential override
+    const credRow = document.createElement('div');
+    credRow.className = 'test-cred-row';
+    const credLabel = document.createElement('label');
+    credLabel.className = 'test-cred-label';
+    credLabel.textContent = 'Credentials:';
+    credRow.appendChild(credLabel);
+    const credSelect = document.createElement('select');
+    credSelect.className = 'test-cred-select';
+    credSelect.id = 'cred-select-' + side;
+    credSelect.onchange = function() { onCredSourceChange(side, this.value); };
+    const opt1 = document.createElement('option');
+    opt1.value = 'server';
+    opt1.textContent = 'Server API Key';
+    if (state.credentialSource === 'server') opt1.selected = true;
+    credSelect.appendChild(opt1);
+    const opt2 = document.createElement('option');
+    opt2.value = 'custom';
+    opt2.textContent = 'Enter API key...';
+    if (state.credentialSource === 'custom') opt2.selected = true;
+    credSelect.appendChild(opt2);
+    credRow.appendChild(credSelect);
+    advancedBody.appendChild(credRow);
 
     if (state.credentialSource === 'custom') {
-        html += `<div class="test-cred-custom">
-            <input type="password" class="credential-input" id="cred-input-${side}"
-                placeholder="sk-ant-... or OAuth token">
-        </div>`;
+        const credCustom = document.createElement('div');
+        credCustom.className = 'test-cred-custom';
+        const credInput = document.createElement('input');
+        credInput.type = 'password';
+        credInput.className = 'credential-input';
+        credInput.id = 'cred-input-' + side;
+        credInput.placeholder = 'sk-ant-...';
+        credCustom.appendChild(credInput);
+        advancedBody.appendChild(credCustom);
     }
 
-    html += `<div id="test-inner-${side}">`;
-    html += `<div class="test-model-row">
-        <input type="text" class="test-model-input" id="test-model-${side}"
-            placeholder="Model..." value="${esc(state.selectedModel)}"
-            list="model-list-${side}">
-        <datalist id="model-list-${side}">
-            ${state.availableModels.map(m => `<option value="${esc(m)}">`).join('')}
-        </datalist>
-    </div>
-    <div class="test-mock-row">
-        <label class="test-mock-label">
-            <input type="checkbox" id="test-mock-${side}" class="test-mock-checkbox">
-            <span>Mock</span>
-            <span class="test-mock-info" title="Skip the real LLM call. The server echoes your message back as the response (no API credits used). Note: the policy pipeline does not currently run on mock responses — this shows the raw echo only.">&#9432;</span>
-        </label>
-    </div>
-    <div class="test-input-row">
-        <textarea class="test-textarea" id="test-input-${side}" placeholder="Enter test message..." rows="2"
-            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();runTest('${side}');}"></textarea>
-        <button class="test-run-btn" id="test-btn-${side}" onclick="runTest('${side}')">Send</button>
-    </div>
-    <div class="test-results" id="test-results-${side}">
-        <div>
-            <div class="test-box-label">Input</div>
-            <div class="test-box test-box-input" id="test-box-in-${side}"></div>
-        </div>
-        <div>
-            <div class="test-box-label">Output</div>
-            <div class="test-box test-box-output" id="test-box-out-${side}"></div>
-        </div>
-    </div>
-    <div class="test-meta" id="test-meta-${side}"></div>`;
-    html += '</div>';
-    html += '</div>';
-    return html;
+    advancedToggle.appendChild(advancedBody);
+    container.appendChild(advancedToggle);
+
+    // Test input row
+    const inputRow = document.createElement('div');
+    inputRow.className = 'test-input-row';
+    const textarea = document.createElement('textarea');
+    textarea.className = 'test-textarea';
+    textarea.id = 'test-input-' + side;
+    textarea.placeholder = 'Enter test message...';
+    textarea.rows = 3;
+    // Pre-fill with example text for De-Slop policy
+    const activeRef = state.currentPolicy ? state.currentPolicy.class_ref : '';
+    if (activeRef === 'luthien_proxy.policies.presets.deslop:DeSlopPolicy') {
+        textarea.value = 'I\'m thrilled to share that I\'ve been on an absolutely incredible journey! ' +
+            'After delving deep into the comprehensive world of automation \u2014 and I mean DEEP \u2014 ' +
+            'I\'ve leveraged cutting-edge tools to streamline my cold outreach pipeline. ' +
+            'It\'s been a pivotal paradigm shift that has fundamentally transformed how I facilitate ' +
+            'meaningful connections. I\'d be happy to share more insights \u2014 feel free to reach out!';
+    }
+    textarea.onkeydown = function(event) {
+        if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); runTest(side); }
+    };
+    inputRow.appendChild(textarea);
+    const testBtn = document.createElement('button');
+    testBtn.className = 'test-run-btn';
+    testBtn.id = 'test-btn-' + side;
+    testBtn.textContent = 'TEST';
+    testBtn.onclick = function() { runTest(side); };
+    inputRow.appendChild(testBtn);
+    container.appendChild(inputRow);
+
+    // Results — Before / After
+    const results = document.createElement('div');
+    results.className = 'test-results';
+    results.id = 'test-results-' + side;
+    const beforeDiv = document.createElement('div');
+    const beforeLabel = document.createElement('div');
+    beforeLabel.className = 'test-box-label';
+    beforeLabel.textContent = 'Before';
+    beforeDiv.appendChild(beforeLabel);
+    const beforeBox = document.createElement('div');
+    beforeBox.className = 'test-box test-box-input';
+    beforeBox.id = 'test-box-in-' + side;
+    beforeDiv.appendChild(beforeBox);
+    results.appendChild(beforeDiv);
+    const afterDiv = document.createElement('div');
+    const afterLabel = document.createElement('div');
+    afterLabel.className = 'test-box-label';
+    afterLabel.textContent = 'After';
+    afterDiv.appendChild(afterLabel);
+    const afterBox = document.createElement('div');
+    afterBox.className = 'test-box test-box-output';
+    afterBox.id = 'test-box-out-' + side;
+    afterDiv.appendChild(afterBox);
+    results.appendChild(afterDiv);
+    container.appendChild(results);
+
+    const meta = document.createElement('div');
+    meta.className = 'test-meta';
+    meta.id = 'test-meta-' + side;
+    container.appendChild(meta);
+
+    return container;
 }
 
 function bindTestSection(side) {
@@ -762,9 +1080,10 @@ async function runTest(side) {
             message: msg,
             stream: false,
             use_mock: useMock,
+            capture_before: true,
         };
         if (state.credentialSource === 'custom') {
-            const credInput = document.getElementById(`cred-input-${side}`);
+            const credInput = document.getElementById('cred-input-' + side);
             const key = credInput ? credInput.value.trim() : '';
             if (key) testPayload.api_key = key;
         }
@@ -776,18 +1095,20 @@ async function runTest(side) {
         if (!result.success) throw new Error(result.error || 'Request failed');
 
         const content = result.content || '(empty response)';
+        const beforeContent = result.before_content || content;
+        boxIn.textContent = beforeContent;
         boxOut.textContent = content;
         boxOut.style.color = '';
 
-        let metaText = `Model: ${result.model || model}`;
+        let metaText = 'Model: ' + (result.model || model);
         if (result.usage) {
-            metaText += ` | ${result.usage.prompt_tokens} in / ${result.usage.completion_tokens} out`;
+            metaText += ' | ' + result.usage.prompt_tokens + ' in / ' + result.usage.completion_tokens + ' out';
         }
         meta.textContent = metaText;
 
         testState[side] = {
             inputText: input.value,
-            originalInput: msg,
+            originalInput: beforeContent,
             outputHtml: esc(content),
             metaText: metaText,
             ran: true,

@@ -68,6 +68,10 @@ class HackathonOnboardingPolicy(OnboardingPolicy):
     the policy passes everything through unchanged.
     """
 
+    category = "internal"
+    display_name = "Hackathon Onboarding"
+    short_description = "Welcome message with hackathon context on first turn."
+
     def __init__(self, config: HackathonOnboardingPolicyConfig | dict | None = None):
         """Initialize with optional config. Accepts dict or Pydantic model."""
         self.config = self._init_config(config, HackathonOnboardingPolicyConfig)

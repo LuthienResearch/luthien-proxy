@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import logging
 from typing import Any
@@ -75,6 +76,12 @@ class PolicyClassInfo(BaseModel):
     description: str = Field(..., description="Description of what the policy does")
     config_schema: dict[str, Any] = Field(default_factory=dict, description="Schema for config parameters")
     example_config: dict[str, Any] = Field(default_factory=dict, description="Example configuration")
+    category: str = Field(default="advanced", description="UI category for grouping")
+    display_name: str = Field(default="", description="Friendly display name (e.g., 'De-Slop')")
+    short_description: str = Field(default="", description="One-liner for the catalog card")
+    badges: list[str] = Field(default_factory=list, description="Quick-signal badges (e.g., 'Auto-Retry')")
+    user_alert_template: str = Field(default="", description="Template for user-facing alert message")
+    instructions_summary: str = Field(default="", description="Human-readable summary of policy instructions")
 
 
 class PolicyListResponse(BaseModel):
@@ -100,6 +107,16 @@ class ChatRequest(BaseModel):
         description="Optional API key to use for this test request. "
         "Overrides the server's client key as the credential sent to the gateway.",
     )
+    use_bearer: bool = Field(
+        default=False,
+        description="When True, send the credential as Authorization: Bearer instead of x-api-key. "
+        "Use this for OAuth tokens (Claude subscriptions).",
+    )
+    capture_before: bool = Field(
+        default=False,
+        description="When True, capture the pre-policy response and return it as before_content "
+        "alongside the policy-processed content. Used for Before/After comparison in the UI.",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -107,6 +124,7 @@ class ChatResponse(BaseModel):
 
     success: bool
     content: str | None = None
+    before_content: str | None = None
     error: str | None = None
     model: str | None = None
     usage: dict[str, Any] | None = None
@@ -278,6 +296,12 @@ async def list_available_policies(
             description=p["description"],
             config_schema=p["config_schema"],
             example_config=p["example_config"],
+            category=p.get("category", "advanced"),
+            display_name=p.get("display_name", ""),
+            short_description=p.get("short_description", ""),
+            badges=p.get("badges", []),
+            user_alert_template=p.get("user_alert_template", ""),
+            instructions_summary=p.get("instructions_summary", ""),
         )
         for p in discovered
     ]
@@ -321,15 +345,30 @@ async def send_chat(
             model=body.model,
         )
 
-    # Determine which API key to use: custom key takes precedence over server client key
-    test_api_key = settings.client_api_key
+    # Determine which credential to use for the test request to the gateway.
+    # Priority: custom key from request > CLIENT_API_KEY > last user credential (OAuth)
+    from luthien_proxy.gateway_routes import get_last_user_credential  # noqa: PLC0415
+
+    test_api_key: str | None = None
+    use_bearer = body.use_bearer
+
     if body.api_key is not None and body.api_key.strip():
         test_api_key = body.api_key.strip()
+    elif settings.client_api_key:
+        # Prefer CLIENT_API_KEY — the gateway accepts it and uses the server's
+        # ANTHROPIC_API_KEY for the actual LLM call.
+        test_api_key = settings.client_api_key
+    else:
+        # No server key — try the last user credential (OAuth passthrough)
+        user_cred = get_last_user_credential()
+        if user_cred is not None:
+            test_api_key = user_cred.value
+            use_bearer = user_cred.credential_type == CredentialType.AUTH_TOKEN
 
     if not test_api_key:
         return ChatResponse(
             success=False,
-            error="No API key available — set CLIENT_API_KEY on the server or provide a custom key",
+            error="No credential available — set CLIENT_API_KEY or route a request through the proxy first",
             model=body.model,
         )
 
@@ -346,11 +385,17 @@ async def send_chat(
     }
 
     try:
+        request_headers: dict[str, str] = (
+            {"Authorization": f"Bearer {test_api_key}"} if use_bearer else {"x-api-key": test_api_key}
+        )
+        if body.capture_before:
+            request_headers["x-luthien-capture-before"] = "true"
+
         async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
             response = await client.post(
                 f"{base_url}/v1/messages",
                 json=payload,
-                headers={"x-api-key": test_api_key},
+                headers=request_headers,
             )
 
         if response.status_code != 200:
@@ -374,12 +419,20 @@ async def send_chat(
             if isinstance(block, dict) and block.get("type") == "text":
                 content = (content or "") + block.get("text", "")
 
+        # Extract pre-policy content from response header (base64-encoded)
+        before_content = None
+        if body.capture_before:
+            before_header = response.headers.get("x-luthien-before-content")
+            if before_header:
+                before_content = base64.b64decode(before_header).decode()
+
         # Extract usage
         usage = data.get("usage")
 
         return ChatResponse(
             success=True,
             content=content,
+            before_content=before_content,
             model=body.model,
             usage=usage,
         )

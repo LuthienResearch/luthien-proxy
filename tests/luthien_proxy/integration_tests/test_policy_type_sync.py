@@ -107,8 +107,7 @@ class TestPolicyTypeSyncIntegration:
 
         async with db_pool_with_migrations.connection() as conn:
             dropped_row = await conn.fetchrow(
-                "SELECT class_ref FROM policy_type WHERE definition_type = 'built-in' "
-                "ORDER BY class_ref DESC LIMIT 1"
+                "SELECT class_ref FROM policy_type WHERE definition_type = 'built-in' ORDER BY class_ref DESC LIMIT 1"
             )
         dropped_ref = dropped_row["class_ref"]
 
@@ -166,8 +165,7 @@ class TestPolicyTypeSyncIntegration:
         async with db_pool_with_migrations.connection() as conn:
             with pytest.raises(Exception):
                 await conn.execute(
-                    "INSERT INTO policy_type (name, definition_type, class_ref, deprecated) "
-                    "VALUES ($1, $2, $3, $4)",
+                    "INSERT INTO policy_type (name, definition_type, class_ref, deprecated) VALUES ($1, $2, $3, $4)",
                     "duplicate-name",
                     "built-in",
                     sample_ref,
@@ -183,8 +181,7 @@ class TestPolicyTypeSyncIntegration:
         """
         async with db_pool_with_migrations.connection() as conn:
             await conn.execute(
-                "INSERT INTO policy_type (name, definition_type, class_ref, deprecated) "
-                "VALUES ($1, $2, $3, $4)",
+                "INSERT INTO policy_type (name, definition_type, class_ref, deprecated) VALUES ($1, $2, $3, $4)",
                 "shared-name",
                 "built-in",
                 "a:Foo",
@@ -192,16 +189,13 @@ class TestPolicyTypeSyncIntegration:
             )
             # Same display name, different class_ref — must succeed.
             await conn.execute(
-                "INSERT INTO policy_type (name, definition_type, class_ref, deprecated) "
-                "VALUES ($1, $2, $3, $4)",
+                "INSERT INTO policy_type (name, definition_type, class_ref, deprecated) VALUES ($1, $2, $3, $4)",
                 "shared-name",
                 "built-in",
                 "b:Bar",
                 0,
             )
-            count = await conn.fetchval(
-                "SELECT COUNT(*) FROM policy_type WHERE name = 'shared-name'"
-            )
+            count = await conn.fetchval("SELECT COUNT(*) FROM policy_type WHERE name = 'shared-name'")
         assert count == 2
 
     @pytest.mark.asyncio
