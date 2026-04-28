@@ -19,7 +19,7 @@ class NoOpPolicy(BasePolicy, AnthropicHookPolicy):
     """
 
     category = "internal"
-    display_name = "No-Op"
+    display_name = "Passthrough"
     short_description = "Passes through all data unchanged."
 
     @property
