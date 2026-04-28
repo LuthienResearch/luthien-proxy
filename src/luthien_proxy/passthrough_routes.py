@@ -28,6 +28,20 @@ UPSTREAM_BASES = {
     "anthropic": "https://api.anthropic.com/v1",
 }
 
+
+def _upstream_base(provider: str) -> str:
+    """Return the upstream base URL for a provider.
+
+    Checks OPENAI_BASE_URL and GEMINI_BASE_URL env vars at call time so tests
+    can redirect traffic to mock servers without restarting the gateway.
+    """
+    env_overrides: dict[str, str | None] = {
+        "openai": os.environ.get("OPENAI_BASE_URL"),
+        "gemini": os.environ.get("GEMINI_BASE_URL"),
+    }
+    return env_overrides.get(provider) or UPSTREAM_BASES[provider]
+
+
 # Streaming client: generous read timeout for long-running/thinking responses
 _streaming_client = httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=30.0))
 
@@ -91,7 +105,7 @@ def _build_outbound_headers(request: Request, provider: str) -> dict[str, str]:
 
 async def _handle_passthrough(request: Request, provider: str, path: str) -> Response:
     body = await request.body()
-    upstream_url = f"{UPSTREAM_BASES[provider]}/{path}"
+    upstream_url = f"{_upstream_base(provider)}/{path}"
     if request.url.query:
         upstream_url = f"{upstream_url}?{request.url.query}"
 

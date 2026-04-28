@@ -77,7 +77,9 @@ def boot_sqlite_gateway(
 
         loop.run_until_complete(check_migrations(db_pool))
 
-        old_env: dict[str, str | None] = {k: os.environ.get(k) for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY")}
+        old_env: dict[str, str | None] = {
+            k: os.environ.get(k) for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ENABLE_REQUEST_LOGGING")
+        }
 
         def restore_env() -> None:
             for k, v in old_env.items():
@@ -91,6 +93,7 @@ def boot_sqlite_gateway(
 
         os.environ["ANTHROPIC_BASE_URL"] = mock_anthropic_url
         os.environ["ANTHROPIC_API_KEY"] = "mock-key"
+        os.environ["ENABLE_REQUEST_LOGGING"] = "true"
 
         clear_settings_cache()
         app = create_app(
