@@ -30,14 +30,10 @@ UPSTREAM_BASES = {
 
 
 def _upstream_base(provider: str) -> str:
-    """Return the upstream base URL for a provider.
-
-    Checks OPENAI_BASE_URL and GEMINI_BASE_URL env vars at call time so tests
-    can redirect traffic to mock servers without restarting the gateway.
-    """
     env_overrides: dict[str, str | None] = {
         "openai": os.environ.get("OPENAI_BASE_URL"),
         "gemini": os.environ.get("GEMINI_BASE_URL"),
+        "anthropic": os.environ.get("ANTHROPIC_BASE_URL"),
     }
     return env_overrides.get(provider) or UPSTREAM_BASES[provider]
 

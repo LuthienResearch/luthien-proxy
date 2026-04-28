@@ -295,12 +295,12 @@ run_mock() {
 import json, sys
 try:
     d = json.load(open('$config_json'))
-    print(d['gateway_url'], d['mock_port'], d['api_key'], d['admin_api_key'])
+    print(d['gateway_url'], d['mock_port'], d.get('mock_openai_port', 18889), d.get('mock_gemini_port', 18890), d['api_key'], d['admin_api_key'])
 except (json.JSONDecodeError, KeyError) as e:
     print(f'Invalid config JSON: {e}', file=sys.stderr)
     sys.exit(1)
 ")" || { fail "Failed to parse gateway config"; rm -f "$config_json"; return 1; }
-    read -r gw_url mock_port gw_api_key gw_admin_key <<< "$config_vals"
+    read -r gw_url mock_port mock_openai_port mock_gemini_port gw_api_key gw_admin_key <<< "$config_vals"
     rm -f "$config_json"
 
     ok "Gateway ready at $gw_url (mock on port $mock_port)"
@@ -310,6 +310,8 @@ except (json.JSONDecodeError, KeyError) as e:
     export E2E_ADMIN_API_KEY="$gw_admin_key"
     export MOCK_ANTHROPIC_PORT="$mock_port"
     export MOCK_ANTHROPIC_HOST="localhost"
+    export MOCK_OPENAI_PORT="$mock_openai_port"
+    export MOCK_GEMINI_PORT="$mock_gemini_port"
     export ENABLE_REQUEST_LOGGING="true"
 
     info "Running tests..."
