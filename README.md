@@ -270,6 +270,29 @@ Base classes and building blocks in `src/luthien_proxy/policies/` — see **[doc
 **Composition**:
 - `MultiSerialPolicy` - Chain policies sequentially
 
+## OpenCode Plugin
+
+The `opencode-luthien` plugin routes [OpenCode](https://opencode.ai) AI traffic through the Luthien gateway for observability and control.
+
+**Install:**
+```bash
+npm install opencode-luthien
+```
+
+**Configure** in `opencode.json`:
+```json
+{
+  "plugins": ["opencode-luthien"]
+}
+```
+
+**Set gateway URL:**
+```bash
+export LUTHIEN_PROXY_URL=https://your-luthien-gateway.example.com
+```
+
+See the [plugin README](https://github.com/LuthienResearch/opencode-luthien) and [header contract](docs/plugin-header-contract.md) for full documentation.
+
 ## Usage Telemetry
 
 Luthien collects anonymous, aggregate usage metrics to help track adoption and improve the project. **No model names, API keys, IP addresses, or request/response content is collected.**
