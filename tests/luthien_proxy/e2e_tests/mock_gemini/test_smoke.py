@@ -67,7 +67,7 @@ def test_mock_gemini_streaming(mock_gemini_server):
 
         lines = list(resp.iter_lines())
 
-    data_lines = [l for l in lines if l.startswith("data:")]
+    data_lines = [line for line in lines if line.startswith("data:")]
     assert len(data_lines) >= 1
 
     parsed = json.loads(data_lines[0][len("data:") :].strip())

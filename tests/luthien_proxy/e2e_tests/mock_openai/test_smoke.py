@@ -77,8 +77,8 @@ def test_mock_openai_streaming(mock_openai_server):
 
         lines = list(resp.iter_lines())
 
-    data_lines = [l for l in lines if l.startswith("data:")]
-    assert any("[DONE]" in l for l in data_lines)
+    data_lines = [line for line in lines if line.startswith("data:")]
+    assert any("[DONE]" in line for line in data_lines)
 
     content_chunks = []
     for line in data_lines:
