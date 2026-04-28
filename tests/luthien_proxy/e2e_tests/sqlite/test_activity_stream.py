@@ -31,7 +31,7 @@ def mock_server():
 
 
 @pytest.fixture(scope="module")
-def gateway_url(mock_server) -> str:
+def gateway_url(mock_server):
     with boot_sqlite_gateway(
         api_key=_API_KEY,
         admin_key=_ADMIN_KEY,

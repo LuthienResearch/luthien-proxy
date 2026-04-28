@@ -7,14 +7,14 @@ Run:  uv run pytest -m sqlite_e2e tests/luthien_proxy/e2e_tests/sqlite/ -v --tim
 """
 
 import pytest
-from tests.luthien_proxy.e2e_tests.sqlite._boot import BootedSqliteGateway, boot_sqlite_gateway
+from tests.luthien_proxy.e2e_tests.sqlite._boot import boot_sqlite_gateway
 
 _API_KEY = "test-sqlite-key"
 _ADMIN_API_KEY = "test-sqlite-admin-key"
 
 
 @pytest.fixture(scope="session")
-def _sqlite_booted(mock_anthropic) -> BootedSqliteGateway:
+def _sqlite_booted(mock_anthropic):
     with boot_sqlite_gateway(
         api_key=_API_KEY,
         admin_key=_ADMIN_API_KEY,
