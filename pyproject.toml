@@ -42,6 +42,7 @@ dependencies = [
     "aiohttp>=3.9.0",
     "sentry-sdk[fastapi]>=2.54.0",
     "opentelemetry-exporter-otlp-proto-http>=1.20.0",
+    "httpx-sse>=0.4",
 ]
 
 [tool.hatch.version]
