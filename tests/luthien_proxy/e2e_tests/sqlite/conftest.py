@@ -7,23 +7,32 @@ Run:  uv run pytest -m sqlite_e2e tests/luthien_proxy/e2e_tests/sqlite/ -v --tim
 """
 
 import pytest
-from tests.luthien_proxy.e2e_tests.sqlite._boot import boot_sqlite_gateway
+from tests.luthien_proxy.e2e_tests.sqlite._boot import BootedSqliteGateway, boot_sqlite_gateway
 
 _API_KEY = "test-sqlite-key"
 _ADMIN_API_KEY = "test-sqlite-admin-key"
 
 
 @pytest.fixture(scope="session")
-def sqlite_gateway_url(mock_anthropic):
-    """Start a SQLite-backed gateway on a random port. Returns the base URL."""
+def _sqlite_booted(mock_anthropic) -> BootedSqliteGateway:
     with boot_sqlite_gateway(
         api_key=_API_KEY,
         admin_key=_ADMIN_API_KEY,
         mock_anthropic_url=f"http://localhost:{mock_anthropic.port}",
         tmp_prefix="luthien_sqlite_e2e_",
         thread_name="sqlite-gateway",
-    ) as url:
-        yield url
+    ) as booted:
+        yield booted
+
+
+@pytest.fixture(scope="session")
+def sqlite_gateway_url(_sqlite_booted):
+    return _sqlite_booted.url
+
+
+@pytest.fixture(scope="session")
+def sqlite_db_path(_sqlite_booted):
+    return _sqlite_booted.db_path
 
 
 # --- Fixture overrides ---
