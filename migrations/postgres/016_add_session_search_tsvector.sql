@@ -56,13 +56,22 @@ ALTER TABLE conversation_events
 
 -- Backfill existing rows for transaction.request_recorded events
 -- (these are the events that contain final_request/final_response payloads)
-UPDATE conversation_events
-SET search_vector = to_tsvector('english', COALESCE(_extract_event_search_text(payload), ''))
-WHERE event_type = 'transaction.request_recorded'
-  AND _extract_event_search_text(payload) IS NOT NULL;
+-- CTE ensures the search-text extraction function is called exactly once per row.
+WITH computed AS (
+    SELECT id, _extract_event_search_text(payload) AS search_text
+    FROM conversation_events
+    WHERE event_type = 'transaction.request_recorded'
+)
+UPDATE conversation_events ce
+SET search_vector = to_tsvector('english', COALESCE(c.search_text, ''))
+FROM computed c
+WHERE ce.id = c.id
+  AND c.search_text IS NOT NULL;
 
 -- GIN index for fast tsvector queries
-CREATE INDEX IF NOT EXISTS idx_conversation_events_search_vector
+-- CONCURRENTLY: run-migrations.sh runs psql -f without BEGIN/COMMIT wrapping,
+-- so each statement runs in autocommit mode — CREATE INDEX CONCURRENTLY is safe.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_conversation_events_search_vector
     ON conversation_events USING GIN (search_vector)
     WHERE search_vector IS NOT NULL;
 
