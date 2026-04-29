@@ -166,9 +166,17 @@ def _ensure_docker_env(
 
 
 def _write_policy(repo_path: str, gateway_url: str) -> None:
-    """Write OnboardingPolicy config to the repo's config directory."""
+    """Write OnboardingPolicy config to the repo's config directory.
+
+    Skips the write if policy_config.yaml already exists to preserve
+    user customizations.
+    """
     config_dir = f"{repo_path}/config"
     os.makedirs(config_dir, exist_ok=True)
+
+    policy_path = f"{config_dir}/policy_config.yaml"
+    if os.path.exists(policy_path):
+        return
 
     # Write YAML directly to avoid dependency on pyyaml in the CLI venv.
     # The structure is simple and static — no need for a YAML library.
@@ -179,7 +187,7 @@ def _write_policy(repo_path: str, gateway_url: str) -> None:
             gateway_url: "{gateway_url}"
     """)
 
-    with open(f"{config_dir}/policy_config.yaml", "w") as f:
+    with open(policy_path, "w") as f:
         f.write(yaml_content)
 
 
