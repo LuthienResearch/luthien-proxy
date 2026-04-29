@@ -11,14 +11,18 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from opentelemetry import trace
+from opentelemetry import metrics, trace
 from opentelemetry.context import Context, attach, detach
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.prometheus import PrometheusMetricReader
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.view import ExplicitBucketHistogramAggregation, View
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -76,6 +80,17 @@ def _get_otel_config() -> tuple[bool, str, str, str, str]:
     )
 
 
+def _build_resource() -> Resource:
+    _, _, service_name, service_version, environment = _get_otel_config()
+    return Resource.create(
+        {
+            "service.name": service_name,
+            "service.version": service_version,
+            "deployment.environment": environment,
+        }
+    )
+
+
 def _silence_otel_loggers() -> None:
     """Suppress noisy gRPC and OTel exporter logs.
 
@@ -103,41 +118,69 @@ def configure_tracing() -> trace.Tracer:
     Returns:
         Configured tracer for manual instrumentation
     """
-    otel_enabled, otel_endpoint, service_name, service_version, environment = _get_otel_config()
+    otel_enabled, otel_endpoint, service_name, _, _ = _get_otel_config()
 
     if not otel_enabled:
         logger.debug("OpenTelemetry disabled (OTEL_ENABLED=false)")
         _silence_otel_loggers()
         return trace.get_tracer(__name__)
 
-    # Define resource attributes
-    resource = Resource.create(
-        {
-            "service.name": service_name,
-            "service.version": service_version,
-            "deployment.environment": environment,
-        }
-    )
-
-    # Create tracer provider
+    resource = _build_resource()
     provider = TracerProvider(resource=resource)
 
-    # Configure OTLP exporter (sends to Tempo)
     otlp_exporter = OTLPSpanExporter(
         endpoint=otel_endpoint,
-        insecure=True,  # No TLS for local dev
+        insecure=True,
     )
 
-    # Use batch processor for efficiency (batches spans before export)
     processor = BatchSpanProcessor(otlp_exporter)
     provider.add_span_processor(processor)
-
-    # Set as global tracer provider
     trace.set_tracer_provider(provider)
 
     logger.info(f"OpenTelemetry configured: {service_name} → {otel_endpoint}")
 
     return trace.get_tracer(__name__)
+
+
+_metrics_lock = threading.Lock()
+_metrics_configured = False
+
+
+def configure_metrics() -> None:
+    """Configure OpenTelemetry metrics with a Prometheus exporter.
+
+    Registers a PrometheusMetricReader into prometheus_client's global REGISTRY.
+    Guarded to run exactly once — a second call is a no-op because
+    PrometheusMetricReader raises ValueError on duplicate REGISTRY registration.
+
+    Intentionally does not gate on otel_enabled: Prometheus scraping is useful
+    even when OTLP trace export is disabled (e.g. local dev without Tempo).
+    """
+    global _metrics_configured  # noqa: PLW0603
+    if _metrics_configured:
+        return
+    with _metrics_lock:
+        if _metrics_configured:
+            return
+
+        resource = _build_resource()
+        reader = PrometheusMetricReader()
+
+        # OTel default histogram boundaries are [0, 5, 10, 25, ... 10000] — designed
+        # for milliseconds. LLM TTFB ranges from ~0.1s to 120s, so we need custom
+        # buckets to get useful p50/p95/p99 percentiles.
+        ttfb_view = View(
+            instrument_name="luthien_request_duration_seconds",
+            aggregation=ExplicitBucketHistogramAggregation(
+                boundaries=(0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0),
+            ),
+        )
+
+        provider = MeterProvider(resource=resource, metric_readers=[reader], views=[ttfb_view])
+        metrics.set_meter_provider(provider)
+        _metrics_configured = True
+
+    logger.info("Prometheus metrics endpoint enabled at /metrics")
 
 
 def instrument_app(app) -> None:
@@ -155,7 +198,7 @@ def instrument_app(app) -> None:
     if not get_settings().otel_enabled:
         return
 
-    FastAPIInstrumentor.instrument_app(app)
+    FastAPIInstrumentor.instrument_app(app, excluded_urls="/metrics")
     logger.info("FastAPI instrumented with OpenTelemetry")
 
 
@@ -249,6 +292,7 @@ __all__ = [
     "tracer",
     "configure_tracing",
     "configure_logging",
+    "configure_metrics",
     "instrument_app",
     "instrument_redis",
 ]
