@@ -70,6 +70,21 @@ _SENSITIVE_VAR_BLOCKLIST: frozenset[str] = frozenset(
 
 _SENSITIVE_VAR_SUFFIXES: tuple[str, ...] = ("_KEY", "_SECRET", "_PASSWORD", "_TOKEN")
 
+# Hard-block: HTTP headers that must never be overridden via UPSTREAM_HEADERS.
+# These are reserved by the HTTP protocol or carry security-critical credentials
+# that the gateway manages. Checked at load time (startup) so misconfigurations
+# fail fast rather than silently corrupting requests at runtime.
+_RESERVED_HEADERS: frozenset[str] = frozenset(
+    {
+        "authorization",
+        "host",
+        "x-api-key",
+        "content-type",
+        "content-length",
+        "transfer-encoding",
+    }
+)
+
 
 def _is_sensitive_var(name: str) -> bool:
     upper = name.upper()
@@ -110,6 +125,8 @@ def _load_header_templates() -> dict[str, str]:
             if not _HEADER_NAME_RE.fullmatch(k):
                 logger.warning("UPSTREAM_HEADERS: skipping invalid header name %r", k)
                 continue
+            if k.lower() in _RESERVED_HEADERS:
+                raise ValueError(f"UPSTREAM_HEADERS: header '{k}' is a reserved header and cannot be overridden")
             result[k] = v
         if result:
             logger.info("Loaded %d upstream header template(s)", len(result))
