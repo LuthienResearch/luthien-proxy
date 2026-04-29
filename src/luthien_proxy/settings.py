@@ -94,6 +94,8 @@ class Settings(_SettingsBase):
     archive_s3_bucket: str | None = None
     archive_s3_prefix: str = "luthien-archive/"
     retention_archive_batch_size: int = 1000
+    retention_s3_encryption: str = "AES256"
+    retention_s3_kms_key_id: str = ""
 
     # ── webhook ─────────────────────────────────────────────────────
     webhook_url: str = ""
