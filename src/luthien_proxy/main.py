@@ -356,10 +356,11 @@ def create_app(
     # Simple utility endpoints
     @app.get("/health")
     async def health(request: Request):
-        """Health check endpoint.
+        """Health check endpoint (liveness probe).
 
-        Returns gateway status, auth mode, and last observed credential type so
-        operators and the UI can surface billing mode warnings accurately.
+        Returns gateway status including database connectivity. Always returns
+        HTTP 200 — the process is alive even if the DB is unreachable. Use
+        /ready for readiness probes that should fail when the DB is down.
         """
         deps = getattr(request.app.state, "dependencies", None)
         auth_mode = None
@@ -372,13 +373,77 @@ def create_app(
             last_credential_type = deps.last_credential_info.get("type")
             last_credential_at = deps.last_credential_info.get("timestamp")
 
-        return {
-            "status": "healthy",
+        # Ping database to report connectivity
+        db_status = "not_configured"
+        db_error = None
+        if deps and deps.db_pool:
+            try:
+                pool = await deps.db_pool.get_pool()
+                result = await pool.fetchval("SELECT 1")
+                db_status = "connected" if result == 1 else "unexpected_response"
+            except Exception as exc:
+                db_status = "unreachable"
+                db_error = str(exc)
+
+        status = "healthy" if db_status in ("connected", "not_configured") else "degraded"
+
+        response = {
+            "status": status,
             "version": PROXY_DISPLAY_VERSION,
+            "database": db_status,
             "auth_mode": auth_mode,
             "last_credential_type": last_credential_type,
             "last_credential_at": last_credential_at,
         }
+        if db_error:
+            response["database_error"] = db_error
+        return response
+
+    @app.get("/ready")
+    async def ready(request: Request):
+        """Readiness probe endpoint.
+
+        Returns HTTP 200 only when the gateway is fully ready to serve traffic:
+        database connected and policy loaded. Returns HTTP 503 otherwise.
+
+        Use this for load balancer readiness probes (ECS, Kubernetes) so traffic
+        is not routed until the gateway can actually handle requests. Use /health
+        for liveness probes.
+        """
+        deps = getattr(request.app.state, "dependencies", None)
+        reasons: list[str] = []
+
+        # Check dependencies container exists
+        if not deps:
+            return JSONResponse(
+                status_code=503,
+                content={"status": "not_ready", "reasons": ["dependencies not initialized"]},
+            )
+
+        # Check database connectivity
+        if deps.db_pool:
+            try:
+                pool = await deps.db_pool.get_pool()
+                await pool.fetchval("SELECT 1")
+            except Exception as exc:
+                reasons.append(f"database unreachable: {exc}")
+        # No db_pool is acceptable (SQLite auto-creates, or DB is optional)
+
+        # Check policy is loaded
+        try:
+            current_policy = deps.policy_manager.current_policy
+            if current_policy is None:
+                reasons.append("no policy loaded")
+        except Exception as exc:
+            reasons.append(f"policy unavailable: {exc}")
+
+        if reasons:
+            return JSONResponse(
+                status_code=503,
+                content={"status": "not_ready", "reasons": reasons},
+            )
+
+        return {"status": "ready"}
 
     # Format HTTPExceptions and validation errors as Anthropic errors on /v1/messages paths
     app.add_exception_handler(FastAPIHTTPException, http_exception_handler)
