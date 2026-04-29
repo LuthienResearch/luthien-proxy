@@ -253,6 +253,11 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         "S3 key prefix for archived conversation JSONL files",
         category="retention",
     ),
+    ConfigFieldMeta(
+        "retention_archive_batch_size", "RETENTION_ARCHIVE_BATCH_SIZE", int, 1000,
+        "Rows fetched per cursor-based batch when archiving conversation_calls (larger = fewer queries, more memory)",
+        category="retention",
+    ),
 
     # ── webhook ───────────────────────────────────────────────────────────
     ConfigFieldMeta(
