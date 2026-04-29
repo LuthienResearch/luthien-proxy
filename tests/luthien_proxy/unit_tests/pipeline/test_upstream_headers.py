@@ -202,3 +202,35 @@ class TestBlocklist:
         monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"X-Custom": "${env.MY_BENIGN_VAR}"}))
         result = _load_header_templates()
         assert result == {"X-Custom": "${env.MY_BENIGN_VAR}"}
+
+
+class TestReservedHeaders:
+    def test_reserved_header_authorization_blocked(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"Authorization": "Bearer token"}))
+        with pytest.raises(ValueError, match="Authorization"):
+            _load_header_templates()
+
+    def test_reserved_header_case_insensitive(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"AUTHORIZATION": "Bearer token"}))
+        with pytest.raises(ValueError, match="AUTHORIZATION"):
+            _load_header_templates()
+
+        _load_header_templates.cache_clear()
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"authorization": "Bearer token"}))
+        with pytest.raises(ValueError, match="authorization"):
+            _load_header_templates()
+
+    def test_reserved_header_host_blocked(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"Host": "evil.com"}))
+        with pytest.raises(ValueError, match="Host"):
+            _load_header_templates()
+
+    def test_reserved_header_x_api_key_blocked(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"x-api-key": "sk-bad"}))
+        with pytest.raises(ValueError, match="x-api-key"):
+            _load_header_templates()
+
+    def test_non_reserved_header_allowed(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"X-Custom-Header": "value"}))
+        result = _load_header_templates()
+        assert result == {"X-Custom-Header": "value"}
