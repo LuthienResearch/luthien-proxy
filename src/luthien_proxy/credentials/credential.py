@@ -41,3 +41,14 @@ class Credential:
 
 class CredentialError(Exception):
     """Raised when credential resolution fails."""
+
+
+class ServerCredentialNotFoundError(CredentialError):
+    """Raised specifically when a named server credential doesn't exist.
+
+    Subclass of `CredentialError` so existing `except CredentialError`
+    callers continue to work. Distinguish from the generic base case
+    ("no credential store configured", decryption errors, etc.) so
+    operator logs can tell a typo / stale reference apart from an
+    infrastructure misconfiguration.
+    """

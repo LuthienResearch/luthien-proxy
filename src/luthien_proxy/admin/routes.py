@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from typing import Any
 
 import httpx
 import litellm
 from fastapi import APIRouter, Depends, HTTPException, Path
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from luthien_proxy.admin.policy_discovery import discover_policies, validate_policy_config
 from luthien_proxy.auth import verify_admin_token
@@ -22,6 +23,14 @@ from luthien_proxy.dependencies import (
     get_policy_manager,
     require_config_registry,
     require_credential_manager,
+    require_inference_provider_registry,
+)
+from luthien_proxy.inference.registry import (
+    MAX_CONFIG_JSON_BYTES,
+    InferenceProviderRegistry,
+    InferenceRegistryError,
+    ProviderRecord,
+    UnknownBackendTypeError,
 )
 from luthien_proxy.policy_manager import (
     PolicyEnableResult,
@@ -556,6 +565,153 @@ async def delete_server_credential(
         raise HTTPException(status_code=503, detail="Server credential operation failed")
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Server credential '{name}' not found")
+    return {"success": True, "name": name}
+
+
+# === Inference Providers ===
+
+
+class InferenceProviderRequest(BaseModel):
+    """Request to create or update a named inference provider."""
+
+    name: str = Field(
+        ...,
+        description="Unique provider name (e.g. 'judge-subscription').",
+        pattern=r"^[a-zA-Z0-9_-]{1,128}$",
+    )
+    backend_type: str = Field(
+        ...,
+        description="Backend implementation key. Currently 'claude_code' or 'direct_api'.",
+    )
+    credential_name: str | None = Field(
+        default=None,
+        description="Optional server_credentials.name to authenticate this provider. "
+        "Soft reference — credential deletion surfaces at get() time.",
+        pattern=r"^[a-zA-Z0-9_-]{1,128}$",
+    )
+    default_model: str = Field(
+        ...,
+        min_length=1,
+        description="Model name passed to the backend by default (e.g. 'claude-sonnet-4-6').",
+    )
+    config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Backend-specific config (e.g. timeout_seconds, api_base). "
+        "Validated per-backend at provider-construction time.",
+    )
+
+    @field_validator("config")
+    @classmethod
+    def _check_config_size(cls, config: dict[str, Any]) -> dict[str, Any]:
+        """Reject config blobs that exceed the registry's byte ceiling.
+
+        Enforced at the request boundary so the admin UI gets a clear
+        422 rather than a DB-level payload failure.
+        """
+        encoded = json.dumps(config, ensure_ascii=False).encode("utf-8")
+        if len(encoded) > MAX_CONFIG_JSON_BYTES:
+            raise ValueError(f"config JSON is {len(encoded)} bytes, exceeds maximum of {MAX_CONFIG_JSON_BYTES} bytes")
+        return config
+
+
+class InferenceProviderResponse(BaseModel):
+    """Single provider record in API responses."""
+
+    name: str
+    backend_type: str
+    credential_name: str | None
+    default_model: str
+    config: dict[str, Any]
+    created_at: str | None
+    updated_at: str | None
+    known_backend: bool = Field(
+        ...,
+        description="True if this provider's backend_type is registered in the running gateway. "
+        "False means the row was written against a backend that's been removed or isn't "
+        "deployed yet; the UI should mark it and disable in-place edit.",
+    )
+
+
+class InferenceProviderListResponse(BaseModel):
+    """List response for inference providers."""
+
+    providers: list[InferenceProviderResponse]
+    count: int
+    known_backend_types: list[str] = Field(
+        default_factory=list,
+        description="All backend_type keys the running gateway can construct. Lets the UI "
+        "render the create/edit dropdown and flag unknown backends.",
+    )
+
+
+def _record_to_response(record: ProviderRecord, known: set[str]) -> InferenceProviderResponse:
+    """Shape a registry record for JSON serialization."""
+    return InferenceProviderResponse(
+        name=record.name,
+        backend_type=record.backend_type,
+        credential_name=record.credential_name,
+        default_model=record.default_model,
+        config=record.config,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+        known_backend=record.backend_type in known,
+    )
+
+
+@router.post("/inference-providers")
+async def put_inference_provider(
+    body: InferenceProviderRequest,
+    _: str = Depends(verify_admin_token),
+    registry: InferenceProviderRegistry = Depends(require_inference_provider_registry),
+):
+    """Create or update a named inference provider."""
+    record = ProviderRecord(
+        name=body.name,
+        backend_type=body.backend_type,
+        credential_name=body.credential_name,
+        default_model=body.default_model,
+        config=body.config,
+    )
+    try:
+        await registry.put(record)
+    except UnknownBackendTypeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except InferenceRegistryError as exc:
+        logger.error("Inference provider put failed: %r", exc)
+        raise HTTPException(status_code=503, detail="Inference provider operation failed")
+    return {"success": True, "name": body.name}
+
+
+@router.get("/inference-providers", response_model=InferenceProviderListResponse)
+async def list_inference_providers(
+    _: str = Depends(verify_admin_token),
+    registry: InferenceProviderRegistry = Depends(require_inference_provider_registry),
+):
+    """List configured inference providers."""
+    records = await registry.list()
+    known = set(registry.known_backend_types())
+    responses = [_record_to_response(r, known) for r in records]
+    return InferenceProviderListResponse(
+        providers=responses,
+        count=len(responses),
+        known_backend_types=sorted(known),
+    )
+
+
+@router.delete("/inference-providers/{name}")
+async def delete_inference_provider(
+    name: str = Path(pattern=r"^[a-zA-Z0-9_-]{1,128}$"),
+    _: str = Depends(verify_admin_token),
+    registry: InferenceProviderRegistry = Depends(require_inference_provider_registry),
+):
+    """Delete a named inference provider."""
+    try:
+        deleted = await registry.delete(name)
+    except InferenceRegistryError as exc:
+        logger.error("Inference provider delete failed: %r", exc)
+        raise HTTPException(status_code=503, detail="Inference provider operation failed")
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Inference provider '{name}' not found")
     return {"success": True, "name": name}
 
 
