@@ -61,6 +61,42 @@ Editor setup (VS Code)
 - Tests: `uv run pytest -q` with coverage for `src/luthien_proxy/**` configured in `[tool.pytest.ini_options]`.
 - Config consolidation: Ruff, Pytest, and Pyright live in `pyproject.toml` to avoid extra files.
 
+## Testing & QA
+
+### `scripts/dev_checks.sh`
+
+One script that does the full local gate: dep sync, shellcheck, config codegen, ruff format + lint (autofix + gate), pyright, unit tests, radon complexity, and a clean-tree check. Auto-stages any files the formatters rewrite. Run this before pushing.
+
+Flags:
+
+| Flag | Effect |
+|------|--------|
+| `--timing` | Write per-step wall-clock timings to `.dev_checks_timings.jsonl` (one JSON object per step) and print a summary at the end. Useful for diagnosing slowdowns. |
+| `--timing=PATH` | Same as `--timing` but write to a custom path. |
+
+Each JSONL record has `run_id`, `step`, `duration_s`, `exit_code`, `ts`. A final `__total__` record captures wall-clock for the whole run. The file is gitignored.
+
+### Test tiers
+
+| Tier | Marker | Command | Speed | When |
+|------|--------|---------|-------|------|
+| Unit | *(default)* | `uv run pytest tests/luthien_proxy/unit_tests` | Fast | Logic, edge cases, mocks |
+| sqlite_e2e | `sqlite_e2e` | `./scripts/run_e2e.sh sqlite` | Medium | Full gateway in-process, no Docker |
+| mock_e2e | `mock_e2e` | `./scripts/run_e2e.sh mock` | Medium | Deterministic streaming, policy behavior |
+| e2e | `e2e` | `./scripts/run_e2e.sh` | Slow | Real API + Docker validation |
+
+`sqlite_e2e` and `mock_e2e` must run in separate pytest sessions; `run_e2e.sh` handles this. Use `./scripts/run_e2e.sh --fresh` to rerun from scratch.
+
+### Performance notes
+
+Where `dev_checks.sh` time goes (typical warm run on this repo):
+
+- `pytest` ≈ 40s (coverage instrumentation is roughly 40% of this; drop `--cov` when iterating)
+- `pyright` ≈ 10s
+- Everything else combined ≤ 2s
+
+`pytest-xdist` with `-n auto` does **not** meaningfully speed up the unit suite — individual tests are too fast and worker-distribution overhead eats the gain. If you need a faster inner loop, run `uv run pytest tests/luthien_proxy/unit_tests --no-cov` directly.
+
 ## Architecture
 
 The gateway is a single FastAPI application:

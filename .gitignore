@@ -89,3 +89,5 @@ tests/**/failure_registry/*.json
 # Local scratch files
 kanban.jpg
 .e2e-logs/
+.dev_checks_timings.jsonl
+.claude/scheduled_tasks.lock
