@@ -124,6 +124,7 @@ class WebhookSender:
         self._max_pending_tasks = max_pending_tasks
         self._pending_tasks: set[asyncio.Task[None]] = set()
         self._dropped_due_to_backpressure = 0
+        self._client = httpx.AsyncClient(timeout=SEND_TIMEOUT_SECONDS)
 
     @property
     def enabled(self) -> bool:
@@ -154,17 +155,16 @@ class WebhookSender:
             True on success (2xx response), False on any failure.
         """
         try:
-            async with httpx.AsyncClient(timeout=SEND_TIMEOUT_SECONDS) as client:
-                # self._url is str when enabled (checked by caller); TypedDict value is str | None
-                response = await client.post(self._url, json=dict(payload))  # type: ignore[arg-type]
-                if response.status_code >= 400:
-                    logger.warning(
-                        "Webhook delivery failed: HTTP %d from %s",
-                        response.status_code,
-                        self.safe_url,
-                    )
-                    return False
-                return True
+            # self._url is str when enabled (checked by caller); TypedDict value is str | None
+            response = await self._client.post(self._url, json=dict(payload))  # type: ignore[arg-type]
+            if response.status_code >= 400:
+                logger.warning(
+                    "Webhook delivery failed: HTTP %d from %s",
+                    response.status_code,
+                    self.safe_url,
+                )
+                return False
+            return True
         except (httpx.HTTPError, asyncio.TimeoutError, OSError):
             logger.warning("Webhook delivery error to %s", self.safe_url, exc_info=True)
             return False
@@ -266,16 +266,17 @@ class WebhookSender:
         task.add_done_callback(_log_task_exception)  # Then log any exception
 
     async def stop(self) -> None:
-        """Cancel and await all pending webhook delivery tasks.
+        """Cancel pending tasks and close the shared HTTP client.
 
         Call during application shutdown to prevent 'Event loop is closed' errors
-        from in-flight tasks sleeping in exponential backoff.
+        from in-flight tasks sleeping in exponential backoff, and to release
+        the underlying connection pool cleanly.
         """
-        if not self._pending_tasks:
-            return
-        tasks = list(self._pending_tasks)
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        self._pending_tasks.clear()
-        logger.debug("WebhookSender stopped (%d in-flight tasks cancelled)", len(tasks))
+        if self._pending_tasks:
+            tasks = list(self._pending_tasks)
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            self._pending_tasks.clear()
+            logger.debug("WebhookSender stopped (%d in-flight tasks cancelled)", len(tasks))
+        await self._client.aclose()
