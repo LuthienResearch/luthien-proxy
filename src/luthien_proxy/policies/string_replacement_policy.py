@@ -1,13 +1,18 @@
-"""StringReplacementPolicy - Replace strings in LLM responses.
+"""StringReplacementPolicy - Replace strings in LLM requests and/or responses.
 
-This policy replaces specified strings in response content with replacement values.
+This policy replaces specified strings in message content with replacement values.
 It supports case-insensitive matching with intelligent capitalization preservation.
+
+By default (``apply_to="response"``), only response content is modified — this
+preserves backward compatibility with existing configurations. Set ``apply_to``
+to ``"request"`` or ``"both"`` deliberately when you need to strip patterns from
+incoming messages (e.g., prompt injection patterns in tool results).
 
 Streaming uses a sliding buffer to handle replacements that span chunk boundaries.
 The buffer holds back the last N characters (N = longest source length - 1) so that
 words split across chunks are still matched and replaced correctly.
 
-Example config:
+Example config (response-only, default):
     policy:
       class: "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy"
       config:
@@ -15,6 +20,15 @@ Example config:
           - ["foo", "bar"]
           - ["hello", "goodbye"]
         match_capitalization: true
+
+Example config (request-side filtering for prompt injection defense):
+    policy:
+      class: "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy"
+      config:
+        apply_to: "both"   # "request", "response", or "both"
+        replacements:
+          - ["<system_warning>", "[STRIPPED]"]
+          - ["ignore previous instructions", "[STRIPPED]"]
 """
 
 from __future__ import annotations
@@ -22,7 +36,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
@@ -42,6 +56,7 @@ from luthien_proxy.policy_core.anthropic_execution_interface import AnthropicPol
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import (
+        AnthropicRequest,
         AnthropicResponse,
     )
 
@@ -59,6 +74,17 @@ class StringReplacementConfig(BaseModel):
 
     replacements: list[list[str]] = Field(default_factory=list, description="List of [from, to] string pairs")
     match_capitalization: bool = Field(default=False, description="Match source capitalization pattern")
+    apply_to: Literal["request", "response", "both"] = Field(
+        default="response",
+        description=(
+            "Which side of the conversation to apply replacements to. "
+            "'response' (default) only modifies response content — safe for existing configs. "
+            "'request' only modifies incoming request messages (useful for stripping prompt injection patterns). "
+            "'both' applies replacements to both request messages and response content. "
+            "Changing from 'response' to 'request' or 'both' is a deliberate choice that affects "
+            "what the model sees — review your replacement patterns before enabling."
+        ),
+    )
 
 
 def _detect_capitalization_pattern(text: str) -> str:
@@ -67,16 +93,12 @@ def _detect_capitalization_pattern(text: str) -> str:
     Returns one of:
     - "upper": all uppercase (e.g., "HELLO")
     - "lower": all lowercase (e.g., "hello")
-    - "title": first char uppercase, rest lowercase (e.g., "Hello")
-    - "mixed": any other pattern (e.g., "hELLo")
+    - "title": first letter uppercase, rest lowercase (e.g., "Hello")
+    - "mixed": any other pattern (e.g., "hELLO")
     """
-    if not text:
-        return "lower"
-
     alpha_chars = [c for c in text if c.isalpha()]
     if not alpha_chars:
         return "lower"
-
     if all(c.isupper() for c in alpha_chars):
         return "upper"
     if all(c.islower() for c in alpha_chars):
@@ -87,72 +109,55 @@ def _detect_capitalization_pattern(text: str) -> str:
 
 
 def _apply_capitalization_pattern(source: str, replacement: str) -> str:
-    """Apply the capitalization pattern from source to replacement.
-
-    For simple patterns (all upper, all lower, title case), applies that pattern.
-    For mixed patterns, applies character-by-character where possible,
-    falling back to the literal replacement for remaining characters.
+    """Apply the capitalization pattern of source to replacement.
 
     Args:
-        source: The original matched text (determines capitalization pattern)
-        replacement: The replacement text to transform
+        source: The matched text whose capitalization pattern to use
+        replacement: The replacement text to apply the pattern to
 
     Returns:
-        The replacement text with capitalization applied from source
+        The replacement text with the source's capitalization pattern applied
     """
     pattern = _detect_capitalization_pattern(source)
 
     if pattern == "upper":
         return replacement.upper()
-    if pattern == "lower":
+    elif pattern == "lower":
         return replacement.lower()
-    if pattern == "title":
+    elif pattern == "title":
         return replacement.capitalize()
+    else:
+        # Mixed: apply character-by-character case matching
+        result = []
+        source_alpha = [c for c in source if c.isalpha()]
+        replacement_chars = list(replacement)
 
-    # Mixed pattern: apply character-by-character
-    result = []
-    source_alpha_indices = [i for i, c in enumerate(source) if c.isalpha()]
-
-    # Build a mapping: for each alpha char position in replacement,
-    # use the case from the corresponding alpha char in source
-    source_cases = [source[i].isupper() for i in source_alpha_indices]
-
-    for i, char in enumerate(replacement):
-        if not char.isalpha():
-            result.append(char)
-            continue
-
-        # Find which alpha position this is in replacement
-        alpha_pos = sum(1 for j in range(i) if replacement[j].isalpha())
-
-        if alpha_pos < len(source_cases):
-            # Apply case from source
-            if source_cases[alpha_pos]:
-                result.append(char.upper())
-            else:
-                result.append(char.lower())
-        else:
-            # No more source cases to apply, use literal replacement char
-            result.append(char)
-
-    return "".join(result)
+        alpha_idx = 0
+        for i, char in enumerate(replacement_chars):
+            if char.isalpha() and alpha_idx < len(source_alpha):
+                if source_alpha[alpha_idx].isupper():
+                    replacement_chars[i] = char.upper()
+                else:
+                    replacement_chars[i] = char.lower()
+                alpha_idx += 1
+        result = replacement_chars
+        return "".join(result)
 
 
 def apply_replacements(
     text: str,
     replacements: Sequence[tuple[str, str]],
-    match_capitalization: bool,
+    match_capitalization: bool = False,
 ) -> str:
-    """Apply all string replacements to the given text.
+    """Apply a sequence of string replacements to text.
 
     Args:
-        text: The text to transform
-        replacements: List of (from_string, to_string) tuples
-        match_capitalization: If True, match case-insensitively and preserve
-            the original capitalization pattern in the replacement
+        text: The text to apply replacements to
+        replacements: Sequence of (from, to) string pairs
+        match_capitalization: If True, preserve the capitalization pattern of matched text
 
     Returns:
-        The transformed text with all replacements applied
+        The text with all replacements applied in order
     """
     if not text or not replacements:
         return text
@@ -179,13 +184,131 @@ def apply_replacements(
     return result
 
 
+def _apply_replacements_to_request_messages(
+    request: "AnthropicRequest",
+    replacements: tuple[tuple[str, str], ...],
+    match_capitalization: bool,
+) -> tuple[int, int]:
+    """Apply replacements to all text content in request messages in-place.
+
+    Iterates over all messages and their content blocks, applying replacements to:
+    - String message content
+    - Text blocks (type="text")
+    - Tool result content (string or list of text blocks)
+
+    Tool use blocks (type="tool_use") are left unchanged — their ``input`` field
+    is structured JSON, not free text, and modifying it could break tool calls.
+
+    Args:
+        request: The Anthropic request dict to modify in-place
+        replacements: Tuple of (from, to) string pairs
+        match_capitalization: Whether to preserve capitalization patterns
+
+    Returns:
+        Tuple of (blocks_modified, total_replacements) counts
+    """
+    blocks_modified = 0
+    total_replacements = 0
+
+    for message in request.get("messages", []):
+        content = message.get("content")
+        if content is None:
+            continue
+
+        if isinstance(content, str):
+            replaced = apply_replacements(content, replacements, match_capitalization)
+            if replaced != content:
+                message["content"] = replaced
+                blocks_modified += 1
+                # Count replacements: difference in length / avg replacement delta is imprecise,
+                # so we count occurrences of each pattern instead
+                for from_str, _ in replacements:
+                    if not from_str:
+                        continue
+                    if match_capitalization:
+                        total_replacements += len(re.findall(re.escape(from_str), content, re.IGNORECASE))
+                    else:
+                        total_replacements += content.count(from_str)
+        elif isinstance(content, list):
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+
+                block_type = block.get("type")
+
+                if block_type == "text":
+                    text = block.get("text", "")
+                    if isinstance(text, str):
+                        replaced = apply_replacements(text, replacements, match_capitalization)
+                        if replaced != text:
+                            block["text"] = replaced  # type: ignore[typeddict-unknown-key]
+                            blocks_modified += 1
+                            for from_str, _ in replacements:
+                                if not from_str:
+                                    continue
+                                if match_capitalization:
+                                    total_replacements += len(re.findall(re.escape(from_str), text, re.IGNORECASE))
+                                else:
+                                    total_replacements += text.count(from_str)
+
+                elif block_type == "tool_result":
+                    tool_content = block.get("content")
+                    if isinstance(tool_content, str):
+                        replaced = apply_replacements(tool_content, replacements, match_capitalization)
+                        if replaced != tool_content:
+                            block["content"] = replaced  # type: ignore[typeddict-unknown-key]
+                            blocks_modified += 1
+                            for from_str, _ in replacements:
+                                if not from_str:
+                                    continue
+                                if match_capitalization:
+                                    total_replacements += len(
+                                        re.findall(re.escape(from_str), tool_content, re.IGNORECASE)
+                                    )
+                                else:
+                                    total_replacements += tool_content.count(from_str)
+                    elif isinstance(tool_content, list):
+                        for inner_block in tool_content:
+                            if not isinstance(inner_block, dict):
+                                continue
+                            if inner_block.get("type") == "text":
+                                text = inner_block.get("text", "")
+                                if isinstance(text, str):
+                                    replaced = apply_replacements(text, replacements, match_capitalization)
+                                    if replaced != text:
+                                        inner_block["text"] = replaced  # type: ignore[typeddict-unknown-key]
+                                        blocks_modified += 1
+                                        for from_str, _ in replacements:
+                                            if not from_str:
+                                                continue
+                                            if match_capitalization:
+                                                total_replacements += len(
+                                                    re.findall(re.escape(from_str), text, re.IGNORECASE)
+                                                )
+                                            else:
+                                                total_replacements += text.count(from_str)
+
+    return blocks_modified, total_replacements
+
+
 class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
-    """Policy that replaces specified strings in response content.
+    """Policy that replaces specified strings in request and/or response content.
 
     This policy supports:
     - Multiple string replacements applied in order
     - Case-insensitive matching with capitalization preservation
-    - Native Anthropic API responses
+    - Request-side filtering (for prompt injection defense)
+    - Response-side filtering (default behavior)
+    - Native Anthropic API responses and streaming
+
+    The ``apply_to`` config controls which side is filtered:
+    - ``"response"`` (default): only response content is modified. Safe for existing configs.
+    - ``"request"``: only incoming request messages are modified. Useful for stripping
+      prompt injection patterns embedded in tool results before they reach the model.
+    - ``"both"``: both request messages and response content are modified.
+
+    Changing ``apply_to`` from ``"response"`` to ``"request"`` or ``"both"`` is a
+    deliberate choice — it affects what the model sees, not just what the client sees.
 
     Capitalization preservation (when match_capitalization=True):
     - ALL CAPS source -> ALL CAPS replacement
@@ -199,6 +322,12 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
     - "COOL" -> "RADICAL" (all uppercase)
     - "Cool" -> "Radical" (title case)
     - "cOOl" -> "rADical" (mixed: c->r lower, O->A upper, O->D upper, l->i lower, extra chars literal)
+
+    Dashboard observability (via ``context.record_event``):
+    - ``policy.string_replacement.request_modified`` is recorded when request content is
+      modified, with ``blocks_modified``, ``total_replacements``, and ``apply_to`` fields.
+    - ``policy.string_replacement.response_modified`` is recorded when response content is
+      modified (includes ``session_id`` automatically).
     """
 
     def __init__(self, config: StringReplacementConfig | None = None):
@@ -207,6 +336,7 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
 
         self._replacements: tuple[tuple[str, str], ...] = tuple((pair[0], pair[1]) for pair in self.config.replacements)
         self._match_capitalization = self.config.match_capitalization
+        self._apply_to = self.config.apply_to
 
         # Buffer size for streaming: hold back enough chars to catch replacements
         # that span chunk boundaries. For sources of length L, we need L-1 chars.
@@ -220,12 +350,50 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
         """Apply all configured replacements to the given text."""
         return apply_replacements(text, self._replacements, self._match_capitalization)
 
+    async def on_anthropic_request(self, request: "AnthropicRequest", context: PolicyContext) -> "AnthropicRequest":
+        """Transform request messages with string replacements when apply_to includes 'request'.
+
+        Iterates over all messages and applies replacements to:
+        - String message content
+        - Text content blocks
+        - Tool result content (string or list of text blocks)
+
+        Tool use blocks are left unchanged to avoid breaking structured tool inputs.
+
+        When content is modified, records an event via ``context.record_event`` with
+        intervention counts for dashboard observability. No event is recorded when no
+        patterns match.
+        """
+        if self._apply_to not in ("request", "both"):
+            return request
+
+        blocks_modified, total_replacements = _apply_replacements_to_request_messages(
+            request, self._replacements, self._match_capitalization
+        )
+
+        if blocks_modified > 0:
+            context.record_event(
+                "policy.string_replacement.request_modified",
+                {
+                    "blocks_modified": blocks_modified,
+                    "total_replacements": total_replacements,
+                    "apply_to": self._apply_to,
+                },
+            )
+
+        return request
+
     async def on_anthropic_response(self, response: "AnthropicResponse", context: PolicyContext) -> "AnthropicResponse":
         """Transform text content blocks with string replacements.
 
         Iterates through content blocks and applies replacements to text blocks.
         Tool use, thinking, and other block types remain unchanged.
+
+        Only runs when apply_to is 'response' or 'both'.
         """
+        if self._apply_to not in ("response", "both"):
+            return response
+
         for block in response.get("content", []):
             if isinstance(block, dict) and block.get("type") == "text" and "text" in block:
                 text = block.get("text")
@@ -236,7 +404,7 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
 
                     if original != transformed:
                         context.record_event(
-                            "policy.anthropic_string_replacement.content_transformed",
+                            "policy.string_replacement.response_modified",
                             {
                                 "original_length": len(original),
                                 "transformed_length": len(transformed),
@@ -283,37 +451,38 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
         A single buffer is shared across content blocks within one request.
         This is safe because the Anthropic protocol sends blocks sequentially
         (not interleaved), and content_block_stop flushes the buffer between blocks.
+
+        Only runs when apply_to is 'response' or 'both'.
         """
+        if self._apply_to not in ("response", "both"):
+            return [event]
+
         # Flush buffer before message_delta so content blocks precede it
         if isinstance(event, RawMessageDeltaEvent) and self._buffer_size > 0:
             state = self._get_buffer_state(context)
             flush_events = self._flush_buffer(state)
-            flush_events.append(event)
-            return flush_events
+            return [*flush_events, event]
 
-        # Flush buffer before content_block_stop so the block is complete
+        # Flush buffer on content_block_stop
         if isinstance(event, RawContentBlockStopEvent) and self._buffer_size > 0:
             state = self._get_buffer_state(context)
             flush_events = self._flush_buffer(state)
-            flush_events.append(event)
-            return flush_events
+            return [*flush_events, event]
 
         if not isinstance(event, RawContentBlockDeltaEvent):
             return [event]
-
         if not isinstance(event.delta, TextDelta):
             return [event]
 
-        # No buffering needed (single-char or empty replacements)
+        raw_text = event.delta.text
         if self._buffer_size <= 0:
-            original = event.delta.text
-            transformed = self._apply_replacements(original)
-            new_delta = event.delta.model_copy(update={"text": transformed})
+            # No buffering needed — apply replacements directly
+            replaced = self._apply_replacements(raw_text)
+            new_delta = event.delta.model_copy(update={"text": replaced})
             return [event.model_copy(update={"delta": new_delta})]
 
-        # Buffered path: combine buffer + new chunk, apply replacements
         state = self._get_buffer_state(context)
-        combined = state.buffer + event.delta.text
+        combined = state.buffer + raw_text
         replaced = self._apply_replacements(combined)
         state.last_event_index = event.index
 
