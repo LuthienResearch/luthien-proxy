@@ -16,7 +16,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from luthien_proxy import settings
+from luthien_proxy.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -150,15 +150,16 @@ class S3ConversationArchiver:
         key = self._build_s3_key(cutoff)
 
         s3 = self._get_s3_client()
+        _settings = get_settings()
         put_kwargs = {
             "Bucket": self.bucket,
             "Key": key,
             "Body": body,
             "ContentType": "application/x-ndjson",
-            "ServerSideEncryption": settings.retention_s3_encryption,
+            "ServerSideEncryption": _settings.retention_s3_encryption,
         }
-        if settings.retention_s3_encryption == "aws:kms" and settings.retention_s3_kms_key_id:
-            put_kwargs["SSEKMSKeyId"] = settings.retention_s3_kms_key_id
+        if _settings.retention_s3_encryption == "aws:kms" and _settings.retention_s3_kms_key_id:
+            put_kwargs["SSEKMSKeyId"] = _settings.retention_s3_kms_key_id
 
         await asyncio.to_thread(s3.put_object, **put_kwargs)
         logger.info("Archived %d rows to s3://%s/%s", total_rows, self.bucket, key)

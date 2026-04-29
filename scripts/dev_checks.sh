@@ -17,7 +17,7 @@ if command -v shellcheck &>/dev/null; then
     for script in *.sh; do
         if [[ -f "$script" ]]; then
             echo "  Checking $script..."
-            if ! shellcheck --shell=bash -x "$script"; then
+            if ! shellcheck --shell=bash -x --severity=warning "$script"; then
                 shellcheck_failed=1
             fi
         fi

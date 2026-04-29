@@ -93,6 +93,7 @@ class TestConfigureTracing:
         telemetry.configure_tracing()
         mock_http.assert_called_once()
 
+
 class TestInstrumentApp:
     """Test FastAPI instrumentation."""
 
