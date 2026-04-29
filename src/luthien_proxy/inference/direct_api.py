@@ -119,17 +119,21 @@ class DirectApiProvider(InferenceProvider):
         }
         logger.debug("inference.direct_api.call", extra=log_extra)
 
+        # Build the request shape (which validates system content) before
+        # allocating an HTTP client — fail-fast on malformed input rather
+        # than spending a connect cycle.
+        request = _build_request(
+            model=resolved_model,
+            messages=messages,
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format=response_format,
+            schema=schema,
+        )
+
         client = _build_client(credential, self._api_base)
         try:
-            request = _build_request(
-                model=resolved_model,
-                messages=messages,
-                system=system,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                response_format=response_format,
-                schema=schema,
-            )
             try:
                 response = await client.complete(request)
             finally:
@@ -176,8 +180,6 @@ class DirectApiProvider(InferenceProvider):
                 f"{self.name}: backend returned empty response text",
             )
         return InferenceResult.from_text(text)
-
-
 
 
 def _build_client(credential: Credential, api_base: str | None) -> AnthropicClient:
@@ -237,8 +239,41 @@ def _build_request(
     return request  # type: ignore[return-value]
 
 
+def _coerce_system_content(content: Any) -> str | None:
+    """Flatten a system-role message's content to a string.
+
+    Anthropic-shaped requests can deliver `system` content as either a plain
+    string or a list of typed blocks. Only `text` blocks are valid in the
+    system slot; non-text blocks (`tool_use`, etc.) are an upstream mistake
+    we surface loudly rather than silently dropping.
+    """
+    if content is None:
+        return None
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if not isinstance(block, dict):
+                raise InferenceProviderError(
+                    f"system content list contains non-dict block: {type(block).__name__}",
+                )
+            block_type = block.get("type")
+            if block_type != "text":
+                raise InferenceProviderError(
+                    f"unsupported system content block type: {block_type!r}",
+                )
+            text = block.get("text", "")
+            if isinstance(text, str):
+                parts.append(text)
+        return "".join(parts)
+    raise InferenceProviderError(
+        f"unsupported system message content type: {type(content).__name__}",
+    )
+
+
 def _compose_system(
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     system: str | None,
     schema: dict[str, Any] | None,
     response_format: dict[str, Any] | None,
@@ -248,13 +283,12 @@ def _compose_system(
     Precedence: the `system` kwarg wins over any `system`-role message.
     For unstructured `json_object` requests we append a JSON-only
     instruction so the model doesn't emit prose.
->>>>>>> 16505246 (refactor(inference): swap DirectApiProvider internals to Anthropic SDK)
     """
     if system is not None:
         effective: str | None = system
     else:
         existing = [m for m in messages if m.get("role") == "system"]
-        effective = existing[0]["content"] if existing else None
+        effective = _coerce_system_content(existing[0]["content"]) if existing else None
 
     # Structured output uses tool-use; no prompt-side JSON hint needed (the
     # tool input_schema guarantees the shape).
