@@ -416,15 +416,14 @@ def create_app(
 
         # Ping database to report connectivity
         db_status = "not_configured"
-        db_error = None
         if deps and deps.db_pool:
             try:
                 pool = await deps.db_pool.get_pool()
                 result = await pool.fetchval("SELECT 1")
                 db_status = "connected" if result == 1 else "unexpected_response"
-            except Exception as exc:
+            except Exception:
+                logger.exception("Database health check failed")
                 db_status = "unreachable"
-                db_error = str(exc)
 
         status = "healthy" if db_status in ("connected", "not_configured") else "degraded"
 
@@ -436,8 +435,6 @@ def create_app(
             "last_credential_type": last_credential_type,
             "last_credential_at": last_credential_at,
         }
-        if db_error:
-            response["database_error"] = db_error
         return response
 
     @app.get("/ready")
@@ -466,8 +463,9 @@ def create_app(
             try:
                 pool = await deps.db_pool.get_pool()
                 await pool.fetchval("SELECT 1")
-            except Exception as exc:
-                reasons.append(f"database unreachable: {exc}")
+            except Exception:
+                logger.exception("Database readiness check failed")
+                reasons.append("database unreachable")
         # No db_pool is acceptable (SQLite auto-creates, or DB is optional)
 
         # Check policy is loaded

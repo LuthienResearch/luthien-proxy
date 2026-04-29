@@ -492,7 +492,7 @@ class TestCreateApp:
             assert "database_error" not in data
 
     def test_health_reports_db_unreachable(self, policy_config_file, mock_db_pool, mock_redis_client):
-        """Health endpoint reports database=unreachable when DB ping fails."""
+        """Health endpoint reports database=unreachable when DB ping fails, without leaking exception details."""
         mock_redis_client.get = AsyncMock(return_value=None)
         # Start with working DB so app initializes, then break it
         mock_pool = AsyncMock()
@@ -516,7 +516,9 @@ class TestCreateApp:
             data = response.json()
             assert data["status"] == "degraded"
             assert data["database"] == "unreachable"
-            assert "database_error" in data
+            # Verify no exception details leaked in response
+            assert "database_error" not in data
+            assert "Connection refused" not in str(data)
 
     def test_ready_returns_200_when_ready(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Readiness probe returns 200 when DB is connected and policy is loaded."""
@@ -540,7 +542,7 @@ class TestCreateApp:
             assert response.json()["status"] == "ready"
 
     def test_ready_returns_503_when_db_unreachable(self, policy_config_file, mock_db_pool, mock_redis_client):
-        """Readiness probe returns 503 when DB is unreachable."""
+        """Readiness probe returns 503 when DB is unreachable, without leaking exception details."""
         mock_redis_client.get = AsyncMock(return_value=None)
         # Start with working DB so app initializes, then break it
         mock_pool = AsyncMock()
@@ -563,7 +565,10 @@ class TestCreateApp:
             assert response.status_code == 503
             data = response.json()
             assert data["status"] == "not_ready"
-            assert any("database" in r for r in data["reasons"])
+            assert any("database unreachable" in r for r in data["reasons"])
+            # Verify no exception details leaked in response
+            assert not any("Connection refused" in r for r in data["reasons"])
+
     def test_create_app_root_endpoint(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Test root endpoint returns HTML landing page."""
         app = create_app(
