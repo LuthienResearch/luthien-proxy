@@ -83,6 +83,19 @@ def extract_session_id_from_headers(headers: dict[str, str]) -> str | None:
 _USER_ID_MAX_LENGTH = 256
 
 
+def _sanitize_user_id(value: str) -> str | None:
+    """Sanitize user ID by stripping control characters and truncating.
+
+    Args:
+        value: Raw user ID string
+
+    Returns:
+        Sanitized user ID (max 256 chars, no control chars), or None if empty
+    """
+    cleaned = "".join(ch for ch in value if ord(ch) >= 0x20 and ord(ch) != 0x7F).strip()
+    return cleaned[:_USER_ID_MAX_LENGTH] if cleaned else None
+
+
 def extract_user_id_from_headers(headers: dict[str, str], *, trust_header: bool) -> str | None:
     """Extract user identity from the X-Luthien-User-Id request header.
 
@@ -103,12 +116,7 @@ def extract_user_id_from_headers(headers: dict[str, str], *, trust_header: bool)
     value = headers.get(USER_ID_HEADER)
     if not value:
         return None
-    # Strip control characters (0x00-0x1F, 0x7F) that could corrupt logs or
-    # downstream JSON. Keep printable ASCII + unicode identity letters.
-    cleaned = "".join(ch for ch in value if ord(ch) >= 0x20 and ord(ch) != 0x7F).strip()
-    if not cleaned:
-        return None
-    return cleaned[:_USER_ID_MAX_LENGTH]
+    return _sanitize_user_id(value)
 
 
 def extract_user_id_from_bearer_token(token: str | None) -> str | None:
@@ -142,7 +150,7 @@ def extract_user_id_from_bearer_token(token: str | None) -> str | None:
             payload_b64 += "=" * padding
         payload_bytes = base64.urlsafe_b64decode(payload_b64)
         payload = json.loads(payload_bytes)
-    except Exception:
+    except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
         return None
 
     if not isinstance(payload, dict):
@@ -151,8 +159,7 @@ def extract_user_id_from_bearer_token(token: str | None) -> str | None:
     sub = payload.get("sub")
     if not isinstance(sub, str) or not sub:
         return None
-    cleaned = "".join(ch for ch in sub if ord(ch) >= 0x20 and ord(ch) != 0x7F).strip()
-    return cleaned[:_USER_ID_MAX_LENGTH] if cleaned else None
+    return _sanitize_user_id(sub)
 
 
 __all__ = [
