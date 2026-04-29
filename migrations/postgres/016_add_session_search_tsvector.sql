@@ -57,6 +57,9 @@ ALTER TABLE conversation_events
 -- Backfill existing rows for transaction.request_recorded events
 -- (these are the events that contain final_request/final_response payloads)
 -- CTE ensures the search-text extraction function is called exactly once per row.
+-- NOTE: This backfill runs as a single unbounded UPDATE. On large production databases
+-- (millions of rows), this may hold row locks for an extended period and generate a
+-- large WAL segment. Consider running manually in batches if the table is large.
 WITH computed AS (
     SELECT id, _extract_event_search_text(payload) AS search_text
     FROM conversation_events

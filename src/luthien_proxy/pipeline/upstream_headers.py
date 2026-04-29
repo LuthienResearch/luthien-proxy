@@ -65,6 +65,16 @@ _SENSITIVE_VAR_BLOCKLIST: frozenset[str] = frozenset(
         "ADMIN_API_KEY",
         "ANTHROPIC_API_KEY",
         "CLIENT_API_KEY",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "AWS_SECURITY_TOKEN",
+        "GITHUB_TOKEN",
+        "GITHUB_APP_TOKEN",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "GOOGLE_API_KEY",
+        "AZURE_CLIENT_SECRET",
+        "AZURE_STORAGE_KEY",
     }
 )
 
