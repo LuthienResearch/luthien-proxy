@@ -88,25 +88,22 @@ async def test_send_success(sender):
     mock_response = MagicMock()
     mock_response.status_code = 200
 
-    with patch("httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client_cls.return_value = mock_client
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_response)
+    sender._client = mock_client
 
-        payload: ConversationCompletedPayload = {
-            "session_id": "s",
-            "transaction_id": "t",
-            "model": "m",
-            "usage": {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
-            "duration_ms": 100,
-            "is_streaming": False,
-            "timestamp": "2026-01-01T00:00:00+00:00",
-        }
-        result = await sender._attempt_send(payload)
-        assert result is True
-        mock_client.post.assert_called_once()
+    payload: ConversationCompletedPayload = {
+        "session_id": "s",
+        "transaction_id": "t",
+        "model": "m",
+        "usage": {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
+        "duration_ms": 100,
+        "is_streaming": False,
+        "timestamp": "2026-01-01T00:00:00+00:00",
+    }
+    result = await sender._attempt_send(payload)
+    assert result is True
+    mock_client.post.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -115,47 +112,41 @@ async def test_send_http_error_returns_false(sender):
     mock_response = MagicMock()
     mock_response.status_code = 503
 
-    with patch("httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client_cls.return_value = mock_client
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_response)
+    sender._client = mock_client
 
-        payload: ConversationCompletedPayload = {
-            "session_id": None,
-            "transaction_id": "t",
-            "model": "m",
-            "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
-            "duration_ms": 0,
-            "is_streaming": False,
-            "timestamp": "2026-01-01T00:00:00+00:00",
-        }
-        result = await sender._attempt_send(payload)
-        assert result is False
+    payload: ConversationCompletedPayload = {
+        "session_id": None,
+        "transaction_id": "t",
+        "model": "m",
+        "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        "duration_ms": 0,
+        "is_streaming": False,
+        "timestamp": "2026-01-01T00:00:00+00:00",
+    }
+    result = await sender._attempt_send(payload)
+    assert result is False
 
 
 @pytest.mark.asyncio
 async def test_send_network_error_returns_false(sender):
     """Network errors return False (will be retried)."""
-    with patch("httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(side_effect=httpx.ConnectError("connection refused"))
-        mock_client_cls.return_value = mock_client
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(side_effect=httpx.ConnectError("connection refused"))
+    sender._client = mock_client
 
-        payload: ConversationCompletedPayload = {
-            "session_id": None,
-            "transaction_id": "t",
-            "model": "m",
-            "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
-            "duration_ms": 0,
-            "is_streaming": False,
-            "timestamp": "2026-01-01T00:00:00+00:00",
-        }
-        result = await sender._attempt_send(payload)
-        assert result is False
+    payload: ConversationCompletedPayload = {
+        "session_id": None,
+        "transaction_id": "t",
+        "model": "m",
+        "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        "duration_ms": 0,
+        "is_streaming": False,
+        "timestamp": "2026-01-01T00:00:00+00:00",
+    }
+    result = await sender._attempt_send(payload)
+    assert result is False
 
 
 @pytest.mark.asyncio
@@ -386,3 +377,50 @@ async def test_stop_is_noop_when_no_pending_tasks():
     sender = WebhookSender(url="https://example.com/hook")
     await sender.stop()
     assert len(sender._pending_tasks) == 0
+
+
+# ── Singleton client tests ─────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_single_client_created_across_retries():
+    """AsyncClient is instantiated once at construction, not per-attempt."""
+    with patch("luthien_proxy.webhook.sender.httpx.AsyncClient") as mock_client_cls:
+        mock_instance = AsyncMock()
+        mock_instance.post = AsyncMock(return_value=MagicMock(status_code=200))
+        mock_instance.aclose = AsyncMock()
+        mock_client_cls.return_value = mock_instance
+
+        sender = WebhookSender(
+            url="https://example.com/hook",
+            max_retries=2,
+            retry_delay_seconds=0.001,
+        )
+
+        for i in range(5):
+            sender.fire_and_forget(
+                session_id=f"s{i}",
+                transaction_id=f"t{i}",
+                model="m",
+                input_tokens=1,
+                output_tokens=1,
+                duration_ms=10,
+                is_streaming=False,
+            )
+        await asyncio.sleep(0.1)
+
+        mock_client_cls.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_stop_closes_client():
+    """stop() calls aclose() on the shared HTTP client exactly once."""
+    with patch("luthien_proxy.webhook.sender.httpx.AsyncClient") as mock_client_cls:
+        mock_instance = AsyncMock()
+        mock_instance.aclose = AsyncMock()
+        mock_client_cls.return_value = mock_instance
+
+        sender = WebhookSender(url="https://example.com/hook")
+        await sender.stop()
+
+        mock_instance.aclose.assert_called_once()
