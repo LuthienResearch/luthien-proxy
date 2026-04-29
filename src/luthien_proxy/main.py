@@ -40,6 +40,7 @@ from luthien_proxy.observability.event_publisher import (
 )
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.observability.sentry import init_sentry
+from luthien_proxy.pipeline.upstream_headers import _load_header_templates
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.request_log import router as request_log_router
 from luthien_proxy.retention.archiver import S3ConversationArchiver
@@ -176,6 +177,14 @@ def create_app(
         # Validate migrations are up to date before proceeding
         await check_migrations(db_pool)
         logger.info("Migration check passed")
+
+        # Validate UPSTREAM_HEADERS at startup — fail fast on misconfiguration
+        try:
+            _load_header_templates()
+            logger.info("UPSTREAM_HEADERS validation passed")
+        except ValueError as exc:
+            logger.error(f"UPSTREAM_HEADERS validation failed: {exc}")
+            raise RuntimeError(f"UPSTREAM_HEADERS validation failed: {exc}") from exc
 
         # Initialize config registry (CLI > env > DB > defaults)
         settings = get_settings()

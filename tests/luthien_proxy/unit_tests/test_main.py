@@ -20,6 +20,7 @@ from luthien_proxy.main import (
     load_config_from_env,
     propagate_cli_overrides_to_env,
 )
+from luthien_proxy.pipeline.upstream_headers import _load_header_templates
 
 
 class TestLoadConfigFromEnv:
@@ -643,6 +644,27 @@ class TestCreateApp:
 
         # Verify aclose was called during shutdown
         mock_passthrough_client.aclose.assert_awaited_once()
+
+    def test_startup_fails_on_blocked_upstream_header(
+        self, policy_config_file, mock_db_pool, mock_redis_client, monkeypatch
+    ):
+        """Test that startup fails fast when UPSTREAM_HEADERS contains a reserved header."""
+        _load_header_templates.cache_clear()
+        monkeypatch.setenv("UPSTREAM_HEADERS", '{"Authorization": "Bearer test"}')
+
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with pytest.raises(RuntimeError, match="UPSTREAM_HEADERS validation failed"):
+            with TestClient(app):
+                pass
+
+        _load_header_templates.cache_clear()
 
 
 class TestConnectDb:
