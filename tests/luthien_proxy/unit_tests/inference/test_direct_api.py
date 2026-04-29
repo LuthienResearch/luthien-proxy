@@ -314,31 +314,31 @@ class TestSchemaPreFlightValidation:
 
     @pytest.mark.asyncio
     async def test_malformed_schema_rejected_without_call(self):
-        """A malformed schema is rejected before judge_completion runs."""
-        mock_call = AsyncMock(return_value="ok")
-        with patch("luthien_proxy.inference.direct_api.judge_completion", new=mock_call):
+        """A malformed schema is rejected before _build_client runs."""
+        mock_build = AsyncMock()
+        with patch("luthien_proxy.inference.direct_api._build_client", new=mock_build):
             with pytest.raises(InferenceStructuredOutputError, match="invalid JSON schema"):
                 await _provider().complete(
                     messages=[{"role": "user", "content": "hi"}],
                     response_format={"type": "json_schema", "schema": {"type": "notAType"}},
                 )
-        mock_call.assert_not_called()
+        mock_build.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_oversized_schema_rejected_without_call(self):
-        """A schema over the size cap is rejected before judge_completion runs."""
+        """A schema over the size cap is rejected before _build_client runs."""
         huge = {
             "type": "object",
             "description": "x" * (MAX_SCHEMA_SERIALIZED_BYTES + 50),
         }
-        mock_call = AsyncMock(return_value="ok")
-        with patch("luthien_proxy.inference.direct_api.judge_completion", new=mock_call):
+        mock_build = AsyncMock()
+        with patch("luthien_proxy.inference.direct_api._build_client", new=mock_build):
             with pytest.raises(InferenceStructuredOutputError, match="exceeds cap"):
                 await _provider().complete(
                     messages=[{"role": "user", "content": "hi"}],
                     response_format={"type": "json_schema", "schema": huge},
                 )
-        mock_call.assert_not_called()
+        mock_build.assert_not_called()
 
 
 class TestEmptyResponseGuard:
@@ -347,10 +347,8 @@ class TestEmptyResponseGuard:
     @pytest.mark.asyncio
     async def test_empty_text_raises_provider_error(self):
         """Empty text in the no-schema path → InferenceProviderError."""
-        with patch(
-            "luthien_proxy.inference.direct_api.judge_completion",
-            new=AsyncMock(return_value="   \n\t "),
-        ):
+        with patch("luthien_proxy.inference.direct_api._build_client") as mock_build:
+            mock_build.return_value = _mock_client(_text_response("   \n\t "))
             with pytest.raises(InferenceProviderError, match="empty response"):
                 await _provider().complete(messages=[{"role": "user", "content": "hi"}])
 
@@ -362,10 +360,9 @@ class TestMultiBlockContent:
     async def test_system_message_as_text_blocks_coerced(self):
         """A system message with list-of-text-blocks content gets concatenated, not repr'd."""
         model_output = json.dumps({"city": "Paris", "population": 2_161_000})
-        with patch(
-            "luthien_proxy.inference.direct_api.judge_completion",
-            new=AsyncMock(return_value=model_output),
-        ) as mock_call:
+        with patch("luthien_proxy.inference.direct_api._build_client") as mock_build:
+            client = _mock_client(_tool_use_response({"city": "Paris", "population": 2_161_000}))
+            mock_build.return_value = client
             await _provider().complete(
                 messages=[
                     {
@@ -379,7 +376,8 @@ class TestMultiBlockContent:
                 ],
                 response_format={"type": "json_schema", "schema": SIMPLE_SCHEMA},
             )
-        passed_system = mock_call.call_args.kwargs["messages"][0]["content"]
+        request = client.complete.call_args.args[0]
+        passed_system = request.get("system", "")
         assert "Be concise." in passed_system
         # Make sure we're not leaking a Python list repr.
         assert "{'text'" not in passed_system
@@ -392,8 +390,8 @@ class TestMultiBlockContent:
         dropped non-text blocks, producing an empty system prompt. Now
         it raises clearly.
         """
-        mock_call = AsyncMock(return_value="ok")
-        with patch("luthien_proxy.inference.direct_api.judge_completion", new=mock_call):
+        mock_build = AsyncMock()
+        with patch("luthien_proxy.inference.direct_api._build_client", new=mock_build):
             with pytest.raises(InferenceProviderError, match="unsupported system content block type"):
                 await _provider().complete(
                     messages=[
@@ -407,14 +405,14 @@ class TestMultiBlockContent:
                         {"role": "user", "content": "hi"},
                     ],
                 )
-        # The call never reached judge_completion.
-        mock_call.assert_not_called()
+        # The call never reached _build_client.
+        mock_build.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_non_dict_system_block_raises_provider_error(self):
         """Non-dict items in system content list are also rejected."""
-        mock_call = AsyncMock(return_value="ok")
-        with patch("luthien_proxy.inference.direct_api.judge_completion", new=mock_call):
+        mock_build = AsyncMock()
+        with patch("luthien_proxy.inference.direct_api._build_client", new=mock_build):
             with pytest.raises(InferenceProviderError, match="non-dict block"):
                 await _provider().complete(
                     messages=[
@@ -422,13 +420,13 @@ class TestMultiBlockContent:
                         {"role": "user", "content": "hi"},
                     ],
                 )
-        mock_call.assert_not_called()
+        mock_build.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_non_string_non_list_system_content_raises_provider_error(self):
         """Weird system content types (int, dict, etc.) are rejected cleanly."""
-        mock_call = AsyncMock(return_value="ok")
-        with patch("luthien_proxy.inference.direct_api.judge_completion", new=mock_call):
+        mock_build = AsyncMock()
+        with patch("luthien_proxy.inference.direct_api._build_client", new=mock_build):
             with pytest.raises(InferenceProviderError, match="unsupported system message content type"):
                 await _provider().complete(
                     messages=[
@@ -436,7 +434,7 @@ class TestMultiBlockContent:
                         {"role": "user", "content": "hi"},
                     ],
                 )
-        mock_call.assert_not_called()
+        mock_build.assert_not_called()
 
 
 class TestStructuredTextConsistency:
@@ -446,10 +444,8 @@ class TestStructuredTextConsistency:
     async def test_text_is_serialized_form_of_structured(self):
         """.text must equal InferenceResult.from_structured(...).text for DirectApiProvider."""
         structured = {"city": "Paris", "population": 2_161_000}
-        with patch(
-            "luthien_proxy.inference.direct_api.judge_completion",
-            new=AsyncMock(return_value=json.dumps(structured)),
-        ):
+        with patch("luthien_proxy.inference.direct_api._build_client") as mock_build:
+            mock_build.return_value = _mock_client(_tool_use_response(structured))
             result = await _provider().complete(
                 messages=[{"role": "user", "content": "hi"}],
                 response_format={"type": "json_schema", "schema": SIMPLE_SCHEMA},
