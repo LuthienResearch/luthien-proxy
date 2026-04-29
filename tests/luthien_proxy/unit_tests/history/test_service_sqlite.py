@@ -758,6 +758,41 @@ class TestUserIdFilter:
         assert result.sessions[0].session_id == "sess-alice"
 
     @pytest.mark.asyncio
+    async def test_user_id_populated_in_session_summary(self, sqlite_pool: DatabasePool):
+        """Test that user_id is populated in SessionSummary from conversation events."""
+        async with sqlite_pool.connection() as conn:
+            await conn.execute(
+                "INSERT INTO conversation_calls (call_id, model_name, provider, status, session_id, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "call-uid-1",
+                "claude-opus-4-6",
+                "anthropic",
+                "completed",
+                "session-uid-1",
+                "user-alice",
+                "2026-01-15T10:00:00",
+            )
+            await conn.execute(
+                "INSERT INTO conversation_events (id, call_id, event_type, payload, session_id, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "event-uid-1",
+                "call-uid-1",
+                "transaction.request_recorded",
+                json.dumps(
+                    {
+                        "final_model": "claude-opus-4-6",
+                        "final_request": {"messages": [{"role": "user", "content": "Hello"}]},
+                    }
+                ),
+                "session-uid-1",
+                "user-alice",
+                "2026-01-15T10:00:00",
+            )
+
+        result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
+        assert len(result.sessions) == 1
+        session = result.sessions[0]
+        assert session.user_id == "user-alice"
+
+    @pytest.mark.asyncio
     async def test_user_filter_does_not_match_session_id(self, sqlite_pool: DatabasePool):
         """user filter must not match session_id — only user_id."""
         async with sqlite_pool.connection() as conn:

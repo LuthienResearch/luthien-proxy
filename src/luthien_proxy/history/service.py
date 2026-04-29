@@ -527,18 +527,19 @@ async def fetch_session_list(
             {qualifying_having_sql}
         ),
         session_stats AS (
-            SELECT
-                ce.session_id,
-                MIN(ce.created_at) as first_ts,
-                MAX(ce.created_at) as last_ts,
-                COUNT(*) as total_events,
-                COUNT(DISTINCT ce.call_id) as turn_count,
-                {policy_count_expr} as policy_interventions
-            FROM conversation_events ce
-            INNER JOIN qualifying_sessions qs ON qs.session_id = ce.session_id
-            GROUP BY ce.session_id
-            {policy_having_sql}
-        )
+             SELECT
+                 ce.session_id,
+                 MIN(ce.created_at) as first_ts,
+                 MAX(ce.created_at) as last_ts,
+                 COUNT(*) as total_events,
+                 COUNT(DISTINCT ce.call_id) as turn_count,
+                 {policy_count_expr} as policy_interventions,
+                 MAX(ce.user_id) as user_id
+             FROM conversation_events ce
+             INNER JOIN qualifying_sessions qs ON qs.session_id = ce.session_id
+             GROUP BY ce.session_id
+             {policy_having_sql}
+         )
     """
 
     count_params = list(params)
@@ -557,18 +558,19 @@ async def fetch_session_list(
 
         rows = await conn.fetch(
             f"""
-            {common_ctes}
-            SELECT
-                session_id,
-                first_ts,
-                last_ts,
-                total_events,
-                turn_count,
-                policy_interventions
-            FROM session_stats
-            ORDER BY last_ts DESC
-            LIMIT {limit_placeholder} OFFSET {offset_placeholder}
-            """,
+             {common_ctes}
+             SELECT
+                 session_id,
+                 first_ts,
+                 last_ts,
+                 total_events,
+                 turn_count,
+                 policy_interventions,
+                 user_id
+             FROM session_stats
+             ORDER BY last_ts DESC
+             LIMIT {limit_placeholder} OFFSET {offset_placeholder}
+             """,
             *row_params,
         )
 
@@ -626,6 +628,7 @@ async def fetch_session_list(
             policy_interventions=int(row["policy_interventions"] or 0),  # type: ignore[arg-type]
             models_used=models_by_session.get(str(row["session_id"]), []),
             preview_message=preview_by_session.get(str(row["session_id"])),
+            user_id=cast(str | None, row["user_id"]),
         )
         for row in rows
     ]
