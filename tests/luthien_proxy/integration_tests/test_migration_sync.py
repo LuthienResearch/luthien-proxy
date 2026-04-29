@@ -16,6 +16,24 @@ import pytest
 
 MIGRATIONS_ROOT = Path(__file__).resolve().parents[3] / "migrations"
 
+# Tables that legitimately diverge between backends.
+# - conversation_events_fts*: SQLite FTS5 virtual table + shadow tables. The
+#   Postgres equivalent is a tsvector column, not a separate table.
+FTS_SQLITE_TABLES = {
+    "conversation_events_fts",
+    "conversation_events_fts_data",
+    "conversation_events_fts_idx",
+    "conversation_events_fts_docsize",
+    "conversation_events_fts_config",
+    "conversation_events_fts_content",
+}
+
+# Columns that legitimately diverge between backends.
+# - conversation_events.search_vector: Postgres tsvector, no SQLite equivalent.
+DIVERGENT_COLUMNS: dict[str, set[str]] = {
+    "conversation_events": {"search_vector"},
+}
+
 # Dialect type normalization: map Postgres types to their SQLite equivalents
 PG_TO_SQLITE_TYPES: dict[str, str] = {
     "boolean": "integer",
@@ -130,8 +148,9 @@ class TestMigrationSync:
         sqlite_schema = get_sqlite_schema()
         pg_schema = await get_postgres_schema()
 
-        # Compare table sets (exclude _migrations tracking table)
-        sqlite_tables = {t for t in sqlite_schema if t != "_migrations"}
+        # Compare table sets (exclude _migrations tracking table and
+        # backend-specific FTS shadow tables).
+        sqlite_tables = {t for t in sqlite_schema if t != "_migrations" and t not in FTS_SQLITE_TABLES}
         pg_tables = {t for t in pg_schema if t != "_migrations"}
 
         assert sqlite_tables == pg_tables, (
@@ -142,14 +161,18 @@ class TestMigrationSync:
         for table in sorted(sqlite_tables):
             sqlite_cols = sqlite_schema[table]["columns"]
             pg_cols = pg_schema[table]["columns"]
+            ignored = DIVERGENT_COLUMNS.get(table, set())
 
-            assert set(sqlite_cols.keys()) == set(pg_cols.keys()), (
+            sqlite_col_set = set(sqlite_cols.keys()) - ignored
+            pg_col_set = set(pg_cols.keys()) - ignored
+
+            assert sqlite_col_set == pg_col_set, (
                 f"Column mismatch in '{table}'.\n"
-                f"  SQLite only: {set(sqlite_cols.keys()) - set(pg_cols.keys())}\n"
-                f"  Postgres only: {set(pg_cols.keys()) - set(sqlite_cols.keys())}"
+                f"  SQLite only: {sqlite_col_set - pg_col_set}\n"
+                f"  Postgres only: {pg_col_set - sqlite_col_set}"
             )
 
-            for col_name in sqlite_cols:
+            for col_name in sqlite_col_set:
                 sqlite_type = sqlite_cols[col_name]["type"]
                 pg_type = pg_cols[col_name]["type"]
                 assert sqlite_type == pg_type, (
