@@ -2,8 +2,11 @@
 
 from luthien_proxy.pipeline.session import (
     SESSION_ID_HEADER,
+    USER_ID_HEADER,
     extract_session_id_from_anthropic_body,
     extract_session_id_from_headers,
+    extract_user_id_from_bearer_token,
+    extract_user_id_from_headers,
 )
 
 
@@ -157,3 +160,122 @@ class TestExtractSessionIdFromHeaders:
     def test_header_name_constant(self):
         """Test the header name constant is correct."""
         assert SESSION_ID_HEADER == "x-session-id"
+
+
+class TestExtractUserIdFromHeaders:
+    """Tests for extract_user_id_from_headers function."""
+
+    def test_extracts_user_id_from_header(self):
+        """Test extraction from X-Luthien-User-Id header."""
+        headers = {
+            "content-type": "application/json",
+            USER_ID_HEADER: "alice@example.com",
+        }
+        user_id = extract_user_id_from_headers(headers)
+        assert user_id == "alice@example.com"
+
+    def test_returns_none_when_header_missing(self):
+        """Test returns None when X-Luthien-User-Id header is missing."""
+        headers = {
+            "content-type": "application/json",
+            "authorization": "Bearer token",
+        }
+        user_id = extract_user_id_from_headers(headers)
+        assert user_id is None
+
+    def test_returns_none_if_header_empty(self):
+        """Test returns None if header value is empty."""
+        headers = {USER_ID_HEADER: ""}
+        user_id = extract_user_id_from_headers(headers)
+        assert user_id is None
+
+    def test_preserves_arbitrary_user_id_format(self):
+        """Test arbitrary user ID formats are preserved."""
+        for uid in ["user-123", "alice", "alice@corp.example.com", "sub:abc123"]:
+            headers = {USER_ID_HEADER: uid}
+            assert extract_user_id_from_headers(headers) == uid
+
+    def test_header_name_constant(self):
+        """Test the header name constant is correct."""
+        assert USER_ID_HEADER == "x-luthien-user-id"
+
+
+class TestExtractUserIdFromBearerToken:
+    """Tests for extract_user_id_from_bearer_token function."""
+
+    def test_extracts_sub_from_valid_jwt(self):
+        """Test extraction of sub claim from a valid JWT."""
+        import base64
+        import json
+
+        # Build a minimal JWT: header.payload.signature (signature not verified)
+        header = base64.urlsafe_b64encode(json.dumps({"alg": "RS256", "typ": "JWT"}).encode()).rstrip(b"=").decode()
+        payload = (
+            base64.urlsafe_b64encode(json.dumps({"sub": "user-abc-123", "email": "alice@example.com"}).encode())
+            .rstrip(b"=")
+            .decode()
+        )
+        token = f"{header}.{payload}.fakesignature"
+
+        user_id = extract_user_id_from_bearer_token(token)
+        assert user_id == "user-abc-123"
+
+    def test_returns_none_when_no_sub_claim(self):
+        """Test returns None when JWT has no sub claim."""
+        import base64
+        import json
+
+        header = base64.urlsafe_b64encode(json.dumps({"alg": "RS256"}).encode()).rstrip(b"=").decode()
+        payload = base64.urlsafe_b64encode(json.dumps({"email": "alice@example.com"}).encode()).rstrip(b"=").decode()
+        token = f"{header}.{payload}.fakesig"
+
+        user_id = extract_user_id_from_bearer_token(token)
+        assert user_id is None
+
+    def test_returns_none_for_non_jwt_token(self):
+        """Test returns None for opaque (non-JWT) tokens."""
+        user_id = extract_user_id_from_bearer_token("sk-ant-api03-someapikey")
+        assert user_id is None
+
+    def test_returns_none_for_empty_token(self):
+        """Test returns None for empty token string."""
+        user_id = extract_user_id_from_bearer_token("")
+        assert user_id is None
+
+    def test_returns_none_for_malformed_jwt_payload(self):
+        """Test returns None when JWT payload is not valid base64 JSON."""
+        token = "header.notvalidbase64!!.signature"
+        user_id = extract_user_id_from_bearer_token(token)
+        assert user_id is None
+
+    def test_returns_none_when_sub_is_not_string(self):
+        """Test returns None when sub claim is not a string."""
+        import base64
+        import json
+
+        header = base64.urlsafe_b64encode(json.dumps({"alg": "RS256"}).encode()).rstrip(b"=").decode()
+        payload = base64.urlsafe_b64encode(json.dumps({"sub": 12345}).encode()).rstrip(b"=").decode()
+        token = f"{header}.{payload}.fakesig"
+
+        user_id = extract_user_id_from_bearer_token(token)
+        assert user_id is None
+
+    def test_returns_none_for_none_token(self):
+        """Test returns None when token is None."""
+        user_id = extract_user_id_from_bearer_token(None)
+        assert user_id is None
+
+    def test_handles_jwt_without_padding(self):
+        """Test handles JWT base64 without padding (standard JWT format)."""
+        import base64
+        import json
+
+        # JWT payloads often lack = padding
+        payload_data = {"sub": "user-xyz", "iss": "https://auth.example.com"}
+        payload_bytes = json.dumps(payload_data).encode()
+        # Deliberately strip padding as real JWTs do
+        payload = base64.urlsafe_b64encode(payload_bytes).rstrip(b"=").decode()
+        token = f"eyJhbGciOiJSUzI1NiJ9.{payload}.fakesig"
+
+        user_id = extract_user_id_from_bearer_token(token)
+        assert user_id == "user-xyz"

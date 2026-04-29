@@ -228,43 +228,47 @@ class EventEmitter:
     ) -> None:
         """Write event to PostgreSQL.
 
-        Session ID Propagation Convention:
-            The session_id is extracted from the event data dict if present.
-            Callers (e.g., processor.py) should include {"session_id": value}
-            in their event data to persist the session_id to the database.
-            This convention allows session tracking without modifying the
+        Session ID and User ID Propagation Convention:
+            The session_id and user_id are extracted from the event data dict if present.
+            Callers (e.g., processor.py) should include {"session_id": value, "user_id": value}
+            in their event data to persist these fields to the database.
+            This convention allows session and user tracking without modifying the
             EventEmitter interface.
         """
         db_pool = cast(DatabasePool, self._db_pool)
-        # Extract session_id from data if present (set by processor via convention above)
+        # Extract session_id and user_id from data if present (set by processor via convention above)
         session_id = data.get("session_id") if isinstance(data, dict) else None
+        user_id = data.get("user_id") if isinstance(data, dict) else None
 
         try:
             async with db_pool.connection() as conn:
-                # Ensure call row exists with session_id
+                # Ensure call row exists with session_id and user_id
                 await conn.execute(
                     """
-                    INSERT INTO conversation_calls (call_id, created_at, session_id)
-                    VALUES ($1, $2, $3)
+                    INSERT INTO conversation_calls (call_id, created_at, session_id, user_id)
+                    VALUES ($1, $2, $3, $4)
                     ON CONFLICT (call_id) DO UPDATE SET
-                        session_id = COALESCE(conversation_calls.session_id, EXCLUDED.session_id)
+                        session_id = COALESCE(conversation_calls.session_id, EXCLUDED.session_id),
+                        user_id = COALESCE(conversation_calls.user_id, EXCLUDED.user_id)
                     """,
                     transaction_id,
                     timestamp,
                     session_id,
+                    user_id,
                 )
 
-                # Insert event with session_id, ordering by created_at
+                # Insert event with session_id and user_id, ordering by created_at
                 await conn.execute(
                     """
-                    INSERT INTO conversation_events (call_id, event_type, payload, created_at, session_id)
-                    VALUES ($1, $2, $3, $4, $5)
+                    INSERT INTO conversation_events (call_id, event_type, payload, created_at, session_id, user_id)
+                    VALUES ($1, $2, $3, $4, $5, $6)
                     """,
                     transaction_id,
                     event_type,
                     json.dumps(data),
                     timestamp,
                     session_id,
+                    user_id,
                 )
 
             logger.debug(f"Wrote event to db: {event_type} (transaction_id={transaction_id})")

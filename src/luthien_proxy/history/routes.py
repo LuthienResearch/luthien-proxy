@@ -72,14 +72,19 @@ async def list_sessions(
         ge=0,
         description="Number of sessions to skip for pagination",
     ),
+    user_id: str | None = Query(
+        default=None,
+        description="Filter sessions by user identity (from X-Luthien-User-Id header or JWT sub claim)",
+    ),
 ) -> SessionListResponse:
     """List recent sessions with summaries.
 
     Returns a list of session summaries ordered by most recent activity,
     including turn counts, policy interventions, and models used.
     Supports pagination via limit and offset parameters.
+    Optionally filter by user_id to see sessions for a specific user.
     """
-    return await fetch_session_list(limit, db_pool, offset)
+    return await fetch_session_list(limit, db_pool, offset, user_id=user_id)
 
 
 @api_router.get("/sessions/{session_id}", response_model=SessionDetail)

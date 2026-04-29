@@ -52,6 +52,8 @@ from luthien_proxy.pipeline.policy_context_injection import inject_policy_awaren
 from luthien_proxy.pipeline.session import (
     extract_session_id_from_anthropic_body,
     extract_session_id_from_headers,
+    extract_user_id_from_bearer_token,
+    extract_user_id_from_headers,
 )
 from luthien_proxy.pipeline.stream_protocol_validator import validate_anthropic_event_ordering
 from luthien_proxy.policy_core.anthropic_execution_interface import (
@@ -100,6 +102,7 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         emitter: EventEmitterProtocol,
         call_id: str,
         session_id: str | None,
+        user_id: str | None,
         request_log_recorder: RequestLogRecorder,
         is_streaming: bool,
         extra_headers: dict[str, str] | None = None,
@@ -110,6 +113,7 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         self._emitter = emitter
         self._call_id = call_id
         self._session_id = session_id
+        self._user_id = user_id
         self._request_log_recorder = request_log_recorder
         self._is_streaming = is_streaming
         self._extra_headers = extra_headers
@@ -151,6 +155,7 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
                 "original_request": dict(self._initial_request),
                 "final_request": dict(effective_request),
                 "session_id": self._session_id,
+                "user_id": self._user_id,
             },
         )
         self._request_recorded = True
@@ -163,7 +168,7 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         self._emitter.record(
             self._call_id,
             "pipeline.backend_request",
-            {"payload": request_payload, "session_id": self._session_id},
+            {"payload": request_payload, "session_id": self._session_id, "user_id": self._user_id},
         )
         self._request_log_recorder.record_outbound_request(
             body=request_payload,
@@ -368,7 +373,7 @@ async def process_anthropic_request(
         root_span.set_attribute("luthien.endpoint", "/v1/messages")
 
         # Phase 1: Process incoming request
-        anthropic_request, raw_http_request, session_id = await _process_request(
+        anthropic_request, raw_http_request, session_id, user_id = await _process_request(
             request=request,
             call_id=call_id,
             emitter=emitter,
@@ -383,6 +388,8 @@ async def process_anthropic_request(
         root_span.set_attribute("luthien.stream", is_streaming)
         if session_id:
             root_span.set_attribute("luthien.session_id", session_id)
+        if user_id:
+            root_span.set_attribute("luthien.user_id", user_id)
         if usage_collector:
             usage_collector.record_session(session_id)
 
@@ -417,6 +424,7 @@ async def process_anthropic_request(
             emitter=emitter,
             raw_http_request=raw_http_request,
             session_id=session_id,
+            user_id=user_id,
             user_credential=user_credential,
             credential_manager=credential_manager,
             policy_cache_factory=policy_cache_factory,
@@ -452,7 +460,7 @@ async def _process_request(
     request: Request,
     call_id: str,
     emitter: EventEmitterProtocol,
-) -> tuple[AnthropicRequest, RawHttpRequest, str | None]:
+) -> tuple[AnthropicRequest, RawHttpRequest, str | None, str | None]:
     """Process and validate incoming Anthropic request.
 
     Args:
@@ -461,7 +469,7 @@ async def _process_request(
         emitter: Event emitter
 
     Returns:
-        Tuple of (AnthropicRequest, RawHttpRequest with original data, session_id)
+        Tuple of (AnthropicRequest, RawHttpRequest with original data, session_id, user_id)
 
     Raises:
         HTTPException: On request size exceeded or invalid format
@@ -496,6 +504,14 @@ async def _process_request(
         # fall back to x-session-id header (OAuth passthrough mode)
         session_id = extract_session_id_from_anthropic_body(body) or extract_session_id_from_headers(headers)
 
+        # Extract user identity: X-Luthien-User-Id header takes precedence,
+        # fall back to JWT Bearer token sub claim (no signature verification —
+        # used for attribution only, not authentication)
+        bearer_token = headers.get("authorization", "")
+        if bearer_token.lower().startswith("bearer "):
+            bearer_token = bearer_token[7:]
+        user_id = extract_user_id_from_headers(headers) or extract_user_id_from_bearer_token(bearer_token)
+
         # Validate required fields
         if "model" not in body:
             raise HTTPException(status_code=400, detail="Missing required field: model")
@@ -511,12 +527,16 @@ async def _process_request(
             span.set_attribute("luthien.session_id", session_id)
             logger.debug(f"[{call_id}] Extracted session_id: {session_id}")
 
+        if user_id:
+            span.set_attribute("luthien.user_id", user_id)
+            logger.debug(f"[{call_id}] Extracted user_id: {user_id}")
+
         logger.info(
             f"[{call_id}] /v1/messages (native): model={anthropic_request['model']}, "
             f"stream={anthropic_request.get('stream', False)}"
         )
 
-        return anthropic_request, raw_http_request, session_id
+        return anthropic_request, raw_http_request, session_id, user_id
 
 
 async def _run_policy_hooks(
@@ -565,6 +585,7 @@ async def _execute_anthropic_policy(
         emitter=emitter,
         call_id=call_id,
         session_id=policy_ctx.session_id,
+        user_id=policy_ctx.user_id,
         request_log_recorder=request_log_recorder,
         is_streaming=is_streaming,
         extra_headers=extra_headers,
@@ -721,6 +742,7 @@ async def _handle_execution_streaming(
                                 else dict(reconstructed),
                                 "final_response": dict(reconstructed),
                                 "session_id": policy_ctx.session_id,
+                                "user_id": policy_ctx.user_id,
                             },
                         )
                     request_log_recorder.record_inbound_response(status=final_status)
@@ -810,6 +832,7 @@ async def _handle_execution_non_streaming(
             "original_response": original_response_payload,
             "final_response": dict(final_response),
             "session_id": policy_ctx.session_id,
+            "user_id": policy_ctx.user_id,
         },
     )
 
@@ -820,7 +843,7 @@ async def _handle_execution_non_streaming(
         emitter.record(
             call_id,
             "pipeline.client_response",
-            {"payload": final_response_payload, "session_id": policy_ctx.session_id},
+            {"payload": final_response_payload, "session_id": policy_ctx.session_id, "user_id": policy_ctx.user_id},
         )
         request_log_recorder.record_outbound_response(body=final_response_payload, status=200)
         request_log_recorder.record_inbound_response(status=200, body=final_response_payload)
