@@ -55,6 +55,26 @@ _SENSITIVE_ENV_RE = re.compile(
     r"\$\{env\.([^}]*(?:KEY|SECRET|PASSWORD|TOKEN)[^}]*|DATABASE_URL|REDIS_URL)\}", re.IGNORECASE
 )
 
+# Hard-block: env vars that must never be forwarded to upstream, regardless of configuration.
+# Checked at load time (startup) so misconfigurations fail fast rather than leaking credentials
+# at request time.
+_SENSITIVE_VAR_BLOCKLIST: frozenset[str] = frozenset(
+    {
+        "DATABASE_URL",
+        "REDIS_URL",
+        "ADMIN_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "CLIENT_API_KEY",
+    }
+)
+
+_SENSITIVE_VAR_SUFFIXES: tuple[str, ...] = ("_KEY", "_SECRET", "_PASSWORD", "_TOKEN")
+
+
+def _is_sensitive_var(name: str) -> bool:
+    upper = name.upper()
+    return upper in _SENSITIVE_VAR_BLOCKLIST or any(upper.endswith(s) for s in _SENSITIVE_VAR_SUFFIXES)
+
 
 def _warn_sensitive_env_refs(templates: dict[str, str]) -> None:
     for header, template in templates.items():
@@ -93,6 +113,16 @@ def _load_header_templates() -> dict[str, str]:
             result[k] = v
         if result:
             logger.info("Loaded %d upstream header template(s)", len(result))
+        for header, template in result.items():
+            for match in _TEMPLATE_PATTERN.finditer(template):
+                var = match.group(1)
+                if var.startswith("env."):
+                    env_name = var[4:]
+                    if _is_sensitive_var(env_name):
+                        raise ValueError(
+                            f"UPSTREAM_HEADERS: header '{header}' references blocked env var "
+                            f"'${{env.{env_name}}}' — forwarding this variable is not permitted"
+                        )
         _warn_sensitive_env_refs(result)
         return result
     except json.JSONDecodeError as e:

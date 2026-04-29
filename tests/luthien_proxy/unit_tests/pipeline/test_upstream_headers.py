@@ -105,12 +105,12 @@ class TestExpandUpstreamHeaders:
         assert expand_upstream_headers("sess-1", "/v1/messages") is None
 
     def test_expands_all_headers(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setenv("HELICONE_API_KEY", "sk-hel-test")
+        monkeypatch.setenv("HELICONE_BEARER", "sk-hel-test")
         monkeypatch.setenv(
             "UPSTREAM_HEADERS",
             json.dumps(
                 {
-                    "Helicone-Auth": "Bearer ${env.HELICONE_API_KEY}",
+                    "Helicone-Auth": "Bearer ${env.HELICONE_BEARER}",
                     "Helicone-Session-Id": "${session_id}",
                     "Helicone-Session-Path": "${request_path}",
                 }
@@ -147,19 +147,19 @@ class TestExpandUpstreamHeaders:
 
     def test_helicone_full_config(self, monkeypatch: pytest.MonkeyPatch):
         """Integration-style test matching the real Helicone use case."""
-        monkeypatch.setenv("HELICONE_API_KEY", "sk-helicone-prod")
-        monkeypatch.setenv("POSTHOG_API_KEY", "phc_prod_key")
+        monkeypatch.setenv("HELICONE_BEARER", "sk-helicone-prod")
+        monkeypatch.setenv("POSTHOG_BEARER", "phc_prod_key")
         monkeypatch.setenv("USER", "user@example.com")
         monkeypatch.setenv(
             "UPSTREAM_HEADERS",
             json.dumps(
                 {
-                    "Helicone-Auth": "Bearer ${env.HELICONE_API_KEY}",
+                    "Helicone-Auth": "Bearer ${env.HELICONE_BEARER}",
                     "Helicone-Session-Id": "${session_id}",
                     "Helicone-Session-Name": "Claude Code",
                     "Helicone-Session-Path": "${request_path}",
                     "Helicone-User-Id": "${env.USER}",
-                    "Helicone-Posthog-Key": "${env.POSTHOG_API_KEY}",
+                    "Helicone-Posthog-Key": "${env.POSTHOG_BEARER}",
                     "Helicone-Posthog-Host": "https://us.i.posthog.com",
                     "Helicone-Property-SessionId": "${session_id}",
                     "Helicone-Property-UserId": "${env.USER}",
@@ -179,3 +179,26 @@ class TestExpandUpstreamHeaders:
             "Helicone-Property-SessionId": "9f3a-b2c1-session-uuid",
             "Helicone-Property-UserId": "user@example.com",
         }
+
+
+class TestBlocklist:
+    def test_blocklist_prevents_sensitive_var_expansion_exact_match(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"X-DB": "${env.DATABASE_URL}"}))
+        with pytest.raises(ValueError, match="DATABASE_URL"):
+            _load_header_templates()
+
+    def test_blocklist_prevents_sensitive_var_expansion_case_insensitive(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"X-DB": "${env.database_url}"}))
+        with pytest.raises(ValueError, match="database_url"):
+            _load_header_templates()
+
+    def test_blocklist_prevents_sensitive_var_expansion_suffix_match(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"X-Key": "${env.MY_API_KEY}"}))
+        with pytest.raises(ValueError, match="MY_API_KEY"):
+            _load_header_templates()
+
+    def test_blocklist_allows_benign_var(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("MY_BENIGN_VAR", "safe-value")
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"X-Custom": "${env.MY_BENIGN_VAR}"}))
+        result = _load_header_templates()
+        assert result == {"X-Custom": "${env.MY_BENIGN_VAR}"}
