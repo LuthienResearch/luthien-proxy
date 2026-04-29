@@ -76,13 +76,10 @@ async def sqlite_pool() -> DatabasePool:
 
     async with pool.connection() as conn:
         for migration_file in sorted(migrations_dir.glob("*.sql")):
-            sql = migration_file.read_text()
-            for statement in sql.split(";"):
-                statement = statement.strip()
-                if statement and not all(
-                    line.strip().startswith("--") or not line.strip() for line in statement.split("\n")
-                ):
-                    await conn.execute(statement)
+            # Use SQLite's native multi-statement parser so trigger
+            # BEGIN ... END blocks (see 014_add_session_search_fts) are not
+            # chopped into broken fragments by a naive split-on-semicolon.
+            await conn.executescript(migration_file.read_text())
 
     yield pool
     await pool.close()

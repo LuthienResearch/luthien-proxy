@@ -10,7 +10,7 @@ This module is primarily covered by integration tests rather than unit tests.
 ### Rationale
 
 - Contains FastAPI endpoints with complex async streaming logic
-- Testing requires mocking FastAPI Request objects, app state, and LiteLLM
+- Testing requires mocking FastAPI Request objects, app state, and the Anthropic SDK client
 - Heavy mocking would create tests that diverge from actual behavior
 - Integration tests provide better coverage by testing actual HTTP endpoints
 
@@ -29,7 +29,7 @@ Integration tests cover:
 
 If these components were extracted as pure functions, they could be unit tested:
 
-1. **`stream_llm_chunks()`** - Could be tested with mocked `litellm.acompletion`
+1. **`stream_llm_chunks()`** - Could be tested with a mocked backend client
 2. **`hash_api_key()`** - Pure function, easily unit testable
 3. **Event formatting logic** - If extracted from endpoints
 

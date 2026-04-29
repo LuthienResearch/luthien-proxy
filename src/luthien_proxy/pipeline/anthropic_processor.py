@@ -39,6 +39,7 @@ from opentelemetry.trace import Span
 from luthien_proxy.credential_manager import CredentialManager
 from luthien_proxy.credentials import Credential, CredentialError
 from luthien_proxy.exceptions import BackendAPIError
+from luthien_proxy.inference.registry import InferenceProviderRegistry
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.types.anthropic import (
     AnthropicContentBlock,
@@ -330,6 +331,7 @@ async def process_anthropic_request(
     usage_collector: UsageCollector | None = None,
     user_credential: Credential | None = None,
     credential_manager: CredentialManager | None = None,
+    inference_provider_registry: InferenceProviderRegistry | None = None,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Process an Anthropic API request through the native pipeline.
 
@@ -345,6 +347,8 @@ async def process_anthropic_request(
         usage_collector: Optional usage telemetry collector for counting requests
         user_credential: The credential extracted from the incoming request
         credential_manager: Shared credential manager for auth provider resolution
+        inference_provider_registry: Registry of named inference providers
+            used by judge policies that declare an inference_provider reference
 
     Returns:
         StreamingResponse or JSONResponse depending on stream parameter
@@ -419,6 +423,7 @@ async def process_anthropic_request(
             session_id=session_id,
             user_credential=user_credential,
             credential_manager=credential_manager,
+            inference_provider_registry=inference_provider_registry,
             policy_cache_factory=policy_cache_factory,
         )
 
