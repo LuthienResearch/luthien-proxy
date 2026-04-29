@@ -258,6 +258,16 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         "Rows fetched per cursor-based batch when archiving conversation_calls (larger = fewer queries, more memory)",
         category="retention",
     ),
+    ConfigFieldMeta(
+        "retention_s3_encryption", "RETENTION_S3_ENCRYPTION", str, "AES256",
+        "S3 server-side encryption algorithm: AES256 or aws:kms",
+        category="retention",
+    ),
+    ConfigFieldMeta(
+        "retention_s3_kms_key_id", "RETENTION_S3_KMS_KEY_ID", str, "",
+        "KMS key ID for aws:kms encryption (required when RETENTION_S3_ENCRYPTION=aws:kms)",
+        category="retention",
+    ),
 
     # ── webhook ───────────────────────────────────────────────────────────
     ConfigFieldMeta(

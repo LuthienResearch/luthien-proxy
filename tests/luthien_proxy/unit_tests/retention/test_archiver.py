@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -85,21 +85,25 @@ async def test_archive_calls_uploads_jsonl(mock_db_pool, mock_s3_client, sample_
     pool, conn = mock_db_pool
     cutoff = datetime(2024, 1, 3, tzinfo=UTC)
 
-    archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
-    await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
+        mock_settings.retention_s3_encryption = "AES256"
+        mock_settings.retention_s3_kms_key_id = ""
 
-    mock_s3_client.put_object.assert_called_once()
-    call_kwargs = mock_s3_client.put_object.call_args[1]
-    assert call_kwargs["Bucket"] == "test-bucket"
+        archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
+        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
 
-    # Verify JSONL content
-    body = call_kwargs["Body"]
-    lines = [line for line in body.decode().strip().split("\n") if line]
-    assert len(lines) == 2
+        mock_s3_client.put_object.assert_called_once()
+        call_kwargs = mock_s3_client.put_object.call_args[1]
+        assert call_kwargs["Bucket"] == "test-bucket"
 
-    first = json.loads(lines[0])
-    assert first["call_id"] == "call-001"
-    assert first["model_name"] == "claude-3-5-sonnet-20241022"
+        # Verify JSONL content
+        body = call_kwargs["Body"]
+        lines = [line for line in body.decode().strip().split("\n") if line]
+        assert len(lines) == 2
+
+        first = json.loads(lines[0])
+        assert first["call_id"] == "call-001"
+        assert first["model_name"] == "claude-3-5-sonnet-20241022"
 
 
 @pytest.mark.asyncio
@@ -121,13 +125,17 @@ async def test_archive_calls_s3_key_includes_date(mock_db_pool, mock_s3_client, 
     pool, conn = mock_db_pool
     cutoff = datetime(2024, 6, 15, tzinfo=UTC)
 
-    archiver = S3ConversationArchiver(bucket="test-bucket", prefix="archive/", s3_client=mock_s3_client)
-    await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
+        mock_settings.retention_s3_encryption = "AES256"
+        mock_settings.retention_s3_kms_key_id = ""
 
-    call_kwargs = mock_s3_client.put_object.call_args[1]
-    key = call_kwargs["Key"]
-    assert "archive/" in key
-    assert "2024" in key
+        archiver = S3ConversationArchiver(bucket="test-bucket", prefix="archive/", s3_client=mock_s3_client)
+        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+
+        call_kwargs = mock_s3_client.put_object.call_args[1]
+        key = call_kwargs["Key"]
+        assert "archive/" in key
+        assert "2024" in key
 
 
 @pytest.mark.asyncio
@@ -137,10 +145,14 @@ async def test_archive_calls_handles_s3_error(mock_db_pool, mock_s3_client, samp
     mock_s3_client.put_object = MagicMock(side_effect=Exception("S3 access denied"))
     cutoff = datetime(2024, 1, 3, tzinfo=UTC)
 
-    archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
+    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
+        mock_settings.retention_s3_encryption = "AES256"
+        mock_settings.retention_s3_kms_key_id = ""
 
-    with pytest.raises(Exception, match="S3 access denied"):
-        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+        archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
+
+        with pytest.raises(Exception, match="S3 access denied"):
+            await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
 
 
 @pytest.mark.asyncio
@@ -149,13 +161,16 @@ async def test_archive_calls_datetime_serialized_as_iso(mock_db_pool, mock_s3_cl
     pool, conn = mock_db_pool
     cutoff = datetime(2024, 1, 3, tzinfo=UTC)
 
-    archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
-    await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
+        mock_settings.retention_s3_encryption = "AES256"
+        mock_settings.retention_s3_kms_key_id = ""
 
-    body = mock_s3_client.put_object.call_args[1]["Body"]
-    first = json.loads(body.decode().strip().split("\n")[0])
-    # created_at should be a string, not a datetime object
-    assert isinstance(first["created_at"], str)
+        archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
+        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+
+        body = mock_s3_client.put_object.call_args[1]["Body"]
+        first = json.loads(body.decode().strip().split("\n")[0])
+        assert isinstance(first["created_at"], str)
 
 
 @pytest.mark.asyncio
@@ -164,13 +179,17 @@ async def test_archive_calls_null_completed_at(mock_db_pool, mock_s3_client, sam
     pool, conn = mock_db_pool
     cutoff = datetime(2024, 1, 3, tzinfo=UTC)
 
-    archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
-    await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
+        mock_settings.retention_s3_encryption = "AES256"
+        mock_settings.retention_s3_kms_key_id = ""
 
-    body = mock_s3_client.put_object.call_args[1]["Body"]
-    lines = body.decode().strip().split("\n")
-    second = json.loads(lines[1])
-    assert second["completed_at"] is None
+        archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
+        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+
+        body = mock_s3_client.put_object.call_args[1]["Body"]
+        lines = body.decode().strip().split("\n")
+        second = json.loads(lines[1])
+        assert second["completed_at"] is None
 
 
 @pytest.mark.asyncio
@@ -179,18 +198,22 @@ async def test_archive_calls_preserves_session_and_user_id(mock_db_pool, mock_s3
     pool, conn = mock_db_pool
     cutoff = datetime(2024, 1, 3, tzinfo=UTC)
 
-    archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
-    await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
+        mock_settings.retention_s3_encryption = "AES256"
+        mock_settings.retention_s3_kms_key_id = ""
 
-    body = mock_s3_client.put_object.call_args[1]["Body"]
-    lines = [line for line in body.decode().strip().split("\n") if line]
-    first = json.loads(lines[0])
-    assert first["session_id"] == "sess-abc"
-    assert first["user_id"] == "user-123"
+        archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
+        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
 
-    second = json.loads(lines[1])
-    assert second["session_id"] is None
-    assert second["user_id"] is None
+        body = mock_s3_client.put_object.call_args[1]["Body"]
+        lines = [line for line in body.decode().strip().split("\n") if line]
+        first = json.loads(lines[0])
+        assert first["session_id"] == "sess-abc"
+        assert first["user_id"] == "user-123"
+
+        second = json.loads(lines[1])
+        assert second["session_id"] is None
+        assert second["user_id"] is None
 
 
 def test_build_s3_key_format():
@@ -250,12 +273,74 @@ async def test_archive_calls_cursor_batching(mock_s3_client):
     conn.fetch = AsyncMock(side_effect=[batch1, batch2])
     cutoff = datetime(2024, 1, 3, tzinfo=UTC)
 
-    archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client, batch_size=batch_size)
-    await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
+        mock_settings.retention_s3_encryption = "AES256"
+        mock_settings.retention_s3_kms_key_id = ""
 
-    assert conn.fetch.call_count == 2
+        archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client, batch_size=batch_size)
+        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
 
-    mock_s3_client.put_object.assert_called_once()
-    body = mock_s3_client.put_object.call_args[1]["Body"]
-    lines = [line for line in body.decode().strip().split("\n") if line]
-    assert len(lines) == batch_size + 2
+        assert conn.fetch.call_count == 2
+
+        mock_s3_client.put_object.assert_called_once()
+        body = mock_s3_client.put_object.call_args[1]["Body"]
+        lines = [line for line in body.decode().strip().split("\n") if line]
+        assert len(lines) == batch_size + 2
+
+
+@pytest.mark.asyncio
+async def test_s3_upload_has_sse_aes256(mock_db_pool, mock_s3_client, sample_calls):
+    """S3 upload should include ServerSideEncryption=AES256 by default."""
+    pool, conn = mock_db_pool
+    cutoff = datetime(2024, 1, 3, tzinfo=UTC)
+
+    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
+        mock_settings.retention_s3_encryption = "AES256"
+        mock_settings.retention_s3_kms_key_id = ""
+
+        archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
+        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+
+        mock_s3_client.put_object.assert_called_once()
+        call_kwargs = mock_s3_client.put_object.call_args[1]
+        assert call_kwargs["ServerSideEncryption"] == "AES256"
+        assert "SSEKMSKeyId" not in call_kwargs
+
+
+@pytest.mark.asyncio
+async def test_s3_upload_kms_mode(mock_db_pool, mock_s3_client, sample_calls):
+    """S3 upload should include SSEKMSKeyId when encryption is aws:kms."""
+    pool, conn = mock_db_pool
+    cutoff = datetime(2024, 1, 3, tzinfo=UTC)
+    kms_key_id = "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012"
+
+    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
+        mock_settings.retention_s3_encryption = "aws:kms"
+        mock_settings.retention_s3_kms_key_id = kms_key_id
+
+        archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
+        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+
+        mock_s3_client.put_object.assert_called_once()
+        call_kwargs = mock_s3_client.put_object.call_args[1]
+        assert call_kwargs["ServerSideEncryption"] == "aws:kms"
+        assert call_kwargs["SSEKMSKeyId"] == kms_key_id
+
+
+@pytest.mark.asyncio
+async def test_s3_upload_kms_mode_without_key_id(mock_db_pool, mock_s3_client, sample_calls):
+    """S3 upload should not include SSEKMSKeyId when it is empty, even if encryption is aws:kms."""
+    pool, conn = mock_db_pool
+    cutoff = datetime(2024, 1, 3, tzinfo=UTC)
+
+    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
+        mock_settings.retention_s3_encryption = "aws:kms"
+        mock_settings.retention_s3_kms_key_id = ""
+
+        archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
+        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+
+        mock_s3_client.put_object.assert_called_once()
+        call_kwargs = mock_s3_client.put_object.call_args[1]
+        assert call_kwargs["ServerSideEncryption"] == "aws:kms"
+        assert "SSEKMSKeyId" not in call_kwargs
