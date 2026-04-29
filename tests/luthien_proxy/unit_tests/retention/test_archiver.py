@@ -201,3 +201,61 @@ def test_build_s3_key_format():
     assert key.startswith("p/")
     assert "2024-03-15" in key
     assert key.endswith(".jsonl")
+
+
+def test_archiver_stores_batch_size():
+    """S3ConversationArchiver stores the configured batch_size."""
+    archiver = S3ConversationArchiver(bucket="b", batch_size=500)
+    assert archiver.batch_size == 500
+
+
+def test_archiver_default_batch_size():
+    """Default batch_size is 1000."""
+    archiver = S3ConversationArchiver(bucket="b")
+    assert archiver.batch_size == 1000
+
+
+@pytest.mark.asyncio
+async def test_archive_calls_cursor_batching(mock_s3_client):
+    """archive_calls fetches rows in cursor-based batches when a full batch is returned."""
+    batch_size = 3
+    batch1 = [
+        {
+            "call_id": f"call-{i:03d}",
+            "model_name": "claude-3",
+            "provider": "anthropic",
+            "status": "completed",
+            "created_at": datetime(2024, 1, 1, tzinfo=UTC),
+            "completed_at": None,
+            "session_id": None,
+            "user_id": None,
+        }
+        for i in range(batch_size)
+    ]
+    batch2 = [
+        {
+            "call_id": f"call-{i:03d}",
+            "model_name": "claude-3",
+            "provider": "anthropic",
+            "status": "completed",
+            "created_at": datetime(2024, 1, 1, tzinfo=UTC),
+            "completed_at": None,
+            "session_id": None,
+            "user_id": None,
+        }
+        for i in range(batch_size, batch_size + 2)
+    ]
+
+    conn = AsyncMock()
+    conn.fetch = AsyncMock(side_effect=[batch1, batch2])
+    cutoff = datetime(2024, 1, 3, tzinfo=UTC)
+
+    archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client, batch_size=batch_size)
+    await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+
+    assert conn.fetch.call_count == 2
+
+    mock_s3_client.put_object.assert_called_once()
+    body = mock_s3_client.put_object.call_args[1]["Body"]
+    lines = [line for line in body.decode().strip().split("\n") if line]
+    assert len(lines) == batch_size + 2

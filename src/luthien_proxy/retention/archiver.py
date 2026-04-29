@@ -18,6 +18,20 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Explicit column list for conversation_calls — updated alongside schema migrations.
+# Never use SELECT * to ensure column order is stable and no extra columns leak into archives.
+_CONVERSATION_CALLS_COLUMNS = (
+    "call_id",
+    "model_name",
+    "provider",
+    "status",
+    "created_at",
+    "completed_at",
+    "session_id",
+    "user_id",
+)
+_COLUMNS_SQL = ", ".join(_CONVERSATION_CALLS_COLUMNS)
+
 
 def _serialize_value(v: Any) -> Any:
     """Convert non-JSON-serializable values to JSON-safe equivalents."""
@@ -39,6 +53,7 @@ class S3ConversationArchiver:
     Args:
         bucket: S3 bucket name.
         prefix: Key prefix (default: "luthien-archive/").
+        batch_size: Rows fetched per cursor-based batch (default: 1000).
         s3_client: Optional pre-built boto3 S3 client (for testing). If None,
             a client is created lazily using boto3.client("s3").
     """
@@ -48,11 +63,13 @@ class S3ConversationArchiver:
         *,
         bucket: str,
         prefix: str = "luthien-archive/",
+        batch_size: int = 1000,
         s3_client: Any = None,
     ) -> None:
-        """Initialize archiver with S3 bucket, key prefix, and optional pre-built client."""
+        """Initialize archiver with S3 bucket, key prefix, batch size, and optional pre-built client."""
         self.bucket = bucket
         self.prefix = prefix
+        self.batch_size = batch_size
         self._s3_client = s3_client
 
     def _get_s3_client(self) -> Any:
@@ -80,6 +97,9 @@ class S3ConversationArchiver:
     async def archive_calls(self, *, db_conn: Any, cutoff: datetime) -> None:
         """Fetch rows older than cutoff and upload to S3 as JSONL.
 
+        Uses cursor-based batching (paginating on call_id) so large datasets
+        don't load all rows into memory at once.
+
         Args:
             db_conn: An active DB connection (ConnectionProtocol).
             cutoff: Rows with created_at < cutoff will be archived.
@@ -88,18 +108,42 @@ class S3ConversationArchiver:
             Exception: If S3 upload fails. The caller should catch this and
                 skip deletion to avoid data loss.
         """
-        rows = await db_conn.fetch(
-            "SELECT * FROM conversation_calls WHERE created_at < $1 ORDER BY created_at",
-            cutoff,
-        )
+        jsonl_lines: list[str] = []
+        last_call_id: str | None = None
 
-        if not rows:
+        while True:
+            if last_call_id is None:
+                rows = await db_conn.fetch(
+                    f"SELECT {_COLUMNS_SQL} FROM conversation_calls WHERE created_at < $1 ORDER BY call_id LIMIT $2",
+                    cutoff,
+                    self.batch_size,
+                )
+            else:
+                rows = await db_conn.fetch(
+                    f"SELECT {_COLUMNS_SQL} FROM conversation_calls"
+                    " WHERE created_at < $1 AND call_id > $2 ORDER BY call_id LIMIT $3",
+                    cutoff,
+                    last_call_id,
+                    self.batch_size,
+                )
+
+            if not rows:
+                break
+
+            for row in rows:
+                jsonl_lines.append(json.dumps(_row_to_dict(row)))
+            last_call_id = rows[-1]["call_id"]
+
+            if len(rows) < self.batch_size:
+                break
+
+        if not jsonl_lines:
             logger.debug("No conversation_calls to archive before %s", cutoff.isoformat())
             return
 
-        logger.info("Archiving %d conversation_calls to s3://%s", len(rows), self.bucket)
+        total_rows = len(jsonl_lines)
+        logger.info("Archiving %d conversation_calls to s3://%s", total_rows, self.bucket)
 
-        jsonl_lines = [json.dumps(_row_to_dict(row)) for row in rows]
         body = "\n".join(jsonl_lines).encode("utf-8")
         key = self._build_s3_key(cutoff)
 
@@ -111,4 +155,4 @@ class S3ConversationArchiver:
             Body=body,
             ContentType="application/x-ndjson",
         )
-        logger.info("Archived %d rows to s3://%s/%s", len(rows), self.bucket, key)
+        logger.info("Archived %d rows to s3://%s/%s", total_rows, self.bucket, key)

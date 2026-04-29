@@ -315,7 +315,11 @@ def create_app(
             _archiver: S3ConversationArchiver | None = None
             if _s3_bucket:
                 _s3_prefix = settings.archive_s3_prefix
-                _archiver = S3ConversationArchiver(bucket=_s3_bucket, prefix=_s3_prefix)
+                _archiver = S3ConversationArchiver(
+                    bucket=_s3_bucket,
+                    prefix=_s3_prefix,
+                    batch_size=settings.retention_archive_batch_size,
+                )
                 logger.info(
                     "Conversation archival enabled: s3://%s/%s",
                     _s3_bucket,
