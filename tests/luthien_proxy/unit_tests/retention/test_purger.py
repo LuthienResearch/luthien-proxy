@@ -11,6 +11,7 @@ Tests cover:
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
@@ -206,3 +207,32 @@ async def test_purge_once_sqlite_uses_two_step_count_then_delete(mock_sqlite_poo
     assert "COUNT(*)" in count_sql
     assert "DELETE" in delete_sql
     assert "WITH deleted" not in delete_sql
+
+
+@pytest.mark.asyncio
+async def test_purger_task_exception_logged(mock_db_pool, caplog):
+    """When _run_loop raises, the exception callback logs it."""
+    pool, conn = mock_db_pool
+
+    purger = ConversationPurger(
+        db_pool=pool,
+        retention_days=30,
+        initial_delay_seconds=0,
+        interval_seconds=9999,
+    )
+
+    async def failing_run_loop():
+        raise RuntimeError("boom")
+
+    purger._run_loop = failing_run_loop
+
+    with caplog.at_level(logging.ERROR):
+        purger.start()
+        await asyncio.sleep(0.05)
+
+    try:
+        await purger.stop()
+    except RuntimeError:
+        pass
+
+    assert any("Purger background task raised an unexpected exception" in record.message for record in caplog.records)

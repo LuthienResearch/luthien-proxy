@@ -26,6 +26,12 @@ DEFAULT_INTERVAL_SECONDS = 86_400
 DEFAULT_INITIAL_DELAY_SECONDS = 60
 
 
+def _log_task_exception(task: asyncio.Task[None]) -> None:
+    """Log exceptions from fire-and-forget tasks to prevent silent failures."""
+    if not task.cancelled() and (exc := task.exception()):
+        logger.exception("Purger background task raised an unexpected exception", exc_info=exc)
+
+
 class ConversationPurger:
     """Periodically purges conversation_calls older than retention_days.
 
@@ -137,6 +143,7 @@ class ConversationPurger:
             self._initial_delay_seconds,
         )
         self._task = asyncio.create_task(self._run_loop())
+        self._task.add_done_callback(_log_task_exception)
 
     async def stop(self) -> None:
         """Cancel the purge loop and wait for it to finish."""
