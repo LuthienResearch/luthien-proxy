@@ -85,10 +85,10 @@ async def test_archive_calls_uploads_jsonl(mock_db_pool, mock_s3_client, sample_
     pool, conn = mock_db_pool
     cutoff = datetime(2024, 1, 3, tzinfo=UTC)
 
-    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
-        mock_settings.retention_s3_encryption = "AES256"
-        mock_settings.retention_s3_kms_key_id = ""
-
+    with patch(
+        "luthien_proxy.retention.archiver.get_settings",
+        return_value=MagicMock(retention_s3_encryption="AES256", retention_s3_kms_key_id=""),
+    ):
         archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
         await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
 
@@ -125,10 +125,10 @@ async def test_archive_calls_s3_key_includes_date(mock_db_pool, mock_s3_client, 
     pool, conn = mock_db_pool
     cutoff = datetime(2024, 6, 15, tzinfo=UTC)
 
-    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
-        mock_settings.retention_s3_encryption = "AES256"
-        mock_settings.retention_s3_kms_key_id = ""
-
+    with patch(
+        "luthien_proxy.retention.archiver.get_settings",
+        return_value=MagicMock(retention_s3_encryption="AES256", retention_s3_kms_key_id=""),
+    ):
         archiver = S3ConversationArchiver(bucket="test-bucket", prefix="archive/", s3_client=mock_s3_client)
         await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
 
@@ -145,10 +145,10 @@ async def test_archive_calls_handles_s3_error(mock_db_pool, mock_s3_client, samp
     mock_s3_client.put_object = MagicMock(side_effect=Exception("S3 access denied"))
     cutoff = datetime(2024, 1, 3, tzinfo=UTC)
 
-    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
-        mock_settings.retention_s3_encryption = "AES256"
-        mock_settings.retention_s3_kms_key_id = ""
-
+    with patch(
+        "luthien_proxy.retention.archiver.get_settings",
+        return_value=MagicMock(retention_s3_encryption="AES256", retention_s3_kms_key_id=""),
+    ):
         archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
 
         with pytest.raises(Exception, match="S3 access denied"):
@@ -161,10 +161,10 @@ async def test_archive_calls_datetime_serialized_as_iso(mock_db_pool, mock_s3_cl
     pool, conn = mock_db_pool
     cutoff = datetime(2024, 1, 3, tzinfo=UTC)
 
-    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
-        mock_settings.retention_s3_encryption = "AES256"
-        mock_settings.retention_s3_kms_key_id = ""
-
+    with patch(
+        "luthien_proxy.retention.archiver.get_settings",
+        return_value=MagicMock(retention_s3_encryption="AES256", retention_s3_kms_key_id=""),
+    ):
         archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
         await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
 
@@ -179,10 +179,10 @@ async def test_archive_calls_null_completed_at(mock_db_pool, mock_s3_client, sam
     pool, conn = mock_db_pool
     cutoff = datetime(2024, 1, 3, tzinfo=UTC)
 
-    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
-        mock_settings.retention_s3_encryption = "AES256"
-        mock_settings.retention_s3_kms_key_id = ""
-
+    with patch(
+        "luthien_proxy.retention.archiver.get_settings",
+        return_value=MagicMock(retention_s3_encryption="AES256", retention_s3_kms_key_id=""),
+    ):
         archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
         await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
 
@@ -198,10 +198,10 @@ async def test_archive_calls_preserves_session_and_user_id(mock_db_pool, mock_s3
     pool, conn = mock_db_pool
     cutoff = datetime(2024, 1, 3, tzinfo=UTC)
 
-    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
-        mock_settings.retention_s3_encryption = "AES256"
-        mock_settings.retention_s3_kms_key_id = ""
-
+    with patch(
+        "luthien_proxy.retention.archiver.get_settings",
+        return_value=MagicMock(retention_s3_encryption="AES256", retention_s3_kms_key_id=""),
+    ):
         archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
         await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
 
@@ -273,10 +273,10 @@ async def test_archive_calls_cursor_batching(mock_s3_client):
     conn.fetch = AsyncMock(side_effect=[batch1, batch2])
     cutoff = datetime(2024, 1, 3, tzinfo=UTC)
 
-    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
-        mock_settings.retention_s3_encryption = "AES256"
-        mock_settings.retention_s3_kms_key_id = ""
-
+    with patch(
+        "luthien_proxy.retention.archiver.get_settings",
+        return_value=MagicMock(retention_s3_encryption="AES256", retention_s3_kms_key_id=""),
+    ):
         archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client, batch_size=batch_size)
         await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
 
@@ -294,10 +294,10 @@ async def test_s3_upload_has_sse_aes256(mock_db_pool, mock_s3_client, sample_cal
     pool, conn = mock_db_pool
     cutoff = datetime(2024, 1, 3, tzinfo=UTC)
 
-    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
-        mock_settings.retention_s3_encryption = "AES256"
-        mock_settings.retention_s3_kms_key_id = ""
-
+    with patch(
+        "luthien_proxy.retention.archiver.get_settings",
+        return_value=MagicMock(retention_s3_encryption="AES256", retention_s3_kms_key_id=""),
+    ):
         archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
         await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
 
@@ -314,10 +314,10 @@ async def test_s3_upload_kms_mode(mock_db_pool, mock_s3_client, sample_calls):
     cutoff = datetime(2024, 1, 3, tzinfo=UTC)
     kms_key_id = "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012"
 
-    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
-        mock_settings.retention_s3_encryption = "aws:kms"
-        mock_settings.retention_s3_kms_key_id = kms_key_id
-
+    with patch(
+        "luthien_proxy.retention.archiver.get_settings",
+        return_value=MagicMock(retention_s3_encryption="aws:kms", retention_s3_kms_key_id=kms_key_id),
+    ):
         archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
         await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
 
@@ -333,10 +333,10 @@ async def test_s3_upload_kms_mode_without_key_id(mock_db_pool, mock_s3_client, s
     pool, conn = mock_db_pool
     cutoff = datetime(2024, 1, 3, tzinfo=UTC)
 
-    with patch("luthien_proxy.retention.archiver.settings") as mock_settings:
-        mock_settings.retention_s3_encryption = "aws:kms"
-        mock_settings.retention_s3_kms_key_id = ""
-
+    with patch(
+        "luthien_proxy.retention.archiver.get_settings",
+        return_value=MagicMock(retention_s3_encryption="aws:kms", retention_s3_kms_key_id=""),
+    ):
         archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
         await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
 
