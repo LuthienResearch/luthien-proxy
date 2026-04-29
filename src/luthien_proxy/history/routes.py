@@ -124,6 +124,9 @@ async def list_sessions(
     All search parameters are optional. When none are provided, returns all sessions
     (fully backward compatible with the original unfiltered behavior).
     """
+    if db_pool is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
     search = SessionSearchParams(
         user=user,
         model=model,
@@ -146,6 +149,9 @@ async def get_session(
     Returns the complete conversation history for a session,
     including all messages, tool calls, and policy annotations.
     """
+    if db_pool is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
     try:
         return await fetch_session_detail(session_id, db_pool)
     except ValueError as e:
@@ -164,6 +170,9 @@ async def export_session(
     Returns the conversation history formatted as a markdown document,
     suitable for saving or sharing.
     """
+    if db_pool is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
     try:
         session = await fetch_session_detail(session_id, db_pool)
     except ValueError as e:
