@@ -359,7 +359,6 @@ class TestMultiBlockContent:
     @pytest.mark.asyncio
     async def test_system_message_as_text_blocks_coerced(self):
         """A system message with list-of-text-blocks content gets concatenated, not repr'd."""
-        model_output = json.dumps({"city": "Paris", "population": 2_161_000})
         with patch("luthien_proxy.inference.direct_api._build_client") as mock_build:
             client = _mock_client(_tool_use_response({"city": "Paris", "population": 2_161_000}))
             mock_build.return_value = client
