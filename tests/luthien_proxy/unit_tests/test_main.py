@@ -617,6 +617,33 @@ class TestCreateApp:
         routes = [getattr(route, "path", None) for route in app.routes]
         assert any("static" in str(r).lower() for r in routes if r)
 
+    @pytest.mark.asyncio
+    async def test_passthrough_client_closed_on_shutdown(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Test that _passthrough_client.aclose() is called during app shutdown."""
+        from unittest.mock import AsyncMock, patch
+
+        # Create a mock for _passthrough_client
+        mock_passthrough_client = AsyncMock()
+        mock_passthrough_client.aclose = AsyncMock()
+
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        # Patch _passthrough_client in gateway_routes and main modules
+        with patch("luthien_proxy.gateway_routes._passthrough_client", mock_passthrough_client):
+            with patch("luthien_proxy.main._passthrough_client", mock_passthrough_client):
+                # Use TestClient to trigger lifespan (startup + shutdown)
+                with TestClient(app):
+                    pass
+
+        # Verify aclose was called during shutdown
+        mock_passthrough_client.aclose.assert_awaited_once()
+
 
 class TestConnectDb:
     """Test connect_db function."""
