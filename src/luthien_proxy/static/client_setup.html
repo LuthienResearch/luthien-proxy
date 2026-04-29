@@ -303,8 +303,8 @@ ANTHROPIC_BASE_URL=<span class="val">{{BASE_URL}}</span> claude <span class="var
         <details>
             <summary>Authentication: API key vs OAuth</summary>
             <div class="details-content">
-                <p>Use <code>ANTHROPIC_API_KEY</code> (not <code>ANTHROPIC_AUTH_TOKEN</code>) for the most reliable behavior. Claude Code sends it as the <code>x-api-key</code> header, which the gateway expects.</p>
-                <p>If you use OAuth login (<code>claude.ai</code> account), the OAuth handshake hits Anthropic directly and does not go through the proxy. Use an API key to ensure all traffic routes through the gateway.</p>
+                <p>Both work &mdash; whatever credential Claude Code already has (API key via <code>ANTHROPIC_API_KEY</code>, or an OAuth session from <code>claude.ai</code> login) is forwarded to Anthropic as-is. You do <strong>not</strong> need to set <code>ANTHROPIC_API_KEY</code> explicitly to route through Luthien.</p>
+                <p>If you want to force API-key auth even when logged in via OAuth, set <code>ANTHROPIC_API_KEY</code> &mdash; Claude Code will send it as the <code>x-api-key</code> header and the gateway will pass it through.</p>
             </div>
         </details>
 
