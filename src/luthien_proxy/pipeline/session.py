@@ -114,9 +114,11 @@ def extract_user_id_from_headers(headers: dict[str, str], *, trust_header: bool)
 def extract_user_id_from_bearer_token(token: str | None) -> str | None:
     """Extract user identity from the ``sub`` claim of a Bearer JWT token.
 
-    Decodes the JWT payload without signature verification — this is used for
-    identity attribution only, not authentication. Malformed or opaque tokens
-    (e.g. Anthropic API keys) return None gracefully.
+    USER-ASSERTED, NOT AUTHENTICATED. Decodes the JWT payload without signature
+    verification — this is used for identity attribution only, not authentication.
+    Never use this value for access control or security decisions.
+
+    Malformed or opaque tokens (e.g. Anthropic API keys) return None gracefully.
 
     Args:
         token: Raw Bearer token string (without "Bearer " prefix), or None
