@@ -614,7 +614,7 @@
 
         function resetForm() {
             document.getElementById('field-name').value = '';
-            document.getElementById('field-backend').value = 'claude_code';
+            populateBackendDropdown(knownBackendTypes, 'claude_code');
             document.getElementById('field-credential').value = '';
             document.getElementById('field-model').value = '';
             document.getElementById('field-config').value = '{}';
