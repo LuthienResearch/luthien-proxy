@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from luthien_proxy.credential_manager import AuthMode
@@ -93,6 +93,7 @@ class Settings(_SettingsBase):
     conversation_retention_days: int | None = None
     archive_s3_bucket: str | None = None
     archive_s3_prefix: str = "luthien-archive/"
+    retention_archive_batch_size: int = 1000
 
     # ── webhook ─────────────────────────────────────────────────────
     webhook_url: str = ""
