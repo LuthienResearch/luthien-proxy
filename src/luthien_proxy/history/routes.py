@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from luthien_proxy.auth import check_auth_or_redirect, verify_admin_token
-from luthien_proxy.dependencies import get_admin_key, get_db_pool
+from luthien_proxy.dependencies import get_admin_key, get_api_key, get_db_pool
 from luthien_proxy.utils.constants import (
     HISTORY_SESSIONS_DEFAULT_LIMIT,
     HISTORY_SESSIONS_MAX_LIMIT,
@@ -42,13 +42,14 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 async def history_list_page(
     request: Request,
     admin_key: str | None = Depends(get_admin_key),
+    client_api_key: str | None = Depends(get_api_key),
 ):
     """Conversation history list UI.
 
     Returns the HTML page for browsing recent sessions.
     Requires admin authentication.
     """
-    redirect = check_auth_or_redirect(request, admin_key)
+    redirect = check_auth_or_redirect(request, admin_key, client_api_key=client_api_key)
     if redirect:
         return redirect
     return FileResponse(os.path.join(STATIC_DIR, "history_list.html"))
