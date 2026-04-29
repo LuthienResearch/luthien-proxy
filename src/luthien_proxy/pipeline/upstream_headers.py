@@ -143,7 +143,7 @@ def _load_header_templates() -> dict[str, str]:
         _warn_sensitive_env_refs(result)
         return result
     except json.JSONDecodeError as e:
-        logger.warning("UPSTREAM_HEADERS: invalid JSON: %s", e)
+        logger.error("UPSTREAM_HEADERS: invalid JSON: %s", e)
         return {}
 
 

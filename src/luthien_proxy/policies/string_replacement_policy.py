@@ -194,6 +194,28 @@ def apply_replacements(
     return result
 
 
+def _count_replacements(text: str, replacements: tuple[tuple[str, str], ...], match_capitalization: bool) -> int:
+    """Count total occurrences of all replacement patterns in text.
+
+    Args:
+        text: The text to search
+        replacements: Tuple of (from, to) string pairs
+        match_capitalization: Whether patterns are case-insensitive
+
+    Returns:
+        Total count of all pattern occurrences
+    """
+    total = 0
+    for from_str, _ in replacements:
+        if not from_str:
+            continue
+        if match_capitalization:
+            total += len(re.findall(re.escape(from_str), text, re.IGNORECASE))
+        else:
+            total += text.count(from_str)
+    return total
+
+
 def _apply_replacements_to_request_messages(
     request: "AnthropicRequest",
     replacements: tuple[tuple[str, str], ...],
@@ -230,15 +252,7 @@ def _apply_replacements_to_request_messages(
             if replaced != content:
                 message["content"] = replaced
                 blocks_modified += 1
-                # Count replacements: difference in length / avg replacement delta is imprecise,
-                # so we count occurrences of each pattern instead
-                for from_str, _ in replacements:
-                    if not from_str:
-                        continue
-                    if match_capitalization:
-                        total_replacements += len(re.findall(re.escape(from_str), content, re.IGNORECASE))
-                    else:
-                        total_replacements += content.count(from_str)
+                total_replacements += _count_replacements(content, replacements, match_capitalization)
         elif isinstance(content, list):
             for block in content:
                 if not isinstance(block, dict):
@@ -253,13 +267,7 @@ def _apply_replacements_to_request_messages(
                         if replaced != text:
                             block["text"] = replaced  # type: ignore[typeddict-unknown-key]
                             blocks_modified += 1
-                            for from_str, _ in replacements:
-                                if not from_str:
-                                    continue
-                                if match_capitalization:
-                                    total_replacements += len(re.findall(re.escape(from_str), text, re.IGNORECASE))
-                                else:
-                                    total_replacements += text.count(from_str)
+                            total_replacements += _count_replacements(text, replacements, match_capitalization)
 
                 elif block_type == "tool_result":
                     tool_content = block.get("content")
@@ -268,15 +276,7 @@ def _apply_replacements_to_request_messages(
                         if replaced != tool_content:
                             block["content"] = replaced  # type: ignore[typeddict-unknown-key]
                             blocks_modified += 1
-                            for from_str, _ in replacements:
-                                if not from_str:
-                                    continue
-                                if match_capitalization:
-                                    total_replacements += len(
-                                        re.findall(re.escape(from_str), tool_content, re.IGNORECASE)
-                                    )
-                                else:
-                                    total_replacements += tool_content.count(from_str)
+                            total_replacements += _count_replacements(tool_content, replacements, match_capitalization)
                     elif isinstance(tool_content, list):
                         for inner_block in tool_content:
                             if not isinstance(inner_block, dict):
@@ -288,15 +288,9 @@ def _apply_replacements_to_request_messages(
                                     if replaced != text:
                                         inner_block["text"] = replaced  # type: ignore[typeddict-unknown-key]
                                         blocks_modified += 1
-                                        for from_str, _ in replacements:
-                                            if not from_str:
-                                                continue
-                                            if match_capitalization:
-                                                total_replacements += len(
-                                                    re.findall(re.escape(from_str), text, re.IGNORECASE)
-                                                )
-                                            else:
-                                                total_replacements += text.count(from_str)
+                                        total_replacements += _count_replacements(
+                                            text, replacements, match_capitalization
+                                        )
 
     return blocks_modified, total_replacements
 
