@@ -542,6 +542,7 @@ async def _process_request(
         if bearer_token.lower().startswith("bearer "):
             bearer_token = bearer_token[7:]
         settings = get_settings()
+        # user_id is attribution-only — JWT signature NOT verified, value is user-asserted
         user_id = extract_user_id_from_headers(
             headers, trust_header=settings.trust_user_id_header
         ) or extract_user_id_from_bearer_token(bearer_token)
