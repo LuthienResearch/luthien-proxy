@@ -20,11 +20,18 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Backfill existing response events
-UPDATE conversation_events
-SET search_vector = to_tsvector('english', COALESCE(_extract_event_search_text(payload), ''))
-WHERE event_type IN (
-    'transaction.streaming_response_recorded',
-    'transaction.non_streaming_response_recorded'
+-- CTE ensures the search-text extraction function is called exactly once per row.
+WITH computed AS (
+    SELECT id, _extract_event_search_text(payload) AS search_text
+    FROM conversation_events
+    WHERE event_type IN (
+        'transaction.streaming_response_recorded',
+        'transaction.non_streaming_response_recorded'
+    )
+    AND search_vector IS NULL
 )
-  AND _extract_event_search_text(payload) IS NOT NULL
-  AND search_vector IS NULL;
+UPDATE conversation_events ce
+SET search_vector = to_tsvector('english', COALESCE(c.search_text, ''))
+FROM computed c
+WHERE ce.id = c.id
+  AND c.search_text IS NOT NULL;
