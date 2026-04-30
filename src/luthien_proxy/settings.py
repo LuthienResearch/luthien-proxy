@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from luthien_proxy.credential_manager import AuthMode
@@ -45,6 +45,7 @@ class Settings(_SettingsBase):
     gateway_port: int = DEFAULT_GATEWAY_PORT
     log_level: str = "info"
     verbose_client_errors: bool = False
+    trust_user_id_header: bool = False
 
     # ── auth ────────────────────────────────────────────────────────
     client_api_key: str | None = None
@@ -76,6 +77,7 @@ class Settings(_SettingsBase):
     # ── observability ───────────────────────────────────────────────
     otel_enabled: bool = False
     otel_exporter_otlp_endpoint: str = "http://tempo:4317"
+    otel_exporter_protocol: str = Field(default="http/protobuf", validation_alias="OTEL_EXPORTER_OTLP_PROTOCOL")
     tempo_url: str = "http://localhost:3200"
     service_name: str = "luthien-proxy"
     service_version: str = PROXY_VERSION
@@ -86,6 +88,17 @@ class Settings(_SettingsBase):
     # ── telemetry ───────────────────────────────────────────────────
     usage_telemetry: bool | None = None
     telemetry_endpoint: str = "https://telemetry.luthien.cc/v1/events"
+
+    # ── retention ───────────────────────────────────────────────────
+    conversation_retention_days: int | None = None
+    archive_s3_bucket: str | None = None
+    archive_s3_prefix: str = "luthien-archive/"
+
+    # ── webhook ─────────────────────────────────────────────────────
+    webhook_url: str = ""
+    webhook_max_retries: int = 3
+    webhook_retry_delay_seconds: float = 1.0
+    webhook_max_pending_tasks: int = 1000
 
     # ── sentry ──────────────────────────────────────────────────────
     sentry_enabled: bool = False

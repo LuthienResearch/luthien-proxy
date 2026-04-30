@@ -55,6 +55,7 @@ class PolicyContext:
         emitter: EventEmitterProtocol | None = None,
         raw_http_request: RawHttpRequest | None = None,
         session_id: str | None = None,
+        user_id: str | None = None,
         user_credential: Credential | None = None,
         credential_manager: "CredentialManager | None" = None,
         policy_cache_factory: "PolicyCacheFactory | None" = None,
@@ -69,6 +70,8 @@ class PolicyContext:
             raw_http_request: Optional raw HTTP request data before any processing.
                               Contains original headers, body, method, and path.
             session_id: Optional session identifier extracted from client request.
+            user_id: Optional user identity extracted from X-Luthien-User-Id header
+                     or JWT Bearer token sub claim. Used for attribution only.
             user_credential: The credential extracted from the incoming request
                              (accounts for x-anthropic-api-key overrides).
             credential_manager: Shared credential manager for auth provider
@@ -80,6 +83,7 @@ class PolicyContext:
         self.request: Any | None = request
         self.raw_http_request: RawHttpRequest | None = raw_http_request
         self.session_id: str | None = session_id
+        self.user_id: str | None = user_id
         self.user_credential: Credential | None = user_credential
         self._credential_manager: "CredentialManager | None" = credential_manager
         self._policy_cache_factory: "PolicyCacheFactory | None" = policy_cache_factory
@@ -164,6 +168,8 @@ class PolicyContext:
         payload = dict(data)
         if self.session_id and "session_id" not in payload:
             payload["session_id"] = self.session_id
+        if self.user_id and "user_id" not in payload:
+            payload["user_id"] = self.user_id
         self._emitter.record(self.transaction_id, event_type, payload)
 
     @contextmanager
@@ -269,6 +275,7 @@ class PolicyContext:
         # Shared: non-copyable infrastructure and immutable request metadata
         new_ctx.transaction_id = self.transaction_id
         new_ctx.session_id = self.session_id
+        new_ctx.user_id = self.user_id
         new_ctx.raw_http_request = self.raw_http_request  # read-only after creation
         new_ctx.user_credential = self.user_credential  # frozen dataclass
         new_ctx._credential_manager = self._credential_manager  # holds db/cache pools
@@ -295,6 +302,7 @@ class PolicyContext:
         request: Any | None = None,
         raw_http_request: RawHttpRequest | None = None,
         session_id: str | None = None,
+        user_id: str | None = None,
         user_credential: Credential | None = None,
         credential_manager: "CredentialManager | None" = None,
         policy_cache_factory: "PolicyCacheFactory | None" = None,
@@ -308,6 +316,7 @@ class PolicyContext:
             request: Optional request object
             raw_http_request: Optional raw HTTP request data
             session_id: Optional session ID
+            user_id: Optional user identity for tests exercising user-aware behavior
             user_credential: Optional credential for tests exercising auth
             credential_manager: Optional manager for tests exercising auth providers
             policy_cache_factory: Optional cache factory for tests exercising caching
@@ -321,6 +330,7 @@ class PolicyContext:
             emitter=NullEventEmitter(),
             raw_http_request=raw_http_request,
             session_id=session_id,
+            user_id=user_id,
             user_credential=user_credential,
             credential_manager=credential_manager,
             policy_cache_factory=policy_cache_factory,

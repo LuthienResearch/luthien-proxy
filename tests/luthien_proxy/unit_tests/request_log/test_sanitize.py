@@ -50,6 +50,20 @@ class TestAnthropicApiKeyHeader:
         assert result["X-Anthropic-API-Key"] == "[REDACTED]"
 
 
+class TestGoogApiKeyHeader:
+    """Tests that x-goog-api-key is treated as sensitive."""
+
+    def test_x_goog_api_key_redacted(self):
+        headers = {"x-goog-api-key": "AIzaSyD-some-gemini-key"}
+        result = sanitize_headers(headers)
+        assert result["x-goog-api-key"] == "[REDACTED]"
+
+    def test_x_goog_api_key_mixed_case_redacted(self):
+        headers = {"X-Goog-API-Key": "AIzaSyD-some-gemini-key"}
+        result = sanitize_headers(headers)
+        assert result["X-Goog-API-Key"] == "[REDACTED]"
+
+
 class TestCaseInsensitivity:
     """Tests that header name matching is case-insensitive."""
 

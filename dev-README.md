@@ -233,6 +233,55 @@ luthien logs
 docker compose logs gateway | tail -50
 ```
 
+## Track A Smoke Test
+
+The Track A smoke test validates the full end-to-end flow: real OpenCode binary + opencode-luthien plugin + Luthien gateway + mock provider servers.
+
+### Prerequisites
+
+1. OpenCode installed: `opencode --version` (tested with v1.14.28)
+2. `opencode-luthien` plugin built and installed:
+   ```bash
+   cd plugins/opencode-luthien
+   bun run build
+   cp dist/index.js ~/.config/opencode/plugins/opencode-luthien.js
+   ```
+3. Gateway dependencies: `uv sync`
+4. `.env` file with `PROXY_API_KEY` set
+
+### Running the Smoke Test
+
+**Happy path (A1-A5):**
+```bash
+./scripts/track_a_smoke.sh
+```
+
+**A6 fallback (gateway down → plugin degrades gracefully):**
+```bash
+./scripts/track_a_smoke.sh --a6-fallback
+```
+
+### What It Tests
+
+| Scenario | Expected |
+|---|---|
+| A1: Anthropic chat via plugin | Request logged with session_id, agent, model |
+| A2: OpenAI streaming via plugin | SSE chunks arrive incrementally |
+| A3: Gemini chat via plugin | x-goog-api-key injected by gateway |
+| A4: Header persistence | request_logs.session_id, agent, model populated |
+| A5: All 3 providers | 3 request_logs rows with distinct endpoints |
+| A6: Gateway down | Plugin warns, OpenCode routes direct, no x-luthien-* headers |
+
+### Evidence
+
+Evidence is saved to `.sisyphus/evidence/track-a-17-smoke/` (gitignored).
+
+### Notes
+
+- The smoke test uses mock servers (not real Anthropic/OpenAI/Gemini) — no API costs
+- The pytest file `tests/luthien_proxy/e2e_tests/sqlite/test_opencode_plugin_smoke.py` is marked `@pytest.mark.skip` — it documents the procedure but does not run in CI
+- Track B will replace the passthrough routes with native pipelines; this smoke test will be updated accordingly
+
 ## Observability (Optional)
 
 The gateway supports **OpenTelemetry** for distributed tracing and log correlation.

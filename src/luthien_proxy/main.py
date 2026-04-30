@@ -40,8 +40,11 @@ from luthien_proxy.observability.event_publisher import (
 )
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.observability.sentry import init_sentry
+from luthien_proxy.passthrough_routes import router as passthrough_router
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.request_log import router as request_log_router
+from luthien_proxy.retention.archiver import S3ConversationArchiver
+from luthien_proxy.retention.purger import ConversationPurger
 from luthien_proxy.session import login_page_router
 from luthien_proxy.session import router as session_router
 from luthien_proxy.settings import Settings, clear_settings_cache, get_settings
@@ -65,6 +68,7 @@ from luthien_proxy.utils.credential_cache import (
 from luthien_proxy.utils.migration_check import check_migrations
 from luthien_proxy.utils.url import sanitize_url_for_logging
 from luthien_proxy.version import PROXY_DISPLAY_VERSION
+from luthien_proxy.webhook.sender import WebhookSender
 
 # Configure OpenTelemetry tracing and logging EARLY (before app creation)
 # This ensures the tracer provider is set up before any spans are created
@@ -288,6 +292,38 @@ def create_app(
         else:
             logger.info("Usage telemetry disabled")
 
+        # Initialize conversation retention purger
+        _purger: ConversationPurger | None = None
+        _retention_days = get_settings().conversation_retention_days
+        if _retention_days is not None and _retention_days > 0:
+            _s3_bucket = get_settings().archive_s3_bucket
+            _archiver: S3ConversationArchiver | None = None
+            if _s3_bucket:
+                _s3_prefix = get_settings().archive_s3_prefix
+                _archiver = S3ConversationArchiver(bucket=_s3_bucket, prefix=_s3_prefix)
+                logger.info(
+                    "Conversation archival enabled: s3://%s/%s",
+                    _s3_bucket,
+                    _s3_prefix,
+                )
+            _purger = ConversationPurger(db_pool=db_pool, retention_days=_retention_days, archiver=_archiver)
+            _purger.start()
+        else:
+            logger.info("Conversation retention disabled (CONVERSATION_RETENTION_DAYS not set)")
+
+        # Initialize webhook sender
+        _webhook_url = settings.webhook_url or None
+        _webhook_sender = WebhookSender(
+            url=_webhook_url,
+            max_retries=settings.webhook_max_retries,
+            retry_delay_seconds=settings.webhook_retry_delay_seconds,
+            max_pending_tasks=settings.webhook_max_pending_tasks,
+        )
+        if _webhook_sender.enabled:
+            logger.info("Webhook event export enabled (url=%s)", _webhook_sender.safe_url)
+        else:
+            logger.info("Webhook event export disabled (set WEBHOOK_URL to enable)")
+
         # Create Dependencies container with all services
         _dependencies = Dependencies(
             db_pool=db_pool,
@@ -303,6 +339,7 @@ def create_app(
             enable_request_logging=_enable_request_logging,
             usage_collector=_usage_collector,
             config_registry=_config_registry,
+            webhook_sender=_webhook_sender,
         )
 
         # Store dependencies container in app state
@@ -312,6 +349,9 @@ def create_app(
         yield
 
         # Shutdown
+        if _purger is not None:
+            await _purger.stop()
+        await _webhook_sender.stop()
         if _telemetry_sender is not None:
             await _telemetry_sender.stop()
         await _inference_provider_registry.close()
@@ -363,14 +403,16 @@ def create_app(
     app.include_router(history_routes.router)  # /history/* (conversation history UI)
     app.include_router(history_routes.api_router)  # /api/history/* (conversation history API)
     app.include_router(request_log_router)  # /request-logs/* (HTTP-level logging)
+    app.include_router(passthrough_router)  # /openai/*, /gemini/*, /anthropic/* (Track A bridge)
 
     # Simple utility endpoints
     @app.get("/health")
     async def health(request: Request):
-        """Health check endpoint.
+        """Health check endpoint (liveness probe).
 
-        Returns gateway status, auth mode, and last observed credential type so
-        operators and the UI can surface billing mode warnings accurately.
+        Returns gateway status including database connectivity. Always returns
+        HTTP 200 — the process is alive even if the DB is unreachable. Use
+        /ready for readiness probes that should fail when the DB is down.
         """
         deps = getattr(request.app.state, "dependencies", None)
         auth_mode = None
@@ -383,13 +425,77 @@ def create_app(
             last_credential_type = deps.last_credential_info.get("type")
             last_credential_at = deps.last_credential_info.get("timestamp")
 
-        return {
-            "status": "healthy",
+        # Ping database to report connectivity
+        db_status = "not_configured"
+        db_error = None
+        if deps and deps.db_pool:
+            try:
+                pool = await deps.db_pool.get_pool()
+                result = await pool.fetchval("SELECT 1")
+                db_status = "connected" if result == 1 else "unexpected_response"
+            except Exception as exc:
+                db_status = "unreachable"
+                db_error = str(exc)
+
+        status = "healthy" if db_status in ("connected", "not_configured") else "degraded"
+
+        response = {
+            "status": status,
             "version": PROXY_DISPLAY_VERSION,
+            "database": db_status,
             "auth_mode": auth_mode,
             "last_credential_type": last_credential_type,
             "last_credential_at": last_credential_at,
         }
+        if db_error:
+            response["database_error"] = db_error
+        return response
+
+    @app.get("/ready")
+    async def ready(request: Request):
+        """Readiness probe endpoint.
+
+        Returns HTTP 200 only when the gateway is fully ready to serve traffic:
+        database connected and policy loaded. Returns HTTP 503 otherwise.
+
+        Use this for load balancer readiness probes (ECS, Kubernetes) so traffic
+        is not routed until the gateway can actually handle requests. Use /health
+        for liveness probes.
+        """
+        deps = getattr(request.app.state, "dependencies", None)
+        reasons: list[str] = []
+
+        # Check dependencies container exists
+        if not deps:
+            return JSONResponse(
+                status_code=503,
+                content={"status": "not_ready", "reasons": ["dependencies not initialized"]},
+            )
+
+        # Check database connectivity
+        if deps.db_pool:
+            try:
+                pool = await deps.db_pool.get_pool()
+                await pool.fetchval("SELECT 1")
+            except Exception as exc:
+                reasons.append(f"database unreachable: {exc}")
+        # No db_pool is acceptable (SQLite auto-creates, or DB is optional)
+
+        # Check policy is loaded
+        try:
+            current_policy = deps.policy_manager.current_policy
+            if current_policy is None:
+                reasons.append("no policy loaded")
+        except Exception as exc:
+            reasons.append(f"policy unavailable: {exc}")
+
+        if reasons:
+            return JSONResponse(
+                status_code=503,
+                content={"status": "not_ready", "reasons": reasons},
+            )
+
+        return {"status": "ready"}
 
     # Format HTTPExceptions and validation errors as Anthropic errors on /v1/messages paths
     app.add_exception_handler(FastAPIHTTPException, http_exception_handler)

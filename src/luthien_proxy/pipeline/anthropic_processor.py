@@ -22,6 +22,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import time
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Literal, TypedDict, TypeGuard, cast
@@ -34,6 +35,7 @@ from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from opentelemetry import trace
 from opentelemetry.context import get_current
+from opentelemetry.propagate import extract as otel_extract
 from opentelemetry.trace import Span
 
 from luthien_proxy.credential_manager import CredentialManager
@@ -52,8 +54,11 @@ from luthien_proxy.pipeline.policy_context_injection import inject_policy_awaren
 from luthien_proxy.pipeline.session import (
     extract_session_id_from_anthropic_body,
     extract_session_id_from_headers,
+    extract_user_id_from_bearer_token,
+    extract_user_id_from_headers,
 )
 from luthien_proxy.pipeline.stream_protocol_validator import validate_anthropic_event_ordering
+from luthien_proxy.pipeline.upstream_headers import expand_upstream_headers
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
     AnthropicPolicyEmission,
@@ -69,6 +74,7 @@ from luthien_proxy.usage_telemetry.collector import UsageCollector
 from luthien_proxy.utils import db
 from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
 from luthien_proxy.utils.policy_cache import PolicyCache
+from luthien_proxy.webhook.sender import WebhookSender
 
 
 class _ErrorDetail(TypedDict):
@@ -100,16 +106,18 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         emitter: EventEmitterProtocol,
         call_id: str,
         session_id: str | None,
+        user_id: str | None,
         request_log_recorder: RequestLogRecorder,
         is_streaming: bool,
         extra_headers: dict[str, str] | None = None,
     ) -> None:
         self._request = initial_request
-        self._initial_request = initial_request
+        self._initial_request = copy.deepcopy(initial_request)
         self._anthropic_client = anthropic_client
         self._emitter = emitter
         self._call_id = call_id
         self._session_id = session_id
+        self._user_id = user_id
         self._request_log_recorder = request_log_recorder
         self._is_streaming = is_streaming
         self._extra_headers = extra_headers
@@ -151,6 +159,7 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
                 "original_request": dict(self._initial_request),
                 "final_request": dict(effective_request),
                 "session_id": self._session_id,
+                "user_id": self._user_id,
             },
         )
         self._request_recorded = True
@@ -163,7 +172,7 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         self._emitter.record(
             self._call_id,
             "pipeline.backend_request",
-            {"payload": request_payload, "session_id": self._session_id},
+            {"payload": request_payload, "session_id": self._session_id, "user_id": self._user_id},
         )
         self._request_log_recorder.record_outbound_request(
             body=request_payload,
@@ -330,6 +339,7 @@ async def process_anthropic_request(
     usage_collector: UsageCollector | None = None,
     user_credential: Credential | None = None,
     credential_manager: CredentialManager | None = None,
+    webhook_sender: WebhookSender | None = None,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Process an Anthropic API request through the native pipeline.
 
@@ -345,6 +355,7 @@ async def process_anthropic_request(
         usage_collector: Optional usage telemetry collector for counting requests
         user_credential: The credential extracted from the incoming request
         credential_manager: Shared credential manager for auth provider resolution
+        webhook_sender: Optional webhook sender for conversation completion events
 
     Returns:
         StreamingResponse or JSONResponse depending on stream parameter
@@ -357,18 +368,22 @@ async def process_anthropic_request(
         raise TypeError(f"Policy must implement AnthropicExecutionInterface, got {type(policy).__name__}.")
 
     call_id = str(uuid.uuid4())
+    request_start_time = time.monotonic()
     request_log_recorder = create_recorder(db_pool, call_id, enable_request_logging)
 
     if usage_collector:
         usage_collector.record_accepted()
 
-    with tracer.start_as_current_span("anthropic_transaction_processing") as root_span:
+    # Extract inbound trace context (traceparent header) so Luthien spans
+    # link into the caller's distributed trace (e.g. Claude Code → Datadog).
+    inbound_ctx = otel_extract(dict(request.headers))
+    with tracer.start_as_current_span("anthropic_transaction_processing", context=inbound_ctx) as root_span:
         root_span.set_attribute("luthien.transaction_id", call_id)
         root_span.set_attribute("luthien.client_format", "anthropic_native")
         root_span.set_attribute("luthien.endpoint", "/v1/messages")
 
         # Phase 1: Process incoming request
-        anthropic_request, raw_http_request, session_id = await _process_request(
+        anthropic_request, raw_http_request, session_id, user_id = await _process_request(
             request=request,
             call_id=call_id,
             emitter=emitter,
@@ -383,6 +398,8 @@ async def process_anthropic_request(
         root_span.set_attribute("luthien.stream", is_streaming)
         if session_id:
             root_span.set_attribute("luthien.session_id", session_id)
+        if user_id:
+            root_span.set_attribute("luthien.user_id", user_id)
         if usage_collector:
             usage_collector.record_session(session_id)
 
@@ -403,6 +420,20 @@ async def process_anthropic_request(
         if beta := raw_http_request.headers.get("anthropic-beta"):
             forwarded_headers = {"anthropic-beta": beta}
 
+        # Expand configurable upstream headers (e.g. Helicone session/auth headers).
+        # Templates in UPSTREAM_HEADERS env var are expanded with per-request context.
+        upstream = expand_upstream_headers(
+            session_id=session_id,
+            request_path=raw_http_request.path,
+        )
+        if upstream:
+            # Remove any upstream headers that collide with reserved client headers
+            # (case-insensitive, since HTTP headers are case-insensitive).
+            if forwarded_headers:
+                reserved = {k.lower() for k in forwarded_headers}
+                upstream = {k: v for k, v in upstream.items() if k.lower() not in reserved}
+            forwarded_headers = {**(upstream or {}), **(forwarded_headers or {})}
+
         # Create policy cache factory if database is available. The cap is
         # configured once here so every policy's cache honors the same limit;
         # 0-or-negative in settings means "unbounded" (pass None to the cache).
@@ -417,6 +448,7 @@ async def process_anthropic_request(
             emitter=emitter,
             raw_http_request=raw_http_request,
             session_id=session_id,
+            user_id=user_id,
             user_credential=user_credential,
             credential_manager=credential_manager,
             policy_cache_factory=policy_cache_factory,
@@ -437,6 +469,8 @@ async def process_anthropic_request(
             request_log_recorder=request_log_recorder,
             extra_headers=forwarded_headers,
             usage_collector=usage_collector,
+            webhook_sender=webhook_sender,
+            request_start_time=request_start_time,
         )
 
         # Propagate policy summaries if set
@@ -452,7 +486,7 @@ async def _process_request(
     request: Request,
     call_id: str,
     emitter: EventEmitterProtocol,
-) -> tuple[AnthropicRequest, RawHttpRequest, str | None]:
+) -> tuple[AnthropicRequest, RawHttpRequest, str | None, str | None]:
     """Process and validate incoming Anthropic request.
 
     Args:
@@ -461,7 +495,7 @@ async def _process_request(
         emitter: Event emitter
 
     Returns:
-        Tuple of (AnthropicRequest, RawHttpRequest with original data, session_id)
+        Tuple of (AnthropicRequest, RawHttpRequest with original data, session_id, user_id)
 
     Raises:
         HTTPException: On request size exceeded or invalid format
@@ -471,8 +505,13 @@ async def _process_request(
 
         # Check request size
         content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > MAX_REQUEST_PAYLOAD_BYTES:
-            raise HTTPException(status_code=413, detail="Request payload too large")
+        if content_length:
+            try:
+                content_length_int = int(content_length)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid Content-Length header")
+            if content_length_int > MAX_REQUEST_PAYLOAD_BYTES:
+                raise HTTPException(status_code=413, detail="Request payload too large")
 
         try:
             body = await request.json()
@@ -496,6 +535,17 @@ async def _process_request(
         # fall back to x-session-id header (OAuth passthrough mode)
         session_id = extract_session_id_from_anthropic_body(body) or extract_session_id_from_headers(headers)
 
+        # Extract user identity: X-Luthien-User-Id header takes precedence,
+        # fall back to JWT Bearer token sub claim (no signature verification —
+        # used for attribution only, not authentication)
+        bearer_token = headers.get("authorization", "")
+        if bearer_token.lower().startswith("bearer "):
+            bearer_token = bearer_token[7:]
+        settings = get_settings()
+        user_id = extract_user_id_from_headers(
+            headers, trust_header=settings.trust_user_id_header
+        ) or extract_user_id_from_bearer_token(bearer_token)
+
         # Validate required fields
         if "model" not in body:
             raise HTTPException(status_code=400, detail="Missing required field: model")
@@ -511,12 +561,16 @@ async def _process_request(
             span.set_attribute("luthien.session_id", session_id)
             logger.debug(f"[{call_id}] Extracted session_id: {session_id}")
 
+        if user_id:
+            span.set_attribute("luthien.user_id", user_id)
+            logger.debug(f"[{call_id}] Extracted user_id: {user_id}")
+
         logger.info(
             f"[{call_id}] /v1/messages (native): model={anthropic_request['model']}, "
             f"stream={anthropic_request.get('stream', False)}"
         )
 
-        return anthropic_request, raw_http_request, session_id
+        return anthropic_request, raw_http_request, session_id, user_id
 
 
 async def _run_policy_hooks(
@@ -557,6 +611,8 @@ async def _execute_anthropic_policy(
     request_log_recorder: RequestLogRecorder,
     extra_headers: dict[str, str] | None = None,
     usage_collector: UsageCollector | None = None,
+    webhook_sender: WebhookSender | None = None,
+    request_start_time: float | None = None,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Execute an Anthropic policy using the hook-based runtime."""
     io = _AnthropicPolicyIO(
@@ -565,6 +621,7 @@ async def _execute_anthropic_policy(
         emitter=emitter,
         call_id=call_id,
         session_id=policy_ctx.session_id,
+        user_id=policy_ctx.user_id,
         request_log_recorder=request_log_recorder,
         is_streaming=is_streaming,
         extra_headers=extra_headers,
@@ -581,6 +638,8 @@ async def _execute_anthropic_policy(
             request_log_recorder=request_log_recorder,
             emitter=emitter,
             usage_collector=usage_collector,
+            webhook_sender=webhook_sender,
+            request_start_time=request_start_time,
         )
 
     return await _handle_execution_non_streaming(
@@ -591,6 +650,8 @@ async def _execute_anthropic_policy(
         call_id=call_id,
         request_log_recorder=request_log_recorder,
         usage_collector=usage_collector,
+        webhook_sender=webhook_sender,
+        request_start_time=request_start_time,
     )
 
 
@@ -603,6 +664,8 @@ async def _handle_execution_streaming(
     request_log_recorder: RequestLogRecorder,
     emitter: EventEmitterProtocol,
     usage_collector: UsageCollector | None = None,
+    webhook_sender: WebhookSender | None = None,
+    request_start_time: float | None = None,
 ) -> FastAPIStreamingResponse:
     """Handle streaming response flow for execution-oriented policies."""
     parent_context = get_current()
@@ -666,7 +729,7 @@ async def _handle_execution_streaming(
                             type="error",
                             error=_ErrorDetail(
                                 type="api_error",
-                                message="Request blocked: policy evaluation unavailable. Contact your administrator.",
+                                message="No response from policy execution. The policy did not emit any streaming events.",
                             ),
                         )
                         yield _format_sse_event(empty_stream_error)
@@ -721,6 +784,7 @@ async def _handle_execution_streaming(
                                 else dict(reconstructed),
                                 "final_response": dict(reconstructed),
                                 "session_id": policy_ctx.session_id,
+                                "user_id": policy_ctx.user_id,
                             },
                         )
                     request_log_recorder.record_inbound_response(status=final_status)
@@ -734,6 +798,23 @@ async def _handle_execution_streaming(
                                 input_tokens=usage.get("input_tokens", 0),
                                 output_tokens=usage.get("output_tokens", 0),
                             )
+                    if webhook_sender and webhook_sender.enabled and final_status == 200:
+                        _input_tokens = 0
+                        _output_tokens = 0
+                        if reconstructed is not None and "usage" in reconstructed:
+                            _usage = reconstructed["usage"]
+                            _input_tokens = _usage.get("input_tokens", 0)
+                            _output_tokens = _usage.get("output_tokens", 0)
+                        _duration_ms = int((time.monotonic() - request_start_time) * 1000) if request_start_time else 0
+                        webhook_sender.fire_and_forget(
+                            session_id=policy_ctx.session_id,
+                            transaction_id=call_id,
+                            model=io.request.get("model", "unknown"),
+                            input_tokens=_input_tokens,
+                            output_tokens=_output_tokens,
+                            duration_ms=_duration_ms,
+                            is_streaming=True,
+                        )
 
     return FastAPIStreamingResponse(
         streaming_with_spans(),
@@ -754,6 +835,8 @@ async def _handle_execution_non_streaming(
     call_id: str,
     request_log_recorder: RequestLogRecorder,
     usage_collector: UsageCollector | None = None,
+    webhook_sender: WebhookSender | None = None,
+    request_start_time: float | None = None,
 ) -> JSONResponse:
     """Handle non-streaming response flow for execution-oriented policies."""
     final_response: AnthropicResponse | None = None
@@ -810,6 +893,7 @@ async def _handle_execution_non_streaming(
             "original_response": original_response_payload,
             "final_response": dict(final_response),
             "session_id": policy_ctx.session_id,
+            "user_id": policy_ctx.user_id,
         },
     )
 
@@ -820,7 +904,7 @@ async def _handle_execution_non_streaming(
         emitter.record(
             call_id,
             "pipeline.client_response",
-            {"payload": final_response_payload, "session_id": policy_ctx.session_id},
+            {"payload": final_response_payload, "session_id": policy_ctx.session_id, "user_id": policy_ctx.user_id},
         )
         request_log_recorder.record_outbound_response(body=final_response_payload, status=200)
         request_log_recorder.record_inbound_response(status=200, body=final_response_payload)
@@ -834,6 +918,21 @@ async def _handle_execution_non_streaming(
                     input_tokens=usage.get("input_tokens", 0),
                     output_tokens=usage.get("output_tokens", 0),
                 )
+
+        if webhook_sender and webhook_sender.enabled:
+            # Non-streaming path always reaches here on success (errors raise before this point),
+            # so no explicit status check is needed — equivalent to final_status == 200.
+            _ns_usage = final_response.get("usage") or {}
+            _duration_ms = int((time.monotonic() - request_start_time) * 1000) if request_start_time else 0
+            webhook_sender.fire_and_forget(
+                session_id=policy_ctx.session_id,
+                transaction_id=call_id,
+                model=final_response.get("model") or io.request.get("model", "unknown"),
+                input_tokens=_ns_usage.get("input_tokens", 0),
+                output_tokens=_ns_usage.get("output_tokens", 0),
+                duration_ms=_duration_ms,
+                is_streaming=False,
+            )
 
         return JSONResponse(
             content=final_response_payload,

@@ -18,6 +18,7 @@ import threading
 import time
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass
 
 import uvicorn
 
@@ -25,6 +26,12 @@ from luthien_proxy.main import create_app
 from luthien_proxy.settings import clear_settings_cache
 from luthien_proxy.utils.db import DatabasePool
 from luthien_proxy.utils.migration_check import check_migrations
+
+
+@dataclass(frozen=True)
+class BootedSqliteGateway:
+    url: str
+    db_path: str
 
 
 def free_port() -> int:
@@ -41,10 +48,10 @@ def boot_sqlite_gateway(
     mock_anthropic_url: str,
     tmp_prefix: str,
     thread_name: str,
-) -> Iterator[str]:
+) -> Iterator[BootedSqliteGateway]:
     """Spin up an in-process SQLite gateway pointed at a mock Anthropic server.
 
-    Yields the gateway base URL. Cleanup runs on both normal exit and any
+    Yields a BootedSqliteGateway with url and db_path. Cleanup runs on both normal exit and any
     failure during setup — `ExitStack` registers each rollback as the matching
     resource is acquired, so a raise from `check_migrations()`, `create_app()`,
     or the gateway-startup wait still tears down everything that was set up.
@@ -70,7 +77,9 @@ def boot_sqlite_gateway(
 
         loop.run_until_complete(check_migrations(db_pool))
 
-        old_env: dict[str, str | None] = {k: os.environ.get(k) for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY")}
+        old_env: dict[str, str | None] = {
+            k: os.environ.get(k) for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ENABLE_REQUEST_LOGGING")
+        }
 
         def restore_env() -> None:
             for k, v in old_env.items():
@@ -84,6 +93,7 @@ def boot_sqlite_gateway(
 
         os.environ["ANTHROPIC_BASE_URL"] = mock_anthropic_url
         os.environ["ANTHROPIC_API_KEY"] = "mock-key"
+        os.environ["ENABLE_REQUEST_LOGGING"] = "true"
 
         clear_settings_cache()
         app = create_app(
@@ -116,4 +126,4 @@ def boot_sqlite_gateway(
         else:
             raise RuntimeError(f"SQLite gateway ({thread_name}) did not start")
 
-        yield f"http://127.0.0.1:{port}"
+        yield BootedSqliteGateway(url=f"http://127.0.0.1:{port}", db_path=os.path.join(tmp_dir, "test.db"))

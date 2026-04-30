@@ -1,0 +1,3 @@
+[submodule "plugins/opencode-luthien"]
+	path = plugins/opencode-luthien
+	url = https://github.com/PaoloC68/opencode-luthien.git

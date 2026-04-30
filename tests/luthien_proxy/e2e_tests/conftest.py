@@ -21,6 +21,18 @@ import pytest
 from dotenv import load_dotenv
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response as _text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import DEFAULT_MOCK_PORT, MockAnthropicServer
+from tests.luthien_proxy.e2e_tests.mock_gemini.server import (
+    DEFAULT_MOCK_PORT as DEFAULT_GEMINI_MOCK_PORT,
+)
+from tests.luthien_proxy.e2e_tests.mock_gemini.server import (
+    MockGeminiServer,
+)
+from tests.luthien_proxy.e2e_tests.mock_openai.server import (
+    DEFAULT_MOCK_PORT as DEFAULT_OPENAI_MOCK_PORT,
+)
+from tests.luthien_proxy.e2e_tests.mock_openai.server import (
+    MockOpenAIServer,
+)
 
 # === Repository Root Finding ===
 
@@ -120,22 +132,37 @@ def mock_anthropic_port(mock_anthropic: MockAnthropicServer) -> int:
     return mock_anthropic.port
 
 
+@pytest.fixture(scope="session")
+def mock_openai_server():
+    port = int(os.getenv("MOCK_OPENAI_PORT", str(DEFAULT_OPENAI_MOCK_PORT)))
+    server = MockOpenAIServer(port=port)
+    server.start()
+    yield server
+    server.stop()
+
+
+@pytest.fixture(scope="session")
+def mock_gemini_server():
+    port = int(os.getenv("MOCK_GEMINI_PORT", str(DEFAULT_GEMINI_MOCK_PORT)))
+    server = MockGeminiServer(port=port)
+    server.start()
+    yield server
+    server.stop()
+
+
 @pytest.fixture(autouse=True)
 def _reset_mock_server(request):
-    """Drain the mock queue and clear request history before each mock_e2e test.
-
-    Only activates for tests marked with @pytest.mark.mock_e2e so real-API
-    tests don't trigger an unnecessary mock server startup.
-
-    Note: tests that use the mock_anthropic fixture directly without the mock_e2e
-    marker will NOT get a clean queue reset — add the marker to avoid stale state.
-    """
     if not request.node.get_closest_marker("mock_e2e"):
         yield
         return
     server: MockAnthropicServer = request.getfixturevalue("mock_anthropic")
     server.drain_queue()
     server.clear_requests()
+    for srv_fixture in ("mock_openai_server", "mock_gemini_server"):
+        if srv_fixture in request.fixturenames:
+            srv = request.getfixturevalue(srv_fixture)
+            srv.drain_queue()
+            srv.clear_requests()
     yield
 
 
