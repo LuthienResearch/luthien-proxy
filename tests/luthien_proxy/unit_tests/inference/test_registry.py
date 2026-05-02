@@ -72,14 +72,14 @@ class _CountingFactory:
 
 @pytest.fixture
 async def sqlite_pool() -> AsyncGenerator[DatabasePool, None]:
+    """Real in-memory SQLite with every migration applied."""
     pool = DatabasePool("sqlite://:memory:")
     migrations_dir = Path(__file__).resolve().parents[4] / "migrations" / "sqlite"
 
     async with pool.connection() as conn:
-        sqlite_conn = conn  # type: ignore[assignment]
-        assert isinstance(sqlite_conn, SqliteConnection)
+        assert isinstance(conn, SqliteConnection)
         for migration_file in sorted(migrations_dir.glob("*.sql")):
-            await sqlite_conn._conn.executescript(migration_file.read_text())
+            await conn.executescript(migration_file.read_text())
 
     yield pool
     await pool.close()
