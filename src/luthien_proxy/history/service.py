@@ -466,7 +466,7 @@ async def fetch_session_list(
                             WHERE jt.type = 'text'
                             AND (
                                 (
-                                    jt.fullkey GLOB '$.final_request.messages[*].content'
+                                    jt.fullkey GLOB '$.final_request.messages*.content'
                                     AND jt.value LIKE {request_content_placeholder} ESCAPE '\\'
                                     AND EXISTS (
                                         SELECT 1
@@ -476,7 +476,7 @@ async def fetch_session_list(
                                     )
                                 )
                                 OR (
-                                    jt.fullkey GLOB '$.final_request.messages[*].content[*].text'
+                                    jt.fullkey GLOB '$.final_request.messages*.content*.text'
                                     AND jt.value LIKE {request_block_placeholder} ESCAPE '\\'
                                     AND EXISTS (
                                         SELECT 1
@@ -495,7 +495,7 @@ async def fetch_session_list(
                                 AND jt.value LIKE {response_content_placeholder} ESCAPE '\\'
                                 AND (
                                     jt.fullkey = '$.final_response.content'
-                                    OR jt.fullkey GLOB '$.final_response.content[*].text'
+                                    OR jt.fullkey GLOB '$.final_response.content*.text'
                                 )
                             )
                         )

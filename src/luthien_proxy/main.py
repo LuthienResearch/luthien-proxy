@@ -498,7 +498,8 @@ def create_app(
             if current_policy is None:
                 reasons.append("no policy loaded")
         except Exception as exc:
-            reasons.append(f"policy unavailable: {exc}")
+            logger.warning("policy unavailable: %s", exc)
+            reasons.append("policy unavailable")
 
         if reasons:
             return JSONResponse(

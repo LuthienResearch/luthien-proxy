@@ -116,7 +116,8 @@ def _warn_sensitive_env_refs(templates: dict[str, str]) -> None:
 def _load_header_templates() -> dict[str, str]:
     """Parse UPSTREAM_HEADERS env var once at first use.
 
-    Returns empty dict if unset or malformed (fail-open).
+    Raises ValueError at startup for reserved-header overrides or blocked env-var
+    references (fail-fast). Returns empty dict if UPSTREAM_HEADERS is unset.
     """
     raw = os.environ.get("UPSTREAM_HEADERS", "")
     if not raw:
