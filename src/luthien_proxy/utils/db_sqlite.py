@@ -188,14 +188,13 @@ class SqliteConnection:
             await self._conn.commit()
         return f"OK {cursor.rowcount}"
 
-    async def executescript(self, sql: str) -> None:
-        """Execute a multi-statement SQL script.
+    async def executescript(self, script: str) -> None:
+        """Run a multi-statement SQL script using SQLite's native parser.
 
-        Uses SQLite's native parser, which correctly handles semicolons inside
-        comments and BEGIN...END trigger bodies. Prefer this over splitting on
-        ";" for migration files.
+        Unlike :meth:`execute`, this understands trigger ``BEGIN ... END`` blocks,
+        so semicolons inside trigger bodies do not get split into broken fragments.
         """
-        await self._conn.executescript(sql)
+        await self._conn.executescript(script)
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[None]:

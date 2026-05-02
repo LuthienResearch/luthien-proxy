@@ -31,6 +31,7 @@ from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.gateway_routes import _passthrough_client
 from luthien_proxy.gateway_routes import router as gateway_router
 from luthien_proxy.history import routes as history_routes
+from luthien_proxy.inference.registry import InferenceProviderRegistry
 from luthien_proxy.llm import anthropic_client_cache
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.observability.emitter import EventEmitter
@@ -250,6 +251,14 @@ def create_app(
         _credential_manager = CredentialManager(db_pool=db_pool, cache=_credential_cache, encryption_key=encryption_key)
         await _credential_manager.initialize(default_auth_mode=auth_mode)
 
+        # Inference provider registry depends on the credential manager
+        # (it resolves `credential_name` on each lookup).
+        _inference_provider_registry = InferenceProviderRegistry(
+            db_pool=db_pool,
+            credential_manager=_credential_manager,
+        )
+        await _inference_provider_registry.initialize()
+
         _resolved_mode = _credential_manager.config.auth_mode.value
         if _resolved_mode == "client_key":
             logger.warning("Upstream auth mode: client_key — all requests billed to server ANTHROPIC_API_KEY.")
@@ -339,6 +348,7 @@ def create_app(
             anthropic_client=_anthropic_client,
             event_publisher=_event_publisher,
             credential_manager=_credential_manager,
+            inference_provider_registry=_inference_provider_registry,
             enable_request_logging=_enable_request_logging,
             usage_collector=_usage_collector,
             config_registry=_config_registry,
@@ -357,6 +367,7 @@ def create_app(
         await _webhook_sender.stop()
         if _telemetry_sender is not None:
             await _telemetry_sender.stop()
+        await _inference_provider_registry.close()
         await _credential_manager.close()
         await anthropic_client_cache.close_all()
         await _passthrough_client.aclose()
