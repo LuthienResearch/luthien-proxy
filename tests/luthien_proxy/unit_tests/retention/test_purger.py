@@ -20,14 +20,22 @@ import pytest
 from luthien_proxy.retention.purger import ConversationPurger
 
 
+def _make_mock_conn(*, is_sqlite: bool = False) -> AsyncMock:
+    conn = AsyncMock()
+    conn.execute = AsyncMock(return_value=None if is_sqlite else "DELETE 5")
+    conn.fetchval = AsyncMock(return_value=4 if is_sqlite else 5)
+    conn.transaction = MagicMock()
+    conn.transaction.return_value.__aenter__ = AsyncMock(return_value=None)
+    conn.transaction.return_value.__aexit__ = AsyncMock(return_value=False)
+    return conn
+
+
 @pytest.fixture
 def mock_db_pool():
     """Mock DatabasePool (Postgres dialect) with async execute and fetch methods."""
     pool = MagicMock()
     pool.is_sqlite = False
-    conn = AsyncMock()
-    conn.execute = AsyncMock(return_value="DELETE 5")
-    conn.fetchval = AsyncMock(return_value=5)
+    conn = _make_mock_conn()
     pool.connection = MagicMock()
     pool.connection.return_value.__aenter__ = AsyncMock(return_value=conn)
     pool.connection.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -39,9 +47,7 @@ def mock_sqlite_pool():
     """Mock DatabasePool (SQLite dialect) — uses two-step count+delete."""
     pool = MagicMock()
     pool.is_sqlite = True
-    conn = AsyncMock()
-    conn.execute = AsyncMock(return_value=None)
-    conn.fetchval = AsyncMock(return_value=4)
+    conn = _make_mock_conn(is_sqlite=True)
     pool.connection = MagicMock()
     pool.connection.return_value.__aenter__ = AsyncMock(return_value=conn)
     pool.connection.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -236,3 +242,25 @@ async def test_purger_task_exception_logged(mock_db_pool, caplog):
         pass
 
     assert any("Purger background task raised an unexpected exception" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_purge_once_archive_and_delete_run_in_transaction(mock_db_pool):
+    mock_archiver = AsyncMock()
+    mock_archiver.archive_calls = AsyncMock()
+    pool, conn = mock_db_pool
+
+    purger = ConversationPurger(db_pool=pool, retention_days=30, archiver=mock_archiver)
+    await purger.purge_once()
+
+    conn.transaction.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_purge_once_no_archiver_still_uses_transaction(mock_db_pool):
+    pool, conn = mock_db_pool
+
+    purger = ConversationPurger(db_pool=pool, retention_days=30)
+    await purger.purge_once()
+
+    conn.transaction.assert_called_once()
