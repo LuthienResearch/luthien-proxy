@@ -18,30 +18,27 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import AsyncGenerator
 
 import pytest
 
 from luthien_proxy.history.models import SessionSearchParams
 from luthien_proxy.history.service import fetch_session_list
 from luthien_proxy.utils.db import DatabasePool
+from luthien_proxy.utils.db_sqlite import SqliteConnection
 
 
 @pytest.fixture
-async def sqlite_pool() -> DatabasePool:
-    """Create an in-memory SQLite pool with schema applied."""
+async def sqlite_pool() -> AsyncGenerator[DatabasePool, None]:
     pool = DatabasePool("sqlite://:memory:")
 
     migrations_dir = Path(__file__).parent.parent.parent.parent.parent / "migrations" / "sqlite"
 
     async with pool.connection() as conn:
+        sqlite_conn = conn  # type: ignore[assignment]
+        assert isinstance(sqlite_conn, SqliteConnection)
         for migration_file in sorted(migrations_dir.glob("*.sql")):
-            sql = migration_file.read_text()
-            for statement in sql.split(";"):
-                statement = statement.strip()
-                if statement and not all(
-                    line.strip().startswith("--") or not line.strip() for line in statement.split("\n")
-                ):
-                    await conn.execute(statement)
+            await sqlite_conn._conn.executescript(migration_file.read_text())
 
     yield pool
     await pool.close()
