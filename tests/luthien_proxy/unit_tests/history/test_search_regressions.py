@@ -348,6 +348,74 @@ class TestSqliteSearchesContentNotJsonKeys:
         )
 
 
+class TestSqliteArrayContentSearch:
+    """SQLite q search must match text inside array-form content blocks.
+
+    Regression: GLOB patterns used [*] (a char class matching only literal *)
+    instead of * (wildcard), so array-indexed fullkeys like
+    $.final_request.messages[0].content[0].text never matched.
+    """
+
+    @pytest.mark.asyncio
+    async def test_q_matches_user_text_in_content_blocks(self, sqlite_pool: DatabasePool):
+        await _insert_event(
+            sqlite_pool,
+            event_id="e1",
+            call_id="c1",
+            session_id="session-A",
+            created_at="2026-01-15T10:00:00",
+            payload={
+                "final_model": "claude-opus-4-6",
+                "final_request": {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [{"type": "text", "text": "xyzzy_array_user_marker"}],
+                        }
+                    ]
+                },
+            },
+        )
+
+        result = await fetch_session_list(
+            limit=10,
+            db_pool=sqlite_pool,
+            search=SessionSearchParams(q="xyzzy_array_user_marker"),
+        )
+
+        assert len(result.sessions) == 1, (
+            f"regression: q search on array-form user content block returned "
+            f"{len(result.sessions)} sessions. GLOB pattern may still use [*] instead of *."
+        )
+
+    @pytest.mark.asyncio
+    async def test_q_matches_assistant_text_in_response_content_blocks(self, sqlite_pool: DatabasePool):
+        await _insert_event(
+            sqlite_pool,
+            event_id="e1",
+            call_id="c1",
+            session_id="session-A",
+            event_type="transaction.non_streaming_response_recorded",
+            created_at="2026-01-15T10:00:00",
+            payload={
+                "final_response": {
+                    "content": [{"type": "text", "text": "xyzzy_array_response_marker"}],
+                }
+            },
+        )
+
+        result = await fetch_session_list(
+            limit=10,
+            db_pool=sqlite_pool,
+            search=SessionSearchParams(q="xyzzy_array_response_marker"),
+        )
+
+        assert len(result.sessions) == 1, (
+            f"regression: q search on array-form response content block returned "
+            f"{len(result.sessions)} sessions. GLOB pattern may still use [*] instead of *."
+        )
+
+
 class TestUserFilterSQLInjection:
     """Regression: user filter must not be injectable via LIKE metacharacters or SQL syntax."""
 
