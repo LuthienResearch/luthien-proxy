@@ -134,8 +134,7 @@ def _load_header_templates() -> dict[str, str]:
                 logger.warning("UPSTREAM_HEADERS: skipping non-string entry %r: %r", k, v)
                 continue
             if not _HEADER_NAME_RE.fullmatch(k):
-                logger.warning("UPSTREAM_HEADERS: skipping invalid header name %r", k)
-                continue
+                raise ValueError(f"UPSTREAM_HEADERS: invalid header name {k!r}")
             if k.lower() in _RESERVED_HEADERS:
                 raise ValueError(f"UPSTREAM_HEADERS: header '{k}' is a reserved header and cannot be overridden")
             result[k] = v

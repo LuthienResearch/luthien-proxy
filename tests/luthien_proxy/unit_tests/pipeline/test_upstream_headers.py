@@ -204,6 +204,18 @@ class TestBlocklist:
         assert result == {"X-Custom": "${env.MY_BENIGN_VAR}"}
 
 
+class TestInvalidHeaderNames:
+    def test_invalid_header_name_raises(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"bad header name": "value"}))
+        with pytest.raises(ValueError, match="invalid header name"):
+            _load_header_templates()
+
+    def test_header_with_spaces_raises(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"X-My Header": "value"}))
+        with pytest.raises(ValueError, match="invalid header name"):
+            _load_header_templates()
+
+
 class TestReservedHeaders:
     def test_reserved_header_authorization_blocked(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"Authorization": "Bearer token"}))
