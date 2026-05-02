@@ -202,6 +202,9 @@ async def export_session_jsonl_endpoint(
     Returns the conversation history as JSONL, suitable for
     programmatic analysis and log ingestion.
     """
+    if db_pool is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
     try:
         session = await fetch_session_detail(session_id, db_pool)
     except ValueError as e:
