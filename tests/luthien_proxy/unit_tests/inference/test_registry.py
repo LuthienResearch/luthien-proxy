@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -37,6 +38,7 @@ from luthien_proxy.inference.registry import (
     _build_direct_api,
 )
 from luthien_proxy.utils.db import DatabasePool
+from luthien_proxy.utils.db_sqlite import SqliteConnection
 
 
 class _StubProvider(InferenceProvider):
@@ -69,20 +71,15 @@ class _CountingFactory:
 
 
 @pytest.fixture
-async def sqlite_pool() -> DatabasePool:
-    """Real in-memory SQLite with every migration applied."""
+async def sqlite_pool() -> AsyncGenerator[DatabasePool, None]:
     pool = DatabasePool("sqlite://:memory:")
     migrations_dir = Path(__file__).resolve().parents[4] / "migrations" / "sqlite"
 
     async with pool.connection() as conn:
+        sqlite_conn = conn  # type: ignore[assignment]
+        assert isinstance(sqlite_conn, SqliteConnection)
         for migration_file in sorted(migrations_dir.glob("*.sql")):
-            sql = migration_file.read_text()
-            for statement in sql.split(";"):
-                statement = statement.strip()
-                if statement and not all(
-                    line.strip().startswith("--") or not line.strip() for line in statement.split("\n")
-                ):
-                    await conn.execute(statement)
+            await sqlite_conn._conn.executescript(migration_file.read_text())
 
     yield pool
     await pool.close()
