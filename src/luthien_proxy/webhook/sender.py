@@ -124,7 +124,7 @@ class WebhookSender:
         self._max_pending_tasks = max_pending_tasks
         self._pending_tasks: set[asyncio.Task[None]] = set()
         self._dropped_due_to_backpressure = 0
-        self._client = httpx.AsyncClient(timeout=SEND_TIMEOUT_SECONDS)
+        self._client = httpx.AsyncClient(timeout=SEND_TIMEOUT_SECONDS) if self._url else None
 
     @property
     def enabled(self) -> bool:
@@ -156,6 +156,7 @@ class WebhookSender:
         """
         try:
             # self._url is str when enabled (checked by caller); TypedDict value is str | None
+            assert self._client is not None
             response = await self._client.post(self._url, json=dict(payload))  # type: ignore[arg-type]
             if response.status_code >= 400:
                 logger.warning(
@@ -279,4 +280,5 @@ class WebhookSender:
             await asyncio.gather(*tasks, return_exceptions=True)
             self._pending_tasks.clear()
             logger.debug("WebhookSender stopped (%d in-flight tasks cancelled)", len(tasks))
-        await self._client.aclose()
+        if self._client is not None:
+            await self._client.aclose()

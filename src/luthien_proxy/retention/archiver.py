@@ -99,8 +99,10 @@ class S3ConversationArchiver:
     async def archive_calls(self, *, db_conn: Any, cutoff: datetime) -> None:
         """Fetch rows older than cutoff and upload to S3 as JSONL.
 
-        Uses cursor-based batching (paginating on call_id) so large datasets
-        don't load all rows into memory at once.
+        Uses cursor-based batching (paginating on call_id) to limit per-query
+        DB memory. Note: all batches are accumulated in memory before the S3
+        upload, so peak memory is proportional to total rows archived. For
+        very large purges, consider multipart upload (tracked in Trello).
 
         Args:
             db_conn: An active DB connection (ConnectionProtocol).
