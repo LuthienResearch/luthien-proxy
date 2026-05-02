@@ -6,6 +6,7 @@ These tests focus on the HTTP layer - ensuring routes properly:
 - Return correct response models
 """
 
+from typing import cast
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
@@ -21,9 +22,11 @@ from luthien_proxy.history.models import (
 )
 from luthien_proxy.history.routes import (
     export_session,
+    export_session_jsonl_endpoint,
     get_session,
     list_sessions,
 )
+from luthien_proxy.utils.db import DatabasePool
 
 AUTH_TOKEN = "test-admin-key"
 
@@ -266,6 +269,59 @@ class TestExportSessionRoute:
             assert ">" not in disposition
             assert "(" not in disposition
             assert ")" not in disposition
+
+
+class TestExportSessionJsonlRoute:
+    """Test export_session_jsonl_endpoint route handler."""
+
+    @pytest.mark.asyncio
+    async def test_db_pool_none_returns_503(self):
+        """Test 503 returned when db_pool is None."""
+        with pytest.raises(HTTPException) as exc_info:
+            await export_session_jsonl_endpoint(session_id="any", _=AUTH_TOKEN, db_pool=cast(DatabasePool, None))
+
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail == "Database not available"
+
+    @pytest.mark.asyncio
+    async def test_successful_jsonl_export(self):
+        """Test successful export returns JSONL."""
+        mock_db_pool = MagicMock()
+        session_detail = SessionDetail(
+            session_id="test-session",
+            first_timestamp="2025-01-15T10:00:00",
+            last_timestamp="2025-01-15T11:00:00",
+            turns=[],
+            total_policy_interventions=0,
+            models_used=[],
+        )
+
+        with patch(
+            "luthien_proxy.history.routes.fetch_session_detail",
+            new_callable=AsyncMock,
+            return_value=session_detail,
+        ):
+            result = await export_session_jsonl_endpoint(session_id="test-session", _=AUTH_TOKEN, db_pool=mock_db_pool)
+
+        assert result.media_type == "application/x-ndjson"
+        assert "Content-Disposition" in result.headers
+        assert 'filename="conversation_test-session.jsonl"' in result.headers["Content-Disposition"]
+
+    @pytest.mark.asyncio
+    async def test_jsonl_export_not_found(self):
+        """Test 404 returned for non-existent session."""
+        mock_db_pool = MagicMock()
+
+        with patch(
+            "luthien_proxy.history.routes.fetch_session_detail",
+            new_callable=AsyncMock,
+            side_effect=ValueError("No events found for session_id: nonexistent"),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await export_session_jsonl_endpoint(session_id="nonexistent", _=AUTH_TOKEN, db_pool=mock_db_pool)
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.detail == "Session not found."
 
 
 class TestDeprecatedHistoryDetailRedirect:
