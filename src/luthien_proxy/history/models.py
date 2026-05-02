@@ -130,10 +130,16 @@ class SessionSearchParams(BaseModel):
     policy_intervention: bool | None = None
 
     @model_validator(mode="after")
-    def _validate_time_range(self) -> "SessionSearchParams":
+    def _validate(self) -> "SessionSearchParams":
         if self.from_time is not None and self.to_time is not None:
             if self.from_time > self.to_time:
                 raise ValueError("from_time must be before or equal to to_time")
+        if self.q is not None and not self.q.strip():
+            self.q = None
+        if self.user is not None and not self.user.strip():
+            self.user = None
+        if self.model is not None and not self.model.strip():
+            self.model = None
         return self
 
     def is_empty(self) -> bool:

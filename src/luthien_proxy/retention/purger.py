@@ -80,41 +80,44 @@ class ConversationPurger:
 
         try:
             async with self._db_pool.connection() as conn:
-                # Archive before delete if archiver is configured
-                if self._archiver is not None:
-                    try:
-                        await self._archiver.archive_calls(db_conn=conn, cutoff=cutoff)
-                    except Exception:
-                        logger.exception("S3 archival failed — skipping purge to avoid data loss")
-                        return 0
+                async with conn.transaction():
+                    # Archive before delete if archiver is configured.
+                    # Both operations run inside a single transaction so a row
+                    # cannot be deleted without first being archived.
+                    if self._archiver is not None:
+                        try:
+                            await self._archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+                        except Exception:
+                            logger.exception("S3 archival failed — skipping purge to avoid data loss")
+                            return 0
 
-                # Delete old calls; cascading FKs clean up child tables.
-                # SQLite does not support DELETE...RETURNING inside a CTE, so we
-                # use a two-step approach: fetch the count first, then delete.
-                # Postgres uses the more efficient CTE form.
-                if self._db_pool.is_sqlite:
-                    count_before = await conn.fetchval(
-                        "SELECT COUNT(*) FROM conversation_calls WHERE created_at < $1",
-                        cutoff,
-                    )
-                    await conn.execute(
-                        "DELETE FROM conversation_calls WHERE created_at < $1",
-                        cutoff,
-                    )
-                    count = int(count_before) if isinstance(count_before, (int, float)) else 0
-                else:
-                    deleted = await conn.fetchval(
-                        """
-                        WITH deleted AS (
-                            DELETE FROM conversation_calls
-                            WHERE created_at < $1
-                            RETURNING call_id
+                    # Delete old calls; cascading FKs clean up child tables.
+                    # SQLite does not support DELETE...RETURNING inside a CTE, so we
+                    # use a two-step approach: fetch the count first, then delete.
+                    # Postgres uses the more efficient CTE form.
+                    if self._db_pool.is_sqlite:
+                        count_before = await conn.fetchval(
+                            "SELECT COUNT(*) FROM conversation_calls WHERE created_at < $1",
+                            cutoff,
                         )
-                        SELECT COUNT(*) FROM deleted
-                        """,
-                        cutoff,
-                    )
-                    count = int(deleted) if isinstance(deleted, (int, float)) else 0
+                        await conn.execute(
+                            "DELETE FROM conversation_calls WHERE created_at < $1",
+                            cutoff,
+                        )
+                        count = int(count_before) if isinstance(count_before, (int, float)) else 0
+                    else:
+                        deleted = await conn.fetchval(
+                            """
+                            WITH deleted AS (
+                                DELETE FROM conversation_calls
+                                WHERE created_at < $1
+                                RETURNING call_id
+                            )
+                            SELECT COUNT(*) FROM deleted
+                            """,
+                            cutoff,
+                        )
+                        count = int(deleted) if isinstance(deleted, (int, float)) else 0
                 if count > 0:
                     logger.info("Purged %d conversation_calls (cutoff=%s)", count, cutoff.isoformat())
                 else:

@@ -84,6 +84,18 @@ class TestSessionSearchParams:
         params = SessionSearchParams(policy_intervention=False)
         assert params.is_empty() is True
 
+    def test_empty_string_q_coerced_to_none(self):
+        assert SessionSearchParams(q="").q is None
+
+    def test_whitespace_only_q_coerced_to_none(self):
+        assert SessionSearchParams(q="   ").q is None
+
+    def test_empty_string_user_coerced_to_none(self):
+        assert SessionSearchParams(user="").user is None
+
+    def test_empty_string_model_coerced_to_none(self):
+        assert SessionSearchParams(model="").model is None
+
 
 # Service-layer SQL behavior is covered by:
 #   - tests/luthien_proxy/unit_tests/history/test_service_sqlite.py

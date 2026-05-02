@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Any, TypedDict, cast
 
 from luthien_proxy.utils.db import DatabasePool, parse_db_ts
+from luthien_proxy.utils.search import session_fts_filter_sql
 
 from .models import (
     ConversationMessage,
@@ -443,9 +444,10 @@ async def fetch_session_list(
                 """.strip()
             )
         else:
+            fts_fragment, fts_bind_value = session_fts_filter_sql(db_pool, search.q, placeholder=f"${param_idx}")
+            params.append(fts_bind_value)
+            param_idx += 1
             escaped_q = f"%{escape_like(search.q)}%"
-            request_content_placeholder = add_param(escaped_q)
-            request_block_placeholder = add_param(escaped_q)
             response_content_placeholder = add_param(escaped_q)
             qualifying_where.append(
                 f"""
@@ -454,49 +456,16 @@ async def fetch_session_list(
                     FROM conversation_events ce_search
                     WHERE ce_search.session_id = ce.session_id
                     AND ce_search.session_id IS NOT NULL
-                    AND ce_search.event_type IN (
-                        'transaction.request_recorded',
-                        'transaction.streaming_response_recorded',
-                        'transaction.non_streaming_response_recorded'
-                    )
                     AND (
-                        EXISTS (
+                        {fts_fragment.replace("ce.", "ce_search.")}
+                        OR EXISTS (
                             SELECT 1
-                            FROM json_tree(ce_search.payload, '$.final_request.messages') jt
+                            FROM json_tree(ce_search.payload, '$.final_response') jt
                             WHERE jt.type = 'text'
+                            AND jt.value LIKE {response_content_placeholder} ESCAPE '\\'
                             AND (
-                                (
-                                    jt.fullkey GLOB '$.final_request.messages*.content'
-                                    AND jt.value LIKE {request_content_placeholder} ESCAPE '\\'
-                                    AND EXISTS (
-                                        SELECT 1
-                                        FROM json_tree(ce_search.payload, '$.final_request.messages') role_node
-                                        WHERE role_node.fullkey = substr(jt.fullkey, 1, length(jt.fullkey) - length('.content')) || '.role'
-                                        AND role_node.value = 'user'
-                                    )
-                                )
-                                OR (
-                                    jt.fullkey GLOB '$.final_request.messages*.content*.text'
-                                    AND jt.value LIKE {request_block_placeholder} ESCAPE '\\'
-                                    AND EXISTS (
-                                        SELECT 1
-                                        FROM json_tree(ce_search.payload, '$.final_request.messages') role_node
-                                        WHERE role_node.fullkey = substr(jt.fullkey, 1, instr(jt.fullkey, '.content') - 1) || '.role'
-                                        AND role_node.value = 'user'
-                                    )
-                                )
-                            )
-                        )
-                        OR (
-                            EXISTS (
-                                SELECT 1
-                                FROM json_tree(ce_search.payload, '$.final_response') jt
-                                WHERE jt.type = 'text'
-                                AND jt.value LIKE {response_content_placeholder} ESCAPE '\\'
-                                AND (
-                                    jt.fullkey = '$.final_response.content'
-                                    OR jt.fullkey GLOB '$.final_response.content*.text'
-                                )
+                                jt.fullkey = '$.final_response.content'
+                                OR jt.fullkey GLOB '$.final_response.content*.text'
                             )
                         )
                     )
