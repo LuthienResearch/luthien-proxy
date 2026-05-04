@@ -119,11 +119,6 @@ class ChatRequest(BaseModel):
         description="Optional API key to use for this test request. "
         "Overrides the server's client key as the credential sent to the gateway.",
     )
-    use_bearer: bool = Field(
-        default=False,
-        description="When True, send the credential as Authorization: Bearer instead of x-api-key. "
-        "Use this for OAuth tokens (Claude subscriptions).",
-    )
     capture_before: bool = Field(
         default=False,
         description="When True, capture the pre-policy response and return it as before_content "
@@ -366,7 +361,6 @@ async def send_chat(
     # credential — that previously let any admin replay a real user's OAuth
     # token, which crosses an authn boundary (cross-tenant credential reuse).
     test_api_key: str | None = None
-    use_bearer = body.use_bearer
 
     if body.api_key is not None and body.api_key.strip():
         test_api_key = body.api_key.strip()
@@ -396,9 +390,7 @@ async def send_chat(
     }
 
     try:
-        request_headers: dict[str, str] = (
-            {"Authorization": f"Bearer {test_api_key}"} if use_bearer else {"x-api-key": test_api_key}
-        )
+        request_headers: dict[str, str] = {"x-api-key": test_api_key}
         if body.capture_before:
             # Forward both the capture flag and the admin key. The gateway
             # pipeline only honors capture-before when the admin key matches
