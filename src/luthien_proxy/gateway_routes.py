@@ -44,22 +44,6 @@ ANTHROPIC_API_BASE = "https://api.anthropic.com"
 _passthrough_client = httpx.AsyncClient(timeout=30.0)
 
 
-# Last validated user credential (passthrough/OAuth).
-# Stored so the admin test endpoint can reuse it without re-prompting.
-_last_user_credential: Credential | None = None
-
-
-def get_last_user_credential() -> Credential | None:
-    """Return the most recently validated passthrough credential, if any."""
-    return _last_user_credential
-
-
-def _store_user_credential(credential: Credential) -> None:
-    """Cache the credential so the admin test endpoint can reuse it."""
-    global _last_user_credential
-    _last_user_credential = credential
-
-
 # === AUTH ===
 
 
@@ -112,7 +96,6 @@ async def verify_token(
         if credential_manager.config.validate_credentials:
             if not await credential_manager.validate_credential(token, is_bearer=is_bearer):
                 raise HTTPException(status_code=401, detail="Invalid credential")
-        _store_user_credential(credential)
         return credential
 
     # BOTH mode: try the shared client key first, fall through to passthrough
@@ -121,7 +104,6 @@ async def verify_token(
     if credential_manager.config.validate_credentials:
         if not await credential_manager.validate_credential(token, is_bearer=is_bearer):
             raise HTTPException(status_code=401, detail="Invalid API key or credential")
-    _store_user_credential(credential)
     return credential
 
 
