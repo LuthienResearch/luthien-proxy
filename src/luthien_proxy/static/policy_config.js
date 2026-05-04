@@ -3,7 +3,7 @@
 // ============================================================
 
 const NOOP_CLASS_REF = 'luthien_proxy.policies.noop_policy:NoOpPolicy';
-const DEFAULT_MODEL = 'claude-haiku-4-5-20241022';
+const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 const MULTI_SERIAL_CLASS_REF = 'luthien_proxy.policies.multi_serial_policy:MultiSerialPolicy';
 
 // Category display order and labels — server provides `category` per policy.
@@ -68,6 +68,11 @@ const EXAMPLES = {
         desc: null,
         input: 'I\'d be happy to help! Let me delve into this comprehensive topic \u2014 it\'s certainly a pivotal one.',
         output: 'Let me look at this topic, it\'s an important one.',
+        testInput: 'I\'m thrilled to share that I\'ve been on an absolutely incredible journey! ' +
+            'After delving deep into the comprehensive world of automation \u2014 and I mean DEEP \u2014 ' +
+            'I\'ve leveraged cutting-edge tools to streamline my cold outreach pipeline. ' +
+            'It\'s been a pivotal paradigm shift that has fundamentally transformed how I facilitate ' +
+            'meaningful connections. I\'d be happy to share more insights \u2014 feel free to reach out!',
     },
     'luthien_proxy.policies.presets.no_yapping:NoYappingPolicy': {
         desc: null,
@@ -1092,14 +1097,11 @@ function renderTestSection(side) {
     textarea.id = 'test-input-' + side;
     textarea.placeholder = 'Enter test message...';
     textarea.rows = 3;
-    // Pre-fill with example text for De-Slop policy
+    // Pre-fill with example text if the active policy declares one in EXAMPLES.
     const activeRef = state.currentPolicy ? state.currentPolicy.class_ref : '';
-    if (activeRef === 'luthien_proxy.policies.presets.deslop:DeSlopPolicy') {
-        textarea.value = 'I\'m thrilled to share that I\'ve been on an absolutely incredible journey! ' +
-            'After delving deep into the comprehensive world of automation \u2014 and I mean DEEP \u2014 ' +
-            'I\'ve leveraged cutting-edge tools to streamline my cold outreach pipeline. ' +
-            'It\'s been a pivotal paradigm shift that has fundamentally transformed how I facilitate ' +
-            'meaningful connections. I\'d be happy to share more insights \u2014 feel free to reach out!';
+    const example = EXAMPLES[activeRef];
+    if (example && example.testInput) {
+        textarea.value = example.testInput;
     }
     textarea.onkeydown = function(event) {
         if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); runTest(side); }
