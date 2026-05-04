@@ -432,13 +432,20 @@ def extract_description(policy_class: type) -> str:
 def _derive_display_name(class_name: str) -> str:
     """Derive a friendly display name from a class name.
 
-    E.g. 'StringReplacementPolicy' -> 'String Replacement',
-         'NoOpPolicy' -> 'No-Op'.
+    Strips the 'Policy' suffix and splits camelCase into space-separated
+    words, keeping consecutive uppercase letters together until the next
+    word starts.
+
+    Examples:
+        'StringReplacementPolicy' -> 'String Replacement'
+        'NoOpPolicy' -> 'No Op'
+        'LLMAsJudgePolicy' -> 'LLM As Judge'
     """
     name = class_name.removesuffix("Policy")
-    # Insert space before uppercase letters
+    # Insert space between a lowercase letter and a following uppercase letter.
     name = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name)
-    # Handle sequences like "LLM" -> keep together
+    # Insert space inside an uppercase run when followed by a lowercase word
+    # (e.g. "LLMAs" -> "LLM As").
     name = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", " ", name)
     return name.strip()
 

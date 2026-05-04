@@ -36,6 +36,7 @@ class BasePolicy:
     """
 
     category: str = "advanced"
+    group: str | None = None
     display_name: str = ""
     short_description: str = ""
     badges: tuple[str, ...] = ()
