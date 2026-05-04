@@ -16,6 +16,10 @@ class BlockDangerousCommandsPolicy(SimpleLLMPolicy):
     display_name = "Block Commands"
     short_description = "Blocks dangerous shell commands like rm -rf, chmod 777, and mkfs."
     badges = ("Blocks",)
+    user_alert_template = (
+        "⛔ Blocked: Dangerous shell command detected (e.g. rm -rf, chmod 777, dd). "
+        "This command was blocked by the safety policy."
+    )
 
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""

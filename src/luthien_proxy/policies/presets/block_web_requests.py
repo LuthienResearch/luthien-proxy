@@ -15,6 +15,10 @@ class BlockWebRequestsPolicy(SimpleLLMPolicy):
     display_name = "Block Web Requests"
     short_description = "Blocks curl, wget, and other outbound network requests."
     badges = ("Blocks",)
+    user_alert_template = (
+        "⛔ Blocked: Outbound network request (e.g. curl, wget, fetch). "
+        "Network requests are blocked by the safety policy."
+    )
 
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""

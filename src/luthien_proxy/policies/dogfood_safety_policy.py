@@ -113,6 +113,9 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
     display_name = "Dogfood Safety"
     short_description = "Blocks self-destructive commands during internal dogfooding."
     badges = ("Blocks",)
+    user_alert_template = (
+        "⛔ Blocked: Self-destructive command detected. Blocked to protect the running gateway from being torn down."
+    )
 
     @property
     def short_policy_name(self) -> str:
