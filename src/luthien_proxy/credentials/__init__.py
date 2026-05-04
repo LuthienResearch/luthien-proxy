@@ -11,6 +11,7 @@ from luthien_proxy.credentials.credential import (
     Credential,
     CredentialError,
     CredentialType,
+    ServerCredentialNotFoundError,
 )
 
 __all__ = [
@@ -18,6 +19,7 @@ __all__ = [
     "Credential",
     "CredentialError",
     "CredentialType",
+    "ServerCredentialNotFoundError",
     "ServerKey",
     "UserCredentials",
     "UserThenServer",
