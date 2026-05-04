@@ -323,7 +323,11 @@ function renderAvailable() {
     const groups = {};
     let hiddenCount = 0;
     for (const p of state.policies) {
-        if (filter && !p.name.toLowerCase().includes(filter) && !(p.description || '').toLowerCase().includes(filter)) continue;
+        if (filter) {
+            const haystack = [p.name, displayName(p), p.short_description, p.description]
+                .map(s => (s || '').toLowerCase());
+            if (!haystack.some(s => s.includes(filter))) continue;
+        }
         const cat = p.category || 'advanced';
         if (cat === 'internal') { hiddenCount++; if (!state.showHidden) continue; }
         if (!groups[cat]) groups[cat] = [];
