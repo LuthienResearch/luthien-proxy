@@ -16,6 +16,12 @@ const CATEGORY_LABELS = {
     internal: 'Internal',
 };
 
+// Sub-group labels within a category — server provides optional `group` per policy.
+// Multi-select "select all that apply" UI activates when 2+ policies share a group.
+const GROUP_LABELS = {
+    blocks: 'Blocks',
+};
+
 // Inline examples shown on policy cards
 const EXAMPLES = {
     'luthien_proxy.policies.noop_policy:NoOpPolicy': {
@@ -91,6 +97,7 @@ const state = {
     expandedChainIndex: -1,
     expandedAvailablePolicy: null,
     collapsedCategories: new Set(['fun_and_goofy', 'advanced']),
+    checkedGroupItems: new Set(),
 };
 
 // Order-insensitive deep equality for config objects
@@ -349,7 +356,29 @@ function renderAvailable() {
         section.appendChild(label);
 
         if (!isCollapsed) {
-            for (const p of policies) renderPolicyCard(p, section);
+            // Partition this category's policies into singletons and groups (>=2 sharing `group`).
+            // Singletons render in their existing order; group cards render after.
+            const groupBuckets = {};
+            const singletons = [];
+            for (const p of policies) {
+                if (p.group) {
+                    if (!groupBuckets[p.group]) groupBuckets[p.group] = [];
+                    groupBuckets[p.group].push(p);
+                } else {
+                    singletons.push(p);
+                }
+            }
+            // A group with only one member falls back to a normal singleton card.
+            for (const [gKey, gPolicies] of Object.entries(groupBuckets)) {
+                if (gPolicies.length < 2) {
+                    singletons.push(...gPolicies);
+                    delete groupBuckets[gKey];
+                }
+            }
+            for (const p of singletons) renderPolicyCard(p, section);
+            for (const [gKey, gPolicies] of Object.entries(groupBuckets)) {
+                renderGroupedCard(gKey, gPolicies, section);
+            }
         }
         list.appendChild(section);
     }
@@ -430,6 +459,86 @@ function renderPolicyCard(p, container) {
 
     div.onclick = () => addToChain(p.class_ref);
     container.appendChild(div);
+}
+
+// Render a multi-select grouped card: one header + N checkboxes + Add selected button.
+// Checked-state lives in state.checkedGroupItems and survives renders until "Add selected" clears it.
+function renderGroupedCard(groupKey, policies, container) {
+    const div = document.createElement('div');
+    div.className = 'policy-card grouped-card';
+
+    const header = document.createElement('div');
+    header.className = 'grouped-card-header';
+    const headerText = document.createElement('span');
+    headerText.textContent = GROUP_LABELS[groupKey] || groupKey;
+    header.appendChild(headerText);
+    const hint = document.createElement('span');
+    hint.className = 'group-hint';
+    hint.textContent = '· select multiple to add';
+    header.appendChild(hint);
+    div.appendChild(header);
+
+    for (const p of policies) {
+        const inChain = state.chain.some(c => c.classRef === p.class_ref);
+        const row = document.createElement('label');
+        row.className = 'group-checkbox-row' + (inChain ? ' in-chain' : '');
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'group-checkbox';
+        cb.checked = state.checkedGroupItems.has(p.class_ref);
+        cb.onclick = (e) => e.stopPropagation();
+        cb.onchange = () => {
+            if (cb.checked) state.checkedGroupItems.add(p.class_ref);
+            else state.checkedGroupItems.delete(p.class_ref);
+            const btn = div.querySelector('.group-add-btn');
+            if (btn) btn.disabled = state.checkedGroupItems.size === 0;
+        };
+        row.appendChild(cb);
+
+        const text = document.createElement('div');
+        text.className = 'group-row-text';
+        const nameEl = document.createElement('div');
+        nameEl.className = 'group-row-name';
+        nameEl.textContent = displayName(p);
+        text.appendChild(nameEl);
+        const descText = p.short_description || p.description || '';
+        if (descText) {
+            const descEl = document.createElement('div');
+            descEl.className = 'group-row-desc';
+            descEl.textContent = descText;
+            text.appendChild(descEl);
+        }
+        row.appendChild(text);
+
+        div.appendChild(row);
+    }
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'group-add-row';
+    const addBtn = document.createElement('button');
+    addBtn.className = 'group-add-btn';
+    addBtn.textContent = 'Add selected';
+    addBtn.disabled = !policies.some(p => state.checkedGroupItems.has(p.class_ref));
+    addBtn.onclick = (e) => {
+        e.stopPropagation();
+        addCheckedGroupItems(policies);
+    };
+    btnRow.appendChild(addBtn);
+    div.appendChild(btnRow);
+
+    container.appendChild(div);
+}
+
+function addCheckedGroupItems(policies) {
+    const toAdd = policies.filter(p => state.checkedGroupItems.has(p.class_ref));
+    if (toAdd.length === 0) return;
+    for (const p of toAdd) {
+        state.chain.push({ classRef: p.class_ref, config: defaultConfigFor(p) });
+    }
+    state.expandedChainIndex = state.chain.length - 1;
+    state.checkedGroupItems.clear();
+    renderAll();
 }
 
 // ============================================================

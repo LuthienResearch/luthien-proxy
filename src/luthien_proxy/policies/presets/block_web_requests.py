@@ -11,6 +11,7 @@ class BlockWebRequestsPolicy(SimpleLLMPolicy):
     """
 
     category = "active_monitoring"
+    group = "blocks"
     display_name = "Block Web Requests"
     short_description = "Blocks curl, wget, and other outbound network requests."
     badges = ("Blocks",)

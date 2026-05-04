@@ -12,6 +12,7 @@ class BlockDangerousCommandsPolicy(SimpleLLMPolicy):
     """
 
     category = "active_monitoring"
+    group = "blocks"
     display_name = "Block Commands"
     short_description = "Blocks dangerous shell commands like rm -rf, chmod 777, and mkfs."
     badges = ("Blocks",)

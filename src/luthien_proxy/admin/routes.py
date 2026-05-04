@@ -77,6 +77,10 @@ class PolicyClassInfo(BaseModel):
     config_schema: dict[str, Any] = Field(default_factory=dict, description="Schema for config parameters")
     example_config: dict[str, Any] = Field(default_factory=dict, description="Example configuration")
     category: str = Field(default="advanced", description="UI category for grouping")
+    group: str | None = Field(
+        default=None,
+        description="Optional sub-group within a category for multi-select rendering (e.g., 'blocks')",
+    )
     display_name: str = Field(default="", description="Friendly display name (e.g., 'De-Slop')")
     short_description: str = Field(default="", description="One-liner for the catalog card")
     badges: list[str] = Field(default_factory=list, description="Quick-signal badges (e.g., 'Auto-Retry')")
@@ -297,6 +301,7 @@ async def list_available_policies(
             config_schema=p["config_schema"],
             example_config=p["example_config"],
             category=p.get("category", "advanced"),
+            group=p.get("group"),
             display_name=p.get("display_name", ""),
             short_description=p.get("short_description", ""),
             badges=p.get("badges", []),

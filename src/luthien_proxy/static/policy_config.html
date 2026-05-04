@@ -104,6 +104,90 @@
             padding-right: 28px;
         }
 
+        /* Multi-select grouped sub-section ("select all that apply").
+         * An inset, recessed surface (darker than the column) that visually
+         * brackets a group of related policies + their shared action.
+         * Pattern reference: macOS System Settings "inset list" groups. */
+        .grouped-card {
+            margin: 10px 10px;
+            padding: 0;
+            background: #0f0f12;
+            border: 1px solid #1f1f23;
+            border-radius: 6px;
+            overflow: hidden;
+            cursor: default;
+        }
+        .grouped-card:hover { background: #0f0f12; }
+        .grouped-card-header {
+            display: flex; align-items: baseline; gap: 8px;
+            font-size: 11px; font-weight: 600;
+            color: #a1a1aa;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 9px 12px 7px 12px;
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+        .grouped-card-header .group-hint {
+            font-weight: 400;
+            color: #52525b;
+            text-transform: none;
+            letter-spacing: 0;
+            font-size: 11px;
+        }
+        .group-checkbox-row {
+            display: flex; align-items: flex-start; gap: 10px;
+            padding: 7px 12px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .group-checkbox-row:hover { background: #15151a; }
+        .group-checkbox-row + .group-checkbox-row {
+            border-top: 1px solid #1a1a1d;
+        }
+        .group-checkbox-row.in-chain {
+            border-left: 3px solid #6b9fff;
+            padding-left: 9px;
+        }
+        .group-checkbox-row.in-chain .group-row-name { color: #a1a1aa; }
+        .group-checkbox { margin-top: 3px; cursor: pointer; flex-shrink: 0; }
+        .group-row-text { flex: 1; min-width: 0; }
+        .group-row-name { font-size: 13px; color: #e4e4e7; font-weight: 500; }
+        .group-row-desc {
+            font-size: 11px; color: #71717a;
+            margin-top: 3px; line-height: 1.4;
+        }
+        .group-add-row {
+            display: flex; justify-content: flex-end;
+            padding: 8px 12px;
+            border-top: 1px solid #1a1a1d;
+        }
+        .group-add-btn {
+            background: #18181b;
+            color: #e4e4e7;
+            border: 1px solid #3f3f46;
+            border-radius: 4px;
+            padding: 4px 14px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.15s;
+        }
+        .group-add-btn:hover {
+            background: #6b9fff;
+            color: #fff;
+            border-color: #6b9fff;
+        }
+        .group-add-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .group-add-btn:disabled:hover {
+            background: #18181b;
+            color: #e4e4e7;
+            border-color: #3f3f46;
+        }
+
         /* Badges */
         .p-badge {
             font-size: 10px; font-weight: 600; color: #6b9fff; background: #6b9fff18;

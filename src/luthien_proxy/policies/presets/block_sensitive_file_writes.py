@@ -11,6 +11,7 @@ class BlockSensitiveFileWritesPolicy(SimpleLLMPolicy):
     """
 
     category = "active_monitoring"
+    group = "blocks"
     display_name = "Block File Writes"
     short_description = "Blocks file writes to sensitive paths like /etc, ~/.ssh, ~/.gnupg."
     badges = ("Blocks",)

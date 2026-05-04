@@ -524,6 +524,7 @@ def discover_policies() -> list[dict[str, Any]]:
                     "config_schema": config_schema,
                     "example_config": example_config,
                     "category": getattr(attr, "category", "advanced"),
+                    "group": getattr(attr, "group", None),
                     "display_name": getattr(attr, "display_name", "") or _derive_display_name(attr_name),
                     "short_description": getattr(attr, "short_description", ""),
                     "badges": list(getattr(attr, "badges", ())),
