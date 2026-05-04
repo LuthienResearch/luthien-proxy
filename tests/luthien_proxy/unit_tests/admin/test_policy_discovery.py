@@ -303,6 +303,24 @@ class TestDiscoverPolicies:
         assert noop["config_schema"] == {}
         assert noop["example_config"] == {}
 
+    def test_block_presets_share_blocks_group(self) -> None:
+        """The three Block-style presets opt into the 'blocks' multi-select group."""
+        policies = discover_policies()
+        by_name = {p["name"]: p for p in policies}
+
+        for name in (
+            "BlockDangerousCommandsPolicy",
+            "BlockSensitiveFileWritesPolicy",
+            "BlockWebRequestsPolicy",
+        ):
+            assert by_name[name]["group"] == "blocks"
+
+    def test_policies_without_group_attribute_emit_none(self) -> None:
+        """Policies that don't declare a `group` attribute serialize as group=None."""
+        policies = discover_policies()
+        noop = next(p for p in policies if p["name"] == "NoOpPolicy")
+        assert noop["group"] is None
+
     def test_policies_sorted_by_name(self) -> None:
         """Verify policies are returned in alphabetical order."""
         policies = discover_policies()

@@ -36,6 +36,10 @@ class HackathonPolicy(SimplePolicy):
     (see all_caps_policy.py for a 27-line example).
     """
 
+    category = "internal"
+    display_name = "Hackathon Template"
+    short_description = "Starter template for building your own policy at a hackathon."
+
     async def simple_on_request(self, request_str: str, context: PolicyContext) -> str:
         """Transform the user's message before it reaches the LLM.
 

@@ -109,6 +109,14 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
     Uses pure regex — zero latency, no LLM dependency, deterministic.
     """
 
+    category = "active_monitoring"
+    display_name = "Dogfood Safety"
+    short_description = "Blocks self-destructive commands during internal dogfooding."
+    badges = ("Blocks",)
+    user_alert_template = (
+        "⛔ Blocked: Self-destructive command detected. Blocked to protect the running gateway from being torn down."
+    )
+
     @property
     def short_policy_name(self) -> str:
         """Policy display name."""

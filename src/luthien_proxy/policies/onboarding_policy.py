@@ -90,6 +90,10 @@ class OnboardingPolicy(TextModifierPolicy):
     the policy passes everything through unchanged.
     """
 
+    category = "simple_utilities"
+    display_name = "Onboarding"
+    short_description = "Shows a welcome message on the first conversation turn."
+
     def __init__(self, config: OnboardingPolicyConfig | dict | None = None):
         """Initialize with optional config. Accepts dict or Pydantic model."""
         self.config = self._init_config(config, OnboardingPolicyConfig)

@@ -52,6 +52,10 @@ class SamplePydanticPolicy(NoOpPolicy):
     is the SampleConfig model above, which demonstrates dynamic form generation.
     """
 
+    category = "internal"
+    display_name = "Sample Pydantic"
+    short_description = "Example policy demonstrating dynamic form generation."
+
     @property
     def short_policy_name(self) -> str:
         """Use class name (BasePolicy default), not NoOpPolicy's 'NoOp'."""

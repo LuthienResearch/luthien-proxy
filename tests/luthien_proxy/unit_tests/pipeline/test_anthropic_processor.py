@@ -2059,3 +2059,81 @@ class TestAnthropicPolicyIOBuffering:
 
         raw_events = accumulated_events if not io._buffer_raw_events else io._raw_backend_events
         assert raw_events is io._raw_backend_events
+
+
+class TestCaptureBeforeAuthorized:
+    """Regression tests for the `_capture_before_authorized` admin gate.
+
+    The gate decides whether to surface pre-policy content in the response;
+    without this check, any client could set `x-luthien-capture-before` and
+    bypass redact/rewrite policies. See the function docstring in the source
+    for the security rationale.
+    """
+
+    @staticmethod
+    def _ctx_with_headers(headers: dict[str, str] | None) -> MagicMock:
+        """Build a PolicyContext-shaped mock with `raw_http_request.headers`."""
+        ctx = MagicMock()
+        if headers is None:
+            ctx.raw_http_request = None
+            return ctx
+        ctx.raw_http_request = MagicMock()
+        ctx.raw_http_request.headers = headers
+        return ctx
+
+    def test_returns_false_when_request_missing(self) -> None:
+        from luthien_proxy.pipeline.anthropic_processor import _capture_before_authorized
+
+        ctx = self._ctx_with_headers(None)
+        assert _capture_before_authorized(ctx) is False
+
+    def test_returns_false_when_capture_header_absent(self) -> None:
+        from luthien_proxy.pipeline.anthropic_processor import _capture_before_authorized
+
+        ctx = self._ctx_with_headers({"x-luthien-admin-key": "secret"})
+        assert _capture_before_authorized(ctx) is False
+
+    def test_returns_false_when_admin_key_missing(self) -> None:
+        """Capture header alone is not enough — admin key must also be present."""
+        from luthien_proxy.pipeline.anthropic_processor import _capture_before_authorized
+
+        ctx = self._ctx_with_headers({"x-luthien-capture-before": "true"})
+        with patch("luthien_proxy.pipeline.anthropic_processor.get_settings") as gs:
+            gs.return_value.admin_api_key = "secret"
+            assert _capture_before_authorized(ctx) is False
+
+    def test_returns_false_when_admin_key_mismatched(self) -> None:
+        """Wrong admin key must not authorize capture (the policy-bypass case)."""
+        from luthien_proxy.pipeline.anthropic_processor import _capture_before_authorized
+
+        ctx = self._ctx_with_headers({"x-luthien-capture-before": "true", "x-luthien-admin-key": "wrong"})
+        with patch("luthien_proxy.pipeline.anthropic_processor.get_settings") as gs:
+            gs.return_value.admin_api_key = "secret"
+            assert _capture_before_authorized(ctx) is False
+
+    def test_returns_false_when_admin_key_unset_on_server(self) -> None:
+        """If the server has no admin key configured, no client can authorize capture."""
+        from luthien_proxy.pipeline.anthropic_processor import _capture_before_authorized
+
+        ctx = self._ctx_with_headers({"x-luthien-capture-before": "true", "x-luthien-admin-key": "anything"})
+        with patch("luthien_proxy.pipeline.anthropic_processor.get_settings") as gs:
+            gs.return_value.admin_api_key = ""
+            assert _capture_before_authorized(ctx) is False
+
+    def test_returns_true_only_when_both_headers_match(self) -> None:
+        from luthien_proxy.pipeline.anthropic_processor import _capture_before_authorized
+
+        ctx = self._ctx_with_headers({"x-luthien-capture-before": "true", "x-luthien-admin-key": "secret"})
+        with patch("luthien_proxy.pipeline.anthropic_processor.get_settings") as gs:
+            gs.return_value.admin_api_key = "secret"
+            assert _capture_before_authorized(ctx) is True
+
+    def test_capture_header_value_must_be_exactly_true(self) -> None:
+        """Misspellings/typos shouldn't accidentally enable capture."""
+        from luthien_proxy.pipeline.anthropic_processor import _capture_before_authorized
+
+        for header_value in ("True", "TRUE", "1", "yes", ""):
+            ctx = self._ctx_with_headers({"x-luthien-capture-before": header_value, "x-luthien-admin-key": "secret"})
+            with patch("luthien_proxy.pipeline.anthropic_processor.get_settings") as gs:
+                gs.return_value.admin_api_key = "secret"
+                assert _capture_before_authorized(ctx) is False, f"unexpected pass for {header_value!r}"

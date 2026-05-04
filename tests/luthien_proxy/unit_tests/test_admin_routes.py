@@ -314,7 +314,7 @@ class TestSendChatRoute:
 
         assert isinstance(result, ChatResponse)
         assert result.success is False
-        assert "No API key available" in result.error
+        assert "No credential available" in result.error
         assert result.model == "gpt-4o"
 
     @pytest.mark.asyncio

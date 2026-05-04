@@ -10,6 +10,11 @@ class PreferUvPolicy(SimpleLLMPolicy):
     the judge replaces them with the uv equivalent (uv pip install, uv pip freeze, etc.).
     """
 
+    category = "simple_utilities"
+    display_name = "Prefer uv"
+    short_description = "Replaces pip commands with uv equivalents in responses."
+    badges = ()
+
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""
         super().__init__(

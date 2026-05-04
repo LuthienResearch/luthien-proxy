@@ -10,6 +10,16 @@ class BlockWebRequestsPolicy(SimpleLLMPolicy):
     network requests. Text content discussing these commands is allowed.
     """
 
+    category = "active_monitoring"
+    group = "blocks"
+    display_name = "Block Web Requests"
+    short_description = "Blocks curl, wget, and other outbound network requests."
+    badges = ("Blocks",)
+    user_alert_template = (
+        "⛔ Blocked: Outbound network request (e.g. curl, wget, fetch). "
+        "Network requests are blocked by the safety policy."
+    )
+
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""
         super().__init__(

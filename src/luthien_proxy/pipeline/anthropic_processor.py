@@ -22,6 +22,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import secrets
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Literal, TypedDict, TypeGuard, cast
@@ -835,10 +836,62 @@ async def _handle_execution_non_streaming(
                     output_tokens=usage.get("output_tokens", 0),
                 )
 
+        response_headers: dict[str, str] = {"X-Call-ID": call_id}
+
+        # Before/After capture for the admin test UI.
+        # Gated on the admin API key so any unauthenticated client setting
+        # `x-luthien-capture-before` cannot read pre-policy content (which
+        # would bypass response-rewriting/redaction policies). The admin
+        # endpoint forwards both headers; the gateway validates the key
+        # against settings.admin_api_key with a constant-time compare and
+        # only then surfaces `_luthien_before` in the response body.
+        # The body field is preferred over a response header because base64
+        # of arbitrary response text easily exceeds the ~8KB header limits
+        # imposed by upstream proxies (uvicorn/h11/nginx).
+        if _capture_before_authorized(policy_ctx) and original_response_payload:
+            before_text = _extract_text_content(original_response_payload)
+            if before_text is not None:
+                final_response_payload["_luthien_before"] = before_text
+
         return JSONResponse(
             content=final_response_payload,
-            headers={"X-Call-ID": call_id},
+            headers=response_headers,
         )
+
+
+def _capture_before_authorized(policy_ctx: PolicyContext) -> bool:
+    """Return True iff the request is authorized to receive pre-policy content.
+
+    Two conditions must hold:
+    1. ``x-luthien-capture-before: true`` was set on the inbound request.
+    2. ``x-luthien-admin-key`` matches ``settings.admin_api_key`` (constant-time).
+
+    Without (2), any client routing through the gateway could request the
+    pre-policy text and bypass redact/rewrite policies. The admin test
+    endpoint owns this header and is itself protected by admin auth.
+    """
+    if policy_ctx.raw_http_request is None:
+        return False
+    headers = policy_ctx.raw_http_request.headers
+    if headers.get("x-luthien-capture-before") != "true":
+        return False
+    provided = headers.get("x-luthien-admin-key")
+    expected = get_settings().admin_api_key
+    if not provided or not expected:
+        return False
+    return secrets.compare_digest(provided, expected)
+
+
+def _extract_text_content(response: dict) -> str | None:
+    """Extract concatenated text content from an Anthropic response dict."""
+    content = response.get("content")
+    if not content or not isinstance(content, list):
+        return None
+    parts = []
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "text":
+            parts.append(block.get("text", ""))
+    return "".join(parts) if parts else None
 
 
 def _format_sse_event(event: MessageStreamEvent | _StreamErrorEvent) -> str:

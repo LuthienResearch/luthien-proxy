@@ -84,6 +84,16 @@ class PolicyClassInfo(BaseModel):
     description: str = Field(..., description="Description of what the policy does")
     config_schema: dict[str, Any] = Field(default_factory=dict, description="Schema for config parameters")
     example_config: dict[str, Any] = Field(default_factory=dict, description="Example configuration")
+    category: str = Field(default="advanced", description="UI category for grouping")
+    group: str | None = Field(
+        default=None,
+        description="Optional sub-group within a category for multi-select rendering (e.g., 'blocks')",
+    )
+    display_name: str = Field(default="", description="Friendly display name (e.g., 'De-Slop')")
+    short_description: str = Field(default="", description="One-liner for the catalog card")
+    badges: list[str] = Field(default_factory=list, description="Quick-signal badges (e.g., 'Auto-Retry')")
+    user_alert_template: str = Field(default="", description="Template for user-facing alert message")
+    instructions_summary: str = Field(default="", description="Human-readable summary of policy instructions")
 
 
 class PolicyListResponse(BaseModel):
@@ -109,6 +119,13 @@ class ChatRequest(BaseModel):
         description="Optional API key to use for this test request. "
         "Overrides the server's client key as the credential sent to the gateway.",
     )
+    capture_before: bool = Field(
+        default=False,
+        description="When True, capture the pre-policy response and return it as before_content "
+        "alongside the policy-processed content. Used for Before/After comparison in the UI. "
+        "Only honored for non-streaming requests (stream=False); streaming responses do not "
+        "currently support pre-policy capture.",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -116,6 +133,7 @@ class ChatResponse(BaseModel):
 
     success: bool
     content: str | None = None
+    before_content: str | None = None
     error: str | None = None
     model: str | None = None
     usage: dict[str, Any] | None = None
@@ -287,6 +305,13 @@ async def list_available_policies(
             description=p["description"],
             config_schema=p["config_schema"],
             example_config=p["example_config"],
+            category=p.get("category", "advanced"),
+            group=p.get("group"),
+            display_name=p.get("display_name", ""),
+            short_description=p.get("short_description", ""),
+            badges=p.get("badges", []),
+            user_alert_template=p.get("user_alert_template", ""),
+            instructions_summary=p.get("instructions_summary", ""),
         )
         for p in discovered
     ]
@@ -330,15 +355,25 @@ async def send_chat(
             model=body.model,
         )
 
-    # Determine which API key to use: custom key takes precedence over server client key
-    test_api_key = settings.client_api_key
+    # Determine which credential to use for the test request to the gateway.
+    # Priority: explicit api_key from the request body > CLIENT_API_KEY env var.
+    # We deliberately do NOT fall back to the most recently validated end-user
+    # credential — that previously let any admin replay a real user's OAuth
+    # token, which crosses an authn boundary (cross-tenant credential reuse).
+    test_api_key: str | None = None
+
     if body.api_key is not None and body.api_key.strip():
         test_api_key = body.api_key.strip()
+    elif settings.client_api_key:
+        test_api_key = settings.client_api_key
 
     if not test_api_key:
         return ChatResponse(
             success=False,
-            error="No API key available — set CLIENT_API_KEY on the server or provide a custom key",
+            error=(
+                "No credential available. Set CLIENT_API_KEY in the gateway env, or "
+                "provide an api_key in the test request."
+            ),
             model=body.model,
         )
 
@@ -355,11 +390,22 @@ async def send_chat(
     }
 
     try:
+        request_headers: dict[str, str] = {"x-api-key": test_api_key}
+        if body.capture_before:
+            # Forward both the capture flag and the admin key. The gateway
+            # pipeline only honors capture-before when the admin key matches
+            # settings.admin_api_key (see _capture_before_authorized in
+            # anthropic_processor.py). This prevents arbitrary clients from
+            # bypassing redact/rewrite policies via the capture header.
+            request_headers["x-luthien-capture-before"] = "true"
+            if settings.admin_api_key:
+                request_headers["x-luthien-admin-key"] = settings.admin_api_key
+
         async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
             response = await client.post(
                 f"{base_url}/v1/messages",
                 json=payload,
-                headers={"x-api-key": test_api_key},
+                headers=request_headers,
             )
 
         if response.status_code != 200:
@@ -383,12 +429,18 @@ async def send_chat(
             if isinstance(block, dict) and block.get("type") == "text":
                 content = (content or "") + block.get("text", "")
 
+        # Pre-policy content lives in the response body when capture is
+        # authorized. Body field instead of a response header so it isn't
+        # truncated by upstream proxies' header size limits.
+        before_content = data.get("_luthien_before") if body.capture_before else None
+
         # Extract usage
         usage = data.get("usage")
 
         return ChatResponse(
             success=True,
             content=content,
+            before_content=before_content,
             model=body.model,
             usage=usage,
         )

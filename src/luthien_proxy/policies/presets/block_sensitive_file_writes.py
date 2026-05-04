@@ -10,6 +10,16 @@ class BlockSensitiveFileWritesPolicy(SimpleLLMPolicy):
     SSH keys, GPG keys, and other security-sensitive files.
     """
 
+    category = "active_monitoring"
+    group = "blocks"
+    display_name = "Block File Writes"
+    short_description = "Blocks file writes to sensitive paths like /etc, ~/.ssh, ~/.gnupg."
+    badges = ("Blocks",)
+    user_alert_template = (
+        "⛔ Blocked: Write to sensitive path (e.g. /etc, ~/.ssh, ~/.gnupg). "
+        "Writes to system and security files are blocked by the safety policy."
+    )
+
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""
         super().__init__(
