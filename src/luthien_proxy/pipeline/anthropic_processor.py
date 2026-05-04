@@ -19,10 +19,10 @@ The pipeline creates a structured span hierarchy for observability:
 
 from __future__ import annotations
 
-import base64
 import copy
 import json
 import logging
+import secrets
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Literal, TypedDict, TypeGuard, cast
@@ -838,20 +838,48 @@ async def _handle_execution_non_streaming(
 
         response_headers: dict[str, str] = {"X-Call-ID": call_id}
 
-        # When the test UI requests before/after capture, include pre-policy
-        # content in a response header so the test endpoint can show a diff.
-        capture_before = False
-        if policy_ctx.raw_http_request:
-            capture_before = policy_ctx.raw_http_request.headers.get("x-luthien-capture-before") == "true"
-        if capture_before and original_response_payload:
+        # Before/After capture for the admin test UI.
+        # Gated on the admin API key so any unauthenticated client setting
+        # `x-luthien-capture-before` cannot read pre-policy content (which
+        # would bypass response-rewriting/redaction policies). The admin
+        # endpoint forwards both headers; the gateway validates the key
+        # against settings.admin_api_key with a constant-time compare and
+        # only then surfaces `_luthien_before` in the response body.
+        # The body field is preferred over a response header because base64
+        # of arbitrary response text easily exceeds the ~8KB header limits
+        # imposed by upstream proxies (uvicorn/h11/nginx).
+        if _capture_before_authorized(policy_ctx) and original_response_payload:
             before_text = _extract_text_content(original_response_payload)
             if before_text is not None:
-                response_headers["X-Luthien-Before-Content"] = base64.b64encode(before_text.encode()).decode()
+                final_response_payload["_luthien_before"] = before_text
 
         return JSONResponse(
             content=final_response_payload,
             headers=response_headers,
         )
+
+
+def _capture_before_authorized(policy_ctx: PolicyContext) -> bool:
+    """Return True iff the request is authorized to receive pre-policy content.
+
+    Two conditions must hold:
+    1. ``x-luthien-capture-before: true`` was set on the inbound request.
+    2. ``x-luthien-admin-key`` matches ``settings.admin_api_key`` (constant-time).
+
+    Without (2), any client routing through the gateway could request the
+    pre-policy text and bypass redact/rewrite policies. The admin test
+    endpoint owns this header and is itself protected by admin auth.
+    """
+    if policy_ctx.raw_http_request is None:
+        return False
+    headers = policy_ctx.raw_http_request.headers
+    if headers.get("x-luthien-capture-before") != "true":
+        return False
+    provided = headers.get("x-luthien-admin-key")
+    expected = get_settings().admin_api_key
+    if not provided or not expected:
+        return False
+    return secrets.compare_digest(provided, expected)
 
 
 def _extract_text_content(response: dict) -> str | None:

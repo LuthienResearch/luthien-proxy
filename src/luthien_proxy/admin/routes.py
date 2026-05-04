@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import logging
 from typing import Any
@@ -119,7 +118,9 @@ class ChatRequest(BaseModel):
     capture_before: bool = Field(
         default=False,
         description="When True, capture the pre-policy response and return it as before_content "
-        "alongside the policy-processed content. Used for Before/After comparison in the UI.",
+        "alongside the policy-processed content. Used for Before/After comparison in the UI. "
+        "Only honored for non-streaming requests (stream=False); streaming responses do not "
+        "currently support pre-policy capture.",
     )
 
 
@@ -351,29 +352,25 @@ async def send_chat(
         )
 
     # Determine which credential to use for the test request to the gateway.
-    # Priority: custom key from request > CLIENT_API_KEY > last user credential (OAuth)
-    from luthien_proxy.gateway_routes import get_last_user_credential  # noqa: PLC0415
-
+    # Priority: explicit api_key from the request body > CLIENT_API_KEY env var.
+    # We deliberately do NOT fall back to the most recently validated end-user
+    # credential — that previously let any admin replay a real user's OAuth
+    # token, which crosses an authn boundary (cross-tenant credential reuse).
     test_api_key: str | None = None
     use_bearer = body.use_bearer
 
     if body.api_key is not None and body.api_key.strip():
         test_api_key = body.api_key.strip()
     elif settings.client_api_key:
-        # Prefer CLIENT_API_KEY — the gateway accepts it and uses the server's
-        # ANTHROPIC_API_KEY for the actual LLM call.
         test_api_key = settings.client_api_key
-    else:
-        # No server key — try the last user credential (OAuth passthrough)
-        user_cred = get_last_user_credential()
-        if user_cred is not None:
-            test_api_key = user_cred.value
-            use_bearer = user_cred.credential_type == CredentialType.AUTH_TOKEN
 
     if not test_api_key:
         return ChatResponse(
             success=False,
-            error="No credential available — set CLIENT_API_KEY or route a request through the proxy first",
+            error=(
+                "No credential available. Set CLIENT_API_KEY in the gateway env, or "
+                "provide an api_key in the test request."
+            ),
             model=body.model,
         )
 
@@ -394,7 +391,14 @@ async def send_chat(
             {"Authorization": f"Bearer {test_api_key}"} if use_bearer else {"x-api-key": test_api_key}
         )
         if body.capture_before:
+            # Forward both the capture flag and the admin key. The gateway
+            # pipeline only honors capture-before when the admin key matches
+            # settings.admin_api_key (see _capture_before_authorized in
+            # anthropic_processor.py). This prevents arbitrary clients from
+            # bypassing redact/rewrite policies via the capture header.
             request_headers["x-luthien-capture-before"] = "true"
+            if settings.admin_api_key:
+                request_headers["x-luthien-admin-key"] = settings.admin_api_key
 
         async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
             response = await client.post(
@@ -424,12 +428,10 @@ async def send_chat(
             if isinstance(block, dict) and block.get("type") == "text":
                 content = (content or "") + block.get("text", "")
 
-        # Extract pre-policy content from response header (base64-encoded)
-        before_content = None
-        if body.capture_before:
-            before_header = response.headers.get("x-luthien-before-content")
-            if before_header:
-                before_content = base64.b64decode(before_header).decode()
+        # Pre-policy content lives in the response body when capture is
+        # authorized. Body field instead of a response header so it isn't
+        # truncated by upstream proxies' header size limits.
+        before_content = data.get("_luthien_before") if body.capture_before else None
 
         # Extract usage
         usage = data.get("usage")
