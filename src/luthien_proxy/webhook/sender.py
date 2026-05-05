@@ -134,17 +134,22 @@ class WebhookSender:
 
     @property
     def safe_url(self) -> str:
-        """URL with userinfo and query params stripped, safe for logging.
+        """URL safe for logging: strips userinfo, query, fragment, and path secret segments.
 
-        Preserves host and port but drops userinfo (basic auth credentials)
-        and query/fragment (which may contain API keys or tokens).
+        Slack/Discord/GitHub-style webhooks embed secrets in the path
+        (e.g. /services/T.../B.../SECRET). Preserve only the first path
+        segment and replace the rest with '...' to avoid leaking those secrets
+        while still making the log entry useful for identifying the endpoint.
         """
         if not self._url:
             return ""
         parsed = urlparse(self._url)
         host = parsed.hostname or ""
         netloc = f"{host}:{parsed.port}" if parsed.port else host
-        return urlunparse(parsed._replace(netloc=netloc, query="", fragment=""))
+        # Keep only the first path segment; redact the rest
+        path_parts = parsed.path.split("/")
+        safe_path = "/".join(path_parts[:2]) + ("/..." if len(path_parts) > 2 else "")
+        return urlunparse(parsed._replace(netloc=netloc, path=safe_path, query="", fragment=""))
 
     async def _attempt_send(self, payload: ConversationCompletedPayload) -> bool:
         """Attempt a single POST delivery.
