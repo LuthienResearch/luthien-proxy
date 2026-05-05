@@ -355,23 +355,12 @@ async def test_helper_returns_bind_value_matching_content() -> None:
 
 
 @pytest.mark.asyncio
-async def test_helper_empty_query_matches_nothing() -> None:
-    """Empty/whitespace input yields zero matches, mirroring plainto_tsquery('')."""
+async def test_helper_empty_query_raises() -> None:
+    """Whitespace-only input raises ValueError — callers must validate before calling."""
     pool = await _fresh_fts_pool()
     try:
-        await _insert_event(
-            pool,
-            event_id="e-empty",
-            session_id="s-empty",
-            payload={"final_request": {"messages": [{"role": "user", "content": "anything"}]}},
-        )
-        fragment, bind_value = session_fts_filter_sql(pool, "   ", placeholder="$1")
-        async with pool.connection() as conn:
-            rows = await conn.fetch(
-                f"SELECT ce.id AS event_id FROM conversation_events ce WHERE {fragment}",
-                bind_value,
-            )
-        assert rows == []
+        with pytest.raises(ValueError, match="non-whitespace token"):
+            session_fts_filter_sql(pool, "   ", placeholder="$1")
     finally:
         await pool.close()
 
