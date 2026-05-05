@@ -131,6 +131,11 @@ def configure_tracing() -> trace.Tracer:
 
     # Configure OTLP exporter — HTTP/protobuf works behind HTTP load balancers
     # (ALB, nginx, etc.) where gRPC would fail with StatusCode.UNAVAILABLE.
+    _VALID_PROTOCOLS = {"grpc", "http/protobuf"}
+    if protocol not in _VALID_PROTOCOLS:
+        raise ValueError(
+            f"OTEL_EXPORTER_OTLP_PROTOCOL={protocol!r} is not valid. Must be one of: {sorted(_VALID_PROTOCOLS)}"
+        )
     if protocol == "grpc":
         otlp_exporter = GrpcSpanExporter(
             endpoint=otel_endpoint,
