@@ -53,6 +53,8 @@ def extract_session_id_from_anthropic_body(body: dict[str, Any]) -> str | None:
 
     # Try OAuth format: JSON string with session_id field
     try:
+        if len(user_id) > 8192:
+            return None
         parsed = json.loads(user_id)
         if isinstance(parsed, dict):
             session_id = parsed.get("session_id")
