@@ -164,7 +164,7 @@ class TestOtelExporterEndpoint:
         """Test uses default when env var not set."""
         monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
         settings = Settings(_env_file=None)
-        assert settings.otel_exporter_otlp_endpoint == "http://tempo:4317"
+        assert settings.otel_exporter_otlp_endpoint == "http://tempo:4318/v1/traces"
 
 
 class TestSettingsCache:
