@@ -13,7 +13,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime
+import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from luthien_proxy.settings import get_settings
@@ -90,11 +91,11 @@ class S3ConversationArchiver:
     def _build_s3_key(self, cutoff: datetime) -> str:
         """Build a date-partitioned S3 key for the archive file.
 
-        Format: {prefix}{YYYY-MM-DD}/{timestamp}.jsonl
+        Format: {prefix}{YYYY-MM-DD}/{timestamp}-{uuid4}.jsonl
         """
         date_str = cutoff.strftime("%Y-%m-%d")
-        ts_str = cutoff.strftime("%Y%m%dT%H%M%SZ")
-        return f"{self.prefix}{date_str}/{ts_str}.jsonl"
+        ts_str = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        return f"{self.prefix}{date_str}/{ts_str}-{uuid.uuid4().hex[:8]}.jsonl"
 
     async def archive_calls(self, *, db_conn: Any, cutoff: datetime) -> None:
         """Fetch rows older than cutoff and upload to S3 as JSONL.
