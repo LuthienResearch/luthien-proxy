@@ -329,7 +329,7 @@ async def test_s3_upload_kms_mode(mock_db_pool, mock_s3_client, sample_calls):
 
 @pytest.mark.asyncio
 async def test_s3_upload_kms_mode_without_key_id(mock_db_pool, mock_s3_client, sample_calls):
-    """S3 upload should not include SSEKMSKeyId when it is empty, even if encryption is aws:kms."""
+    """archive_calls raises ValueError when aws:kms is set but kms_key_id is empty."""
     pool, conn = mock_db_pool
     cutoff = datetime(2024, 1, 3, tzinfo=UTC)
 
@@ -338,9 +338,7 @@ async def test_s3_upload_kms_mode_without_key_id(mock_db_pool, mock_s3_client, s
         return_value=MagicMock(retention_s3_encryption="aws:kms", retention_s3_kms_key_id=""),
     ):
         archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
-        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+        with pytest.raises(ValueError, match="RETENTION_S3_KMS_KEY_ID"):
+            await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
 
-        mock_s3_client.put_object.assert_called_once()
-        call_kwargs = mock_s3_client.put_object.call_args[1]
-        assert call_kwargs["ServerSideEncryption"] == "aws:kms"
-        assert "SSEKMSKeyId" not in call_kwargs
+    mock_s3_client.put_object.assert_not_called()
