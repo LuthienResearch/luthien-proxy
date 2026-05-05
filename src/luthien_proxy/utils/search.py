@@ -67,7 +67,8 @@ def session_fts_filter_sql(
             caller's query. Defaults to ``"ce"``.
 
     Returns:
-        ``(sql_fragment, bind_value)``:\n
+        ``(sql_fragment, bind_value)``:
+
         * ``sql_fragment`` references ``table_alias`` and matches events whose
           full-text index contains the query bound to ``placeholder``.
         * ``bind_value`` is the string the caller should append to its
