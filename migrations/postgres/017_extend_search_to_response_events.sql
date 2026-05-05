@@ -16,6 +16,10 @@ BEGIN
         );
     END IF;
     RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+    -- Fail open: see 016 for rationale (to_tsvector 1 MB limit, SQLSTATE 54000).
+    NEW.search_vector := NULL;
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
