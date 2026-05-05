@@ -97,7 +97,7 @@ def _expand_template(template: str, session_id: str | None, request_path: str) -
         return match.group(0)  # Leave unknown variables unexpanded
 
     result = _TEMPLATE_PATTERN.sub(_replace, template)
-    return result.replace("\r", "").replace("\n", "")
+    return result.replace("\r", "").replace("\n", "").replace("\x00", "")
 
 
 def expand_upstream_headers(
