@@ -75,8 +75,11 @@ def session_fts_filter_sql(
           parameter list at the position matching ``placeholder``.
     """
     if pool.is_sqlite:
+        fts_value = _fts5_query_from_user_input(query)
+        if fts_value == '""':
+            raise ValueError("FTS5 query must contain at least one non-whitespace token")
         fragment = f"{table_alias}.id IN (SELECT event_id FROM conversation_events_fts WHERE conversation_events_fts MATCH {placeholder})"
-        return fragment, _fts5_query_from_user_input(query)
+        return fragment, fts_value
     fragment = f"{table_alias}.search_vector @@ plainto_tsquery('english', {placeholder})"
     return fragment, query
 
