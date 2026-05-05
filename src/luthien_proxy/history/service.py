@@ -85,6 +85,8 @@ def extract_text_content(content: str | list[dict[str, Any]] | None) -> str:
     if content is None:
         return ""
     if isinstance(content, str):
+        content = _SYSTEM_REMINDER_PATTERN.sub("", content)
+        content = _POLICY_CONTEXT_PATTERN.sub("", content)
         return content
 
     # Content is a list of content blocks
