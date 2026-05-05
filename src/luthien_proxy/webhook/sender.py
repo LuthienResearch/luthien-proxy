@@ -120,6 +120,12 @@ class WebhookSender:
                 Prevents unbounded memory growth when the endpoint is slow/down.
         """
         self._url = url or None
+        if self._url:
+            scheme = urlparse(self._url).scheme.lower()
+            if scheme not in {"http", "https"}:
+                raise ValueError(
+                    f"WEBHOOK_URL scheme {scheme!r} is not allowed. Only 'http' and 'https' are permitted."
+                )
         self._max_retries = max_retries
         self._retry_delay_seconds = retry_delay_seconds
         self._max_pending_tasks = max_pending_tasks
