@@ -336,11 +336,11 @@ def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None
                 content = content.strip()
                 # Strip system-reminder and policy-context tags (injected by Claude Code / policies).
                 # Loop because either tag can appear first or multiple times.
-                changed = True
-                while changed:
+                for _ in range(20):
                     stripped = _SYSTEM_REMINDER_PATTERN.sub("", content).strip()
                     stripped = _POLICY_CONTEXT_PATTERN.sub("", stripped).strip()
-                    changed = stripped != content
+                    if stripped == content:
+                        break
                     content = stripped
                 if not content:
                     continue
