@@ -16,3 +16,5 @@ pr: 595
   - Server-side session search with full-text indexing
 
 **Breaking change**: Admin UI pages (`/history`, `/activity`, `/policies`, etc.) now redirect to `/login?error=not_configured` when `ADMIN_API_KEY` is unset and `LOCALHOST_AUTH_BYPASS=false`. Previously they were accessible without authentication. Operators running without `ADMIN_API_KEY` must either set it or enable `LOCALHOST_AUTH_BYPASS=true` (default for local dev).
+
+**Breaking change (OTEL)**: The default OTLP exporter protocol changed from gRPC to HTTP/protobuf. Operators running gRPC OTLP collectors (e.g. `otelcol` with `otlp` receiver on port 4317) must set `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` to preserve the previous behavior.
