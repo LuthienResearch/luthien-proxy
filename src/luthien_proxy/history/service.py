@@ -332,11 +332,14 @@ def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None
             if content:
                 # Truncate and clean up for display
                 content = content.strip()
-                # Skip system-reminder and policy-context tags (injected by Claude Code / policies)
-                if content.startswith("<system-reminder>"):
-                    content = _SYSTEM_REMINDER_PATTERN.sub("", content).strip()
-                if content.startswith("<policy-context>"):
-                    content = _POLICY_CONTEXT_PATTERN.sub("", content).strip()
+                # Strip system-reminder and policy-context tags (injected by Claude Code / policies).
+                # Loop because either tag can appear first or multiple times.
+                changed = True
+                while changed:
+                    stripped = _SYSTEM_REMINDER_PATTERN.sub("", content).strip()
+                    stripped = _POLICY_CONTEXT_PATTERN.sub("", stripped).strip()
+                    changed = stripped != content
+                    content = stripped
                 if not content:
                     continue
                 # Replace newlines with spaces for single-line preview
@@ -444,7 +447,9 @@ async def fetch_session_list(
                 """.strip()
             )
         else:
-            fts_fragment, fts_bind_value = session_fts_filter_sql(db_pool, search.q, placeholder=f"${param_idx}")
+            fts_fragment, fts_bind_value = session_fts_filter_sql(
+                db_pool, search.q, placeholder=f"${param_idx}", table_alias="ce_search"
+            )
             params.append(fts_bind_value)
             param_idx += 1
             escaped_q = f"%{escape_like(search.q)}%"
@@ -457,7 +462,7 @@ async def fetch_session_list(
                     WHERE ce_search.session_id = ce.session_id
                     AND ce_search.session_id IS NOT NULL
                     AND (
-                        {fts_fragment.replace("ce.", "ce_search.")}
+                        {fts_fragment}
                         OR EXISTS (
                             SELECT 1
                             FROM json_tree(ce_search.payload, '$.final_response') jt
