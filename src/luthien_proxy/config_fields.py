@@ -183,8 +183,8 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         category="observability",
     ),
     ConfigFieldMeta(
-        "otel_exporter_otlp_endpoint", "OTEL_EXPORTER_OTLP_ENDPOINT", str, "http://tempo:4317",
-        "OTLP exporter endpoint for traces",
+        "otel_exporter_otlp_endpoint", "OTEL_EXPORTER_OTLP_ENDPOINT", str, "http://tempo:4318/v1/traces",
+        "OTLP exporter endpoint for traces (http/protobuf default uses port 4318; set to http://tempo:4317 for gRPC)",
         category="observability",
     ),
     ConfigFieldMeta(
