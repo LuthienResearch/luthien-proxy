@@ -112,6 +112,10 @@ _RESERVED_HEADERS: frozenset[str] = frozenset(
         "connection",
         "upgrade",
         "te",
+        "keep-alive",
+        "trailer",
+        "trailers",
+        "proxy-connection",
         # Credential and session headers managed by clients or the gateway
         "cookie",
         "proxy-authorization",
