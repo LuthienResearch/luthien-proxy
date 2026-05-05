@@ -107,7 +107,7 @@ class ConversationPurger:
                             "DELETE FROM conversation_calls WHERE created_at < $1",
                             cutoff,
                         )
-                        count = int(count_before) if isinstance(count_before, (int, float)) else 0
+                        count = count_before if isinstance(count_before, int) else 0
                     else:
                         deleted = await conn.fetchval(
                             """
@@ -120,7 +120,7 @@ class ConversationPurger:
                             """,
                             cutoff,
                         )
-                        count = int(deleted) if isinstance(deleted, (int, float)) else 0
+                        count = deleted if isinstance(deleted, int) else 0
                 if count > 0:
                     logger.info("Purged %d conversation_calls (cutoff=%s)", count, cutoff.isoformat())
                 else:
