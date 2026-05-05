@@ -21,6 +21,8 @@ $$ LANGUAGE plpgsql;
 
 -- Backfill existing response events
 -- CTE ensures the search-text extraction function is called exactly once per row.
+-- OPERATOR WARNING: Same unbounded-UPDATE caveat as migration 016. On large
+-- production databases run this manually in batches (see 016 for the template).
 WITH computed AS (
     SELECT id, _extract_event_search_text(payload) AS search_text
     FROM conversation_events

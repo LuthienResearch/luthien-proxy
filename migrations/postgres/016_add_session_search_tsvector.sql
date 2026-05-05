@@ -57,9 +57,37 @@ ALTER TABLE conversation_events
 -- Backfill existing rows for transaction.request_recorded events
 -- (these are the events that contain final_request/final_response payloads)
 -- CTE ensures the search-text extraction function is called exactly once per row.
--- NOTE: This backfill runs as a single unbounded UPDATE. On large production databases
--- (millions of rows), this may hold row locks for an extended period and generate a
--- large WAL segment. Consider running manually in batches if the table is large.
+--
+-- OPERATOR WARNING: This backfill is a single unbounded UPDATE over all matching rows.
+-- On production databases with millions of conversation_events rows this will:
+--   - Hold row locks for the full duration of the UPDATE (potentially minutes)
+--   - Generate a large WAL segment proportional to matching rows
+--   - Cause lock contention on tables that other queries read concurrently
+--
+-- For non-trivial deployments, skip this statement and run the backfill manually
+-- in batches, e.g.:
+--   DO $$
+--   DECLARE batch_size INT := 10000; last_id TEXT := '';
+--   BEGIN
+--     LOOP
+--       WITH batch AS (
+--         SELECT id FROM conversation_events
+--         WHERE event_type = 'transaction.request_recorded'
+--           AND search_vector IS NULL AND id > last_id
+--         ORDER BY id LIMIT batch_size
+--       ),
+--       computed AS (
+--         SELECT ce.id, _extract_event_search_text(ce.payload) AS t
+--         FROM conversation_events ce JOIN batch b ON ce.id = b.id
+--       )
+--       UPDATE conversation_events ce
+--       SET search_vector = to_tsvector('english', COALESCE(c.t, ''))
+--       FROM computed c WHERE ce.id = c.id AND c.t IS NOT NULL;
+--       EXIT WHEN NOT FOUND;
+--       SELECT MAX(id) INTO last_id FROM batch;
+--       PERFORM pg_sleep(0.05);
+--     END LOOP;
+--   END $$;
 WITH computed AS (
     SELECT id, _extract_event_search_text(payload) AS search_text
     FROM conversation_events
@@ -74,6 +102,10 @@ WHERE ce.id = c.id
 -- GIN index for fast tsvector queries
 -- CONCURRENTLY: run-migrations.sh runs psql -f without BEGIN/COMMIT wrapping,
 -- so each statement runs in autocommit mode — CREATE INDEX CONCURRENTLY is safe.
+-- If the index build fails mid-way, Postgres marks it INVALID and the migration
+-- tracker still records success (no re-run). Recovery: connect to the DB and run:
+--   DROP INDEX CONCURRENTLY IF EXISTS idx_conversation_events_search_vector;
+-- then re-apply this migration manually (only the CREATE INDEX line is needed).
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_conversation_events_search_vector
     ON conversation_events USING GIN (search_vector)
     WHERE search_vector IS NOT NULL;
