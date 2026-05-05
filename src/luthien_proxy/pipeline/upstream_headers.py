@@ -54,6 +54,11 @@ _HEADER_NAME_RE = re.compile(r"[!#$%&'*+\-.0-9A-Z^_`a-z|~]+")
 _SENSITIVE_ENV_RE = re.compile(
     r"\$\{env\.([^}]*(?:KEY|SECRET|PASSWORD|TOKEN)[^}]*|DATABASE_URL|REDIS_URL)\}", re.IGNORECASE
 )
+# _SENSITIVE_ENV_RE intentionally has broader coverage than _is_sensitive_var: it matches
+# the substring KEY/SECRET/PASSWORD/TOKEN anywhere in the var name (e.g. PUBLIC_KEY_FOO),
+# while _is_sensitive_var only blocks vars that end with those suffixes (e.g. *_KEY).
+# _warn_sensitive_env_refs fires for the gap — vars that contain a sensitive word but
+# don't end with a blocked suffix — so they get a warning rather than a hard block.
 
 # Hard-block: env vars that must never be forwarded to upstream, regardless of configuration.
 # Checked at load time (startup) so misconfigurations fail fast rather than leaking credentials
@@ -171,8 +176,7 @@ def _load_header_templates() -> dict[str, str]:
         _warn_sensitive_env_refs(result)
         return result
     except json.JSONDecodeError as e:
-        logger.error("UPSTREAM_HEADERS: invalid JSON: %s", e)
-        return {}
+        raise ValueError(f"UPSTREAM_HEADERS: invalid JSON — {e}") from e
 
 
 def _expand_template(template: str, session_id: str | None, request_path: str) -> str:
