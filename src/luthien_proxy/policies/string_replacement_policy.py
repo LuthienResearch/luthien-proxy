@@ -231,6 +231,11 @@ def _apply_replacements_to_request_messages(
     Tool use blocks (type="tool_use") are left unchanged — their ``input`` field
     is structured JSON, not free text, and modifying it could break tool calls.
 
+    The top-level ``system`` field is intentionally not processed. System prompts
+    are operator-controlled trusted content; filtering them would be unexpected and
+    could break policy injection. Use a TextModifierPolicy if system-prompt
+    rewriting is needed.
+
     Args:
         request: The Anthropic request dict to modify in-place
         replacements: Tuple of (from, to) string pairs
