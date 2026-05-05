@@ -288,6 +288,14 @@ def test_safe_url_empty_when_no_url():
     assert sender.safe_url == ""
 
 
+@pytest.mark.parametrize("bad_scheme", ["file:///etc/passwd", "javascript://x", "ftp://example.com/hook"])
+def test_bad_scheme_disables_sender(bad_scheme: str):
+    """Non-HTTP(S) schemes log a warning and disable the sender rather than raising."""
+    sender = WebhookSender(url=bad_scheme)
+    assert not sender.enabled
+    assert sender.safe_url == ""
+
+
 @pytest.mark.asyncio
 async def test_fire_and_forget_noop_when_disabled():
     """fire_and_forget does nothing when sender is disabled."""
