@@ -66,7 +66,7 @@ from luthien_proxy.utils.credential_cache import (
     InProcessCredentialCache,
     RedisCredentialCache,
 )
-from luthien_proxy.utils.migration_check import check_migrations
+from luthien_proxy.utils.migration_check import check_index_validity, check_migrations
 from luthien_proxy.utils.url import sanitize_url_for_logging
 from luthien_proxy.version import PROXY_DISPLAY_VERSION
 from luthien_proxy.webhook.sender import WebhookSender
@@ -187,6 +187,7 @@ def create_app(
             # Validate migrations are up to date before proceeding
             await check_migrations(db_pool)
             logger.info("Migration check passed")
+            await check_index_validity(db_pool)
 
             # Validate UPSTREAM_HEADERS at startup — fail fast on misconfiguration
             try:
