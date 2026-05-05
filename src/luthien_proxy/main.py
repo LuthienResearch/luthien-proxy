@@ -437,15 +437,6 @@ def create_app(
         /ready for readiness probes that should fail when the DB is down.
         """
         deps = getattr(request.app.state, "dependencies", None)
-        auth_mode = None
-        if deps and deps.credential_manager:
-            auth_mode = deps.credential_manager.config.auth_mode.value
-
-        last_credential_type = None
-        last_credential_at = None
-        if deps and deps.last_credential_info:
-            last_credential_type = deps.last_credential_info.get("type")
-            last_credential_at = deps.last_credential_info.get("timestamp")
 
         # Ping database to report connectivity
         db_status = "not_configured"
@@ -460,15 +451,11 @@ def create_app(
 
         status = "healthy" if db_status in ("connected", "not_configured") else "degraded"
 
-        response = {
+        return {
             "status": status,
             "version": PROXY_DISPLAY_VERSION,
             "database": db_status,
-            "auth_mode": auth_mode,
-            "last_credential_type": last_credential_type,
-            "last_credential_at": last_credential_at,
         }
-        return response
 
     @app.get("/ready")
     async def ready(request: Request):
