@@ -247,3 +247,9 @@ class TestReservedHeaders:
         monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"X-Custom-Header": "value"}))
         result = _load_header_templates()
         assert result == {"X-Custom-Header": "value"}
+
+    @pytest.mark.parametrize("header", ["cookie", "proxy-authorization", "connection", "upgrade", "te"])
+    def test_new_reserved_headers_blocked(self, monkeypatch: pytest.MonkeyPatch, header: str):
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({header: "bad-value"}))
+        with pytest.raises(ValueError, match=header):
+            _load_header_templates()

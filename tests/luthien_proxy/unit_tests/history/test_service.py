@@ -240,6 +240,22 @@ class TestExtractPreviewMessage:
         }
         assert _extract_preview_message(payload) == "Normal message without policy context"
 
+    def test_strips_system_reminder_before_policy_context(self):
+        system_reminder = "<system-reminder>Do not discuss X.</system-reminder>"
+        policy_context = "<policy-context>Active policies: PolicyA.</policy-context>"
+        user_message = "Hello"
+        content = f"{system_reminder}\n{policy_context}\n{user_message}"
+        payload = {"final_request": {"messages": [{"role": "user", "content": content}]}}
+        assert _extract_preview_message(payload) == user_message
+
+    def test_strips_policy_context_before_system_reminder(self):
+        policy_context = "<policy-context>Active policies: PolicyA.</policy-context>"
+        system_reminder = "<system-reminder>Do not discuss X.</system-reminder>"
+        user_message = "Hello"
+        content = f"{policy_context}\n{system_reminder}\n{user_message}"
+        payload = {"final_request": {"messages": [{"role": "user", "content": content}]}}
+        assert _extract_preview_message(payload) == user_message
+
 
 class TestSafeParseJson:
     """Test safe JSON parsing."""
