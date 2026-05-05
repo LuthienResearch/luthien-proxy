@@ -149,9 +149,7 @@ def extract_user_id_from_bearer_token(token: str | None) -> str | None:
     payload_b64 = parts[1]
     try:
         # Add padding back — JWT base64url strips trailing '='
-        padding = 4 - len(payload_b64) % 4
-        if padding != 4:
-            payload_b64 += "=" * padding
+        payload_b64 += "=" * ((-len(payload_b64)) % 4)
         payload_bytes = base64.urlsafe_b64decode(payload_b64)
         payload = json.loads(payload_bytes)
     except (ValueError, binascii.Error, json.JSONDecodeError, UnicodeDecodeError):
