@@ -274,6 +274,14 @@ def test_safe_url_strips_query_and_fragment():
     assert sender.safe_url == "https://hooks.example.com/webhook"
 
 
+def test_safe_url_redacts_path_secret_segments():
+    """Path segments beyond the first are replaced with '...' to protect Slack/Discord-style secrets."""
+    sender = WebhookSender(url="https://hooks.slack.com/services/T123/B456/SECRET_TOKEN")
+    assert sender.safe_url == "https://hooks.slack.com/services/..."
+    assert "SECRET_TOKEN" not in sender.safe_url
+    assert "T123" not in sender.safe_url
+
+
 def test_safe_url_empty_when_no_url():
     """Returns empty string when no URL configured."""
     sender = WebhookSender(url=None)
