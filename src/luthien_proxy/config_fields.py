@@ -75,6 +75,11 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         "Include internal details in client-facing error responses",
         category="server", db_settable=True, restart_required=False,
     ),
+    ConfigFieldMeta(
+        "trust_user_id_header", "TRUST_USER_ID_HEADER", bool, False,
+        description="Trust the X-Luthien-User-Id request header for user attribution. Disabled by default — only enable when clients are trusted (e.g., behind an authenticated reverse proxy).",
+        category="server", db_settable=True, restart_required=False,
+    ),
 
     # ── auth ──────────────────────────────────────────────────────────────
     ConfigFieldMeta(
@@ -183,6 +188,11 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         category="observability",
     ),
     ConfigFieldMeta(
+        "otel_exporter_protocol", "OTEL_EXPORTER_OTLP_PROTOCOL", str, "http/protobuf",
+        "OTLP exporter protocol: 'http/protobuf' (default, works behind HTTP LBs) or 'grpc'",
+        category="observability",
+    ),
+    ConfigFieldMeta(
         "tempo_url", "TEMPO_URL", str, "http://localhost:3200",
         "Tempo HTTP API URL for trace queries",
         category="observability",
@@ -227,6 +237,60 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         category="telemetry",
     ),
 
+    # ── retention ─────────────────────────────────────────────────────────
+    ConfigFieldMeta(
+        "conversation_retention_days", "CONVERSATION_RETENTION_DAYS", int, None,
+        "Delete conversation_calls older than this many days (None = disabled)",
+        category="retention",
+    ),
+    ConfigFieldMeta(
+        "archive_s3_bucket", "ARCHIVE_S3_BUCKET", str, None,
+        "S3 bucket for archiving conversations before purge (None = no archival)",
+        category="retention",
+    ),
+    ConfigFieldMeta(
+        "archive_s3_prefix", "ARCHIVE_S3_PREFIX", str, "luthien-archive/",
+        "S3 key prefix for archived conversation JSONL files",
+        category="retention",
+    ),
+    ConfigFieldMeta(
+        "retention_archive_batch_size", "RETENTION_ARCHIVE_BATCH_SIZE", int, 1000,
+        "Rows fetched per cursor-based batch when archiving conversation_calls (larger = fewer queries, more memory)",
+        category="retention",
+    ),
+    ConfigFieldMeta(
+        "retention_s3_encryption", "RETENTION_S3_ENCRYPTION", str, "AES256",
+        "S3 server-side encryption algorithm: AES256 or aws:kms",
+        category="retention",
+    ),
+    ConfigFieldMeta(
+        "retention_s3_kms_key_id", "RETENTION_S3_KMS_KEY_ID", str, "",
+        "KMS key ID for aws:kms encryption (required when RETENTION_S3_ENCRYPTION=aws:kms)",
+        category="retention",
+    ),
+
+    # ── webhook ───────────────────────────────────────────────────────────
+    ConfigFieldMeta(
+        "webhook_url", "WEBHOOK_URL", str, "",
+        "Endpoint URL to POST conversation completion events to (leave empty to disable)",
+        category="webhook",
+    ),
+    ConfigFieldMeta(
+        "webhook_max_retries", "WEBHOOK_MAX_RETRIES", int, 3,
+        "Number of retry attempts for failed webhook deliveries",
+        category="webhook",
+    ),
+    ConfigFieldMeta(
+        "webhook_retry_delay_seconds", "WEBHOOK_RETRY_DELAY_SECONDS", float, 1.0,
+        "Base delay in seconds between webhook retry attempts (doubles each retry)",
+        category="webhook",
+    ),
+    ConfigFieldMeta(
+        "webhook_max_pending_tasks", "WEBHOOK_MAX_PENDING_TASKS", int, 1000,
+        "Maximum number of in-flight webhook delivery tasks. When exceeded, new webhooks are dropped and logged. Prevents unbounded memory growth when the webhook endpoint is slow or down.",
+        category="webhook",
+    ),
+
     # ── sentry ────────────────────────────────────────────────────────────
     ConfigFieldMeta(
         "sentry_enabled", "SENTRY_ENABLED", bool, False,
@@ -265,6 +329,8 @@ CONFIG_CATEGORIES: tuple[str, ...] = (
     "security",
     "observability",
     "telemetry",
+    "retention",
+    "webhook",
     "sentry",
 )
 

@@ -23,6 +23,7 @@ class TestSilenceOtelLoggers:
 
         for name in (
             "opentelemetry.exporter.otlp.proto.grpc.exporter",
+            "opentelemetry.exporter.otlp.proto.http.trace_exporter",
             "opentelemetry.sdk.trace.export",
             "grpc._channel",
             "grpc._plugin_wrapping",
@@ -43,7 +44,7 @@ class TestConfigureTracing:
     @patch("luthien_proxy.telemetry._silence_otel_loggers")
     def test_disabled_silences_loggers(self, mock_silence, mock_config):
         """When OTel is disabled, noisy loggers are silenced."""
-        mock_config.return_value = (False, "", "svc", "1.0", "dev")
+        mock_config.return_value = (False, "", "svc", "1.0", "dev", "http/protobuf")
         telemetry.configure_tracing()
         mock_silence.assert_called_once()
 
@@ -51,18 +52,46 @@ class TestConfigureTracing:
     @patch("luthien_proxy.telemetry._silence_otel_loggers")
     def test_enabled_does_not_silence_loggers(self, mock_silence, mock_config):
         """When OTel is enabled, loggers are NOT silenced — connection errors should be visible."""
-        mock_config.return_value = (True, "http://localhost:4317", "svc", "1.0", "dev")
+        mock_config.return_value = (True, "http://localhost:4317", "svc", "1.0", "dev", "http/protobuf")
         telemetry.configure_tracing()
         mock_silence.assert_not_called()
 
     @patch("luthien_proxy.telemetry._get_otel_config")
     def test_disabled_logs_at_debug_not_info(self, mock_config):
         """When OTel is disabled, the message should be DEBUG, not INFO."""
-        mock_config.return_value = (False, "", "svc", "1.0", "dev")
+        mock_config.return_value = (False, "", "svc", "1.0", "dev", "http/protobuf")
         with patch.object(telemetry.logger, "debug") as mock_debug, patch.object(telemetry.logger, "info") as mock_info:
             telemetry.configure_tracing()
             mock_debug.assert_called_once()
             mock_info.assert_not_called()
+
+    @patch("luthien_proxy.telemetry._get_otel_config")
+    @patch("luthien_proxy.telemetry.HttpSpanExporter")
+    @patch("luthien_proxy.telemetry.GrpcSpanExporter")
+    def test_default_protocol_uses_http_exporter(self, mock_grpc, mock_http, mock_config):
+        """Default protocol (http/protobuf) should use the HTTP exporter."""
+        mock_config.return_value = (True, "http://localhost:4318", "svc", "1.0", "dev", "http/protobuf")
+        telemetry.configure_tracing()
+        mock_http.assert_called_once_with(endpoint="http://localhost:4318")
+        mock_grpc.assert_not_called()
+
+    @patch("luthien_proxy.telemetry._get_otel_config")
+    @patch("luthien_proxy.telemetry.HttpSpanExporter")
+    @patch("luthien_proxy.telemetry.GrpcSpanExporter")
+    def test_grpc_protocol_uses_grpc_exporter(self, mock_grpc, mock_http, mock_config):
+        """Explicit grpc protocol should use the gRPC exporter."""
+        mock_config.return_value = (True, "http://localhost:4317", "svc", "1.0", "dev", "grpc")
+        telemetry.configure_tracing()
+        mock_grpc.assert_called_once_with(endpoint="http://localhost:4317", insecure=True)
+        mock_http.assert_not_called()
+
+    @patch("luthien_proxy.telemetry._get_otel_config")
+    @patch("luthien_proxy.telemetry.HttpSpanExporter")
+    def test_unknown_protocol_falls_back_to_http(self, mock_http, mock_config):
+        """Unknown protocol values should fall back to HTTP (fail-safe)."""
+        mock_config.return_value = (True, "http://localhost:4318", "svc", "1.0", "dev", "unknown")
+        telemetry.configure_tracing()
+        mock_http.assert_called_once()
 
 
 class TestInstrumentApp:

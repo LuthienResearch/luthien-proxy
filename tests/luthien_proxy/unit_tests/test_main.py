@@ -20,6 +20,7 @@ from luthien_proxy.main import (
     load_config_from_env,
     propagate_cli_overrides_to_env,
 )
+from luthien_proxy.pipeline.upstream_headers import _load_header_templates
 
 
 class TestLoadConfigFromEnv:
@@ -411,9 +412,10 @@ class TestCreateApp:
             response = client.get("/health")
             assert response.status_code == 200
             data = response.json()
-            assert data["status"] == "healthy"
+            assert data["status"] in ("healthy", "degraded")
             assert data["version"] and data["version"] != "unknown"
             assert data["auth_mode"] in ("client_key", "both", "passthrough", None)
+            assert "database" in data
             assert "last_credential_type" in data
             assert "last_credential_at" in data
 
@@ -465,6 +467,109 @@ class TestCreateApp:
             response = client.get("/health")
             assert response.json()["auth_mode"] == "passthrough"
 
+    def test_health_reports_db_connected(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Health endpoint reports database=connected when DB ping succeeds."""
+        mock_redis_client.get = AsyncMock(return_value=None)
+        # Custom mock pool: fetchval=1 for health ping, fetchrow=None so
+        # PolicyManager falls back to file-based policy loading during startup.
+        mock_pool = AsyncMock()
+        mock_pool.fetchval = AsyncMock(return_value=1)
+        mock_pool.fetchrow = AsyncMock(return_value=None)
+        mock_pool.fetch = AsyncMock(return_value=[])
+        mock_db_pool.get_pool = AsyncMock(return_value=mock_pool)
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            response = client.get("/health")
+            data = response.json()
+            assert data["status"] == "healthy"
+            assert data["database"] == "connected"
+            assert "database_error" not in data
+
+    def test_health_reports_db_unreachable(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Health endpoint reports database=unreachable when DB ping fails, without leaking exception details."""
+        mock_redis_client.get = AsyncMock(return_value=None)
+        # Start with working DB so app initializes, then break it
+        mock_pool = AsyncMock()
+        mock_pool.fetchval = AsyncMock(return_value=1)
+        mock_pool.fetchrow = AsyncMock(return_value=None)
+        mock_pool.fetch = AsyncMock(return_value=[])
+        mock_db_pool.get_pool = AsyncMock(return_value=mock_pool)
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            # Now make DB unreachable for the health check
+            mock_db_pool.get_pool = AsyncMock(side_effect=ConnectionRefusedError("Connection refused"))
+            response = client.get("/health")
+            assert response.status_code == 200  # Liveness probe always 200
+            data = response.json()
+            assert data["status"] == "degraded"
+            assert data["database"] == "unreachable"
+            # Verify no exception details leaked in response
+            assert "database_error" not in data
+            assert "Connection refused" not in str(data)
+
+    def test_ready_returns_200_when_ready(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Readiness probe returns 200 when DB is connected and policy is loaded."""
+        mock_redis_client.get = AsyncMock(return_value=None)
+        mock_pool = AsyncMock()
+        mock_pool.fetchval = AsyncMock(return_value=1)
+        mock_pool.fetchrow = AsyncMock(return_value=None)
+        mock_pool.fetch = AsyncMock(return_value=[])
+        mock_db_pool.get_pool = AsyncMock(return_value=mock_pool)
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            response = client.get("/ready")
+            assert response.status_code == 200
+            assert response.json()["status"] == "ready"
+
+    def test_ready_returns_503_when_db_unreachable(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Readiness probe returns 503 when DB is unreachable, without leaking exception details."""
+        mock_redis_client.get = AsyncMock(return_value=None)
+        # Start with working DB so app initializes, then break it
+        mock_pool = AsyncMock()
+        mock_pool.fetchval = AsyncMock(return_value=1)
+        mock_pool.fetchrow = AsyncMock(return_value=None)
+        mock_pool.fetch = AsyncMock(return_value=[])
+        mock_db_pool.get_pool = AsyncMock(return_value=mock_pool)
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            # Now make DB unreachable for the readiness check
+            mock_db_pool.get_pool = AsyncMock(side_effect=ConnectionRefusedError("Connection refused"))
+            response = client.get("/ready")
+            assert response.status_code == 503
+            data = response.json()
+            assert data["status"] == "not_ready"
+            assert any("database unreachable" in r for r in data["reasons"])
+            # Verify no exception details leaked in response
+            assert not any("Connection refused" in r for r in data["reasons"])
+
     def test_create_app_root_endpoint(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Test root endpoint returns HTML landing page."""
         app = create_app(
@@ -512,6 +617,54 @@ class TestCreateApp:
         # Check that /v2/static route exists
         routes = [getattr(route, "path", None) for route in app.routes]
         assert any("static" in str(r).lower() for r in routes if r)
+
+    @pytest.mark.asyncio
+    async def test_passthrough_client_closed_on_shutdown(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Test that _passthrough_client.aclose() is called during app shutdown."""
+        from unittest.mock import AsyncMock, patch
+
+        # Create a mock for _passthrough_client
+        mock_passthrough_client = AsyncMock()
+        mock_passthrough_client.aclose = AsyncMock()
+
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        # Patch _passthrough_client in gateway_routes and main modules
+        with patch("luthien_proxy.gateway_routes._passthrough_client", mock_passthrough_client):
+            with patch("luthien_proxy.main._passthrough_client", mock_passthrough_client):
+                # Use TestClient to trigger lifespan (startup + shutdown)
+                with TestClient(app):
+                    pass
+
+        # Verify aclose was called during shutdown
+        mock_passthrough_client.aclose.assert_awaited_once()
+
+    def test_startup_fails_on_blocked_upstream_header(
+        self, policy_config_file, mock_db_pool, mock_redis_client, monkeypatch
+    ):
+        """Test that startup fails fast when UPSTREAM_HEADERS contains a reserved header."""
+        _load_header_templates.cache_clear()
+        monkeypatch.setenv("UPSTREAM_HEADERS", '{"Authorization": "Bearer test"}')
+
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with pytest.raises(RuntimeError, match="UPSTREAM_HEADERS validation failed"):
+            with TestClient(app):
+                pass
+
+        _load_header_templates.cache_clear()
 
 
 class TestConnectDb:

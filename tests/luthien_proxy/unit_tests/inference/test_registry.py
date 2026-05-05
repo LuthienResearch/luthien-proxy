@@ -37,6 +37,7 @@ from luthien_proxy.inference.registry import (
     _build_direct_api,
 )
 from luthien_proxy.utils.db import DatabasePool
+from luthien_proxy.utils.db_sqlite import SqliteConnection
 
 
 class _StubProvider(InferenceProvider):
@@ -75,14 +76,9 @@ async def sqlite_pool() -> DatabasePool:
     migrations_dir = Path(__file__).resolve().parents[4] / "migrations" / "sqlite"
 
     async with pool.connection() as conn:
+        assert isinstance(conn, SqliteConnection)
         for migration_file in sorted(migrations_dir.glob("*.sql")):
-            sql = migration_file.read_text()
-            for statement in sql.split(";"):
-                statement = statement.strip()
-                if statement and not all(
-                    line.strip().startswith("--") or not line.strip() for line in statement.split("\n")
-                ):
-                    await conn.execute(statement)
+            await conn.executescript(migration_file.read_text())
 
     yield pool
     await pool.close()
