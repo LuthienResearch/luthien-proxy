@@ -154,6 +154,12 @@ class S3ConversationArchiver:
 
         s3 = self._get_s3_client()
         _settings = get_settings()
+        _VALID_ENCRYPTION_MODES = {"AES256", "aws:kms"}
+        if _settings.retention_s3_encryption not in _VALID_ENCRYPTION_MODES:
+            raise ValueError(
+                f"RETENTION_S3_ENCRYPTION={_settings.retention_s3_encryption!r} is not valid. "
+                f"Must be one of: {sorted(_VALID_ENCRYPTION_MODES)}"
+            )
         put_kwargs = {
             "Bucket": self.bucket,
             "Key": key,
