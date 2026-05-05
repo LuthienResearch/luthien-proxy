@@ -145,9 +145,10 @@ async def credentials_page(
 async def inference_providers_page(
     request: Request,
     admin_key: str | None = Depends(get_admin_key),
+    client_api_key: str | None = Depends(get_api_key),
 ):
     """Inference provider registry UI."""
-    redirect = check_auth_or_redirect(request, admin_key)
+    redirect = check_auth_or_redirect(request, admin_key, client_api_key=client_api_key)
     if redirect:
         return redirect
     return FileResponse(os.path.join(STATIC_DIR, "inference_providers.html"))

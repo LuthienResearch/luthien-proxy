@@ -493,13 +493,15 @@ def create_app(
         # No db_pool is acceptable (SQLite auto-creates, or DB is optional)
 
         # Check policy is loaded
-        try:
-            current_policy = deps.policy_manager.current_policy
-            if current_policy is None:
-                reasons.append("no policy loaded")
-        except Exception as exc:
-            logger.warning("policy unavailable: %s", exc)
-            reasons.append("policy unavailable")
+        if deps.policy_manager is None:
+            reasons.append("policy manager not initialized")
+        else:
+            try:
+                if deps.policy_manager.current_policy is None:
+                    reasons.append("no policy loaded")
+            except Exception as exc:
+                logger.warning("policy unavailable: %s", exc)
+                reasons.append("policy unavailable")
 
         if reasons:
             return JSONResponse(
