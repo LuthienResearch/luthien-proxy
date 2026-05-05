@@ -175,7 +175,8 @@ class WebhookSender:
             if self._client is None:
                 logger.error("Webhook client not initialized — skipping delivery")
                 return False
-            response = await self._client.post(self._url, json=dict(payload))  # type: ignore[arg-type]
+            assert self._url is not None  # guaranteed by __init__ scheme validation
+            response = await self._client.post(self._url, json=dict(payload))
             if response.status_code >= 400:
                 logger.warning(
                     "Webhook delivery failed: HTTP %d from %s",
