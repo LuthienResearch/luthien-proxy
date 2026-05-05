@@ -483,8 +483,8 @@ def create_app(
             try:
                 pool = await deps.db_pool.get_pool()
                 await pool.fetchval("SELECT 1")
-            except Exception:
-                logger.exception("Database readiness check failed")
+            except Exception as exc:
+                logger.warning("Database readiness check failed: %s", type(exc).__name__)
                 reasons.append("database unreachable")
         # No db_pool is acceptable (SQLite auto-creates, or DB is optional)
 
