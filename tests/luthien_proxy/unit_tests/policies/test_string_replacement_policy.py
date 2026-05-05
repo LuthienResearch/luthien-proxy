@@ -849,6 +849,29 @@ class TestStreamingBufferBehavior:
         full_text = await _collect_stream_text(policy, ctx, events)
         assert full_text == "say hihi there"
 
+    @pytest.mark.asyncio
+    async def test_replacement_output_not_reprocessed(self):
+        """Replacement output is not fed back through the replacement loop.
+
+        With replacements=[["ab", "cdab"]], the output "cdab" contains "ab"
+        but must not be re-expanded. This pins the current deterministic
+        behavior so future refactors don't accidentally introduce recursion.
+        """
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["ab", "cdab"]]))
+        ctx = PolicyContext.for_testing()
+
+        events = [
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="xabx"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0),
+        ]
+
+        full_text = await _collect_stream_text(policy, ctx, events)
+        assert full_text == "xcdabx"
+
 
 # -------------------------------------------------------------------------
 # apply_to Config Tests
