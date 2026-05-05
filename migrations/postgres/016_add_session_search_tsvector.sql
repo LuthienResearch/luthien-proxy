@@ -129,6 +129,7 @@ EXCEPTION WHEN OTHERS THEN
     -- Fail open: search-vector population errors (e.g. payload exceeds the
     -- ~1 MB to_tsvector limit, SQLSTATE 54000) must not block conversation
     -- recording. Leave search_vector NULL and let the INSERT succeed.
+    RAISE NOTICE 'search_vector skipped for event %: % (SQLSTATE %)', NEW.id, SQLERRM, SQLSTATE;
     NEW.search_vector := NULL;
     RETURN NEW;
 END;

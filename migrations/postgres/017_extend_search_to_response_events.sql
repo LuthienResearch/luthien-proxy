@@ -18,6 +18,7 @@ BEGIN
     RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
     -- Fail open: see 016 for rationale (to_tsvector 1 MB limit, SQLSTATE 54000).
+    RAISE NOTICE 'search_vector skipped for event %: % (SQLSTATE %)', NEW.id, SQLERRM, SQLSTATE;
     NEW.search_vector := NULL;
     RETURN NEW;
 END;
