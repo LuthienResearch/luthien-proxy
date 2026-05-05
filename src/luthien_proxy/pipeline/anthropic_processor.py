@@ -432,6 +432,8 @@ async def process_anthropic_request(
             if forwarded_headers:
                 reserved = {k.lower() for k in forwarded_headers}
                 upstream = {k: v for k, v in upstream.items() if k.lower() not in reserved}
+            # Intentional merge order: upstream first, client headers last.
+            # Client headers (e.g. anthropic-beta) win over UPSTREAM_HEADERS on collision.
             forwarded_headers = {**(upstream or {}), **(forwarded_headers or {})}
 
         # Create policy cache factory if database is available. The cap is
