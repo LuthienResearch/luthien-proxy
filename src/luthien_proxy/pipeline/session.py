@@ -49,6 +49,10 @@ def extract_session_id_from_anthropic_body(body: dict[str, Any]) -> str | None:
     if not isinstance(user_id, str):
         return None
 
+    if len(user_id) > 8192:
+        logger.debug("metadata.user_id exceeds 8 KB (%d bytes) — skipping", len(user_id))
+        return None
+
     # Try API key format: user_<hash>_account__session_<uuid>
     match = _SESSION_PATTERN.search(user_id)
     if match:
@@ -56,9 +60,6 @@ def extract_session_id_from_anthropic_body(body: dict[str, Any]) -> str | None:
 
     # Try OAuth format: JSON string with session_id field
     try:
-        if len(user_id) > 8192:
-            logger.debug("metadata.user_id exceeds 8 KB (%d bytes) — skipping JSON parse", len(user_id))
-            return None
         parsed = json.loads(user_id)
         if isinstance(parsed, dict):
             session_id = parsed.get("session_id")
