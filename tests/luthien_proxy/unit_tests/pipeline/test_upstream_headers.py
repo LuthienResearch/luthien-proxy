@@ -37,9 +37,10 @@ class TestLoadHeaderTemplates:
         monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps(headers))
         assert _load_header_templates() == headers
 
-    def test_returns_empty_for_invalid_json(self, monkeypatch: pytest.MonkeyPatch):
+    def test_raises_on_invalid_json(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("UPSTREAM_HEADERS", "not json")
-        assert _load_header_templates() == {}
+        with pytest.raises(ValueError, match="invalid JSON"):
+            _load_header_templates()
 
     def test_returns_empty_for_non_object_json(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("UPSTREAM_HEADERS", '["not", "an", "object"]')
