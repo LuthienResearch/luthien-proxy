@@ -28,6 +28,7 @@ from luthien_proxy.credential_manager import AuthMode, CredentialManager
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.exceptions import BackendAPIError
+from luthien_proxy.gateway_routes import _passthrough_client
 from luthien_proxy.gateway_routes import router as gateway_router
 from luthien_proxy.history import routes as history_routes
 from luthien_proxy.inference.registry import InferenceProviderRegistry
@@ -40,8 +41,11 @@ from luthien_proxy.observability.event_publisher import (
 )
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.observability.sentry import init_sentry
+from luthien_proxy.pipeline.upstream_headers import _load_header_templates
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.request_log import router as request_log_router
+from luthien_proxy.retention.archiver import S3ConversationArchiver
+from luthien_proxy.retention.purger import ConversationPurger
 from luthien_proxy.session import login_page_router
 from luthien_proxy.session import router as session_router
 from luthien_proxy.settings import Settings, clear_settings_cache, get_settings
@@ -62,9 +66,10 @@ from luthien_proxy.utils.credential_cache import (
     InProcessCredentialCache,
     RedisCredentialCache,
 )
-from luthien_proxy.utils.migration_check import check_migrations
+from luthien_proxy.utils.migration_check import check_index_validity, check_migrations
 from luthien_proxy.utils.url import sanitize_url_for_logging
 from luthien_proxy.version import PROXY_DISPLAY_VERSION
+from luthien_proxy.webhook.sender import WebhookSender
 
 # Configure OpenTelemetry tracing and logging EARLY (before app creation)
 # This ensures the tracer provider is set up before any spans are created
@@ -167,159 +172,218 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """Manage application lifespan: startup and shutdown."""
-        # Startup
-        logger.info("Starting Luthien Gateway...")
+        # Pre-initialize to None so the finally block can safely guard cleanup
+        # even if startup raises before these are assigned.
+        _telemetry_sender: TelemetrySender | None = None
+        _purger: ConversationPurger | None = None
+        _webhook_sender: WebhookSender | None = None
+        _inference_provider_registry: InferenceProviderRegistry | None = None
+        _credential_manager: CredentialManager | None = None
 
-        # Validate migrations are up to date before proceeding
-        await check_migrations(db_pool)
-        logger.info("Migration check passed")
-
-        # Initialize config registry (CLI > env > DB > defaults)
-        settings = get_settings()
-        _config_registry = ConfigRegistry(
-            settings=settings,
-            db_pool=db_pool,
-            cli_overrides=cli_overrides,
-        )
-        await _config_registry.initialize()
-        logger.info("Config registry initialized")
-
-        # Configure litellm globally (moved from policy file to prevent import side effects)
-        litellm.drop_params = True
-        logger.info("Configured litellm: drop_params=True")
-
-        # Create event publisher (Redis or in-process)
-        _event_publisher: EventPublisherProtocol
-        if redis_client:
-            _event_publisher = RedisEventPublisher(redis_client)
-        else:
-            _event_publisher = InProcessEventPublisher()
-            logger.info("Using in-process event publisher (no Redis)")
-
-        _emitter = EventEmitter(
-            db_pool=db_pool,
-            event_publisher=_event_publisher,
-            stdout_enabled=True,
-        )
-        logger.info("Event emitter created")
-
-        # Initialize PolicyManager
         try:
-            _policy_manager = PolicyManager(
+            # Startup
+            logger.info("Starting Luthien Gateway...")
+
+            # Validate migrations are up to date before proceeding
+            await check_migrations(db_pool)
+            logger.info("Migration check passed")
+            await check_index_validity(db_pool)
+
+            # Validate UPSTREAM_HEADERS at startup — fail fast on misconfiguration
+            try:
+                _load_header_templates()
+                logger.info("UPSTREAM_HEADERS validation passed")
+            except ValueError as exc:
+                logger.error(f"UPSTREAM_HEADERS validation failed: {exc}")
+                raise RuntimeError(f"UPSTREAM_HEADERS validation failed: {exc}") from exc
+
+            # Initialize config registry (CLI > env > DB > defaults)
+            settings = get_settings()
+            _config_registry = ConfigRegistry(
+                settings=settings,
+                db_pool=db_pool,
+                cli_overrides=cli_overrides,
+            )
+            await _config_registry.initialize()
+            logger.info("Config registry initialized")
+
+            # Configure litellm globally (moved from policy file to prevent import side effects)
+            litellm.drop_params = True
+            logger.info("Configured litellm: drop_params=True")
+
+            # Create event publisher (Redis or in-process)
+            _event_publisher: EventPublisherProtocol
+            if redis_client:
+                _event_publisher = RedisEventPublisher(redis_client)
+            else:
+                _event_publisher = InProcessEventPublisher()
+                logger.info("Using in-process event publisher (no Redis)")
+
+            _emitter = EventEmitter(
+                db_pool=db_pool,
+                event_publisher=_event_publisher,
+                stdout_enabled=True,
+            )
+            logger.info("Event emitter created")
+
+            # Initialize PolicyManager
+            try:
+                _policy_manager = PolicyManager(
+                    db_pool=db_pool,
+                    redis_client=redis_client,
+                    startup_policy_path=startup_policy_path,
+                    policy_source=policy_source,
+                )
+                await _policy_manager.initialize()
+                logger.info(f"PolicyManager initialized (policy: {_policy_manager.current_policy.__class__.__name__})")
+            except Exception as exc:
+                logger.error(f"Failed to initialize PolicyManager: {exc}", exc_info=True)
+                raise RuntimeError(f"Failed to initialize PolicyManager: {exc}") from exc
+
+            # Create Anthropic client if API key is configured.
+            # Used as the server-side credential in client_key and both modes.
+            _anthropic_client: AnthropicClient | None = None
+            anthropic_api_key = settings.anthropic_api_key
+            if anthropic_api_key:
+                _anthropic_client = AnthropicClient(api_key=anthropic_api_key)
+
+            # Create credential cache (Redis or in-process)
+            _credential_cache: CredentialCacheProtocol | None
+            if redis_client:
+                _credential_cache = RedisCredentialCache(redis_client)
+            else:
+                _credential_cache = InProcessCredentialCache()
+                logger.info("Using in-process credential cache (no Redis)")
+
+            # Initialize CredentialManager for passthrough auth + server credentials
+            _enc_key_str = get_settings().credential_encryption_key
+            encryption_key = _enc_key_str.encode() if _enc_key_str else None
+            _credential_manager = CredentialManager(
+                db_pool=db_pool, cache=_credential_cache, encryption_key=encryption_key
+            )
+            await _credential_manager.initialize(default_auth_mode=auth_mode)
+
+            # Inference provider registry depends on the credential manager
+            # (it resolves `credential_name` on each lookup).
+            _inference_provider_registry = InferenceProviderRegistry(
+                db_pool=db_pool,
+                credential_manager=_credential_manager,
+            )
+            await _inference_provider_registry.initialize()
+
+            _resolved_mode = _credential_manager.config.auth_mode.value
+            if _resolved_mode == "client_key":
+                logger.warning("Upstream auth mode: client_key — all requests billed to server ANTHROPIC_API_KEY.")
+            elif _resolved_mode == "both":
+                logger.info(
+                    "Upstream auth mode: both — forwards client credentials by default; falls back to server key on CLIENT_API_KEY match."
+                )
+            else:
+                logger.info("Upstream auth mode: passthrough — client credentials forwarded directly to Anthropic.")
+
+            if api_key is None and _resolved_mode == "client_key":
+                raise RuntimeError(
+                    "AUTH_MODE=client_key requires CLIENT_API_KEY to be set. "
+                    "Either set CLIENT_API_KEY or switch to AUTH_MODE=both or AUTH_MODE=passthrough."
+                )
+            elif api_key is None and _resolved_mode == "both":
+                logger.info("CLIENT_API_KEY is not set — shared-key auth unavailable, using passthrough only")
+
+            # Check if request logging is enabled
+            _enable_request_logging = get_settings().enable_request_logging
+            if _enable_request_logging:
+                logger.info("Request/response logging ENABLED")
+
+            # Initialize usage telemetry
+            settings = get_settings()
+            _telemetry_config = await resolve_telemetry_config(
+                db_pool=db_pool,
+                env_value=settings.usage_telemetry,
+            )
+            _usage_collector: UsageCollector | None = None
+            if _telemetry_config.enabled:
+                _usage_collector = UsageCollector()
+                _telemetry_sender = TelemetrySender(
+                    config=_telemetry_config,
+                    collector=_usage_collector,
+                    endpoint=settings.telemetry_endpoint,
+                )
+                _telemetry_sender.start()
+            else:
+                logger.info("Usage telemetry disabled")
+
+            # Initialize conversation retention purger
+            _retention_days = get_settings().conversation_retention_days
+            if _retention_days is not None and _retention_days > 0:
+                _s3_bucket = get_settings().archive_s3_bucket
+                _archiver: S3ConversationArchiver | None = None
+                if _s3_bucket:
+                    _s3_prefix = get_settings().archive_s3_prefix
+                    _archiver = S3ConversationArchiver(
+                        bucket=_s3_bucket,
+                        prefix=_s3_prefix,
+                        batch_size=get_settings().retention_archive_batch_size,
+                    )
+                    logger.info(
+                        "Conversation archival enabled: s3://%s/%s",
+                        _s3_bucket,
+                        _s3_prefix,
+                    )
+                _purger = ConversationPurger(db_pool=db_pool, retention_days=_retention_days, archiver=_archiver)
+                _purger.start()
+            else:
+                logger.info("Conversation retention disabled (CONVERSATION_RETENTION_DAYS not set)")
+
+            # Initialize webhook sender
+            _webhook_url = settings.webhook_url or None
+            _webhook_sender = WebhookSender(
+                url=_webhook_url,
+                max_retries=settings.webhook_max_retries,
+                retry_delay_seconds=settings.webhook_retry_delay_seconds,
+                max_pending_tasks=settings.webhook_max_pending_tasks,
+            )
+            if _webhook_sender.enabled:
+                logger.info("Webhook event export enabled (url=%s)", _webhook_sender.safe_url)
+            else:
+                logger.info("Webhook event export disabled (set WEBHOOK_URL to enable)")
+
+            # Create Dependencies container with all services
+            _dependencies = Dependencies(
                 db_pool=db_pool,
                 redis_client=redis_client,
-                startup_policy_path=startup_policy_path,
-                policy_source=policy_source,
+                policy_manager=_policy_manager,
+                emitter=_emitter,
+                api_key=api_key,
+                admin_key=admin_key,
+                anthropic_client=_anthropic_client,
+                event_publisher=_event_publisher,
+                credential_manager=_credential_manager,
+                inference_provider_registry=_inference_provider_registry,
+                enable_request_logging=_enable_request_logging,
+                usage_collector=_usage_collector,
+                config_registry=_config_registry,
+                webhook_sender=_webhook_sender,
             )
-            await _policy_manager.initialize()
-            logger.info(f"PolicyManager initialized (policy: {_policy_manager.current_policy.__class__.__name__})")
-        except Exception as exc:
-            logger.error(f"Failed to initialize PolicyManager: {exc}", exc_info=True)
-            raise RuntimeError(f"Failed to initialize PolicyManager: {exc}") from exc
 
-        # Create Anthropic client if API key is configured.
-        # Used as the server-side credential in client_key and both modes.
-        _anthropic_client: AnthropicClient | None = None
-        anthropic_api_key = settings.anthropic_api_key
-        if anthropic_api_key:
-            _anthropic_client = AnthropicClient(api_key=anthropic_api_key)
+            # Store dependencies container in app state
+            app.state.dependencies = _dependencies
+            logger.info("Dependencies container initialized")
 
-        # Create credential cache (Redis or in-process)
-        _credential_cache: CredentialCacheProtocol | None
-        if redis_client:
-            _credential_cache = RedisCredentialCache(redis_client)
-        else:
-            _credential_cache = InProcessCredentialCache()
-            logger.info("Using in-process credential cache (no Redis)")
-
-        # Initialize CredentialManager for passthrough auth + server credentials
-        _enc_key_str = get_settings().credential_encryption_key
-        encryption_key = _enc_key_str.encode() if _enc_key_str else None
-        _credential_manager = CredentialManager(db_pool=db_pool, cache=_credential_cache, encryption_key=encryption_key)
-        await _credential_manager.initialize(default_auth_mode=auth_mode)
-
-        # Inference provider registry depends on the credential manager
-        # (it resolves `credential_name` on each lookup).
-        _inference_provider_registry = InferenceProviderRegistry(
-            db_pool=db_pool,
-            credential_manager=_credential_manager,
-        )
-        await _inference_provider_registry.initialize()
-
-        _resolved_mode = _credential_manager.config.auth_mode.value
-        if _resolved_mode == "client_key":
-            logger.warning("Upstream auth mode: client_key — all requests billed to server ANTHROPIC_API_KEY.")
-        elif _resolved_mode == "both":
-            logger.info(
-                "Upstream auth mode: both — forwards client credentials by default; falls back to server key on CLIENT_API_KEY match."
-            )
-        else:
-            logger.info("Upstream auth mode: passthrough — client credentials forwarded directly to Anthropic.")
-
-        if api_key is None and _resolved_mode == "client_key":
-            raise RuntimeError(
-                "AUTH_MODE=client_key requires CLIENT_API_KEY to be set. "
-                "Either set CLIENT_API_KEY or switch to AUTH_MODE=both or AUTH_MODE=passthrough."
-            )
-        elif api_key is None and _resolved_mode == "both":
-            logger.info("CLIENT_API_KEY is not set — shared-key auth unavailable, using passthrough only")
-
-        # Check if request logging is enabled
-        _enable_request_logging = get_settings().enable_request_logging
-        if _enable_request_logging:
-            logger.info("Request/response logging ENABLED")
-
-        # Initialize usage telemetry
-        settings = get_settings()
-        _telemetry_config = await resolve_telemetry_config(
-            db_pool=db_pool,
-            env_value=settings.usage_telemetry,
-        )
-        _usage_collector: UsageCollector | None = None
-        _telemetry_sender: TelemetrySender | None = None
-        if _telemetry_config.enabled:
-            _usage_collector = UsageCollector()
-            _telemetry_sender = TelemetrySender(
-                config=_telemetry_config,
-                collector=_usage_collector,
-                endpoint=settings.telemetry_endpoint,
-            )
-            _telemetry_sender.start()
-        else:
-            logger.info("Usage telemetry disabled")
-
-        # Create Dependencies container with all services
-        _dependencies = Dependencies(
-            db_pool=db_pool,
-            redis_client=redis_client,
-            policy_manager=_policy_manager,
-            emitter=_emitter,
-            api_key=api_key,
-            admin_key=admin_key,
-            anthropic_client=_anthropic_client,
-            event_publisher=_event_publisher,
-            credential_manager=_credential_manager,
-            inference_provider_registry=_inference_provider_registry,
-            enable_request_logging=_enable_request_logging,
-            usage_collector=_usage_collector,
-            config_registry=_config_registry,
-        )
-
-        # Store dependencies container in app state
-        app.state.dependencies = _dependencies
-        logger.info("Dependencies container initialized")
-
-        yield
-
-        # Shutdown
-        if _telemetry_sender is not None:
-            await _telemetry_sender.stop()
-        await _inference_provider_registry.close()
-        await _credential_manager.close()
-        await anthropic_client_cache.close_all()
-        # Note: db_pool and redis_client are NOT closed here - they are owned by
-        # the caller who passed them in. The caller is responsible for cleanup.
-        logger.info("Luthien Gateway shutdown complete")
+            yield
+        finally:
+            if _purger is not None:
+                await _purger.stop()
+            if _webhook_sender is not None:
+                await _webhook_sender.stop()
+            if _telemetry_sender is not None:
+                await _telemetry_sender.stop()
+            if _inference_provider_registry is not None:
+                await _inference_provider_registry.close()
+            if _credential_manager is not None:
+                await _credential_manager.close()
+            await anthropic_client_cache.close_all()
+            await _passthrough_client.aclose()
+            logger.info("Luthien Gateway shutdown complete")
 
     # === APP SETUP ===
     app = FastAPI(
@@ -367,29 +431,82 @@ def create_app(
     # Simple utility endpoints
     @app.get("/health")
     async def health(request: Request):
-        """Health check endpoint.
+        """Health check endpoint (liveness probe).
 
-        Returns gateway status, auth mode, and last observed credential type so
-        operators and the UI can surface billing mode warnings accurately.
+        Returns gateway status including database connectivity. Always returns
+        HTTP 200 — the process is alive even if the DB is unreachable. Use
+        /ready for readiness probes that should fail when the DB is down.
         """
         deps = getattr(request.app.state, "dependencies", None)
-        auth_mode = None
-        if deps and deps.credential_manager:
-            auth_mode = deps.credential_manager.config.auth_mode.value
 
-        last_credential_type = None
-        last_credential_at = None
-        if deps and deps.last_credential_info:
-            last_credential_type = deps.last_credential_info.get("type")
-            last_credential_at = deps.last_credential_info.get("timestamp")
+        # Ping database to report connectivity
+        db_status = "not_configured"
+        if deps and deps.db_pool:
+            try:
+                pool = await deps.db_pool.get_pool()
+                result = await pool.fetchval("SELECT 1")
+                db_status = "connected" if result == 1 else "unexpected_response"
+            except Exception as exc:
+                logger.warning("Database health check failed: %s", type(exc).__name__)
+                db_status = "unreachable"
+
+        status = "healthy" if db_status in ("connected", "not_configured") else "degraded"
 
         return {
-            "status": "healthy",
+            "status": status,
             "version": PROXY_DISPLAY_VERSION,
-            "auth_mode": auth_mode,
-            "last_credential_type": last_credential_type,
-            "last_credential_at": last_credential_at,
+            "database": db_status,
         }
+
+    @app.get("/ready")
+    async def ready(request: Request):
+        """Readiness probe endpoint.
+
+        Returns HTTP 200 only when the gateway is fully ready to serve traffic:
+        database connected and policy loaded. Returns HTTP 503 otherwise.
+
+        Use this for load balancer readiness probes (ECS, Kubernetes) so traffic
+        is not routed until the gateway can actually handle requests. Use /health
+        for liveness probes.
+        """
+        deps = getattr(request.app.state, "dependencies", None)
+        reasons: list[str] = []
+
+        # Check dependencies container exists
+        if not deps:
+            return JSONResponse(
+                status_code=503,
+                content={"status": "not_ready", "reasons": ["dependencies not initialized"]},
+            )
+
+        # Check database connectivity
+        if deps.db_pool:
+            try:
+                pool = await deps.db_pool.get_pool()
+                await pool.fetchval("SELECT 1")
+            except Exception as exc:
+                logger.warning("Database readiness check failed: %s", type(exc).__name__)
+                reasons.append("database unreachable")
+        # No db_pool is acceptable (SQLite auto-creates, or DB is optional)
+
+        # Check policy is loaded
+        if deps.policy_manager is None:
+            reasons.append("policy manager not initialized")
+        else:
+            try:
+                if deps.policy_manager.current_policy is None:
+                    reasons.append("no policy loaded")
+            except Exception as exc:
+                logger.warning("policy unavailable: %s", type(exc).__name__)
+                reasons.append("policy unavailable")
+
+        if reasons:
+            return JSONResponse(
+                status_code=503,
+                content={"status": "not_ready", "reasons": reasons},
+            )
+
+        return {"status": "ready"}
 
     # Format HTTPExceptions and validation errors as Anthropic errors on /v1/messages paths
     app.add_exception_handler(FastAPIHTTPException, http_exception_handler)

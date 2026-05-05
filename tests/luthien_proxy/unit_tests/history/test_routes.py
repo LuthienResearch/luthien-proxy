@@ -6,7 +6,8 @@ These tests focus on the HTTP layer - ensuring routes properly:
 - Return correct response models
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import cast
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -21,11 +22,16 @@ from luthien_proxy.history.models import (
 )
 from luthien_proxy.history.routes import (
     export_session,
+    export_session_jsonl_endpoint,
     get_session,
     list_sessions,
 )
+from luthien_proxy.utils.db import DatabasePool
 
 AUTH_TOKEN = "test-admin-key"
+
+# Default no-search kwargs for list_sessions (all new params None)
+_NO_SEARCH = dict(user=None, model=None, from_time=None, to_time=None, q=None, policy_intervention=None)
 
 
 class TestListSessionsRoute:
@@ -57,7 +63,7 @@ class TestListSessionsRoute:
             new_callable=AsyncMock,
             return_value=expected_response,
         ) as mock_fetch:
-            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=0)
+            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=0, **_NO_SEARCH)
 
             assert isinstance(result, SessionListResponse)
             assert result.total == 100
@@ -65,7 +71,8 @@ class TestListSessionsRoute:
             assert result.has_more is True
             assert len(result.sessions) == 1
             assert result.sessions[0].session_id == "session-1"
-            mock_fetch.assert_called_once_with(50, mock_db_pool, 0)
+            # Called with limit, db_pool, offset, and a SessionSearchParams
+            mock_fetch.assert_called_once_with(50, mock_db_pool, 0, ANY)
 
     @pytest.mark.asyncio
     async def test_list_sessions_custom_limit(self):
@@ -77,8 +84,10 @@ class TestListSessionsRoute:
             new_callable=AsyncMock,
             return_value=SessionListResponse(sessions=[], total=0),
         ) as mock_fetch:
-            await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=100, offset=0)
-            mock_fetch.assert_called_once_with(100, mock_db_pool, 0)
+            await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=100, offset=0, **_NO_SEARCH)
+            call_args = mock_fetch.call_args[0]
+            assert call_args[0] == 100  # limit
+            assert call_args[2] == 0  # offset
 
     @pytest.mark.asyncio
     async def test_list_sessions_with_offset(self):
@@ -96,11 +105,13 @@ class TestListSessionsRoute:
             new_callable=AsyncMock,
             return_value=expected_response,
         ) as mock_fetch:
-            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=50)
+            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=50, **_NO_SEARCH)
 
             assert result.offset == 50
             assert result.has_more is True
-            mock_fetch.assert_called_once_with(50, mock_db_pool, 50)
+            call_args = mock_fetch.call_args[0]
+            assert call_args[0] == 50  # limit
+            assert call_args[2] == 50  # offset
 
     @pytest.mark.asyncio
     async def test_list_sessions_empty(self):
@@ -112,7 +123,7 @@ class TestListSessionsRoute:
             new_callable=AsyncMock,
             return_value=SessionListResponse(sessions=[], total=0),
         ):
-            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=0)
+            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=0, **_NO_SEARCH)
 
             assert result.total == 0
             assert result.sessions == []
@@ -258,3 +269,78 @@ class TestExportSessionRoute:
             assert ">" not in disposition
             assert "(" not in disposition
             assert ")" not in disposition
+
+
+class TestExportSessionJsonlRoute:
+    """Test export_session_jsonl_endpoint route handler."""
+
+    @pytest.mark.asyncio
+    async def test_db_pool_none_returns_503(self):
+        """Test 503 returned when db_pool is None."""
+        with pytest.raises(HTTPException) as exc_info:
+            await export_session_jsonl_endpoint(session_id="any", _=AUTH_TOKEN, db_pool=cast(DatabasePool, None))
+
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail == "Database not available"
+
+    @pytest.mark.asyncio
+    async def test_successful_jsonl_export(self):
+        """Test successful export returns JSONL."""
+        mock_db_pool = MagicMock()
+        session_detail = SessionDetail(
+            session_id="test-session",
+            first_timestamp="2025-01-15T10:00:00",
+            last_timestamp="2025-01-15T11:00:00",
+            turns=[],
+            total_policy_interventions=0,
+            models_used=[],
+        )
+
+        with patch(
+            "luthien_proxy.history.routes.fetch_session_detail",
+            new_callable=AsyncMock,
+            return_value=session_detail,
+        ):
+            result = await export_session_jsonl_endpoint(session_id="test-session", _=AUTH_TOKEN, db_pool=mock_db_pool)
+
+        assert result.media_type == "application/x-ndjson"
+        assert "Content-Disposition" in result.headers
+        assert 'filename="conversation_test-session.jsonl"' in result.headers["Content-Disposition"]
+
+    @pytest.mark.asyncio
+    async def test_jsonl_export_not_found(self):
+        """Test 404 returned for non-existent session."""
+        mock_db_pool = MagicMock()
+
+        with patch(
+            "luthien_proxy.history.routes.fetch_session_detail",
+            new_callable=AsyncMock,
+            side_effect=ValueError("No events found for session_id: nonexistent"),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await export_session_jsonl_endpoint(session_id="nonexistent", _=AUTH_TOKEN, db_pool=mock_db_pool)
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.detail == "Session not found."
+
+
+class TestDeprecatedHistoryDetailRedirect:
+    """Test deprecated /history/session/{id} redirects to live view."""
+
+    @pytest.mark.asyncio
+    async def test_redirects_to_conversation_live(self):
+        from luthien_proxy.history.routes import deprecated_history_detail_redirect
+
+        result = await deprecated_history_detail_redirect("test-session-123")
+        assert result.status_code == 301
+        assert result.headers["location"] == "/conversation/live/test-session-123"
+
+    @pytest.mark.asyncio
+    async def test_url_encodes_special_characters(self):
+        from luthien_proxy.history.routes import deprecated_history_detail_redirect
+
+        result = await deprecated_history_detail_redirect("id with spaces#fragment")
+        location = result.headers["location"]
+        assert " " not in location
+        assert "#" not in location
+        assert "id%20with%20spaces%23fragment" in location

@@ -262,3 +262,39 @@ async def check_migrations(
         raise RuntimeError(error_msg)
 
     logger.info(f"Migration check passed: {len(db_migrations)} migrations applied")
+
+
+async def check_index_validity(db_pool: DatabasePool) -> None:
+    """Log a warning for any INVALID GIN/GiST indexes on conversation_events.
+
+    CREATE INDEX CONCURRENTLY leaves an INVALID index when it fails mid-build.
+    An INVALID index causes search to silently fall back to sequential scans
+    with no operator signal. This probe is Postgres-only (SQLite has no such concept).
+    """
+    if db_pool.is_sqlite:
+        return
+
+    pool = await db_pool.get_pool()
+    try:
+        rows = await pool.fetch(
+            """
+            SELECT i.relname AS index_name
+            FROM pg_index ix
+            JOIN pg_class i ON i.oid = ix.indexrelid
+            JOIN pg_class t ON t.oid = ix.indrelid
+            WHERE t.relname = 'conversation_events'
+              AND NOT ix.indisvalid
+            """
+        )
+    except Exception as exc:
+        logger.warning("Could not check index validity: %s", type(exc).__name__)
+        return
+
+    for row in rows:
+        logger.warning(
+            "INVALID index detected: %s on conversation_events. "
+            "Search will fall back to sequential scans. "
+            "To recover: DROP INDEX CONCURRENTLY %s; then re-run the migration.",
+            row["index_name"],
+            row["index_name"],
+        )

@@ -13,7 +13,9 @@ Migrations live in two directories with matched numbering:
 
 Every migration needs BOTH a Postgres and SQLite file with matched numbering.
 
-1. Pick the next number: `ls migrations/postgres/` to see current highest. Use zero-padded 3-digit prefixes (e.g., `010`, not `10`). Note: `008` is used by two historical migrations — do not reuse prefixes.
+1. Pick the next number: `ls migrations/postgres/` to see current highest. Use zero-padded 3-digit prefixes (e.g., `010`, not `10`).
+
+   **Prefix reuse policy**: Ideally each prefix is used exactly once. In practice, prefixes 008 and 014–017 each have multiple files (from parallel development). When a prefix has multiple files, the migration runner applies them in **alphabetical order within that prefix** — so `014_add_session_search_fts.sql` runs before `014_add_user_id.sql`. New migrations must use a fresh prefix (currently `018` or higher) to avoid ambiguous ordering.
 2. Create `migrations/postgres/NNN_description.sql` with Postgres-native DDL.
 3. Create `migrations/sqlite/NNN_description.sql` with SQLite-compatible DDL.
 4. Copy the SQLite file: `cp migrations/sqlite/NNN_*.sql src/luthien_proxy/utils/sqlite_migrations/`

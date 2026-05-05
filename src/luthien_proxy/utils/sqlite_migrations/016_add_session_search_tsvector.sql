@@ -1,0 +1,4 @@
+-- ABOUTME: SQLite stub for migration 016 (tsvector full-text search)
+-- ABOUTME: SQLite does not support tsvector or GIN indexes
+-- ABOUTME: Full-text search on SQLite uses FTS5 (set up in 014_add_session_search_fts.sql)
+-- ABOUTME: No schema changes needed here

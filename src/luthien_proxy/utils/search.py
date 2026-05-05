@@ -49,6 +49,7 @@ def session_fts_filter_sql(
     query: str,
     *,
     placeholder: str,
+    table_alias: str = "ce",
 ) -> tuple[str, str]:
     """Return ``(sql_fragment, bind_value)`` for a full-text filter on conversation events.
 
@@ -62,22 +63,24 @@ def session_fts_filter_sql(
             The placeholder is inlined into the fragment verbatim; pass a
             literal that your query-builder controls -- never a format string
             derived from user input.
+        table_alias: SQL alias for the ``conversation_events`` table in the
+            caller's query. Defaults to ``"ce"``.
 
     Returns:
         ``(sql_fragment, bind_value)``:
 
-        * ``sql_fragment`` references the alias ``ce`` (i.e. the caller's query
-          must use ``FROM conversation_events ce``) and matches events whose
+        * ``sql_fragment`` references ``table_alias`` and matches events whose
           full-text index contains the query bound to ``placeholder``.
         * ``bind_value`` is the string the caller should append to its
           parameter list at the position matching ``placeholder``.
     """
     if pool.is_sqlite:
-        fragment = (
-            f"ce.id IN (SELECT event_id FROM conversation_events_fts WHERE conversation_events_fts MATCH {placeholder})"
-        )
-        return fragment, _fts5_query_from_user_input(query)
-    fragment = f"ce.search_vector @@ plainto_tsquery('english', {placeholder})"
+        fts_value = _fts5_query_from_user_input(query)
+        if fts_value == '""':
+            raise ValueError("FTS5 query must contain at least one non-whitespace token")
+        fragment = f"{table_alias}.id IN (SELECT event_id FROM conversation_events_fts WHERE conversation_events_fts MATCH {placeholder})"
+        return fragment, fts_value
+    fragment = f"{table_alias}.search_vector @@ plainto_tsquery('english', {placeholder})"
     return fragment, query
 
 
