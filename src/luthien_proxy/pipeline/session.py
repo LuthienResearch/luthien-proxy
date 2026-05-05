@@ -138,6 +138,9 @@ def extract_user_id_from_bearer_token(token: str | None) -> str | None:
     if not token:
         return None
 
+    if len(token) > 8192:
+        return None
+
     # JWTs have exactly three dot-separated parts
     parts = token.split(".")
     if len(parts) != 3:
