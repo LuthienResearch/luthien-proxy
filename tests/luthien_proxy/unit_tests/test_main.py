@@ -414,13 +414,13 @@ class TestCreateApp:
             data = response.json()
             assert data["status"] in ("healthy", "degraded")
             assert data["version"] and data["version"] != "unknown"
-            assert data["auth_mode"] in ("client_key", "both", "passthrough", None)
             assert "database" in data
-            assert "last_credential_type" in data
-            assert "last_credential_at" in data
+            assert "auth_mode" not in data
+            assert "last_credential_type" not in data
+            assert "last_credential_at" not in data
 
     def test_create_app_health_endpoint_client_key_mode(self, policy_config_file, mock_db_pool, mock_redis_client):
-        """Health endpoint reports auth_mode=client_key when configured."""
+        """Health endpoint does not expose auth_mode (moved off unauthenticated endpoint)."""
         mock_redis_client.get = AsyncMock(return_value=None)
         app = create_app(
             api_key="test-key",
@@ -433,10 +433,11 @@ class TestCreateApp:
 
         with TestClient(app) as client:
             response = client.get("/health")
-            assert response.json()["auth_mode"] == "client_key"
+            assert response.status_code == 200
+            assert "auth_mode" not in response.json()
 
     def test_create_app_health_endpoint_both_mode(self, policy_config_file, mock_db_pool, mock_redis_client):
-        """Health endpoint reports auth_mode=both when configured."""
+        """Health endpoint does not expose auth_mode (moved off unauthenticated endpoint)."""
         mock_redis_client.get = AsyncMock(return_value=None)
         app = create_app(
             api_key="test-key",
@@ -449,10 +450,11 @@ class TestCreateApp:
 
         with TestClient(app) as client:
             response = client.get("/health")
-            assert response.json()["auth_mode"] == "both"
+            assert response.status_code == 200
+            assert "auth_mode" not in response.json()
 
     def test_create_app_health_endpoint_passthrough_mode(self, policy_config_file, mock_db_pool, mock_redis_client):
-        """Health endpoint reports auth_mode=passthrough when configured."""
+        """Health endpoint does not expose auth_mode (moved off unauthenticated endpoint)."""
         mock_redis_client.get = AsyncMock(return_value=None)
         app = create_app(
             api_key="test-key",
@@ -465,7 +467,8 @@ class TestCreateApp:
 
         with TestClient(app) as client:
             response = client.get("/health")
-            assert response.json()["auth_mode"] == "passthrough"
+            assert response.status_code == 200
+            assert "auth_mode" not in response.json()
 
     def test_health_reports_db_connected(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Health endpoint reports database=connected when DB ping succeeds."""

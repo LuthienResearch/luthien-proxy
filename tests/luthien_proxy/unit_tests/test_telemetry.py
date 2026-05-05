@@ -86,12 +86,11 @@ class TestConfigureTracing:
         mock_http.assert_not_called()
 
     @patch("luthien_proxy.telemetry._get_otel_config")
-    @patch("luthien_proxy.telemetry.HttpSpanExporter")
-    def test_unknown_protocol_falls_back_to_http(self, mock_http, mock_config):
-        """Unknown protocol values should fall back to HTTP (fail-safe)."""
+    def test_unknown_protocol_raises(self, mock_config):
+        """Unknown protocol values raise ValueError instead of silently falling back."""
         mock_config.return_value = (True, "http://localhost:4318", "svc", "1.0", "dev", "unknown")
-        telemetry.configure_tracing()
-        mock_http.assert_called_once()
+        with pytest.raises(ValueError, match="OTEL_EXPORTER_OTLP_PROTOCOL"):
+            telemetry.configure_tracing()
 
 
 class TestInstrumentApp:
