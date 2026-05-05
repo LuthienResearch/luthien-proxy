@@ -120,6 +120,12 @@ BEGIN
         );
     END IF;
     RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+    -- Fail open: search-vector population errors (e.g. payload exceeds the
+    -- ~1 MB to_tsvector limit, SQLSTATE 54000) must not block conversation
+    -- recording. Leave search_vector NULL and let the INSERT succeed.
+    NEW.search_vector := NULL;
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
