@@ -496,7 +496,7 @@ def create_app(
                 if deps.policy_manager.current_policy is None:
                     reasons.append("no policy loaded")
             except Exception as exc:
-                logger.warning("policy unavailable: %s", exc)
+                logger.warning("policy unavailable: %s", type(exc).__name__)
                 reasons.append("policy unavailable")
 
         if reasons:
