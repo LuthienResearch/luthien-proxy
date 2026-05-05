@@ -177,6 +177,13 @@ def _load_header_templates() -> dict[str, str]:
                             f"UPSTREAM_HEADERS: header '{header}' references blocked env var "
                             f"'${{env.{env_name}}}' — forwarding this variable is not permitted"
                         )
+                elif var not in {"session_id", "request_path"}:
+                    logger.warning(
+                        "UPSTREAM_HEADERS: header '%s' references unknown variable '${%s}' "
+                        "— it will be left unexpanded in every request",
+                        header,
+                        var,
+                    )
         _warn_sensitive_env_refs(result)
         return result
     except json.JSONDecodeError as e:
@@ -195,8 +202,7 @@ def _expand_template(template: str, session_id: str | None, request_path: str) -
         if var.startswith("env."):
             env_name = var[4:]
             return os.environ.get(env_name, "")
-        logger.debug("Unknown template variable: ${%s}", var)
-        return match.group(0)  # Leave unknown variables unexpanded
+        return match.group(0)  # Leave unknown variables unexpanded (warned at load time)
 
     result = _TEMPLATE_PATTERN.sub(_replace, template)
     return result.replace("\r", "").replace("\n", "").replace("\x00", "")
