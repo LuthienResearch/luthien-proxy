@@ -9,8 +9,11 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import logging
 import re
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Header name for clients to provide session ID (used by Claude Code and other integrations)
 SESSION_ID_HEADER = "x-session-id"
@@ -54,6 +57,7 @@ def extract_session_id_from_anthropic_body(body: dict[str, Any]) -> str | None:
     # Try OAuth format: JSON string with session_id field
     try:
         if len(user_id) > 8192:
+            logger.debug("metadata.user_id exceeds 8 KB (%d bytes) — skipping JSON parse", len(user_id))
             return None
         parsed = json.loads(user_id)
         if isinstance(parsed, dict):
