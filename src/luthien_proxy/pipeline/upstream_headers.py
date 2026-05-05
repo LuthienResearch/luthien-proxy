@@ -78,7 +78,18 @@ _SENSITIVE_VAR_BLOCKLIST: frozenset[str] = frozenset(
     }
 )
 
-_SENSITIVE_VAR_SUFFIXES: tuple[str, ...] = ("_KEY", "_SECRET", "_PASSWORD", "_TOKEN")
+_SENSITIVE_VAR_SUFFIXES: tuple[str, ...] = (
+    "_KEY",
+    "_SECRET",
+    "_PASSWORD",
+    "_TOKEN",
+    "_PWD",
+    "_DSN",  # often embeds credentials (e.g. SENTRY_DSN)
+    "_CREDENTIAL",
+    "_CREDENTIALS",
+    "_AUTH",
+    "_PRIVATE",
+)
 
 # Hard-block: HTTP headers that must never be overridden via UPSTREAM_HEADERS.
 # These are reserved by the HTTP protocol or carry security-critical credentials
@@ -92,6 +103,13 @@ _RESERVED_HEADERS: frozenset[str] = frozenset(
         "content-type",
         "content-length",
         "transfer-encoding",
+        # HTTP protocol / hop-by-hop headers that must not be forwarded or overridden
+        "connection",
+        "upgrade",
+        "te",
+        # Credential and session headers managed by clients or the gateway
+        "cookie",
+        "proxy-authorization",
     }
 )
 
