@@ -160,7 +160,13 @@ class S3ConversationArchiver:
             "ContentType": "application/x-ndjson",
             "ServerSideEncryption": _settings.retention_s3_encryption,
         }
-        if _settings.retention_s3_encryption == "aws:kms" and _settings.retention_s3_kms_key_id:
+        if _settings.retention_s3_encryption == "aws:kms":
+            if not _settings.retention_s3_kms_key_id:
+                raise ValueError(
+                    "RETENTION_S3_ENCRYPTION=aws:kms requires RETENTION_S3_KMS_KEY_ID to be set. "
+                    "Leaving it unset silently falls back to the AWS-managed default key, "
+                    "which is weaker than an explicitly configured customer-managed KMS key."
+                )
             put_kwargs["SSEKMSKeyId"] = _settings.retention_s3_kms_key_id
 
         await asyncio.to_thread(s3.put_object, **put_kwargs)
