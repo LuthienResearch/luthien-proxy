@@ -101,9 +101,6 @@ async def verify_admin_token(
     if session_token:
         return session_token
 
-    # Collect the presented token (Bearer or x-api-key)
-    presented_token = credentials.credentials if credentials else request.headers.get("x-api-key")
-
     # Check Bearer token in Authorization header
     if credentials and secrets.compare_digest(credentials.credentials, admin_key):
         return credentials.credentials
@@ -113,15 +110,17 @@ async def verify_admin_token(
     if x_api_key and secrets.compare_digest(x_api_key, admin_key):
         return x_api_key
 
-    # Active rejection: if the key matches CLIENT_API_KEY, give a clear error
-    # rather than a generic "wrong key" message. This enforces role separation.
-    if presented_token and client_api_key and secrets.compare_digest(presented_token, client_api_key):
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "Proxy API key (CLIENT_API_KEY) cannot be used for admin access. Use ADMIN_API_KEY for admin endpoints."
-            ),
-        )
+    # Active rejection: if either presented token matches CLIENT_API_KEY, give a
+    # clear role-separation error. Check both headers so a client sending x-api-key
+    # alongside an unrelated Bearer still gets the helpful 403 rather than a generic
+    # "wrong key" message.
+    bearer_token = credentials.credentials if credentials else None
+    for token in filter(None, [bearer_token, x_api_key]):
+        if client_api_key and secrets.compare_digest(token, client_api_key):
+            raise HTTPException(
+                status_code=403,
+                detail="Proxy API key (CLIENT_API_KEY) cannot be used for admin access. Use ADMIN_API_KEY for admin endpoints.",
+            )
 
     raise HTTPException(
         status_code=403,
