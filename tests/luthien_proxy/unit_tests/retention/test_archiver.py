@@ -281,6 +281,9 @@ async def test_archive_calls_cursor_batching(mock_s3_client):
         await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
 
         assert conn.fetch.call_count == 2
+        # Second fetch must use the last call_id from batch1 as the cursor
+        second_call_args = conn.fetch.call_args_list[1]
+        assert second_call_args.args[2] == "call-002"
 
         mock_s3_client.put_object.assert_called_once()
         body = mock_s3_client.put_object.call_args[1]["Body"]
