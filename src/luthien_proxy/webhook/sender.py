@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from datetime import UTC, datetime
 from typing import TypedDict
 from urllib.parse import urlparse, urlunparse
@@ -181,6 +182,7 @@ class WebhookSender:
         Args:
             payload: Conversation completion payload to send.
         """
+        _MAX_DELAY_SECONDS = 60.0
         delay = self._retry_delay_seconds
         for attempt in range(1 + self._max_retries):
             try:
@@ -200,14 +202,16 @@ class WebhookSender:
                 return
 
             if attempt < self._max_retries:
+                jittered = delay * (0.5 + random.random())  # ±50% jitter
+                capped = min(jittered, _MAX_DELAY_SECONDS)
                 logger.debug(
                     "Webhook delivery attempt %d/%d failed, retrying in %.1fs",
                     attempt + 1,
                     1 + self._max_retries,
-                    delay,
+                    capped,
                 )
-                await asyncio.sleep(delay)
-                delay *= 2  # Exponential backoff
+                await asyncio.sleep(capped)
+                delay *= 2  # Exponential backoff (before jitter/cap on next iteration)
 
         logger.error(
             "Webhook delivery to %s failed after %d attempts — giving up",
@@ -264,9 +268,9 @@ class WebhookSender:
             is_streaming=is_streaming,
         )
         task = asyncio.create_task(self._send_with_retries(payload))
+        task.add_done_callback(self._pending_tasks.discard)
+        task.add_done_callback(_log_task_exception)
         self._pending_tasks.add(task)
-        task.add_done_callback(self._pending_tasks.discard)  # Remove from set first
-        task.add_done_callback(_log_task_exception)  # Then log any exception
 
     async def stop(self) -> None:
         """Cancel pending tasks and close the shared HTTP client.
