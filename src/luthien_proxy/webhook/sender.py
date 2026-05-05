@@ -123,9 +123,11 @@ class WebhookSender:
         if self._url:
             scheme = urlparse(self._url).scheme.lower()
             if scheme not in {"http", "https"}:
-                raise ValueError(
-                    f"WEBHOOK_URL scheme {scheme!r} is not allowed. Only 'http' and 'https' are permitted."
+                logger.warning(
+                    "WEBHOOK_URL scheme %r is not allowed (only 'http'/'https'). Webhook sender disabled.",
+                    scheme,
                 )
+                self._url = None
         self._max_retries = max_retries
         self._retry_delay_seconds = retry_delay_seconds
         self._max_pending_tasks = max_pending_tasks
