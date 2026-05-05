@@ -94,7 +94,10 @@ class ConversationPurger:
                     # Delete old calls; cascading FKs clean up child tables.
                     # SQLite does not support DELETE...RETURNING inside a CTE, so we
                     # use a two-step approach: fetch the count first, then delete.
-                    # Postgres uses the more efficient CTE form.
+                    # Both steps run inside the same transaction so no concurrent writer
+                    # can insert or delete rows between them (SQLite is single-writer).
+                    # The returned count is the pre-delete match count, which is exact.
+                    # Postgres uses the more efficient CTE form with RETURNING.
                     if self._db_pool.is_sqlite:
                         count_before = await conn.fetchval(
                             "SELECT COUNT(*) FROM conversation_calls WHERE created_at < $1",
