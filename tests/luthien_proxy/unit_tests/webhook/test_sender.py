@@ -73,13 +73,17 @@ def test_build_payload_zero_tokens():
 
 
 @pytest.fixture
-def sender():
-    return WebhookSender(url="https://example.com/webhook")
+async def sender():
+    s = WebhookSender(url="https://example.com/webhook")
+    yield s
+    await s.stop()
 
 
 @pytest.fixture
-def sender_with_retries():
-    return WebhookSender(url="https://example.com/webhook", max_retries=3, retry_delay_seconds=0.01)
+async def sender_with_retries():
+    s = WebhookSender(url="https://example.com/webhook", max_retries=3, retry_delay_seconds=0.01)
+    yield s
+    await s.stop()
 
 
 @pytest.mark.asyncio
