@@ -21,6 +21,8 @@ from luthien_proxy.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
+_VALID_ENCRYPTION_MODES: frozenset[str] = frozenset({"AES256", "aws:kms"})
+
 # Explicit column list for conversation_calls — updated alongside schema migrations.
 # Never use SELECT * to ensure column order is stable and no extra columns leak into archives.
 _CONVERSATION_CALLS_COLUMNS = (
@@ -153,11 +155,10 @@ class S3ConversationArchiver:
         key = self._build_s3_key(cutoff)
 
         s3 = self._get_s3_client()
-        _settings = get_settings()
-        _VALID_ENCRYPTION_MODES = {"AES256", "aws:kms"}
-        if _settings.retention_s3_encryption not in _VALID_ENCRYPTION_MODES:
+        settings = get_settings()
+        if settings.retention_s3_encryption not in _VALID_ENCRYPTION_MODES:
             raise ValueError(
-                f"RETENTION_S3_ENCRYPTION={_settings.retention_s3_encryption!r} is not valid. "
+                f"RETENTION_S3_ENCRYPTION={settings.retention_s3_encryption!r} is not valid. "
                 f"Must be one of: {sorted(_VALID_ENCRYPTION_MODES)}"
             )
         put_kwargs = {
@@ -165,16 +166,16 @@ class S3ConversationArchiver:
             "Key": key,
             "Body": body,
             "ContentType": "application/x-ndjson",
-            "ServerSideEncryption": _settings.retention_s3_encryption,
+            "ServerSideEncryption": settings.retention_s3_encryption,
         }
-        if _settings.retention_s3_encryption == "aws:kms":
-            if not _settings.retention_s3_kms_key_id:
+        if settings.retention_s3_encryption == "aws:kms":
+            if not settings.retention_s3_kms_key_id:
                 raise ValueError(
                     "RETENTION_S3_ENCRYPTION=aws:kms requires RETENTION_S3_KMS_KEY_ID to be set. "
                     "Leaving it unset silently falls back to the AWS-managed default key, "
                     "which is weaker than an explicitly configured customer-managed KMS key."
                 )
-            put_kwargs["SSEKMSKeyId"] = _settings.retention_s3_kms_key_id
+            put_kwargs["SSEKMSKeyId"] = settings.retention_s3_kms_key_id
 
         await asyncio.to_thread(s3.put_object, **put_kwargs)
         logger.info("Archived %d rows to s3://%s/%s", total_rows, self.bucket, key)
