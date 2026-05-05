@@ -12,7 +12,7 @@
 -- INSERT (conversation_events are effectively immutable event records, so an
 -- UPDATE trigger would be asymmetrical -- Postgres doesn't have one). A DELETE
 -- trigger is needed on SQLite because the FTS5 virtual table is external to
--- conversation_events; the Postgres tsvector column is deleted automatically
+-- conversation_events -- the Postgres tsvector column is deleted automatically
 -- when its row is removed via CASCADE from conversation_calls.
 
 CREATE VIRTUAL TABLE IF NOT EXISTS conversation_events_fts USING fts5(
