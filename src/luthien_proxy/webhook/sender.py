@@ -156,7 +156,9 @@ class WebhookSender:
         """
         try:
             # self._url is str when enabled (checked by caller); TypedDict value is str | None
-            assert self._client is not None
+            if self._client is None:
+                logger.error("Webhook client not initialized — skipping delivery")
+                return False
             response = await self._client.post(self._url, json=dict(payload))  # type: ignore[arg-type]
             if response.status_code >= 400:
                 logger.warning(
