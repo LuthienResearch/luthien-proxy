@@ -153,6 +153,8 @@ class WebhookSender:
             return ""
         parsed = urlparse(self._url)
         host = parsed.hostname or ""
+        if ":" in host:
+            host = f"[{host}]"
         netloc = f"{host}:{parsed.port}" if parsed.port else host
         # Keep only the first path segment; redact the rest
         path_parts = parsed.path.split("/")
@@ -224,7 +226,7 @@ class WebhookSender:
                     capped,
                 )
                 await asyncio.sleep(capped)
-                delay *= 2  # Exponential backoff (before jitter/cap on next iteration)
+                delay = min(delay * 2, _MAX_DELAY_SECONDS)
 
         logger.error(
             "Webhook delivery to %s failed after %d attempts — giving up",
@@ -262,7 +264,8 @@ class WebhookSender:
 
         if len(self._pending_tasks) >= self._max_pending_tasks:
             self._dropped_due_to_backpressure += 1
-            if self._dropped_due_to_backpressure == 1 or self._dropped_due_to_backpressure % 100 == 0:
+            n = self._dropped_due_to_backpressure
+            if n == 1 or (n < 1000 and n % 10 == 0) or n % 1000 == 0:
                 logger.warning(
                     "Webhook backpressure: dropped %d webhook(s) — pending task cap %d reached (url=%s)",
                     self._dropped_due_to_backpressure,
