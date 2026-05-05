@@ -27,7 +27,7 @@ done
 echo "✅ Database is ready"
 
 # Create migrations tracking table if it doesn't exist (with content_hash for validation)
-psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" <<EOF
+psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -v ON_ERROR_STOP=1 <<EOF
 CREATE TABLE IF NOT EXISTS _migrations (
     filename TEXT PRIMARY KEY,
     applied_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -60,7 +60,7 @@ compute_hash() {
 # command and GRANT wrapper changed. Update the stored hash so validation passes.
 OLD_008_HASH="49ad0e5ce7fc13692a5300ed30f1a96e"
 NEW_008_HASH="76cfa2f26a6925f00ca10e76159bb2ea"
-psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -q <<EOF
+psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -q -v ON_ERROR_STOP=1 <<EOF
 UPDATE _migrations
    SET content_hash = '$NEW_008_HASH'
  WHERE filename = '008_add_request_logs_table.sql'
@@ -74,7 +74,7 @@ EOF
 # The sqlite_schema.sql file has moved to migrations/sqlite/ and is no longer
 # in the Postgres migrations directory. Remove the stale tracking row to prevent
 # "file not found locally" validation errors.
-psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -q <<EOF
+psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -q -v ON_ERROR_STOP=1 <<EOF
 DELETE FROM _migrations WHERE filename = 'sqlite_schema.sql';
 EOF
 
@@ -150,8 +150,8 @@ EOF
     if [ "$applied" = "0" ]; then
         echo "📦 Applying migration: $filename"
         content_hash=$(compute_hash "$migration")
-        psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -f "$migration"
-        psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" <<EOF
+        psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -v ON_ERROR_STOP=1 -f "$migration"
+        psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -v ON_ERROR_STOP=1 <<EOF
 INSERT INTO _migrations (filename, content_hash) VALUES ('$filename', '$content_hash');
 EOF
         echo "✅ Applied: $filename (hash: $content_hash)"
