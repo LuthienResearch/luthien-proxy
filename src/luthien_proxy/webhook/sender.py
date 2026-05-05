@@ -286,6 +286,9 @@ class WebhookSender:
         task = asyncio.create_task(self._send_with_retries(payload))
         task.add_done_callback(self._pending_tasks.discard)
         task.add_done_callback(_log_task_exception)
+        # add() after callbacks: safe because create_task does not run the
+        # coroutine before the next event-loop tick, so the task cannot
+        # complete (and trigger discard) before it enters the set.
         self._pending_tasks.add(task)
 
     async def stop(self) -> None:
