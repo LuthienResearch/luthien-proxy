@@ -7,6 +7,7 @@ tracking conversations across multiple API calls and attributing requests to use
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import re
 from typing import Any
@@ -150,7 +151,7 @@ def extract_user_id_from_bearer_token(token: str | None) -> str | None:
             payload_b64 += "=" * padding
         payload_bytes = base64.urlsafe_b64decode(payload_b64)
         payload = json.loads(payload_bytes)
-    except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+    except (ValueError, binascii.Error, json.JSONDecodeError, UnicodeDecodeError):
         return None
 
     if not isinstance(payload, dict):
