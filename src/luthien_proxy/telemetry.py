@@ -139,11 +139,12 @@ def configure_tracing() -> trace.Tracer:
     if protocol == "grpc":
         otlp_exporter = GrpcSpanExporter(
             endpoint=otel_endpoint,
-            insecure=True,
+            insecure=True,  # TLS disabled for gRPC; set OTEL_EXPORTER_OTLP_CERTIFICATE for mTLS
         )
     else:
         otlp_exporter = HttpSpanExporter(
             endpoint=otel_endpoint,
+            # HttpSpanExporter verifies TLS by default (no insecure kwarg needed)
         )
 
     # Use batch processor for efficiency (batches spans before export)
