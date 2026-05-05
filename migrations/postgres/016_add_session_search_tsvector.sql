@@ -88,10 +88,15 @@ ALTER TABLE conversation_events
 --       PERFORM pg_sleep(0.05);
 --     END LOOP;
 --   END $$;
+-- AND ce.search_vector IS NULL makes this idempotent: on a migration replay
+-- (e.g. after a failed CREATE INDEX CONCURRENTLY below), only unfilled rows
+-- are backfilled. Already-populated rows are skipped, so the replay cost is
+-- proportional to the number of new rows, not the whole table.
 WITH computed AS (
     SELECT id, _extract_event_search_text(payload) AS search_text
     FROM conversation_events
     WHERE event_type = 'transaction.request_recorded'
+      AND search_vector IS NULL
 )
 UPDATE conversation_events ce
 SET search_vector = to_tsvector('english', COALESCE(c.search_text, ''))
