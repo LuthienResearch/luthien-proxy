@@ -3,6 +3,7 @@
 
 """Tests for V2 main FastAPI application."""
 
+import asyncio
 import os
 import tempfile
 from pathlib import Path
@@ -464,6 +465,78 @@ class TestCreateApp:
         with TestClient(app) as client:
             response = client.get("/health")
             assert response.json()["auth_mode"] == "passthrough"
+
+    def test_ready_endpoint_returns_200_when_db_responsive(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """/ready returns 200 when DB ping succeeds within timeout."""
+        mock_pool = mock_db_pool.get_pool.return_value
+        mock_pool.fetchval = AsyncMock(return_value=1)
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            response = client.get("/ready")
+            assert response.status_code == 200
+            assert response.json() == {"status": "ready"}
+            assert response.headers["cache-control"] == "no-store, no-cache, must-revalidate"
+
+    def test_ready_endpoint_returns_503_when_db_unreachable(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """/ready returns 503 with sanitized reason when DB ping raises."""
+        mock_pool = mock_db_pool.get_pool.return_value
+        mock_pool.fetchval = AsyncMock(side_effect=ConnectionRefusedError("conn refused: 10.0.0.1:5432"))
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            response = client.get("/ready")
+            assert response.status_code == 503
+            body = response.json()
+            assert body["status"] == "not_ready"
+            assert body["reason"] == "database unreachable"
+            # No raw exception text leaked to unauthenticated callers
+            assert "10.0.0.1" not in response.text
+
+    def test_ready_endpoint_returns_503_when_db_probe_times_out(
+        self, policy_config_file, mock_db_pool, mock_redis_client, monkeypatch
+    ):
+        """/ready returns 503 when DB ping exceeds the bounded timeout.
+
+        A slow DB must not tarpit probe workers — the probe is bounded by
+        READY_DB_PROBE_TIMEOUT_SECONDS via asyncio.wait_for.
+        """
+        # Tighten the probe timeout for the test so it returns quickly.
+        from luthien_proxy import main as main_module
+
+        monkeypatch.setattr(main_module, "READY_DB_PROBE_TIMEOUT_SECONDS", 0.05)
+
+        async def hang(*args, **kwargs):
+            await asyncio.sleep(5.0)
+
+        mock_pool = mock_db_pool.get_pool.return_value
+        mock_pool.fetchval = hang
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            response = client.get("/ready")
+            assert response.status_code == 503
+            body = response.json()
+            assert body["status"] == "not_ready"
+            assert body["reason"] == "database probe timed out"
 
     def test_create_app_root_endpoint(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Test root endpoint returns HTML landing page."""
