@@ -22,6 +22,7 @@ from luthien_proxy.history.service import (
     _build_turn,
     _extract_preview_message,
     _extract_tool_calls,
+    _get_event_summary,
     _parse_request_messages,
     _parse_response_messages,
     _safe_parse_json,
@@ -31,6 +32,44 @@ from luthien_proxy.history.service import (
     fetch_session_detail,
     fetch_session_list,
 )
+
+
+class TestGetEventSummary:
+    """Test friendly-text fallback for known policy event types."""
+
+    @pytest.mark.parametrize(
+        "event_type,expected",
+        [
+            (
+                "policy.string_replacement.request_modified",
+                "Request modified by string replacement",
+            ),
+            (
+                "policy.string_replacement.response_modified",
+                "Response modified by string replacement",
+            ),
+            ("policy.judge.tool_call_blocked", "Tool call blocked"),
+        ],
+    )
+    def test_falls_back_to_event_type_description(self, event_type, expected):
+        """When payload has no `summary`, use the dict-based description."""
+        assert _get_event_summary(event_type, None) == expected
+        assert _get_event_summary(event_type, {}) == expected
+        assert _get_event_summary(event_type, {"summary": ""}) == expected
+
+    def test_payload_summary_takes_precedence(self):
+        """A non-empty payload `summary` wins over the fallback dict."""
+        assert (
+            _get_event_summary(
+                "policy.string_replacement.response_modified",
+                {"summary": "Replaced 'foo' with 'bar'"},
+            )
+            == "Replaced 'foo' with 'bar'"
+        )
+
+    def test_unknown_event_type_returns_raw(self):
+        """Unknown event types fall through to the raw event_type string."""
+        assert _get_event_summary("policy.unknown.event", None) == "policy.unknown.event"
 
 
 class TestExtractTextContent:
