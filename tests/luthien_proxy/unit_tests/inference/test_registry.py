@@ -37,6 +37,7 @@ from luthien_proxy.inference.registry import (
     _build_direct_api,
 )
 from luthien_proxy.utils.db import DatabasePool
+from luthien_proxy.utils.migration_check import _apply_sqlite_migrations
 
 
 class _StubProvider(InferenceProvider):
@@ -73,17 +74,7 @@ async def sqlite_pool() -> DatabasePool:
     """Real in-memory SQLite with every migration applied."""
     pool = DatabasePool("sqlite://:memory:")
     migrations_dir = Path(__file__).resolve().parents[4] / "migrations" / "sqlite"
-
-    async with pool.connection() as conn:
-        for migration_file in sorted(migrations_dir.glob("*.sql")):
-            sql = migration_file.read_text()
-            for statement in sql.split(";"):
-                statement = statement.strip()
-                if statement and not all(
-                    line.strip().startswith("--") or not line.strip() for line in statement.split("\n")
-                ):
-                    await conn.execute(statement)
-
+    await _apply_sqlite_migrations(pool, migrations_dir=migrations_dir)
     yield pool
     await pool.close()
 
