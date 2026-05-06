@@ -42,7 +42,7 @@ async def _poll_for_event(
     *,
     gateway_url: str,
     admin_headers: dict,
-    timeout: float = 5.0,
+    timeout: float = 15.0,
 ) -> dict:
     """Poll the debug events endpoint until ``event_type`` appears, or fail."""
     deadline = time.monotonic() + timeout

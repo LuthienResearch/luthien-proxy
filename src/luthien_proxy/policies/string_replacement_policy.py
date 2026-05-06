@@ -160,7 +160,7 @@ def apply_replacements_with_count(
     at each step, including replacements that operate on output of an earlier
     step (chained replacements). For example, with replacements
     ``[("foo", "barbar"), ("bar", "y")]`` against ``"foobar"``, this returns
-    ``("yyy", 3)``: one ``foo`` -> ``barbar`` substitution followed by three
+    ``("yyy", 4)``: one ``foo`` -> ``barbar`` substitution followed by three
     ``bar`` -> ``y`` substitutions on the resulting ``"barbarbar"``.
     """
     if not text or not replacements:
@@ -331,7 +331,10 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
         this is benign (e.g., "goodbye" won't re-match "hello"). Configs where a
         replacement output partially overlaps the same source pattern (e.g.,
         ["ab", "ca"]) may produce different results than full-text processing
-        at chunk boundaries.
+        at chunk boundaries. The aggregated ``total_replacements`` metric reports
+        substitutions actually performed during streaming; for these overlap-prone
+        configs it can diverge from the count produced by running the same
+        replacements over the fully-assembled non-streaming response.
 
         A single buffer is shared across content blocks within one request.
         This is safe because the Anthropic protocol sends blocks sequentially

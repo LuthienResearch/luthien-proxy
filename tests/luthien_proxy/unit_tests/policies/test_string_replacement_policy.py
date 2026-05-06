@@ -56,8 +56,7 @@ class _RecordingEmitter:
 def _ctx_with_recorder() -> tuple[PolicyContext, _RecordingEmitter]:
     """Build a PolicyContext whose emitter records events for inspection."""
     recorder = _RecordingEmitter()
-    ctx = PolicyContext.for_testing()
-    ctx._emitter = recorder  # type: ignore[assignment]
+    ctx = PolicyContext(transaction_id="test-txn", emitter=recorder)
     return ctx, recorder
 
 
@@ -1000,6 +999,31 @@ class TestResponseModifiedEvent:
         # foo -> barbar = 1 sub, then bar -> y on "barbarbar" = 3 subs. Total 4.
         # Naive original-text counting would report 2 (one "foo" + one "bar").
         assert payloads[0]["total_replacements"] == 4
+
+    @pytest.mark.asyncio
+    async def test_match_capitalization_true_emits_correct_count(self):
+        """Case-insensitive path (pattern.subn) reports the right count and payload."""
+        policy = StringReplacementPolicy(
+            config=StringReplacementConfig(
+                replacements=[["hello", "hi"]],
+                match_capitalization=True,
+            )
+        )
+        ctx, recorder = _ctx_with_recorder()
+
+        block: AnthropicTextBlock = {"type": "text", "text": "Hello World"}
+        result = await policy.on_anthropic_response(_text_response([block]), ctx)
+        result_block = cast(AnthropicTextBlock, result["content"][0])
+        # Case-insensitive match of "Hello" with title-case preservation -> "Hi".
+        assert result_block["text"] == "Hi World"
+
+        payloads = recorder.by_type(RESPONSE_MODIFIED_EVENT)
+        assert len(payloads) == 1
+        payload = payloads[0]
+        assert payload["blocks_modified"] == 1
+        assert payload["total_replacements"] == 1
+        assert payload["original_length"] == len("Hello World")
+        assert payload["transformed_length"] == len("Hi World")
 
 
 class TestStreamingResponseModifiedEvent:
