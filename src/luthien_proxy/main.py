@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import enum
 import logging
 import os
@@ -75,6 +76,10 @@ instrument_redis()
 init_sentry()
 
 logger = logging.getLogger(__name__)
+
+# Bounded DB probe for /ready. Short enough that a slow DB does not tarpit
+# probe workers; long enough to absorb routine acquire/network jitter.
+READY_DB_PROBE_TIMEOUT_SECONDS = 2.0
 
 _HTTP_STATUS_TO_ANTHROPIC_ERROR_TYPE = {
     400: "invalid_request_error",
@@ -340,7 +345,7 @@ def create_app(
     class StaticCacheMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
             response = await call_next(request)
-            if request.url.path.startswith("/api/") or request.url.path == "/health":
+            if request.url.path.startswith("/api/") or request.url.path in ("/health", "/ready"):
                 # Prevent CDN/edge caching of API and health responses (Railway, Cloudflare, etc.)
                 response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
             elif request.url.path.startswith("/static/"):
@@ -390,6 +395,45 @@ def create_app(
             "last_credential_type": last_credential_type,
             "last_credential_at": last_credential_at,
         }
+
+    @app.get("/ready")
+    async def ready(request: Request):
+        """Readiness probe: 503 when the gateway cannot serve traffic.
+
+        Returns 200 when the DB pool answers a bounded `SELECT 1` within
+        READY_DB_PROBE_TIMEOUT_SECONDS. Returns 503 with a generic reason when
+        the probe fails, times out, or dependencies are not initialized.
+
+        Use this for ECS/k8s readiness probes so traffic is drained when
+        the DB becomes unreachable post-startup. Use /health for liveness.
+        """
+        deps = getattr(request.app.state, "dependencies", None)
+        if deps is None or deps.db_pool is None:
+            return JSONResponse(
+                status_code=503,
+                content={"status": "not_ready", "reason": "dependencies not initialized"},
+            )
+
+        async def _probe() -> None:
+            async with deps.db_pool.connection() as conn:
+                await conn.fetchval("SELECT 1")
+
+        try:
+            await asyncio.wait_for(_probe(), timeout=READY_DB_PROBE_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            logger.warning("Readiness probe timed out after %.1fs", READY_DB_PROBE_TIMEOUT_SECONDS)
+            return JSONResponse(
+                status_code=503,
+                content={"status": "not_ready", "reason": "database probe timed out"},
+            )
+        except Exception as exc:
+            logger.warning("Readiness probe DB error: %s", type(exc).__name__)
+            return JSONResponse(
+                status_code=503,
+                content={"status": "not_ready", "reason": "database unreachable"},
+            )
+
+        return {"status": "ready"}
 
     # Format HTTPExceptions and validation errors as Anthropic errors on /v1/messages paths
     app.add_exception_handler(FastAPIHTTPException, http_exception_handler)

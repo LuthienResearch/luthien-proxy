@@ -3,6 +3,7 @@
 
 """Tests for V2 main FastAPI application."""
 
+import asyncio
 import os
 import tempfile
 from pathlib import Path
@@ -464,6 +465,116 @@ class TestCreateApp:
         with TestClient(app) as client:
             response = client.get("/health")
             assert response.json()["auth_mode"] == "passthrough"
+
+    def test_ready_endpoint_returns_200_with_real_sqlite_pool(self, policy_config_file, mock_redis_client):
+        """/ready returns 200 against a real SqlitePool — exercises the actual DB API.
+
+        Uses an in-memory SqliteDatabasePool so the probe goes through the real
+        `connection().fetchval` path. A mock-only test would not catch the case
+        where the production code calls a method that does not exist on
+        SqlitePool.
+        """
+        from luthien_proxy.utils import db as db_module
+
+        real_pool = db_module.DatabasePool("sqlite://:memory:")
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=real_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            response = client.get("/ready")
+            assert response.status_code == 200
+            assert response.json() == {"status": "ready"}
+            assert response.headers["cache-control"] == "no-store, no-cache, must-revalidate"
+
+    def test_ready_endpoint_returns_503_when_db_unreachable(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """/ready returns 503 with sanitized reason when the connection raises.
+
+        No raw exception text or connection details may leak to unauthenticated
+        callers.
+        """
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def failing_connection():
+            raise ConnectionRefusedError("conn refused: db.internal.example.com:5432")
+            yield  # unreachable, required by @asynccontextmanager
+
+        mock_db_pool.connection = failing_connection
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            response = client.get("/ready")
+            assert response.status_code == 503
+            body = response.json()
+            assert body["status"] == "not_ready"
+            assert body["reason"] == "database unreachable"
+            assert "db.internal.example.com" not in response.text
+
+    def test_ready_endpoint_returns_503_when_db_probe_times_out(
+        self, policy_config_file, mock_db_pool, mock_redis_client, monkeypatch
+    ):
+        """/ready returns 503 when the probe exceeds the bounded timeout.
+
+        A slow DB must not tarpit probe workers — the entire probe (pool
+        acquisition + query) is bounded by asyncio.wait_for.
+        """
+        from contextlib import asynccontextmanager
+
+        from luthien_proxy import main as main_module
+
+        monkeypatch.setattr(main_module, "READY_DB_PROBE_TIMEOUT_SECONDS", 0.05)
+
+        @asynccontextmanager
+        async def hanging_connection():
+            await asyncio.sleep(1.0)
+            yield  # unreachable under the patched timeout
+
+        mock_db_pool.connection = hanging_connection
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            response = client.get("/ready")
+            assert response.status_code == 503
+            body = response.json()
+            assert body["status"] == "not_ready"
+            assert body["reason"] == "database probe timed out"
+
+    def test_ready_endpoint_returns_503_when_dependencies_not_initialized(
+        self, policy_config_file, mock_db_pool, mock_redis_client
+    ):
+        """/ready returns 503 when app.state.dependencies is missing post-startup."""
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            app.state.dependencies = None  # type: ignore[attr-defined]
+            response = client.get("/ready")
+            assert response.status_code == 503
+            body = response.json()
+            assert body["status"] == "not_ready"
+            assert body["reason"] == "dependencies not initialized"
 
     def test_create_app_root_endpoint(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Test root endpoint returns HTML landing page."""

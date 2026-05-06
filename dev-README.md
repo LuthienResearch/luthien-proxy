@@ -106,7 +106,8 @@ The gateway is a single FastAPI application:
 **API Endpoints:**
 
 - `POST /v1/messages` - Anthropic Messages API (streaming and non-streaming)
-- `GET /health` - Health check
+- `GET /health` - Liveness check (always 200 if the process is responsive)
+- `GET /ready` - Readiness probe (503 when DB is unreachable, probe times out, or dependencies are not initialized)
 
 **UI Endpoints:**
 
