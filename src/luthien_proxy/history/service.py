@@ -60,6 +60,9 @@ _EVENT_TYPE_DESCRIPTIONS: dict[str, str] = {
     # Simple policy events
     "policy.simple_policy.content_complete_warning": "Content warning",
     "policy.simple_policy.tool_call_complete_warning": "Tool call warning",
+    # String replacement policy events
+    "policy.string_replacement.request_modified": "Request modified by string replacement",
+    "policy.string_replacement.response_modified": "Response modified by string replacement",
 }
 
 
