@@ -294,7 +294,10 @@ def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None
     """Extract the first meaningful user message from a request payload for preview.
 
     Used to generate a session preview/title. Returns truncated text.
-    Skips system-reminders and other non-meaningful content to find actual user intent.
+    Reads from ``original_request`` so the preview reflects what the user typed,
+    not gateway-injected content (e.g. ``<policy-context>`` from
+    ``inject_policy_awareness_anthropic``). Falls back to ``final_request`` for
+    older payloads recorded before ``original_request`` was stored.
     """
     if not payload:
         return None
@@ -305,8 +308,7 @@ def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None
         if not payload:
             return None
 
-    # Get the final request (prefer this as it's what was actually sent)
-    request = payload.get("final_request") or payload.get("original_request") or {}
+    request = payload.get("original_request") or payload.get("final_request") or {}
 
     # Skip probe requests structurally: Claude Code sends internal probes
     # (token counting, quota checks) with max_tokens=1. No real conversation

@@ -109,10 +109,34 @@ class TestExtractPreviewMessage:
         payload_str = json.dumps(payload_dict)
         assert _extract_preview_message(payload_str) == "From JSON"
 
-    def test_falls_back_to_original_request(self):
-        """Test fallback to original_request when final_request missing."""
-        payload = {"original_request": {"messages": [{"role": "user", "content": "Fallback message"}]}}
-        assert _extract_preview_message(payload) == "Fallback message"
+    def test_prefers_original_request_over_final_request(self):
+        """Preview reflects what the user typed, not gateway-injected content.
+
+        When inject_policy_awareness_anthropic (or any future injection) modifies
+        the first user message in final_request, the preview must still show the
+        user's original text — otherwise every session looks identical.
+        """
+        payload = {
+            "original_request": {"messages": [{"role": "user", "content": "What is the capital of France?"}]},
+            "final_request": {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": (
+                            "<policy-context>Your responses may be modified by the following active "
+                            "policies before reaching the user: TestPolicy.</policy-context>\n\n"
+                            "What is the capital of France?"
+                        ),
+                    }
+                ]
+            },
+        }
+        assert _extract_preview_message(payload) == "What is the capital of France?"
+
+    def test_falls_back_to_final_request_when_original_missing(self):
+        """Older payloads (recorded before original_request was stored) still produce a preview."""
+        payload = {"final_request": {"messages": [{"role": "user", "content": "Legacy payload"}]}}
+        assert _extract_preview_message(payload) == "Legacy payload"
 
     @pytest.mark.parametrize(
         "probe_content",
