@@ -3,6 +3,7 @@
 Tests native Anthropic API support.
 """
 
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 import pytest
@@ -31,9 +32,33 @@ from luthien_proxy.policies.string_replacement_policy import (
     _apply_capitalization_pattern,
     _detect_capitalization_pattern,
     apply_replacements,
+    apply_replacements_with_count,
 )
 from luthien_proxy.policy_core import AnthropicExecutionInterface
 from luthien_proxy.policy_core.policy_context import PolicyContext
+
+RESPONSE_MODIFIED_EVENT = "policy.string_replacement.response_modified"
+
+
+@dataclass
+class _RecordingEmitter:
+    """Minimal emitter that captures events in-memory for assertions."""
+
+    events: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
+
+    def record(self, transaction_id: str, event_type: str, data: dict[str, Any]) -> None:
+        self.events.append((transaction_id, event_type, dict(data)))
+
+    def by_type(self, event_type: str) -> list[dict[str, Any]]:
+        return [data for _, et, data in self.events if et == event_type]
+
+
+def _ctx_with_recorder() -> tuple[PolicyContext, _RecordingEmitter]:
+    """Build a PolicyContext whose emitter records events for inspection."""
+    recorder = _RecordingEmitter()
+    ctx = PolicyContext.for_testing()
+    ctx._emitter = recorder  # type: ignore[assignment]
+    return ctx, recorder
 
 
 class TestCapitalizationHelpers:
@@ -77,6 +102,44 @@ class TestApplyReplacements:
     )
     def test_apply_replacements(self, text, replacements, match_cap, expected):
         assert apply_replacements(text, replacements, match_cap) == expected
+
+
+class TestApplyReplacementsWithCount:
+    @pytest.mark.parametrize(
+        "text,replacements,match_cap,expected_text,expected_count",
+        [
+            ("hello world", [("hello", "goodbye")], False, "goodbye world", 1),
+            ("a a a", [("a", "b")], False, "b b b", 3),
+            ("hello foo", [("hello", "hi"), ("foo", "bar")], False, "hi bar", 2),
+            ("nothing here", [("foo", "bar")], False, "nothing here", 0),
+            ("", [("a", "b")], False, "", 0),
+            ("hello", [], False, "hello", 0),
+            ("Hello HELLO hello", [("hello", "hi")], True, "Hi HI hi", 3),
+            # Empty pattern is skipped.
+            ("abc", [("", "X")], False, "abc", 0),
+        ],
+    )
+    def test_counts(self, text, replacements, match_cap, expected_text, expected_count):
+        result_text, result_count = apply_replacements_with_count(text, replacements, match_cap)
+        assert result_text == expected_text
+        assert result_count == expected_count
+
+    def test_chained_replacements_count_substitutions_at_each_step(self):
+        """Counting reflects substitutions at each step, including those on prior output.
+
+        With ``[("foo", "barbar"), ("bar", "y")]`` against ``"foobar"``:
+          - Step 1 (foo -> barbar) makes 1 substitution. Result: "barbarbar".
+          - Step 2 (bar -> y) makes 3 substitutions. Result: "yyy".
+          - Total: 4.
+
+        Naive counting against the original text alone reports just 2 (one
+        "foo" + one "bar") and is what we explicitly avoid here.
+        """
+        text = "foobar"
+        replacements = [("foo", "barbar"), ("bar", "y")]
+        result_text, result_count = apply_replacements_with_count(text, replacements, False)
+        assert result_text == "yyy"
+        assert result_count == 4
 
 
 class TestImplementsInterfaces:
@@ -846,3 +909,224 @@ class TestStreamingBufferBehavior:
 
         full_text = await _collect_stream_text(policy, ctx, events)
         assert full_text == "say hihi there"
+
+
+# -------------------------------------------------------------------------
+# response_modified observability event
+# -------------------------------------------------------------------------
+
+
+def _text_response(blocks: list[AnthropicTextBlock]) -> AnthropicResponse:
+    return {
+        "id": "msg_evt",
+        "type": "message",
+        "role": "assistant",
+        "content": list(blocks),
+        "model": DEFAULT_TEST_MODEL,
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 10, "output_tokens": 5},
+    }
+
+
+class TestResponseModifiedEvent:
+    """The non-streaming path emits exactly one response_modified event with accurate counts."""
+
+    @pytest.mark.asyncio
+    async def test_emitted_once_with_accurate_count(self):
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["foo", "bar"]]))
+        ctx, recorder = _ctx_with_recorder()
+
+        block: AnthropicTextBlock = {"type": "text", "text": "foo foo and foo"}
+        await policy.on_anthropic_response(_text_response([block]), ctx)
+
+        events = recorder.by_type(RESPONSE_MODIFIED_EVENT)
+        assert len(events) == 1
+        payload = events[0]
+        assert payload["blocks_modified"] == 1
+        assert payload["total_replacements"] == 3
+        assert payload["original_length"] == len("foo foo and foo")
+        assert payload["transformed_length"] == len("bar bar and bar")
+
+    @pytest.mark.asyncio
+    async def test_no_event_when_no_substitutions(self):
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["foo", "bar"]]))
+        ctx, recorder = _ctx_with_recorder()
+
+        block: AnthropicTextBlock = {"type": "text", "text": "no targets here"}
+        await policy.on_anthropic_response(_text_response([block]), ctx)
+
+        assert recorder.by_type(RESPONSE_MODIFIED_EVENT) == []
+
+    @pytest.mark.asyncio
+    async def test_old_event_name_not_emitted(self):
+        """The legacy ``policy.anthropic_string_replacement.content_transformed`` name is gone."""
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["foo", "bar"]]))
+        ctx, recorder = _ctx_with_recorder()
+
+        block: AnthropicTextBlock = {"type": "text", "text": "foo here"}
+        await policy.on_anthropic_response(_text_response([block]), ctx)
+
+        legacy = recorder.by_type("policy.anthropic_string_replacement.content_transformed")
+        assert legacy == []
+
+    @pytest.mark.asyncio
+    async def test_blocks_modified_counts_each_changed_block(self):
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["foo", "bar"]]))
+        ctx, recorder = _ctx_with_recorder()
+
+        b1: AnthropicTextBlock = {"type": "text", "text": "foo here"}
+        b2: AnthropicTextBlock = {"type": "text", "text": "no targets"}
+        b3: AnthropicTextBlock = {"type": "text", "text": "another foo"}
+        await policy.on_anthropic_response(_text_response([b1, b2, b3]), ctx)
+
+        payloads = recorder.by_type(RESPONSE_MODIFIED_EVENT)
+        assert len(payloads) == 1
+        assert payloads[0]["blocks_modified"] == 2
+        assert payloads[0]["total_replacements"] == 2
+
+    @pytest.mark.asyncio
+    async def test_chained_replacements_total_count_is_accurate(self):
+        """Chained replacements report the substitutions actually performed at each step."""
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["foo", "barbar"], ["bar", "y"]]))
+        ctx, recorder = _ctx_with_recorder()
+
+        block: AnthropicTextBlock = {"type": "text", "text": "foobar"}
+        result = await policy.on_anthropic_response(_text_response([block]), ctx)
+        result_block = cast(AnthropicTextBlock, result["content"][0])
+        assert result_block["text"] == "yyy"
+
+        payloads = recorder.by_type(RESPONSE_MODIFIED_EVENT)
+        assert len(payloads) == 1
+        # foo -> barbar = 1 sub, then bar -> y on "barbarbar" = 3 subs. Total 4.
+        # Naive original-text counting would report 2 (one "foo" + one "bar").
+        assert payloads[0]["total_replacements"] == 4
+
+
+class TestStreamingResponseModifiedEvent:
+    """The streaming path emits a single aggregated response_modified event on completion."""
+
+    @pytest.mark.asyncio
+    async def test_emitted_once_at_stream_complete(self):
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["hello", "hi"]]))
+        ctx, recorder = _ctx_with_recorder()
+
+        events = [
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="say hello there"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0),
+        ]
+
+        full_text = await _collect_stream_text(policy, ctx, events)
+        assert full_text == "say hi there"
+
+        payloads = recorder.by_type(RESPONSE_MODIFIED_EVENT)
+        assert len(payloads) == 1
+        payload = payloads[0]
+        assert payload["blocks_modified"] == 1
+        assert payload["total_replacements"] == 1
+        assert payload["original_length"] == len("say hello there")
+        assert payload["transformed_length"] == len("say hi there")
+
+    @pytest.mark.asyncio
+    async def test_no_event_when_no_substitutions(self):
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["foo", "bar"]]))
+        ctx, recorder = _ctx_with_recorder()
+
+        events = [
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="nothing of interest"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0),
+        ]
+        await _collect_stream_text(policy, ctx, events)
+        assert recorder.by_type(RESPONSE_MODIFIED_EVENT) == []
+
+    @pytest.mark.asyncio
+    async def test_event_correct_when_replacement_spans_chunks(self):
+        """Cross-chunk replacement is counted once even when split."""
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["hello", "hi"]]))
+        ctx, recorder = _ctx_with_recorder()
+
+        events = [
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="say hel"),
+            ),
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="lo!"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0),
+        ]
+
+        full_text = await _collect_stream_text(policy, ctx, events)
+        assert full_text == "say hi!"
+
+        payloads = recorder.by_type(RESPONSE_MODIFIED_EVENT)
+        assert len(payloads) == 1
+        payload = payloads[0]
+        assert payload["total_replacements"] == 1
+        assert payload["blocks_modified"] == 1
+        assert payload["original_length"] == len("say hello!")
+        assert payload["transformed_length"] == len("say hi!")
+
+    @pytest.mark.asyncio
+    async def test_chained_replacements_count_streaming(self):
+        """Streaming path matches non-streaming counting semantics for chains."""
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["foo", "barbar"], ["bar", "y"]]))
+        ctx, recorder = _ctx_with_recorder()
+
+        events = [
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="foobar"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0),
+        ]
+        full_text = await _collect_stream_text(policy, ctx, events)
+        assert full_text == "yyy"
+
+        payloads = recorder.by_type(RESPONSE_MODIFIED_EVENT)
+        assert len(payloads) == 1
+        # 1 (foo->barbar) + 3 (bar->y on "barbarbar") = 4
+        assert payloads[0]["total_replacements"] == 4
+
+    @pytest.mark.asyncio
+    async def test_blocks_modified_counts_each_changed_block_streaming(self):
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[["foo", "bar"]]))
+        ctx, recorder = _ctx_with_recorder()
+
+        events = [
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="foo here"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0),
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=1,
+                delta=TextDelta.model_construct(type="text_delta", text="no targets"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=1),
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=2,
+                delta=TextDelta.model_construct(type="text_delta", text="another foo"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=2),
+        ]
+        await _collect_stream_text(policy, ctx, events)
+
+        payloads = recorder.by_type(RESPONSE_MODIFIED_EVENT)
+        assert len(payloads) == 1
+        assert payloads[0]["blocks_modified"] == 2
+        assert payloads[0]["total_replacements"] == 2
