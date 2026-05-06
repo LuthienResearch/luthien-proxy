@@ -40,7 +40,10 @@ class StoredEvent(TypedDict):
 
 logger = logging.getLogger(__name__)
 
-# User-friendly descriptions for common policy event types
+# User-friendly descriptions for common policy event types.
+# Note: every current emitter writes a non-empty `summary` into the event
+# payload, and `_get_event_summary` returns that summary before consulting
+# this dict. So this is fallback for events stored without a summary.
 _EVENT_TYPE_DESCRIPTIONS: dict[str, str] = {
     # Judge policy events
     "policy.judge.tool_call_allowed": "Tool call approved",
@@ -384,7 +387,7 @@ async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int 
                     COUNT(DISTINCT call_id) as turn_count,
                     COUNT(*) FILTER (
                         WHERE event_type LIKE 'policy.%'
-                        AND event_type NOT LIKE 'policy.judge.evaluation%'
+                        AND event_type NOT LIKE 'policy.%judge.evaluation%'
                     ) as policy_interventions
                 FROM conversation_events
                 WHERE session_id IS NOT NULL
@@ -482,7 +485,7 @@ async def _fetch_session_list_sqlite(limit: int, db_pool: DatabasePool, offset: 
                 COUNT(DISTINCT call_id) as turn_count,
                 SUM(CASE
                     WHEN event_type LIKE 'policy.%'
-                    AND event_type NOT LIKE 'policy.judge.evaluation%'
+                    AND event_type NOT LIKE 'policy.%judge.evaluation%'
                     THEN 1 ELSE 0
                 END) as policy_interventions
             FROM conversation_events

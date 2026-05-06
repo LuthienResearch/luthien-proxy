@@ -173,7 +173,10 @@ async def populated_with_interventions_pool(sqlite_pool: DatabasePool) -> Databa
             """,
             "event-6",
             "call-3",
-            "policy.judge.tool_call_blocked",
+            # Real production name (post-#169). Paired with the
+            # evaluation_started row below; both must use the same prefix
+            # so the fixture represents a real session, not a chimera.
+            "policy.anthropic_judge.tool_call_blocked",
             json.dumps({"summary": "Dangerous operation blocked"}),
             "session-2",
             "2025-01-16T14:00:00",
@@ -187,7 +190,8 @@ async def populated_with_interventions_pool(sqlite_pool: DatabasePool) -> Databa
             """,
             "event-7",
             "call-3",
-            "policy.judge.evaluation_started",
+            # Real production name (post-#169 `prefix="anthropic_"`).
+            "policy.anthropic_judge.evaluation_started",
             json.dumps({}),
             "session-2",
             "2025-01-16T14:00:01",
@@ -576,7 +580,7 @@ class TestFetchSessionListSqlite:
 
             # Add multiple policy events (not evaluation)
             policy_events = [
-                "policy.judge.tool_call_blocked",
+                "policy.anthropic_judge.tool_call_blocked",
                 "policy.all_caps.content_transformed",
                 "policy.simple_policy.content_complete_warning",
             ]
@@ -605,7 +609,7 @@ class TestFetchSessionListSqlite:
                 """,
                 "event-policy-eval",
                 "call-policy",
-                "policy.judge.evaluation_started",
+                "policy.anthropic_judge.evaluation_started",
                 json.dumps({}),
                 "session-policy",
                 "2025-01-17T10:00:04",
@@ -616,6 +620,74 @@ class TestFetchSessionListSqlite:
 
         # Should count 3 policy events, not the evaluation event
         assert session.policy_interventions == 3
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "judge_prefix",
+        ["", "anthropic_"],
+        ids=["legacy", "anthropic_judge"],
+    )
+    async def test_evaluation_events_excluded_for_all_judge_prefixes(
+        self, sqlite_pool: DatabasePool, judge_prefix: str
+    ):
+        """Regression test: filter must match the emitter contract, not a literal.
+
+        PR #169 introduced `prefix="anthropic_"` at the judge emission helpers
+        in policies/tool_call_judge_policy.py, so events arrive as
+        `policy.{prefix}judge.evaluation_*`. The original filter literal
+        `policy.judge.evaluation%` no longer matched and judge lifecycle
+        events were counted as policy interventions.
+
+        Both prefixes must be excluded from the intervention count:
+          - "" (legacy unprefixed events still in stored history)
+          - "anthropic_" (current production)
+        """
+        session_id = f"session-{judge_prefix or 'legacy'}"
+        call_id = f"call-{judge_prefix or 'legacy'}"
+        async with sqlite_pool.connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO conversation_calls
+                (call_id, model_name, provider, status, session_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                call_id,
+                "gpt-4",
+                "openai",
+                "completed",
+                session_id,
+                "2025-01-17T10:00:00",
+            )
+
+            # One real intervention + two evaluation lifecycle events.
+            # Only the intervention should count.
+            events = [
+                (f"policy.{judge_prefix}judge.tool_call_blocked", 1),
+                (f"policy.{judge_prefix}judge.evaluation_started", 0),
+                (f"policy.{judge_prefix}judge.evaluation_complete", 0),
+            ]
+            for idx, (event_type, _expected) in enumerate(events):
+                await conn.execute(
+                    """
+                    INSERT INTO conversation_events
+                    (id, call_id, event_type, payload, session_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    f"{session_id}-event-{idx}",
+                    call_id,
+                    event_type,
+                    json.dumps({}),
+                    session_id,
+                    f"2025-01-17T10:00:0{idx + 1}",
+                )
+
+        result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
+        session = next(s for s in result.sessions if s.session_id == session_id)
+        assert session.policy_interventions == 1, (
+            f"prefix={judge_prefix!r}: expected 1 (only tool_call_blocked), "
+            f"got {session.policy_interventions} — filter likely failed to "
+            f"exclude evaluation_started/evaluation_complete"
+        )
 
     @pytest.mark.asyncio
     async def test_limit_enforced(self, sqlite_pool: DatabasePool):
