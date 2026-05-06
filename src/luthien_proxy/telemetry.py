@@ -1,10 +1,15 @@
 """OpenTelemetry setup for Luthien observability.
 
 This module configures:
-- Distributed tracing (exports to Tempo via OTLP)
+- Distributed tracing (exports via OTLP HTTP/protobuf by default; gRPC opt-in)
 - Structured logging with trace correlation
 - Resource attributes (service name, version, etc.)
 - Auto-instrumentation for FastAPI and Redis
+
+TLS behavior differs between exporters:
+- gRPC uses ``insecure=True`` so plaintext local-dev endpoints work without TLS.
+- HTTP/protobuf reads TLS from the URL scheme: ``http://`` is plaintext,
+  ``https://`` verifies certificates. There is no ``insecure`` flag for HTTP.
 """
 
 from __future__ import annotations
@@ -13,20 +18,30 @@ import json
 import logging
 from collections.abc import Generator
 from contextlib import contextmanager
+from typing import Final
 
 from opentelemetry import trace
 from opentelemetry.context import Context, attach, detach
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+    OTLPSpanExporter as GrpcSpanExporter,
+)
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+    OTLPSpanExporter as HttpSpanExporter,
+)
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
 
 from luthien_proxy.settings import get_settings
 from luthien_proxy.utils.constants import OTEL_SPAN_ID_HEX_LENGTH, OTEL_TRACE_ID_HEX_LENGTH
 
 logger = logging.getLogger(__name__)
+
+OTLP_PROTOCOL_HTTP: Final[str] = "http/protobuf"
+OTLP_PROTOCOL_GRPC: Final[str] = "grpc"
+SUPPORTED_OTLP_PROTOCOLS: Final[frozenset[str]] = frozenset({OTLP_PROTOCOL_HTTP, OTLP_PROTOCOL_GRPC})
 
 
 @contextmanager
@@ -60,11 +75,11 @@ def restore_context(ctx: Context) -> Generator[object, None, None]:
         detach(token)
 
 
-def _get_otel_config() -> tuple[bool, str, str, str, str]:
+def _get_otel_config() -> tuple[bool, str, str, str, str, str]:
     """Get OpenTelemetry configuration from settings.
 
     Returns:
-        Tuple of (enabled, endpoint, service_name, service_version, environment)
+        Tuple of (enabled, endpoint, service_name, service_version, environment, protocol)
     """
     settings = get_settings()
     return (
@@ -73,6 +88,7 @@ def _get_otel_config() -> tuple[bool, str, str, str, str]:
         settings.service_name,
         settings.service_version,
         settings.environment,
+        settings.otel_exporter_otlp_protocol,
     )
 
 
@@ -85,6 +101,7 @@ def _silence_otel_loggers() -> None:
     """
     for name in (
         "opentelemetry.exporter.otlp.proto.grpc.exporter",
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter",
         "opentelemetry.sdk.trace.export",
         "grpc._channel",
         "grpc._plugin_wrapping",
@@ -92,18 +109,36 @@ def _silence_otel_loggers() -> None:
         logging.getLogger(name).setLevel(logging.DEBUG)
 
 
+def _build_otlp_exporter(protocol: str, endpoint: str) -> SpanExporter:
+    """Construct the OTLP span exporter for the configured protocol.
+
+    Raises:
+        ValueError: if ``protocol`` is not one of ``SUPPORTED_OTLP_PROTOCOLS``.
+            We intentionally do not silently fall back to a default — a typo'd
+            value should fail loud at startup, not silently drop traces.
+    """
+    if protocol == OTLP_PROTOCOL_GRPC:
+        return GrpcSpanExporter(endpoint=endpoint, insecure=True)
+    if protocol == OTLP_PROTOCOL_HTTP:
+        # HttpSpanExporter uses the endpoint verbatim; the default endpoint
+        # in config_fields.py already includes the /v1/traces path.
+        return HttpSpanExporter(endpoint=endpoint)
+    supported = ", ".join(sorted(SUPPORTED_OTLP_PROTOCOLS))
+    raise ValueError(f"Unsupported OTEL_EXPORTER_OTLP_PROTOCOL={protocol!r}; expected one of: {supported}")
+
+
 def configure_tracing() -> trace.Tracer:
     """Configure OpenTelemetry tracing.
 
     Sets up:
     - Resource attributes (service name, version, environment)
-    - OTLP exporter to Tempo
+    - OTLP exporter (HTTP/protobuf by default; gRPC via OTEL_EXPORTER_OTLP_PROTOCOL=grpc)
     - Batch span processor for efficiency
 
     Returns:
         Configured tracer for manual instrumentation
     """
-    otel_enabled, otel_endpoint, service_name, service_version, environment = _get_otel_config()
+    otel_enabled, otel_endpoint, service_name, service_version, environment, protocol = _get_otel_config()
 
     if not otel_enabled:
         logger.debug("OpenTelemetry disabled (OTEL_ENABLED=false)")
@@ -122,11 +157,9 @@ def configure_tracing() -> trace.Tracer:
     # Create tracer provider
     provider = TracerProvider(resource=resource)
 
-    # Configure OTLP exporter (sends to Tempo)
-    otlp_exporter = OTLPSpanExporter(
-        endpoint=otel_endpoint,
-        insecure=True,  # No TLS for local dev
-    )
+    # Configure OTLP exporter — HTTP/protobuf works behind HTTP load balancers
+    # (ALB, nginx, Cloudflare) where gRPC fails with StatusCode.UNAVAILABLE.
+    otlp_exporter = _build_otlp_exporter(protocol, otel_endpoint)
 
     # Use batch processor for efficiency (batches spans before export)
     processor = BatchSpanProcessor(otlp_exporter)
@@ -135,7 +168,7 @@ def configure_tracing() -> trace.Tracer:
     # Set as global tracer provider
     trace.set_tracer_provider(provider)
 
-    logger.info(f"OpenTelemetry configured: {service_name} → {otel_endpoint}")
+    logger.info(f"OpenTelemetry configured: {service_name} → {otel_endpoint} ({protocol})")
 
     return trace.get_tracer(__name__)
 

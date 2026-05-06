@@ -75,7 +75,8 @@ class Settings(_SettingsBase):
 
     # ── observability ───────────────────────────────────────────────
     otel_enabled: bool = False
-    otel_exporter_otlp_endpoint: str = "http://tempo:4317"
+    otel_exporter_otlp_endpoint: str = "http://tempo:4318/v1/traces"
+    otel_exporter_otlp_protocol: str = "http/protobuf"
     tempo_url: str = "http://localhost:3200"
     service_name: str = "luthien-proxy"
     service_version: str = PROXY_VERSION

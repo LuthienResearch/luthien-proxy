@@ -260,8 +260,9 @@ The observability stack is completely optional and does not affect core function
 OpenTelemetry is configured via the standard config system (see Configuration section above). OTel is disabled by default (`OTEL_ENABLED=false`). Key env vars:
 
 ```bash
-OTEL_ENABLED=true                           # Enable tracing
-OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+OTEL_ENABLED=true                                       # Enable tracing
+OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318/v1/traces # HTTP/protobuf path
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf               # or 'grpc'
 SERVICE_NAME=luthien-proxy
 ENVIRONMENT=development
 ```
