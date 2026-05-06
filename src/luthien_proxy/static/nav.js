@@ -47,7 +47,14 @@ document.addEventListener('alpine:init', () => {
             const updateBadge = async () => {
                 let data;
                 try {
-                    data = await fetch('/health').then(r => r.json());
+                    // Authenticated endpoint — uses the admin session cookie
+                    // set by /auth/login. Returns 403 when unauthenticated;
+                    // we then leave the badge unset.
+                    const response = await fetch('/api/admin/billing-status', {
+                        credentials: 'same-origin',
+                    });
+                    if (!response.ok) return;
+                    data = await response.json();
                     let badgeType = null; // 'warning' or 'ok'
                     let badgeLabel = null;
                     let tooltipText = null;
