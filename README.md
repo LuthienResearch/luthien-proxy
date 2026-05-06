@@ -112,7 +112,7 @@ No Docker required. The install command at the top of this page installs [`uv`](
 
 > **Claude Pro/Max users**: You don't need an API key. Luthien passes your existing Claude subscription credentials through to the Anthropic API — no extra cost, no configuration needed.
 
-> **Platform support**: Linux and macOS. Windows is not currently supported.
+> **🚨 Platform support**: Linux and macOS only. Windows is **not currently supported.**
 
 After setup, use the CLI or Claude Code to manage the proxy:
 
