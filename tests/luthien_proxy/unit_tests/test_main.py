@@ -545,7 +545,13 @@ class TestCreateApp:
             assert response.json()["auth_mode"] is None
 
     def test_billing_status_response_is_not_cacheable(self, policy_config_file, mock_db_pool, mock_redis_client):
-        """Billing status must not be cached — it can change at any time."""
+        """Billing status must not be cached — it can change at any time.
+
+        The Cache-Control header comes from StaticCacheMiddleware's /api/*
+        allowlist, not from the route itself. This test guards against a
+        future refactor that moves the route off /api/* without re-adding
+        the cache-control intent (or that drops the middleware allowlist).
+        """
         mock_redis_client.get = AsyncMock(return_value=None)
         app = create_app(
             api_key="test-key",

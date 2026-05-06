@@ -72,6 +72,10 @@ GATEWAY_URL="http://localhost:${GATEWAY_PORT_VAR}/"
 # (auth_mode used to be on /health, but was moved to keep /health from leaking
 # auth configuration to unauthenticated probes.)
 admin_key=$(grep -E '^ADMIN_API_KEY=' .env 2>/dev/null | cut -d '=' -f2-)
+# Strip surrounding quotes so values like ADMIN_API_KEY="abc" don't end up
+# in the Authorization header as `Bearer "abc"` (which the gateway rejects).
+admin_key="${admin_key%\"}"; admin_key="${admin_key#\"}"
+admin_key="${admin_key%\'}"; admin_key="${admin_key#\'}"
 AUTH_MODE=""
 if [[ -n "${admin_key}" ]]; then
     # Don't let `set -e` kill the script if the gateway rejects the key
