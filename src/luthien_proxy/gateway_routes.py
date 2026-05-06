@@ -126,7 +126,7 @@ async def resolve_anthropic_client(
     base_url = base_client._base_url if base_client else None
 
     async def _record_credential_type(cred_type: str) -> None:
-        """Best-effort write of observed credential type for /health visibility."""
+        """Best-effort write of observed credential type for /api/admin/billing-status visibility."""
         if auth_mode == AuthMode.CLIENT_KEY:
             return
         deps = getattr(request.app.state, "dependencies", None)

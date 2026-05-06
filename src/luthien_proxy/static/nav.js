@@ -195,16 +195,26 @@ document.addEventListener('alpine:init', () => {
             document.addEventListener('click', closeTooltip);
             window.addEventListener('resize', positionTooltip);
 
-            const healthData = await updateBadge();
+            await updateBadge();
             const intervalId = setInterval(updateBadge, 30000);
 
-            // Render version footer from the health data we already fetched
+            // Version comes from the public /health endpoint; billing signals
+            // come from the admin-gated /api/admin/billing-status above.
+            // Two fetches keep each endpoint single-purpose.
             let footer = null;
-            if (healthData && healthData.version) {
-                footer = document.createElement('footer');
-                footer.className = 'luthien-footer';
-                footer.textContent = 'luthien-proxy @ ' + healthData.version;
-                document.body.appendChild(footer);
+            try {
+                const healthResponse = await fetch('/health');
+                if (healthResponse.ok) {
+                    const healthData = await healthResponse.json();
+                    if (healthData && healthData.version) {
+                        footer = document.createElement('footer');
+                        footer.className = 'luthien-footer';
+                        footer.textContent = 'luthien-proxy @ ' + healthData.version;
+                        document.body.appendChild(footer);
+                    }
+                }
+            } catch (e) {
+                // Footer is non-critical; leave it absent on fetch error.
             }
 
             this.$cleanup(() => {

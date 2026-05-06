@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 import litellm
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from luthien_proxy.admin.policy_discovery import discover_policies, validate_policy_config
@@ -19,6 +19,7 @@ from luthien_proxy.config_registry import ConfigOverriddenError, ConfigRegistry
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CredentialManager
 from luthien_proxy.credentials import Credential, CredentialError, CredentialType
 from luthien_proxy.dependencies import (
+    Dependencies,
     get_db_pool,
     get_dependencies,
     get_policy_manager,
@@ -444,8 +445,8 @@ async def get_auth_config(
 
 @router.get("/billing-status", response_model=BillingStatusResponse)
 async def get_billing_status(
-    request: Request,
     _: str = Depends(verify_admin_token),
+    deps: Dependencies = Depends(get_dependencies),
 ):
     """Return billing-mode signals (auth_mode, last credential type/timestamp).
 
@@ -454,7 +455,6 @@ async def get_billing_status(
     (a probe attacker could otherwise fingerprint the gateway's auth mode and
     recent activity via /health).
     """
-    deps = get_dependencies(request)
     auth_mode = deps.credential_manager.config.auth_mode.value if deps.credential_manager else None
     last_type = deps.last_credential_info.get("type") if deps.last_credential_info else None
     last_at = deps.last_credential_info.get("timestamp") if deps.last_credential_info else None

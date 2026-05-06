@@ -497,6 +497,53 @@ class TestCreateApp:
             )
             assert response.json()["auth_mode"] == "passthrough"
 
+    def test_billing_status_carries_last_credential_info_when_set(
+        self, policy_config_file, mock_db_pool, mock_redis_client
+    ):
+        """Billing status surfaces last_credential_type/at when populated."""
+        mock_redis_client.get = AsyncMock(return_value=None)
+        app = create_app(
+            api_key="test-key",
+            admin_key="test-admin-key",
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            app.state.dependencies.last_credential_info = {  # type: ignore[attr-defined]
+                "type": "user_api_key",
+                "timestamp": 1700000000.5,
+            }
+            response = client.get(
+                "/api/admin/billing-status",
+                headers={"Authorization": "Bearer test-admin-key"},
+            )
+            assert response.status_code == 200
+            body = response.json()
+            assert body["last_credential_type"] == "user_api_key"
+            assert body["last_credential_at"] == 1700000000.5
+
+    def test_billing_status_handles_no_credential_manager(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Billing status returns auth_mode=None when credential_manager is unset."""
+        mock_redis_client.get = AsyncMock(return_value=None)
+        app = create_app(
+            api_key="test-key",
+            admin_key="test-admin-key",
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            app.state.dependencies.credential_manager = None  # type: ignore[attr-defined]
+            response = client.get(
+                "/api/admin/billing-status",
+                headers={"Authorization": "Bearer test-admin-key"},
+            )
+            assert response.status_code == 200
+            assert response.json()["auth_mode"] is None
+
     def test_ready_endpoint_returns_200_with_real_sqlite_pool(self, policy_config_file, mock_redis_client):
         """/ready returns 200 against a real SqlitePool — exercises the actual DB API.
 
