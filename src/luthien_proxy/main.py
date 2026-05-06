@@ -414,12 +414,12 @@ def create_app(
                 content={"status": "not_ready", "reason": "dependencies not initialized"},
             )
 
+        async def _probe() -> None:
+            async with deps.db_pool.connection() as conn:
+                await conn.fetchval("SELECT 1")
+
         try:
-            pool = await deps.db_pool.get_pool()
-            await asyncio.wait_for(
-                pool.fetchval("SELECT 1"),
-                timeout=READY_DB_PROBE_TIMEOUT_SECONDS,
-            )
+            await asyncio.wait_for(_probe(), timeout=READY_DB_PROBE_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
             logger.warning("Readiness probe timed out after %.1fs", READY_DB_PROBE_TIMEOUT_SECONDS)
             return JSONResponse(
