@@ -66,11 +66,18 @@ echo -e "${GREEN}✅ gateway is running on port ${GATEWAY_PORT_VAR}${NC}"
 CLIENT_KEY="${CLIENT_API_KEY:-sk-luthien-dev-key}"
 GATEWAY_URL="http://localhost:${GATEWAY_PORT_VAR}/"
 
-# Detect auth mode from /health endpoint:
+# Detect auth mode from the admin-only /api/admin/auth/config endpoint:
 #   client_key — server always uses its own Anthropic API key; requests are billed to it.
 #   anything else — OAuth passthrough (Claude Pro/Max subscribers, no per-token charges).
-HEALTH_RESPONSE=$(curl -sf "http://localhost:${GATEWAY_PORT_VAR}/health")
-AUTH_MODE=$(echo "$HEALTH_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('auth_mode',''))" 2>/dev/null)
+# (auth_mode used to be on /health, but was moved to keep /health from leaking
+# auth configuration to unauthenticated probes.)
+admin_key=$(grep -E '^ADMIN_API_KEY=' .env 2>/dev/null | cut -d '=' -f2-)
+AUTH_MODE=""
+if [[ -n "${admin_key}" ]]; then
+    CONFIG_RESPONSE=$(curl -sf -H "Authorization: Bearer ${admin_key}" \
+        "http://localhost:${GATEWAY_PORT_VAR}/api/admin/auth/config")
+    AUTH_MODE=$(echo "$CONFIG_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('auth_mode',''))" 2>/dev/null)
+fi
 
 if [[ "${AUTH_MODE}" == "passthrough" ]]; then
     AUTH_MODE_LABEL="Claude Max / OAuth passthrough"
@@ -95,7 +102,6 @@ echo ""
 if new_mode=$(check_auth_mode_interactive "$AUTH_MODE"); then
     update_auth_mode_env "$new_mode"
 
-    admin_key=$(grep -E '^ADMIN_API_KEY=' .env 2>/dev/null | cut -d '=' -f2-)
     update_auth_mode_api "$new_mode" "http://localhost:${GATEWAY_PORT_VAR}" "$admin_key"
 
     AUTH_MODE="$new_mode"

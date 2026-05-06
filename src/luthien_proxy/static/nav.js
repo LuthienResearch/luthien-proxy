@@ -44,7 +44,12 @@ document.addEventListener('alpine:init', () => {
                 }
             };
 
+            // Page-lifetime flag: stop polling once we know we're not
+            // authenticated (e.g. anonymous visitors loading the public
+            // landing page). Avoids 30s 403 noise in access logs.
+            let billingStatusUnauthorized = false;
             const updateBadge = async () => {
+                if (billingStatusUnauthorized) return;
                 let data;
                 try {
                     // Authenticated endpoint — uses the admin session cookie
@@ -53,6 +58,10 @@ document.addEventListener('alpine:init', () => {
                     const response = await fetch('/api/admin/billing-status', {
                         credentials: 'same-origin',
                     });
+                    if (response.status === 403) {
+                        billingStatusUnauthorized = true;
+                        return;
+                    }
                     if (!response.ok) return;
                     data = await response.json();
                     let badgeType = null; // 'warning' or 'ok'
@@ -121,7 +130,9 @@ document.addEventListener('alpine:init', () => {
                         }
                     }
                 } catch (_) {
-                    // Health check failure is not fatal — nav still works without the badge.
+                    // Billing-status fetch failure is not fatal — nav still
+                    // works without the badge. The 403 path (unauthenticated)
+                    // is handled by the !response.ok early-return above.
                 }
                 return data;
             };
@@ -195,16 +206,19 @@ document.addEventListener('alpine:init', () => {
             document.addEventListener('click', closeTooltip);
             window.addEventListener('resize', positionTooltip);
 
-            await updateBadge();
+            // Version comes from the public /health endpoint; billing signals
+            // come from the admin-gated /api/admin/billing-status. Two fetches
+            // keep each endpoint single-purpose; we issue them in parallel so
+            // the page renders in a single round-trip.
+            const [, healthResponse] = await Promise.all([
+                updateBadge(),
+                fetch('/health').catch(() => null),
+            ]);
             const intervalId = setInterval(updateBadge, 30000);
 
-            // Version comes from the public /health endpoint; billing signals
-            // come from the admin-gated /api/admin/billing-status above.
-            // Two fetches keep each endpoint single-purpose.
             let footer = null;
             try {
-                const healthResponse = await fetch('/health');
-                if (healthResponse.ok) {
+                if (healthResponse && healthResponse.ok) {
                     const healthData = await healthResponse.json();
                     if (healthData && healthData.version) {
                         footer = document.createElement('footer');
@@ -214,7 +228,7 @@ document.addEventListener('alpine:init', () => {
                     }
                 }
             } catch (e) {
-                // Footer is non-critical; leave it absent on fetch error.
+                // Footer is non-critical; leave it absent on fetch/parse error.
             }
 
             this.$cleanup(() => {

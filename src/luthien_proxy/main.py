@@ -371,7 +371,7 @@ def create_app(
 
     # Simple utility endpoints
     @app.get("/health")
-    async def health(request: Request):
+    async def health():
         """Liveness probe endpoint.
 
         Always returns HTTP 200 if the process is responsive. Kept minimal:
