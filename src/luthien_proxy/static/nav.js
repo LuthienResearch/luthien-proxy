@@ -44,22 +44,33 @@ document.addEventListener('alpine:init', () => {
                 }
             };
 
-            // Page-lifetime flag: stop polling once we know we're not
-            // authenticated (e.g. anonymous visitors loading the public
-            // landing page). Avoids 30s 403 noise in access logs.
-            let billingStatusUnauthorized = false;
+            // Page-lifetime flag: stop polling once we know billing-status
+            // can't work for this session (anonymous visitor → 403, or
+            // ADMIN_API_KEY unset on the server → 500). Both are deterministic
+            // for the lifetime of the page, so polling further is just noise.
+            let billingStatusUnavailable = false;
+            let billingPollIntervalId = null;
+            const stopBillingPoll = () => {
+                billingStatusUnavailable = true;
+                if (billingPollIntervalId !== null) {
+                    clearInterval(billingPollIntervalId);
+                    billingPollIntervalId = null;
+                }
+            };
             const updateBadge = async () => {
-                if (billingStatusUnauthorized) return;
+                if (billingStatusUnavailable) return;
                 let data;
                 try {
                     // Authenticated endpoint — uses the admin session cookie
-                    // set by /auth/login. Returns 403 when unauthenticated;
-                    // we then leave the badge unset.
+                    // set by /auth/login. 403 means unauthenticated; 500 means
+                    // ADMIN_API_KEY isn't configured server-side (see
+                    // verify_admin_token). Both are page-lifetime conditions,
+                    // so latch and stop polling.
                     const response = await fetch('/api/admin/billing-status', {
                         credentials: 'same-origin',
                     });
-                    if (response.status === 403) {
-                        billingStatusUnauthorized = true;
+                    if (response.status === 403 || response.status === 500) {
+                        stopBillingPoll();
                         return;
                     }
                     if (!response.ok) return;
@@ -214,7 +225,10 @@ document.addEventListener('alpine:init', () => {
                 updateBadge(),
                 fetch('/health').catch(() => null),
             ]);
-            const intervalId = setInterval(updateBadge, 30000);
+            // Only start the periodic poll if the first call didn't latch.
+            if (!billingStatusUnavailable) {
+                billingPollIntervalId = setInterval(updateBadge, 30000);
+            }
 
             let footer = null;
             try {
@@ -232,7 +246,7 @@ document.addEventListener('alpine:init', () => {
             }
 
             this.$cleanup(() => {
-                clearInterval(intervalId);
+                if (billingPollIntervalId !== null) clearInterval(billingPollIntervalId);
                 if (activeTooltip) activeTooltip.remove();
                 if (footer) footer.remove();
                 document.removeEventListener('click', closeTooltip);
