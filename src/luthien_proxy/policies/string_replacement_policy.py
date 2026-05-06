@@ -1,11 +1,23 @@
-"""StringReplacementPolicy - Replace strings in LLM responses.
+"""StringReplacementPolicy - Replace strings in LLM requests and/or responses.
 
-This policy replaces specified strings in response content with replacement values.
-It supports case-insensitive matching with intelligent capitalization preservation.
+This policy replaces specified strings in request and/or response content with
+replacement values. It supports case-insensitive matching with intelligent
+capitalization preservation.
 
-Streaming uses a sliding buffer to handle replacements that span chunk boundaries.
-The buffer holds back the last N characters (N = longest source length - 1) so that
-words split across chunks are still matched and replaced correctly.
+The ``apply_to`` config field selects which side of the conversation to scrub:
+
+- ``"response"`` (default): only model output is transformed. Back-compat default.
+- ``"request"``: only the inbound request from the client is transformed.
+- ``"both"``: both sides are transformed.
+
+The request-side hook scrubs string content, ``text`` blocks, and ``tool_result``
+content (both the string form and the list-of-text-blocks form). It does not
+touch ``tool_use``, ``image``, ``thinking``, or the top-level ``system`` field.
+
+Streaming uses a sliding buffer to handle replacements that span chunk
+boundaries. The buffer holds back the last N characters
+(N = longest source length - 1) so that words split across chunks are still
+matched and replaced correctly.
 
 Example config:
     policy:
@@ -15,14 +27,16 @@ Example config:
           - ["foo", "bar"]
           - ["hello", "goodbye"]
         match_capitalization: true
+        apply_to: "both"
 """
 
 from __future__ import annotations
 
+import copy
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
 
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
@@ -42,6 +56,7 @@ from luthien_proxy.policy_core.anthropic_execution_interface import AnthropicPol
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import (
+        AnthropicRequest,
         AnthropicResponse,
     )
 
@@ -70,6 +85,14 @@ class StringReplacementConfig(BaseModel):
 
     replacements: list[list[str]] = Field(default_factory=list, description="List of [from, to] string pairs")
     match_capitalization: bool = Field(default=False, description="Match source capitalization pattern")
+    apply_to: Literal["request", "response", "both"] = Field(
+        default="response",
+        description=(
+            "Which side(s) of the conversation to apply replacements to. "
+            "'response' (default) only modifies model output; 'request' only modifies "
+            "incoming user content; 'both' modifies both."
+        ),
+    )
 
     @field_validator("replacements")
     @classmethod
@@ -279,6 +302,8 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
 
         self._replacements: tuple[tuple[str, str], ...] = tuple((pair[0], pair[1]) for pair in self.config.replacements)
         self._match_capitalization = self.config.match_capitalization
+        self._apply_to_request: bool = self.config.apply_to in ("request", "both")
+        self._apply_to_response: bool = self.config.apply_to in ("response", "both")
         # Pre-compile case-insensitive patterns once; the streaming hot path
         # would otherwise re-compile per chunk (and per replacement) on every
         # text_delta event.
@@ -304,14 +329,146 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
             return _apply_with_compiled_count(text, self._compiled_patterns)
         return apply_replacements_with_count(text, self._replacements, match_capitalization=False)
 
+    async def on_anthropic_request(self, request: "AnthropicRequest", context: PolicyContext) -> "AnthropicRequest":
+        """Apply replacements to incoming request messages when ``apply_to`` includes 'request'.
+
+        Targets:
+        - String message content (``message["content"]`` when ``str``)
+        - Text blocks (``{"type": "text", "text": "..."}``)
+        - Tool result blocks with string content
+          (``{"type": "tool_result", "content": "..."}``)
+        - Tool result blocks with list-of-text-block content
+          (``{"type": "tool_result", "content": [{"type": "text", ...}, ...]}``)
+
+        Other block types (``tool_use``, ``image``, ``thinking``, etc.) and the
+        top-level ``system`` field are left untouched.
+
+        **Mutation safety:** ``_initial_request`` is shallow-copied for
+        ``original_request`` recording, so nested mutation corrupts history.
+        We deep-copy ``messages`` once, mutate the copy, and return a new
+        top-level request dict referencing the copied list.
+        """
+        if not self._apply_to_request or not self._replacements:
+            return request
+
+        original_messages = request.get("messages")
+        if not isinstance(original_messages, list) or not original_messages:
+            return request
+
+        # Deep-copy messages once; mutating the copy is safe.
+        new_messages = copy.deepcopy(original_messages)
+
+        blocks_modified = 0
+        total_replacements = 0
+        original_length = 0
+        transformed_length = 0
+
+        for message in new_messages:
+            if not isinstance(message, dict):
+                continue
+            content = message.get("content")
+            if isinstance(content, str):
+                transformed, count = self._apply_replacements_with_count(content)
+                if count > 0:
+                    blocks_modified += 1
+                    total_replacements += count
+                    original_length += len(content)
+                    transformed_length += len(transformed)
+                    message["content"] = transformed
+                continue
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                stats = self._apply_to_block_in_place(block)
+                if stats is None:
+                    continue
+                count, before_len, after_len = stats
+                if count > 0:
+                    blocks_modified += 1
+                    total_replacements += count
+                    original_length += before_len
+                    transformed_length += after_len
+
+        if blocks_modified == 0:
+            # Nothing changed — return the original request untouched. We
+            # discard the deep copy rather than aliasing it back into a new
+            # top-level dict, since identity-of-input is the easiest contract
+            # to verify in tests when the hook is a true no-op.
+            return request
+
+        # Build a new top-level dict so reassigning ``messages`` doesn't mutate
+        # the original request dict (which is aliased by ``_initial_request``).
+        new_request: dict[str, Any] = dict(request)
+        new_request["messages"] = new_messages
+        context.record_event(
+            "policy.string_replacement.request_modified",
+            {
+                "blocks_modified": blocks_modified,
+                "total_replacements": total_replacements,
+                "original_length": original_length,
+                "transformed_length": transformed_length,
+            },
+        )
+        return new_request  # type: ignore[return-value]
+
+    def _apply_to_block_in_place(self, block: object) -> tuple[int, int, int] | None:
+        """Apply replacements to a single content block in place.
+
+        Returns ``(substitution_count, original_text_length, transformed_text_length)``
+        if the block is a recognized text-bearing shape, else ``None`` (block was
+        ignored). The lengths reflect only the text actually scrubbed within
+        this block.
+        """
+        if not isinstance(block, dict):
+            return None
+        block_type = block.get("type")
+        if block_type == "text":
+            text = block.get("text")
+            if not isinstance(text, str):
+                return None
+            transformed, count = self._apply_replacements_with_count(text)
+            if count > 0:
+                block["text"] = transformed
+            return (count, len(text), len(transformed))
+        if block_type == "tool_result":
+            content = block.get("content")
+            if isinstance(content, str):
+                transformed, count = self._apply_replacements_with_count(content)
+                if count > 0:
+                    block["content"] = transformed
+                return (count, len(content), len(transformed))
+            if isinstance(content, list):
+                total_count = 0
+                total_before = 0
+                total_after = 0
+                for inner in content:
+                    if not isinstance(inner, dict) or inner.get("type") != "text":
+                        continue
+                    text = inner.get("text")
+                    if not isinstance(text, str):
+                        continue
+                    transformed, count = self._apply_replacements_with_count(text)
+                    if count > 0:
+                        inner["text"] = transformed
+                        total_count += count
+                        total_before += len(text)
+                        total_after += len(transformed)
+                return (total_count, total_before, total_after)
+            return None
+        return None
+
     async def on_anthropic_response(self, response: "AnthropicResponse", context: PolicyContext) -> "AnthropicResponse":
         """Transform text content blocks with string replacements.
 
         Iterates through content blocks and applies replacements to text blocks.
         Tool use, thinking, and other block types remain unchanged. Emits a
         single ``policy.string_replacement.response_modified`` event per
-        response if any block was actually modified.
+        response if any block was actually modified. No-op when ``apply_to``
+        excludes the response side.
         """
+        if not self._apply_to_response:
+            return response
+
         blocks_modified = 0
         total_replacements = 0
         original_length = 0
@@ -368,6 +525,8 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
     ) -> list[MessageStreamEvent]:
         """Transform text_delta events with string replacements.
 
+        No-op (passthrough) when ``apply_to`` excludes the response side.
+
         Uses a sliding buffer to handle replacements spanning chunk boundaries.
         On each chunk the buffer (post-replacement tail from the prior iteration)
         is prepended to the new raw text, replacements are applied to the combined
@@ -387,6 +546,9 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
         This is safe because the Anthropic protocol sends blocks sequentially
         (not interleaved), and content_block_stop flushes the buffer between blocks.
         """
+        if not self._apply_to_response:
+            return [event]
+
         # Flush buffer before message_delta so content blocks precede it
         if isinstance(event, RawMessageDeltaEvent) and self._buffer_size > 0:
             state = self._get_buffer_state(context)
@@ -450,8 +612,11 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
 
         Emits a single ``policy.string_replacement.response_modified`` event
         summarizing all substitutions made during the stream, mirroring the
-        non-streaming path. Skipped when no substitutions were made.
+        non-streaming path. Skipped when no substitutions were made or when
+        ``apply_to`` excludes the response side.
         """
+        if not self._apply_to_response:
+            return []
         state = context.pop_request_state(self, _StreamBufferState)
         if state is None:
             return []
