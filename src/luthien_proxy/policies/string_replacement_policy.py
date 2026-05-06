@@ -343,14 +343,10 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
         Other block types (``tool_use``, ``image``, ``thinking``, etc.) and the
         top-level ``system`` field are left untouched.
 
-        **Mutation safety:** the policy MUST NOT mutate the input ``request``
-        dict or any of its nested values, because the gateway's
-        ``_initial_request`` aliases the same object and a shallow copy
-        (``dict(self._initial_request)``) is later used to record the
-        ``original_request`` history event. Mutating in place would corrupt
-        history (this is the regression that took down PR #573). We deep-copy
-        ``messages`` once, mutate the copy, and return a new top-level request
-        dict referencing the copied list.
+        **Mutation safety:** ``_initial_request`` is shallow-copied for
+        ``original_request`` recording, so nested mutation corrupts history.
+        We deep-copy ``messages`` once, mutate the copy, and return a new
+        top-level request dict referencing the copied list.
         """
         if not self._apply_to_request or not self._replacements:
             return request
@@ -454,9 +450,9 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
                     transformed, count = self._apply_replacements_with_count(text)
                     if count > 0:
                         inner["text"] = transformed
-                    total_count += count
-                    total_before += len(text)
-                    total_after += len(transformed)
+                        total_count += count
+                        total_before += len(text)
+                        total_after += len(transformed)
                 return (total_count, total_before, total_after)
             return None
         return None

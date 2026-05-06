@@ -1461,6 +1461,104 @@ class TestRequestSideFiltering:
         assert msgs[2]["content"] == "bar three"
 
     @pytest.mark.asyncio
+    async def test_match_capitalization_preserves_title_case(self):
+        """Request-side match_capitalization=True uses the precompiled regex path."""
+        policy = StringReplacementPolicy(
+            config=StringReplacementConfig(
+                replacements=[["hello", "hi"]],
+                apply_to="request",
+                match_capitalization=True,
+            )
+        )
+        ctx, recorder = _ctx_with_recorder()
+        request = _request_with_messages([{"role": "user", "content": "Hello World"}])
+
+        result = await policy.on_anthropic_request(request, ctx)
+
+        # Title case preserved on the matched word; rest of the string untouched.
+        assert result["messages"][0]["content"] == "Hi World"
+        events = recorder.by_type(REQUEST_MODIFIED_EVENT)
+        assert len(events) == 1
+        assert events[0]["total_replacements"] == 1
+        assert events[0]["blocks_modified"] == 1
+
+    @pytest.mark.asyncio
+    async def test_empty_replacements_is_identity_passthrough(self):
+        """apply_to='request' with empty replacements returns the original request."""
+        policy = StringReplacementPolicy(
+            config=StringReplacementConfig(replacements=[], apply_to="request")
+        )
+        ctx, _ = _ctx_with_recorder()
+        request = _request_with_messages([{"role": "user", "content": "anything goes"}])
+
+        result = await policy.on_anthropic_request(request, ctx)
+
+        assert result is request
+
+    @pytest.mark.asyncio
+    async def test_streaming_passthrough_across_multiple_chunks(self):
+        """apply_to='request': stream hook is a no-op even across multi-chunk text deltas."""
+        policy = StringReplacementPolicy(
+            config=StringReplacementConfig(replacements=[["hello", "hi"]], apply_to="request")
+        )
+        ctx, recorder = _ctx_with_recorder()
+
+        events: list[Any] = [
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="say hel"),
+            ),
+            RawContentBlockDeltaEvent.model_construct(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta.model_construct(type="text_delta", text="lo there"),
+            ),
+            RawContentBlockStopEvent.model_construct(type="content_block_stop", index=0),
+        ]
+        full_text = await _collect_stream_text(policy, ctx, events)
+        # Bytes pass through verbatim — no buffering, no replacement, no event.
+        assert full_text == "say hello there"
+        assert recorder.by_type(RESPONSE_MODIFIED_EVENT) == []
+
+    @pytest.mark.asyncio
+    async def test_tool_result_list_partial_match_event_counts(self):
+        """A tool_result with list content where only one inner block has matches:
+        original_length must reflect only the modified inner block's length."""
+        policy = StringReplacementPolicy(
+            config=StringReplacementConfig(replacements=[["danger", "warn"]], apply_to="request")
+        )
+        ctx, recorder = _ctx_with_recorder()
+        request = _request_with_messages(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "tool_1",
+                            "content": [
+                                {"type": "text", "text": "danger here"},  # matches
+                                {"type": "text", "text": "totally safe content"},  # no match
+                            ],
+                        }
+                    ],
+                }
+            ]
+        )
+
+        await policy.on_anthropic_request(request, ctx)
+
+        events = recorder.by_type(REQUEST_MODIFIED_EVENT)
+        assert len(events) == 1
+        payload = events[0]
+        assert payload["total_replacements"] == 1
+        assert payload["blocks_modified"] == 1
+        # Only the modified inner block contributes to the lengths.
+        assert payload["original_length"] == len("danger here")
+        assert payload["transformed_length"] == len("warn here")
+
+    @pytest.mark.asyncio
     async def test_system_field_not_touched(self):
         """The top-level ``system`` field is out of scope for this PR."""
         policy = StringReplacementPolicy(
