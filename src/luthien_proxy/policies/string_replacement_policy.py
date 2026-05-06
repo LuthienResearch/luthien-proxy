@@ -31,7 +31,7 @@ from anthropic.types import (
     RawMessageDeltaEvent,
     TextDelta,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from luthien_proxy.policy_core import (
     AnthropicHookPolicy,
@@ -70,6 +70,21 @@ class StringReplacementConfig(BaseModel):
 
     replacements: list[list[str]] = Field(default_factory=list, description="List of [from, to] string pairs")
     match_capitalization: bool = Field(default=False, description="Match source capitalization pattern")
+
+    @field_validator("replacements")
+    @classmethod
+    def _validate_replacement_pairs(cls, replacements: list[list[str]]) -> list[list[str]]:
+        """Each entry must be a length-2 list of strings ([from, to]).
+
+        Caught at config-load time so misconfigured policies fail loudly rather
+        than blowing up on the first request.
+        """
+        for index, pair in enumerate(replacements):
+            if not isinstance(pair, list) or len(pair) != 2:
+                raise ValueError(f"replacements[{index}] must be a [from, to] pair of length 2, got {pair!r}")
+            if not all(isinstance(item, str) for item in pair):
+                raise ValueError(f"replacements[{index}] must contain two strings, got {pair!r}")
+        return replacements
 
 
 def _detect_capitalization_pattern(text: str) -> str:
@@ -149,6 +164,39 @@ def _apply_capitalization_pattern(source: str, replacement: str) -> str:
     return "".join(result)
 
 
+def _compile_case_insensitive_patterns(
+    replacements: Sequence[tuple[str, str]],
+) -> tuple[tuple[re.Pattern[str], str], ...]:
+    """Pre-compile case-insensitive regex patterns for ``match_capitalization=True``.
+
+    Returns one ``(pattern, to_str)`` per non-empty source. Empty sources are
+    skipped to mirror :func:`apply_replacements_with_count`'s behavior.
+    """
+    return tuple(
+        (re.compile(re.escape(from_str), re.IGNORECASE), to_str) for from_str, to_str in replacements if from_str
+    )
+
+
+def _apply_with_compiled_count(
+    text: str,
+    compiled: Sequence[tuple[re.Pattern[str], str]],
+) -> tuple[str, int]:
+    """Apply pre-compiled case-insensitive replacements; return (new_text, count)."""
+    if not text or not compiled:
+        return text, 0
+
+    result = text
+    total = 0
+    for pattern, to_str in compiled:
+
+        def replace_with_case(match: re.Match[str], _to_str: str = to_str) -> str:
+            return _apply_capitalization_pattern(match.group(0), _to_str)
+
+        result, count = pattern.subn(replace_with_case, result)
+        total += count
+    return result, total
+
+
 def apply_replacements_with_count(
     text: str,
     replacements: Sequence[tuple[str, str]],
@@ -166,27 +214,18 @@ def apply_replacements_with_count(
     if not text or not replacements:
         return text, 0
 
+    if match_capitalization:
+        return _apply_with_compiled_count(text, _compile_case_insensitive_patterns(replacements))
+
     result = text
     total = 0
-
     for from_str, to_str in replacements:
         if not from_str:
             continue
-
-        if match_capitalization:
-            # Case-insensitive search with capitalization preservation
-            pattern = re.compile(re.escape(from_str), re.IGNORECASE)
-
-            def replace_with_case(match: re.Match) -> str:
-                matched_text = match.group(0)
-                return _apply_capitalization_pattern(matched_text, to_str)
-
-            result, count = pattern.subn(replace_with_case, result)
-        else:
-            # Simple case-sensitive replacement; count occurrences before substituting.
-            count = result.count(from_str)
-            if count:
-                result = result.replace(from_str, to_str)
+        # Simple case-sensitive replacement; count occurrences before substituting.
+        count = result.count(from_str)
+        if count:
+            result = result.replace(from_str, to_str)
         total += count
 
     return result, total
@@ -240,6 +279,12 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
 
         self._replacements: tuple[tuple[str, str], ...] = tuple((pair[0], pair[1]) for pair in self.config.replacements)
         self._match_capitalization = self.config.match_capitalization
+        # Pre-compile case-insensitive patterns once; the streaming hot path
+        # would otherwise re-compile per chunk (and per replacement) on every
+        # text_delta event.
+        self._compiled_patterns: tuple[tuple[re.Pattern[str], str], ...] | None = (
+            _compile_case_insensitive_patterns(self._replacements) if self._match_capitalization else None
+        )
 
         # Buffer size for streaming: hold back enough chars to catch replacements
         # that span chunk boundaries. For sources of length L, we need L-1 chars.
@@ -249,13 +294,15 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
         )
         self._buffer_size = max(self._buffer_size - 1, 0)
 
-    def _apply_replacements(self, text: str) -> str:
-        """Apply all configured replacements to the given text."""
-        return apply_replacements(text, self._replacements, self._match_capitalization)
-
     def _apply_replacements_with_count(self, text: str) -> tuple[str, int]:
-        """Apply all configured replacements and return (new_text, substitution_count)."""
-        return apply_replacements_with_count(text, self._replacements, self._match_capitalization)
+        """Apply all configured replacements and return (new_text, substitution_count).
+
+        Uses the precompiled patterns when ``match_capitalization=True`` so the
+        per-chunk streaming path doesn't re-compile regexes on every event.
+        """
+        if self._compiled_patterns is not None:
+            return _apply_with_compiled_count(text, self._compiled_patterns)
+        return apply_replacements_with_count(text, self._replacements, match_capitalization=False)
 
     async def on_anthropic_response(self, response: "AnthropicResponse", context: PolicyContext) -> "AnthropicResponse":
         """Transform text content blocks with string replacements.

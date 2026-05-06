@@ -18,6 +18,7 @@ from anthropic.types import (
     TextDelta,
     ThinkingDelta,
 )
+from pydantic import ValidationError
 from tests.constants import DEFAULT_TEST_MODEL
 
 from luthien_proxy.llm.types.anthropic import (
@@ -139,6 +140,33 @@ class TestApplyReplacementsWithCount:
         result_text, result_count = apply_replacements_with_count(text, replacements, False)
         assert result_text == "yyy"
         assert result_count == 4
+
+
+class TestConfigValidation:
+    """Misconfigured replacement pairs should fail loudly at config-load time."""
+
+    @pytest.mark.parametrize(
+        "bad_pair",
+        [
+            ["foo"],  # too short — would have IndexError'd in __init__
+            ["a", "b", "c"],  # too long — third element would silently be dropped
+            [],  # empty
+        ],
+    )
+    def test_rejects_wrong_length_pair(self, bad_pair):
+        with pytest.raises(ValidationError) as excinfo:
+            StringReplacementConfig(replacements=[bad_pair])
+        # Ensure the message names the offending pair so operators can find it.
+        assert "length 2" in str(excinfo.value) or "pair" in str(excinfo.value)
+
+    def test_rejects_non_string_items(self):
+        with pytest.raises(ValidationError):
+            # Pydantic coerces and/or our validator rejects this.
+            StringReplacementConfig(replacements=[["foo", 123]])  # type: ignore[list-item]
+
+    def test_accepts_valid_pairs(self):
+        cfg = StringReplacementConfig(replacements=[["foo", "bar"], ["a", "b"]])
+        assert cfg.replacements == [["foo", "bar"], ["a", "b"]]
 
 
 class TestImplementsInterfaces:
