@@ -544,6 +544,25 @@ class TestCreateApp:
             assert response.status_code == 200
             assert response.json()["auth_mode"] is None
 
+    def test_billing_status_response_is_not_cacheable(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Billing status must not be cached — it can change at any time."""
+        mock_redis_client.get = AsyncMock(return_value=None)
+        app = create_app(
+            api_key="test-key",
+            admin_key="test-admin-key",
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/admin/billing-status",
+                headers={"Authorization": "Bearer test-admin-key"},
+            )
+            assert response.status_code == 200
+            assert response.headers["cache-control"] == "no-store, no-cache, must-revalidate"
+
     def test_ready_endpoint_returns_200_with_real_sqlite_pool(self, policy_config_file, mock_redis_client):
         """/ready returns 200 against a real SqlitePool — exercises the actual DB API.
 

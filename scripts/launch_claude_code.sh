@@ -74,9 +74,19 @@ GATEWAY_URL="http://localhost:${GATEWAY_PORT_VAR}/"
 admin_key=$(grep -E '^ADMIN_API_KEY=' .env 2>/dev/null | cut -d '=' -f2-)
 AUTH_MODE=""
 if [[ -n "${admin_key}" ]]; then
+    # Don't let `set -e` kill the script if the gateway rejects the key
+    # (stale .env, key rotated, etc.) — degrade to a warning instead.
     CONFIG_RESPONSE=$(curl -sf -H "Authorization: Bearer ${admin_key}" \
-        "http://localhost:${GATEWAY_PORT_VAR}/api/admin/auth/config")
-    AUTH_MODE=$(echo "$CONFIG_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('auth_mode',''))" 2>/dev/null)
+        "http://localhost:${GATEWAY_PORT_VAR}/api/admin/auth/config" || true)
+    if [[ -n "${CONFIG_RESPONSE}" ]]; then
+        AUTH_MODE=$(echo "$CONFIG_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('auth_mode',''))" 2>/dev/null || echo "")
+    fi
+    if [[ -z "${AUTH_MODE}" ]]; then
+        echo -e "${YELLOW}⚠ Could not detect gateway auth_mode (admin key may be stale or rejected).${NC}"
+        echo -e "${YELLOW}  Defaulting to client_key behavior (USE_OAUTH=false). If your gateway"
+        echo -e "  is in passthrough or both mode, verify ADMIN_API_KEY in .env matches the"
+        echo -e "  running gateway so the launcher can configure Claude Code correctly.${NC}"
+    fi
 else
     echo -e "${YELLOW}⚠ ADMIN_API_KEY not set in .env — cannot detect gateway auth mode.${NC}"
     echo -e "${YELLOW}  Defaulting to client_key behavior (USE_OAUTH=false). If your gateway"

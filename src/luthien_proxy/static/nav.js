@@ -45,9 +45,10 @@ document.addEventListener('alpine:init', () => {
             };
 
             // Page-lifetime flag: stop polling once we know billing-status
-            // can't work for this session (anonymous visitor → 403, or
-            // ADMIN_API_KEY unset on the server → 500). Both are deterministic
-            // for the lifetime of the page, so polling further is just noise.
+            // can't work for this session. Only 403 is treated as terminal
+            // here — that's the deterministic anonymous-visitor case. 5xx
+            // codes are left as "skip this tick"; an upstream proxy/CDN
+            // could legitimately return them transiently.
             let billingStatusUnavailable = false;
             let billingPollIntervalId = null;
             const stopBillingPoll = () => {
@@ -62,14 +63,13 @@ document.addEventListener('alpine:init', () => {
                 let data;
                 try {
                     // Authenticated endpoint — uses the admin session cookie
-                    // set by /auth/login. 403 means unauthenticated; 500 means
-                    // ADMIN_API_KEY isn't configured server-side (see
-                    // verify_admin_token). Both are page-lifetime conditions,
-                    // so latch and stop polling.
+                    // set by /auth/login.
                     const response = await fetch('/api/admin/billing-status', {
                         credentials: 'same-origin',
                     });
-                    if (response.status === 403 || response.status === 500) {
+                    if (response.status === 403) {
+                        // Anonymous visitor — page-lifetime condition. Stop
+                        // polling so we don't generate 30s log noise.
                         stopBillingPoll();
                         return;
                     }
@@ -141,9 +141,10 @@ document.addEventListener('alpine:init', () => {
                         }
                     }
                 } catch (_) {
-                    // Billing-status fetch failure is not fatal — nav still
-                    // works without the badge. The 403 path (unauthenticated)
-                    // is handled by the !response.ok early-return above.
+                    // Network/parse failure is not fatal — nav still works
+                    // without the badge. The 403 (anonymous-visitor) path is
+                    // handled by the explicit status check above, which both
+                    // returns and stops the poll.
                 }
                 return data;
             };
