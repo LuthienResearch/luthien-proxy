@@ -19,7 +19,9 @@ from luthien_proxy.config_registry import ConfigOverriddenError, ConfigRegistry
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CredentialManager
 from luthien_proxy.credentials import Credential, CredentialError, CredentialType
 from luthien_proxy.dependencies import (
+    Dependencies,
     get_db_pool,
+    get_dependencies,
     get_policy_manager,
     require_config_registry,
     require_credential_manager,
@@ -130,6 +132,20 @@ class AuthConfigResponse(BaseModel):
     invalid_cache_ttl_seconds: int
     updated_at: str | None = None
     updated_by: str | None = None
+
+
+class BillingStatusResponse(BaseModel):
+    """Response with billing-mode signals for the admin UI badge.
+
+    These fields previously rode along on the unauthenticated /health
+    response, which leaked auth-mode and recent-activity fingerprinting
+    information. The admin UI now fetches this from an authenticated
+    endpoint instead.
+    """
+
+    auth_mode: str | None
+    last_credential_type: str | None
+    last_credential_at: float | None
 
 
 class AuthConfigUpdateRequest(BaseModel):
@@ -425,6 +441,28 @@ async def get_auth_config(
 ):
     """Get current authentication configuration."""
     return _config_to_response(credential_manager.config)
+
+
+@router.get("/billing-status", response_model=BillingStatusResponse)
+async def get_billing_status(
+    _: str = Depends(verify_admin_token),
+    deps: Dependencies = Depends(get_dependencies),
+):
+    """Return billing-mode signals (auth_mode, last credential type/timestamp).
+
+    Used by the admin UI nav bar to render the API-key-billing warning badge.
+    Behind admin auth so the values are not exposed to unauthenticated probes
+    (a probe attacker could otherwise fingerprint the gateway's auth mode and
+    recent activity via /health).
+    """
+    auth_mode = deps.credential_manager.config.auth_mode.value if deps.credential_manager else None
+    last_type = deps.last_credential_info.get("type") if deps.last_credential_info else None
+    last_at = deps.last_credential_info.get("timestamp") if deps.last_credential_info else None
+    return BillingStatusResponse(
+        auth_mode=auth_mode,
+        last_credential_type=last_type,
+        last_credential_at=last_at,
+    )
 
 
 @router.post("/auth/config", response_model=AuthConfigResponse)

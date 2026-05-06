@@ -371,29 +371,17 @@ def create_app(
 
     # Simple utility endpoints
     @app.get("/health")
-    async def health(request: Request):
-        """Health check endpoint.
+    async def health():
+        """Liveness probe endpoint.
 
-        Returns gateway status, auth mode, and last observed credential type so
-        operators and the UI can surface billing mode warnings accurately.
+        Always returns HTTP 200 if the process is responsive. Kept minimal:
+        a probe attacker shouldn't be able to fingerprint the gateway's auth
+        mode or recent credential activity from this endpoint. The admin UI
+        gets billing-mode signals from /api/admin/billing-status instead.
         """
-        deps = getattr(request.app.state, "dependencies", None)
-        auth_mode = None
-        if deps and deps.credential_manager:
-            auth_mode = deps.credential_manager.config.auth_mode.value
-
-        last_credential_type = None
-        last_credential_at = None
-        if deps and deps.last_credential_info:
-            last_credential_type = deps.last_credential_info.get("type")
-            last_credential_at = deps.last_credential_info.get("timestamp")
-
         return {
             "status": "healthy",
             "version": PROXY_DISPLAY_VERSION,
-            "auth_mode": auth_mode,
-            "last_credential_type": last_credential_type,
-            "last_credential_at": last_credential_at,
         }
 
     @app.get("/ready")
