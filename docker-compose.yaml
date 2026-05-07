@@ -106,6 +106,10 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4318/v1/traces}
       - OTEL_EXPORTER_OTLP_PROTOCOL=${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}
       - OTEL_SERVICE_NAME=luthien-gateway
+      # Skip uv re-sync at runtime: the venv is already installed at build
+      # time, and re-syncing would invoke hatch-vcs which writes _version.py
+      # into the read-only src/ mount.
+      - UV_NO_SYNC=1
       # API keys loaded from .env file only (not from shell) to prevent
       # shell environment from overriding .env values. This fixes issues
       # where users have API keys in their shell profile that differ from
