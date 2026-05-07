@@ -148,8 +148,10 @@ async def test_wrong_admin_key_returns_clear_error(
                 "localhost_auth_bypass is overridden by env or CLI — cannot toggle via DB. "
                 "Unset LOCALHOST_AUTH_BYPASS in the gateway's environment to run this test."
             )
+        # Fail-fast outside `try` so a non-200 toggle doesn't trigger a restore
+        # for state we never actually mutated.
+        assert toggle_off.status_code == 200, f"Failed to disable bypass: {toggle_off.text}"
         try:
-            assert toggle_off.status_code == 200, f"Failed to disable bypass: {toggle_off.text}"
             response = await client.post(
                 f"{gateway_url}/api/admin/policy/set",
                 headers={"Authorization": "Bearer wrong-admin-key"},
