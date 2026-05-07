@@ -127,4 +127,5 @@ async def test_onboarding_context_not_repeated_on_second_turn(
     body = response.json()
     all_text = " ".join(b["text"] for b in body["content"] if b["type"] == "text")
     assert _WELCOME_TITLE not in all_text, f"Second turn should not contain the welcome title. Got: {all_text!r}"
-    assert _WELCOME_SETUP_HINT not in all_text, f"Second turn should not contain the setup hint. Got: {all_text!r}"
+    rendered_hint = _WELCOME_SETUP_HINT.format(gateway_url=gateway_url)
+    assert rendered_hint not in all_text, f"Second turn should not contain the setup hint. Got: {all_text!r}"

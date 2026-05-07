@@ -110,13 +110,21 @@ async def test_wrong_admin_key_returns_clear_error(
 ):
     """Wrong admin API key returns a clear error, not a 500.
 
-    LOCALHOST_AUTH_BYPASS is on by default, so we toggle it off via the config
-    API for the duration of this test to actually exercise the auth path.
+    LOCALHOST_AUTH_BYPASS defaults to True (see config_fields.py:96 — bypasses
+    admin-route auth on localhost so single-user local installs don't need an
+    admin key in the browser). We snapshot the active value, force it off for
+    this test to exercise the auth path, then restore the original.
     """
     bypass_url = f"{gateway_url}/api/admin/config/localhost_auth_bypass"
+    dashboard_url = f"{gateway_url}/api/admin/config"
     admin_headers = {"Authorization": f"Bearer {admin_api_key}"}
 
     async with httpx.AsyncClient(timeout=10.0) as client:
+        snapshot = await client.get(dashboard_url, headers=admin_headers)
+        assert snapshot.status_code == 200, f"Failed to read config dashboard: {snapshot.text}"
+        bypass_field = next(f for f in snapshot.json()["config"] if f["name"] == "localhost_auth_bypass")
+        original_value = bypass_field["value"]
+
         toggle_off = await client.put(bypass_url, headers=admin_headers, json={"value": False})
         assert toggle_off.status_code == 200, f"Failed to disable bypass: {toggle_off.text}"
         try:
@@ -130,7 +138,10 @@ async def test_wrong_admin_key_returns_clear_error(
                 },
             )
         finally:
-            await client.put(bypass_url, headers=admin_headers, json={"value": True})
+            restore = await client.put(bypass_url, headers=admin_headers, json={"value": original_value})
+            assert restore.status_code == 200, (
+                f"Failed to restore localhost_auth_bypass to {original_value!r}: {restore.text}"
+            )
 
     assert response.status_code in (401, 403), (
         f"Expected 401/403 for wrong admin key, got {response.status_code}: {response.text}"
