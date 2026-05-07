@@ -33,6 +33,8 @@ import pytest
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response, tool_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
+from luthien_proxy.utils.constants import HISTORY_SESSIONS_MAX_LIMIT
+
 pytestmark = pytest.mark.mock_e2e
 
 
@@ -510,11 +512,11 @@ async def test_session_appears_in_list(
             messages=[{"role": "user", "content": "Hello"}],
         )
         await asyncio.sleep(_PERSIST_DELAY_SECONDS)
-        # limit=10000 (HISTORY_SESSIONS_MAX_LIMIT) keeps the result deterministic
-        # under accumulated DB state — the default of 50 could push our
-        # just-created session off the end if the dev DB has many sessions.
+        # Use the max limit explicitly; default is 50 and the mock_e2e DB
+        # isn't reset between tests, so accumulated state could push our
+        # just-created session past the end of the default page.
         response = await client.get(
-            f"{gateway_url}/api/history/sessions?limit=10000",
+            f"{gateway_url}/api/history/sessions?limit={HISTORY_SESSIONS_MAX_LIMIT}",
             headers={"Authorization": f"Bearer {admin_api_key}"},
         )
 
@@ -557,11 +559,11 @@ async def test_session_list_ordered_by_recency(
             messages=[{"role": "user", "content": "Second session"}],
         )
         await asyncio.sleep(_PERSIST_DELAY_SECONDS)
-        # limit=10000 (HISTORY_SESSIONS_MAX_LIMIT) keeps the result deterministic
-        # under accumulated DB state — the default of 50 could push our
-        # just-created session off the end if the dev DB has many sessions.
+        # Use the max limit explicitly; default is 50 and the mock_e2e DB
+        # isn't reset between tests, so accumulated state could push our
+        # just-created session past the end of the default page.
         response = await client.get(
-            f"{gateway_url}/api/history/sessions?limit=10000",
+            f"{gateway_url}/api/history/sessions?limit={HISTORY_SESSIONS_MAX_LIMIT}",
             headers={"Authorization": f"Bearer {admin_api_key}"},
         )
 
