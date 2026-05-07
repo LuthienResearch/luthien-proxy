@@ -13,9 +13,10 @@ Scope split (the sibling file has overlapping smoke coverage on purpose):
   Asserts on the ``metadata.user_id`` → session_id mapping path.
 
 Coverage gap: nothing in this file exercises the real Anthropic API end-to-end
-(deliberately — see PR #717 rationale). If the gateway ever drifts in how it
-parses real Anthropic responses into ``MessageType.TOOL_CALL``, only the
-integration tests against the SDK catch it.
+(deliberately — these tests verify gateway-internal persistence, not Anthropic
+behavior). If the gateway ever drifts in how it parses real Anthropic responses
+into ``MessageType.TOOL_CALL``, only the integration tests against the SDK
+catch that drift.
 
 Run:
     ./scripts/run_e2e.sh mock
@@ -26,6 +27,7 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 
 import httpx
@@ -39,7 +41,11 @@ pytestmark = pytest.mark.mock_e2e
 
 
 _MODEL = "claude-haiku-4-5"
-_PERSIST_DELAY_SECONDS = 1.0
+# Persistence is async and has no completion signal exposed to the client, so
+# tests poll the history API until the expected turn count lands. 5s is well
+# beyond observed real-world latency on a busy CI runner.
+_PERSIST_DEADLINE_SECONDS = 5.0
+_POLL_INTERVAL_SECONDS = 0.05
 
 
 # === Helpers ===
@@ -88,6 +94,66 @@ async def _get_session_detail(
     )
     assert response.status_code == 200, f"History API failed: {response.status_code}: {response.text}"
     return response.json()
+
+
+async def _wait_for_session(
+    client: httpx.AsyncClient,
+    *,
+    gateway_url: str,
+    admin_api_key: str,
+    session_id: str,
+    expected_turns: int = 1,
+    deadline: float = _PERSIST_DEADLINE_SECONDS,
+) -> dict:
+    """Poll the history API until the session has at least ``expected_turns`` turns or deadline fires.
+
+    Replaces the older fixed ``asyncio.sleep(1.0)`` pattern: faster on the
+    happy path (typical wait <100 ms) and a longer hard budget for the
+    unhappy path so slow CI runners don't flake.
+    """
+    end = time.monotonic() + deadline
+    last_status: int | None = None
+    last_turn_count: int | None = None
+    while time.monotonic() < end:
+        response = await client.get(
+            f"{gateway_url}/api/history/sessions/{session_id}",
+            headers={"Authorization": f"Bearer {admin_api_key}"},
+        )
+        last_status = response.status_code
+        if response.status_code == 200:
+            body = response.json()
+            last_turn_count = len(body.get("turns", []))
+            if last_turn_count >= expected_turns:
+                return body
+        await asyncio.sleep(_POLL_INTERVAL_SECONDS)
+    pytest.fail(
+        f"Session {session_id} did not reach {expected_turns} turn(s) within {deadline}s "
+        f"(last status={last_status}, last turn count={last_turn_count})"
+    )
+
+
+async def _wait_for_session_in_list(
+    client: httpx.AsyncClient,
+    *,
+    gateway_url: str,
+    admin_api_key: str,
+    session_id: str,
+    deadline: float = _PERSIST_DEADLINE_SECONDS,
+) -> list[str]:
+    """Poll the session list until ``session_id`` appears, then return the full id list (most-recent first)."""
+    end = time.monotonic() + deadline
+    last_ids: list[str] = []
+    while time.monotonic() < end:
+        response = await client.get(
+            f"{gateway_url}/api/history/sessions?limit={HISTORY_SESSIONS_MAX_LIMIT}",
+            headers={"Authorization": f"Bearer {admin_api_key}"},
+        )
+        if response.status_code == 200:
+            last_ids = [s["session_id"] for s in response.json()["sessions"]]
+            if session_id in last_ids:
+                return last_ids
+        await asyncio.sleep(_POLL_INTERVAL_SECONDS)
+    pytest.fail(f"Session {session_id} did not appear in list within {deadline}s; first 10 ids: {last_ids[:10]}")
 
 
 async def _export_session_markdown(
@@ -144,12 +210,12 @@ async def test_simple_conversation_stored(
             f"Expected exact mock-text round-trip, got: {text_blocks[0]['text']!r}"
         )
 
-        await asyncio.sleep(_PERSIST_DELAY_SECONDS)
-        session = await _get_session_detail(
+        session = await _wait_for_session(
             client,
             gateway_url=gateway_url,
             admin_api_key=admin_api_key,
             session_id=session_id,
+            expected_turns=1,
         )
 
     assert session["session_id"] == session_id
@@ -201,12 +267,12 @@ async def test_multi_turn_conversation_stored(
             ],
         )
 
-        await asyncio.sleep(_PERSIST_DELAY_SECONDS)
-        session = await _get_session_detail(
+        session = await _wait_for_session(
             client,
             gateway_url=gateway_url,
             admin_api_key=admin_api_key,
             session_id=session_id,
+            expected_turns=2,
         )
 
     assert len(session["turns"]) == 2, f"Expected 2 turns, got {len(session['turns'])}"
@@ -266,12 +332,12 @@ async def test_tool_call_response_stored(
         tool_use_blocks = [b for b in body["content"] if b.get("type") == "tool_use"]
         assert tool_use_blocks, f"Expected tool_use block in response, got: {body['content']}"
 
-        await asyncio.sleep(_PERSIST_DELAY_SECONDS)
-        session = await _get_session_detail(
+        session = await _wait_for_session(
             client,
             gateway_url=gateway_url,
             admin_api_key=admin_api_key,
             session_id=session_id,
+            expected_turns=1,
         )
 
     assert len(session["turns"]) == 1
@@ -339,12 +405,12 @@ async def test_tool_result_in_request_stored(
             messages=messages,
         )
 
-        await asyncio.sleep(_PERSIST_DELAY_SECONDS)
-        session = await _get_session_detail(
+        session = await _wait_for_session(
             client,
             gateway_url=gateway_url,
             admin_api_key=admin_api_key,
             session_id=session_id,
+            expected_turns=1,
         )
 
     assert len(session["turns"]) == 1
@@ -397,7 +463,13 @@ async def test_markdown_export_basic(
             session_id=session_id,
             messages=[{"role": "user", "content": "What is the capital of France?"}],
         )
-        await asyncio.sleep(_PERSIST_DELAY_SECONDS)
+        await _wait_for_session(
+            client,
+            gateway_url=gateway_url,
+            admin_api_key=admin_api_key,
+            session_id=session_id,
+            expected_turns=1,
+        )
         markdown = await _export_session_markdown(
             client,
             gateway_url=gateway_url,
@@ -444,7 +516,13 @@ async def test_markdown_export_multi_turn(
                 {"role": "user", "content": "What is that times 2?"},
             ],
         )
-        await asyncio.sleep(_PERSIST_DELAY_SECONDS)
+        await _wait_for_session(
+            client,
+            gateway_url=gateway_url,
+            admin_api_key=admin_api_key,
+            session_id=session_id,
+            expected_turns=2,
+        )
         markdown = await _export_session_markdown(
             client,
             gateway_url=gateway_url,
@@ -480,7 +558,13 @@ async def test_markdown_export_with_tool_calls(
             messages=[{"role": "user", "content": user_prompt}],
             tools=[_CALC_TOOL],
         )
-        await asyncio.sleep(_PERSIST_DELAY_SECONDS)
+        await _wait_for_session(
+            client,
+            gateway_url=gateway_url,
+            admin_api_key=admin_api_key,
+            session_id=session_id,
+            expected_turns=1,
+        )
         markdown = await _export_session_markdown(
             client,
             gateway_url=gateway_url,
@@ -528,18 +612,14 @@ async def test_session_appears_in_list(
             session_id=session_id,
             messages=[{"role": "user", "content": "Hello"}],
         )
-        await asyncio.sleep(_PERSIST_DELAY_SECONDS)
-        # Use the max limit explicitly; default is 50 and the mock_e2e DB
-        # isn't reset between tests, so accumulated state could push our
-        # just-created session past the end of the default page.
-        response = await client.get(
-            f"{gateway_url}/api/history/sessions?limit={HISTORY_SESSIONS_MAX_LIMIT}",
-            headers={"Authorization": f"Bearer {admin_api_key}"},
+        # _wait_for_session_in_list polls the (max-limit) listing until our
+        # session appears or the deadline fires.
+        await _wait_for_session_in_list(
+            client,
+            gateway_url=gateway_url,
+            admin_api_key=admin_api_key,
+            session_id=session_id,
         )
-
-    assert response.status_code == 200
-    session_ids = [s["session_id"] for s in response.json()["sessions"]]
-    assert session_id in session_ids, f"Session {session_id} not in list (showing first 5: {session_ids[:5]})"
 
 
 @pytest.mark.asyncio
@@ -575,17 +655,15 @@ async def test_session_list_ordered_by_recency(
             session_id=session_id_2,
             messages=[{"role": "user", "content": "Second session"}],
         )
-        await asyncio.sleep(_PERSIST_DELAY_SECONDS)
-        # Use the max limit explicitly; default is 50 and the mock_e2e DB
-        # isn't reset between tests, so accumulated state could push our
-        # just-created session past the end of the default page.
-        response = await client.get(
-            f"{gateway_url}/api/history/sessions?limit={HISTORY_SESSIONS_MAX_LIMIT}",
-            headers={"Authorization": f"Bearer {admin_api_key}"},
+        # Wait for session_id_2 to appear; session_id_1 was created earlier
+        # and will be in the list once session_id_2 is.
+        session_ids = await _wait_for_session_in_list(
+            client,
+            gateway_url=gateway_url,
+            admin_api_key=admin_api_key,
+            session_id=session_id_2,
         )
 
-    assert response.status_code == 200
-    session_ids = [s["session_id"] for s in response.json()["sessions"]]
     assert session_id_1 in session_ids and session_id_2 in session_ids, (
         f"Both sessions must be present in list before checking order. "
         f"Looking for {session_id_1} and {session_id_2}; got first 10: {session_ids[:10]}"
