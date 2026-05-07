@@ -12,6 +12,11 @@ Scope split (the sibling file has overlapping smoke coverage on purpose):
 - ``test_mock_session_history.py`` — *does session-ID extraction work?*
   Asserts on the ``metadata.user_id`` → session_id mapping path.
 
+Coverage gap: nothing in this file exercises the real Anthropic API end-to-end
+(deliberately — see PR #717 rationale). If the gateway ever drifts in how it
+parses real Anthropic responses into ``MessageType.TOOL_CALL``, only the
+integration tests against the SDK catch it.
+
 Run:
     ./scripts/run_e2e.sh mock
     # or directly:
@@ -220,6 +225,16 @@ _WEATHER_TOOL = {
             "location": {"type": "string", "description": "City name."},
         },
         "required": ["location"],
+    },
+}
+
+_CALC_TOOL = {
+    "name": "calculate",
+    "description": "Perform a calculation.",
+    "input_schema": {
+        "type": "object",
+        "properties": {"expression": {"type": "string"}},
+        "required": ["expression"],
     },
 }
 
@@ -439,16 +454,7 @@ async def test_markdown_export_with_tool_calls(
     """Markdown export surfaces tool calls when the assistant invoked one."""
     mock_anthropic.enqueue(tool_response("calculate", {"expression": "123*456"}))
     session_id = _new_session_id("export-tools")
-
-    calc_tool = {
-        "name": "calculate",
-        "description": "Perform a calculation.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"expression": {"type": "string"}},
-            "required": ["expression"],
-        },
-    }
+    user_prompt = "Calculate 123 * 456 using the calculate tool"
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         await _post_messages(
@@ -456,8 +462,8 @@ async def test_markdown_export_with_tool_calls(
             gateway_url=gateway_url,
             api_key=api_key,
             session_id=session_id,
-            messages=[{"role": "user", "content": "Calculate 123 * 456 using the calculate tool"}],
-            tools=[calc_tool],
+            messages=[{"role": "user", "content": user_prompt}],
+            tools=[_CALC_TOOL],
         )
         await asyncio.sleep(_PERSIST_DELAY_SECONDS)
         markdown = await _export_session_markdown(
@@ -470,6 +476,9 @@ async def test_markdown_export_with_tool_calls(
     assert f"# Conversation History: {session_id}" in markdown
     assert "## Turn 1" in markdown
     assert "### User" in markdown
+    # User prompt should be rendered under the User header — symmetric with the
+    # other markdown tests (e.g. test_markdown_export_basic asserts on user content).
+    assert user_prompt in markdown, f"Expected user prompt {user_prompt!r} in export. Got:\n{markdown}"
     # service._format_message_markdown emits literal `### Tool Call` for
     # MessageType.TOOL_CALL — assert that strictly. The tool name then
     # appears in the **Tool:** line beneath it.
