@@ -106,18 +106,74 @@ async def test_invalid_key_returns_clean_response(
 async def test_wrong_admin_key_returns_clear_error(
     gateway_healthy,
     gateway_url,
+    admin_api_key,
 ):
-    """Wrong admin API key returns a clear error, not a 500."""
+    """Wrong admin API key returns a clear error, not a 500.
+
+    LOCALHOST_AUTH_BYPASS defaults to True (see config_fields.py:96 — bypasses
+    admin-route auth on localhost so single-user local installs don't need an
+    admin key in the browser). We snapshot the active value, force it off for
+    this test to exercise the auth path, then restore the original.
+    """
+    bypass_url = f"{gateway_url}/api/admin/config/localhost_auth_bypass"
+    dashboard_url = f"{gateway_url}/api/admin/config"
+    admin_headers = {"Authorization": f"Bearer {admin_api_key}"}
+
     async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.post(
-            f"{gateway_url}/api/admin/policy/set",
-            headers={"Authorization": "Bearer wrong-admin-key"},
-            json={
-                "policy_class_ref": "luthien_proxy.policies.noop_policy:NoOpPolicy",
-                "config": {},
-                "enabled_by": "e2e-test",
-            },
+        snapshot = await client.get(dashboard_url, headers=admin_headers)
+        assert snapshot.status_code == 200, f"Failed to read config dashboard: {snapshot.text}"
+        bypass_field = next(
+            (f for f in snapshot.json()["config"] if f["name"] == "localhost_auth_bypass"),
+            None,
         )
+        assert bypass_field is not None, (
+            "localhost_auth_bypass missing from config dashboard — was the field renamed?"
+        )
+        original_value = bypass_field["value"]
+        original_source = bypass_field["source"]
+        # If the field's flagged sensitive in the future, dashboard_view masks
+        # value as "***" (config_registry.py:319). Catch that early so we
+        # don't restore "***" as the bool — fail with a useful message instead.
+        assert original_value in (True, False), (
+            f"localhost_auth_bypass dashboard value should be a bool, got {original_value!r} "
+            f"(source={original_source!r}). Did the field gain `sensitive=True`?"
+        )
+
+        toggle_off = await client.put(bypass_url, headers=admin_headers, json={"value": False})
+        if toggle_off.status_code == 409:
+            # Env override of localhost_auth_bypass blocks DB writes
+            # (ConfigOverriddenError, config_registry.py). Skip rather than
+            # producing a confusing failure on a setup the test cannot work around.
+            pytest.skip(
+                "localhost_auth_bypass is overridden by env or CLI — cannot toggle via DB. "
+                "Unset LOCALHOST_AUTH_BYPASS in the gateway's environment to run this test."
+            )
+        # Fail-fast outside `try` so a non-200 toggle doesn't trigger a restore
+        # for state we never actually mutated.
+        assert toggle_off.status_code == 200, f"Failed to disable bypass: {toggle_off.text}"
+        try:
+            response = await client.post(
+                f"{gateway_url}/api/admin/policy/set",
+                headers={"Authorization": "Bearer wrong-admin-key"},
+                json={
+                    "policy_class_ref": "luthien_proxy.policies.noop_policy:NoOpPolicy",
+                    "config": {},
+                    "enabled_by": "e2e-test",
+                },
+            )
+        finally:
+            # Restore in a way that preserves provenance: if the original value
+            # came from DB, PUT it back; otherwise DELETE the DB override so the
+            # field falls back to its original env/default source. This avoids
+            # leaving a residual gateway_config row that wasn't there before.
+            if original_source == "db":
+                restore = await client.put(bypass_url, headers=admin_headers, json={"value": original_value})
+            else:
+                restore = await client.delete(bypass_url, headers=admin_headers)
+            assert restore.status_code == 200, (
+                f"Failed to restore localhost_auth_bypass (source={original_source!r}, "
+                f"value={original_value!r}): {restore.status_code}: {restore.text}"
+            )
 
     assert response.status_code in (401, 403), (
         f"Expected 401/403 for wrong admin key, got {response.status_code}: {response.text}"

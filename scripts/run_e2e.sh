@@ -334,16 +334,11 @@ except (json.JSONDecodeError, KeyError) as e:
 run_real() {
     header "Real E2E Tests (Docker + Anthropic API)"
 
+    # Most real-tier tests work via OAuth/passthrough or self-skip when no key
+    # is set. Only the judge-policy tests truly require ANTHROPIC_API_KEY, and
+    # those use pytest.skip() at the test level. Don't gate the whole tier.
     if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-        echo ""
-        fail "╔══════════════════════════════════════════════════════════════╗"
-        fail "║  SKIPPING REAL E2E TIER: ANTHROPIC_API_KEY not set          ║"
-        fail "║                                                             ║"
-        fail "║  Set it in .env or export it to run real API tests.         ║"
-        fail "╚══════════════════════════════════════════════════════════════╝"
-        echo ""
-        _set_tier_result "real" "skipped"
-        return 2
+        info "ANTHROPIC_API_KEY not set — judge-policy tests will self-skip; the rest still run."
     fi
 
     if ! check_docker; then

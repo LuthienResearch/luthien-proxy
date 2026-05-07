@@ -21,7 +21,7 @@ from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicSer
 pytestmark = [pytest.mark.mock_e2e, pytest.mark.uat_stability]
 
 _ADMIN_POLICY_SET_PATH = "/api/admin/policy/set"
-_ADMIN_POLICY_GET_PATH = "/api/admin/policy"
+_ADMIN_POLICY_GET_PATH = "/api/admin/policy/current"
 
 _NOOP = "luthien_proxy.policies.noop_policy:NoOpPolicy"
 _ALL_CAPS = "luthien_proxy.policies.all_caps_policy:AllCapsPolicy"

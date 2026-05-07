@@ -16,6 +16,16 @@ import asyncio
 import httpx
 import pytest
 
+# This file is wholly written against the old LiteLLM/OpenAI response shape
+# (response["choices"][0]["message"]["content"], gpt-4o-mini, OpenAI tool
+# definitions). The gateway now serves native Anthropic shape on /v1/messages,
+# so every assertion here fails. The replacement lives in
+# test_mock_conversation_history.py, which uses the in-process mock backend
+# and native Anthropic shape. Skip this file at module level until the
+# replacement lands and removes the file outright.
+pytestmark = pytest.mark.skip(reason="Stale OpenAI shape; replaced by test_mock_conversation_history.py")
+
+
 # === Helper Functions ===
 
 
