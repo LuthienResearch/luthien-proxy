@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2317 # Functions called indirectly via "run_$tier" and trap
+# shellcheck disable=SC2317,SC2329 # Functions called indirectly via "run_$tier" and trap
 # ABOUTME: Orchestrates e2e test tiers with automatic setup and teardown.
 # ABOUTME: Handles sqlite_e2e (no infra), mock_e2e (in-process), and real e2e (Docker + API key).
 #
