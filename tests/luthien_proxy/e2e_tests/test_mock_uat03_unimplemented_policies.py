@@ -79,6 +79,10 @@ async def test_invalid_module_path_returns_error(
     body = response.json()
     assert body["success"] is False, f"Expected success=false, got: {body}"
     assert body["error"], f"Expected non-empty error, got: {body}"
+    # Same handler as test_nonexistent_policy_class_returns_error
+    # (admin/routes.py:263-273) — assert troubleshooting symmetrically so
+    # both tests would catch a regression that drops the field.
+    assert body["troubleshooting"], f"Expected troubleshooting hints, got: {body}"
 
 
 @pytest.mark.asyncio
