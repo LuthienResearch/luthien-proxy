@@ -318,7 +318,11 @@ async def test_tool_result_in_request_stored(
     assert tool_results, f"Expected tool_result message, got: {req_messages}"
     tr = tool_results[0]
     assert tr["tool_call_id"] == tool_use_id
-    assert "temperature" in tr["content"] or "22" in tr["content"]
+    # Mock backend is deterministic, so the persisted content should round-trip
+    # the exact JSON we sent — no hedging needed.
+    assert tr["content"] == '{"temperature": 22, "conditions": "sunny"}', (
+        f"Expected exact tool_result content round-trip, got: {tr['content']!r}"
+    )
 
 
 # === Markdown export ===
