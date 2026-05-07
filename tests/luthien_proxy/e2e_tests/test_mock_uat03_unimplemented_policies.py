@@ -19,7 +19,7 @@ from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicSer
 pytestmark = [pytest.mark.mock_e2e, pytest.mark.uat_unimplemented]
 
 _ADMIN_POLICY_SET_PATH = "/api/admin/policy/set"
-_ADMIN_POLICY_GET_PATH = "/api/admin/policy"
+_ADMIN_POLICY_GET_PATH = "/api/admin/policy/current"
 
 _NONEXISTENT_POLICY = "luthien_proxy.policies.does_not_exist:GhostPolicy"
 _INVALID_MODULE = "not.a.real.module:FakePolicy"
@@ -45,9 +45,13 @@ async def test_nonexistent_policy_class_returns_error(
 
     # Must not be a 500 — the gateway should handle this gracefully
     assert response.status_code != 500, f"Non-existent policy class caused a 500: {response.text}"
-    assert response.status_code in (400, 422), (
-        f"Expected 400/422 for non-existent policy class, got {response.status_code}: {response.text}"
+    assert response.status_code == 200, (
+        f"Expected 200 with success=false for non-existent policy class, got {response.status_code}: {response.text}"
     )
+    body = response.json()
+    assert body["success"] is False, f"Expected success=false, got: {body}"
+    assert body["error"], f"Expected non-empty error, got: {body}"
+    assert body["troubleshooting"], f"Expected troubleshooting hints, got: {body}"
 
 
 @pytest.mark.asyncio
@@ -69,9 +73,12 @@ async def test_invalid_module_path_returns_error(
         )
 
     assert response.status_code != 500, f"Invalid module path caused a 500: {response.text}"
-    assert response.status_code in (400, 422), (
-        f"Expected 400/422 for invalid module path, got {response.status_code}: {response.text}"
+    assert response.status_code == 200, (
+        f"Expected 200 with success=false for invalid module path, got {response.status_code}: {response.text}"
     )
+    body = response.json()
+    assert body["success"] is False, f"Expected success=false, got: {body}"
+    assert body["error"], f"Expected non-empty error, got: {body}"
 
 
 @pytest.mark.asyncio

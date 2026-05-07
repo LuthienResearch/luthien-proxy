@@ -106,18 +106,31 @@ async def test_invalid_key_returns_clean_response(
 async def test_wrong_admin_key_returns_clear_error(
     gateway_healthy,
     gateway_url,
+    admin_api_key,
 ):
-    """Wrong admin API key returns a clear error, not a 500."""
+    """Wrong admin API key returns a clear error, not a 500.
+
+    LOCALHOST_AUTH_BYPASS is on by default, so we toggle it off via the config
+    API for the duration of this test to actually exercise the auth path.
+    """
+    bypass_url = f"{gateway_url}/api/admin/config/localhost_auth_bypass"
+    admin_headers = {"Authorization": f"Bearer {admin_api_key}"}
+
     async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.post(
-            f"{gateway_url}/api/admin/policy/set",
-            headers={"Authorization": "Bearer wrong-admin-key"},
-            json={
-                "policy_class_ref": "luthien_proxy.policies.noop_policy:NoOpPolicy",
-                "config": {},
-                "enabled_by": "e2e-test",
-            },
-        )
+        toggle_off = await client.put(bypass_url, headers=admin_headers, json={"value": False})
+        assert toggle_off.status_code == 200, f"Failed to disable bypass: {toggle_off.text}"
+        try:
+            response = await client.post(
+                f"{gateway_url}/api/admin/policy/set",
+                headers={"Authorization": "Bearer wrong-admin-key"},
+                json={
+                    "policy_class_ref": "luthien_proxy.policies.noop_policy:NoOpPolicy",
+                    "config": {},
+                    "enabled_by": "e2e-test",
+                },
+            )
+        finally:
+            await client.put(bypass_url, headers=admin_headers, json={"value": True})
 
     assert response.status_code in (401, 403), (
         f"Expected 401/403 for wrong admin key, got {response.status_code}: {response.text}"

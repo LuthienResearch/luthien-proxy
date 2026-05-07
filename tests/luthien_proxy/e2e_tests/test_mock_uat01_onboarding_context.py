@@ -71,7 +71,7 @@ async def test_onboarding_context_injected_on_first_turn(
     body = response.json()
     all_text = " ".join(b["text"] for b in body["content"] if b["type"] == "text")
     assert _WELCOME_TITLE in all_text
-    assert _WELCOME_SETUP_HINT in all_text
+    assert _WELCOME_SETUP_HINT.format(gateway_url=gateway_url) in all_text
 
 
 @pytest.mark.asyncio
@@ -99,7 +99,7 @@ async def test_onboarding_context_injected_on_first_turn_streaming(
                 all_text = await collect_sse_text(response)
 
     assert _WELCOME_TITLE in all_text
-    assert _WELCOME_SETUP_HINT in all_text
+    assert _WELCOME_SETUP_HINT.format(gateway_url=gateway_url) in all_text
 
 
 @pytest.mark.asyncio
