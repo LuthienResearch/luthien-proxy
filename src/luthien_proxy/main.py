@@ -189,6 +189,12 @@ def create_app(
         await _config_registry.initialize()
         logger.info("Config registry initialized")
 
+        # Validate UPSTREAM_HEADERS at startup so misconfiguration fails fast
+        # rather than silently disabling the integration on first request.
+        from luthien_proxy.pipeline.upstream_headers import validate_upstream_headers_at_startup
+
+        validate_upstream_headers_at_startup()
+
         # Configure litellm globally (moved from policy file to prevent import side effects)
         litellm.drop_params = True
         logger.info("Configured litellm: drop_params=True")

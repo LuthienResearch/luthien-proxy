@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import pytest
 
@@ -10,6 +11,7 @@ from luthien_proxy.pipeline.upstream_headers import (
     _expand_template,
     _load_header_templates,
     expand_upstream_headers,
+    validate_upstream_headers_at_startup,
 )
 
 
@@ -37,19 +39,116 @@ class TestLoadHeaderTemplates:
         monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps(headers))
         assert _load_header_templates() == headers
 
-    def test_returns_empty_for_invalid_json(self, monkeypatch: pytest.MonkeyPatch):
+    def test_raises_on_invalid_json(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("UPSTREAM_HEADERS", "not json")
-        assert _load_header_templates() == {}
+        with pytest.raises(json.JSONDecodeError):
+            _load_header_templates()
 
-    def test_returns_empty_for_non_object_json(self, monkeypatch: pytest.MonkeyPatch):
+    def test_raises_on_non_object_root(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("UPSTREAM_HEADERS", '["not", "an", "object"]')
-        assert _load_header_templates() == {}
+        with pytest.raises(ValueError, match="must be a JSON object"):
+            _load_header_templates()
 
-    def test_skips_non_string_values(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setenv("UPSTREAM_HEADERS", '{"good": "value", "bad": 123}')
-        result = _load_header_templates()
-        assert result == {"good": "value"}
-        assert "bad" not in result
+    def test_raises_on_non_string_value(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("UPSTREAM_HEADERS", '{"good": 123}')
+        with pytest.raises(ValueError, match="must be a string"):
+            _load_header_templates()
+
+    def test_raises_on_invalid_header_name(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("UPSTREAM_HEADERS", '{"bad name with spaces": "value"}')
+        with pytest.raises(ValueError, match="not a valid RFC 7230 token"):
+            _load_header_templates()
+
+    def test_drops_hop_by_hop_headers_with_warning(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ):
+        monkeypatch.setenv(
+            "UPSTREAM_HEADERS",
+            json.dumps(
+                {
+                    "Connection": "close",
+                    "Transfer-Encoding": "chunked",
+                    "Content-Length": "0",
+                    "Keep-Alive": "timeout=5",
+                    "Trailer": "Expires",
+                    "Trailers": "Expires",
+                    "Proxy-Connection": "close",
+                    "X-Custom": "kept",
+                }
+            ),
+        )
+        with caplog.at_level(logging.WARNING, logger="luthien_proxy.pipeline.upstream_headers"):
+            result = _load_header_templates()
+        assert result == {"X-Custom": "kept"}
+        assert "Connection" in caplog.text
+        assert "Transfer-Encoding" in caplog.text
+
+    def test_reserved_check_is_case_insensitive(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"CONTENT-LENGTH": "0", "X-Custom": "kept"}))
+        assert _load_header_templates() == {"X-Custom": "kept"}
+
+    def test_authorization_header_is_allowed(self, monkeypatch: pytest.MonkeyPatch):
+        # Operator may legitimately want to override Authorization on the way upstream.
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"Authorization": "Bearer override"}))
+        assert _load_header_templates() == {"Authorization": "Bearer override"}
+
+    def test_audit_log_lists_referenced_env_vars(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ):
+        monkeypatch.setenv(
+            "UPSTREAM_HEADERS",
+            json.dumps(
+                {
+                    "Helicone-Auth": "Bearer ${env.HELICONE_API_KEY}",
+                    "Helicone-User": "${env.USER}",
+                }
+            ),
+        )
+        with caplog.at_level(logging.INFO, logger="luthien_proxy.pipeline.upstream_headers"):
+            _load_header_templates()
+        assert "HELICONE_API_KEY" in caplog.text
+        assert "USER" in caplog.text
+
+    def test_unknown_template_var_warns_at_load_time(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ):
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"X-Custom": "${not_a_real_var}"}))
+        with caplog.at_level(logging.WARNING, logger="luthien_proxy.pipeline.upstream_headers"):
+            _load_header_templates()
+        assert "not_a_real_var" in caplog.text
+
+    def test_known_vars_do_not_warn(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ):
+        monkeypatch.setenv(
+            "UPSTREAM_HEADERS",
+            json.dumps({"X-Sess": "${session_id}", "X-Path": "${request_path}"}),
+        )
+        with caplog.at_level(logging.WARNING, logger="luthien_proxy.pipeline.upstream_headers"):
+            _load_header_templates()
+        assert "unknown template variable" not in caplog.text
+
+
+class TestValidateAtStartup:
+    """Tests for the startup validator."""
+
+    def test_passes_when_unset(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("UPSTREAM_HEADERS", raising=False)
+        validate_upstream_headers_at_startup()  # does not raise
+
+    def test_passes_for_valid_config(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"X-Custom": "value"}))
+        validate_upstream_headers_at_startup()  # does not raise
+
+    def test_raises_for_invalid_json(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("UPSTREAM_HEADERS", "not json")
+        with pytest.raises(json.JSONDecodeError):
+            validate_upstream_headers_at_startup()
+
+    def test_raises_for_invalid_header_name(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"bad name": "value"}))
+        with pytest.raises(ValueError):
+            validate_upstream_headers_at_startup()
 
 
 class TestExpandTemplate:
@@ -90,11 +189,17 @@ class TestExpandTemplate:
         monkeypatch.setenv("EVIL_VAR", "legit\r\nX-Injected: evil")
         assert _expand_template("${env.EVIL_VAR}", None, "/") == "legitX-Injected: evil"
 
+    def test_strips_crlf_from_session_id(self):
+        assert _expand_template("${session_id}", "good\r\nX-Injected: evil", "/") == "goodX-Injected: evil"
+
     def test_strips_lf_only(self):
         assert _expand_template("value\ninjected", None, "/") == "valueinjected"
 
     def test_strips_cr_only(self):
         assert _expand_template("value\rinjected", None, "/") == "valueinjected"
+
+    def test_strips_nul_byte(self):
+        assert _expand_template("value\x00injected", None, "/") == "valueinjected"
 
 
 class TestExpandUpstreamHeaders:
