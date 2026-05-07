@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import textwrap
 from pathlib import Path
 
 import click
@@ -23,6 +24,27 @@ FILES_TO_DOWNLOAD = ("docker-compose.yaml", ".env.example")
 
 # Matches the ./src volume mount line
 _SRC_MOUNT_RE = re.compile(r"^ *- \./src:/app/src.*\n", re.MULTILINE)
+
+# Minimal fallback used only when config/ is empty. The canonical default
+# lives in config/policy_config.yaml in the luthien-proxy repo — keep these
+# in sync if the default policy class ever changes.
+_DEFAULT_POLICY_CONFIG_YAML = textwrap.dedent("""\
+    # Luthien Policy Configuration
+    # Default: pass-through (no modifications)
+    policy:
+      class: "luthien_proxy.policies.noop_policy:NoOpPolicy"
+      config: {}
+    """)
+
+
+def _write_default_policy_config(config_dir: Path) -> None:
+    """Write a default policy_config.yaml if one does not already exist.
+
+    Never overwrites an existing file — user customizations are preserved.
+    """
+    policy_config = config_dir / "policy_config.yaml"
+    if not policy_config.exists():
+        policy_config.write_text(_DEFAULT_POLICY_CONFIG_YAML)
 
 
 def resolve_proxy_ref(ref: str) -> str:
@@ -97,7 +119,10 @@ def _download_files(dest: Path) -> None:
     """Download proxy artifacts from GitHub and write to dest."""
     console = Console(stderr=True)
     dest.mkdir(parents=True, exist_ok=True)
-    (dest / "config").mkdir(exist_ok=True)
+    config_dir = dest / "config"
+    config_dir.mkdir(exist_ok=True)
+
+    _write_default_policy_config(config_dir)
 
     with console.status("Downloading proxy files from GitHub..."):
         for filename in FILES_TO_DOWNLOAD:
@@ -204,7 +229,10 @@ def ensure_gateway_venv(
     repo_dir = MANAGED_REPO_DIR
 
     repo_dir.mkdir(parents=True, exist_ok=True)
-    (repo_dir / "config").mkdir(exist_ok=True)
+    config_dir = repo_dir / "config"
+    config_dir.mkdir(exist_ok=True)
+
+    _write_default_policy_config(config_dir)
 
     venv_python = venv_dir / "bin" / "python"
     needs_install = not venv_python.exists()

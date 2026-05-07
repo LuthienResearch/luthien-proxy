@@ -25,7 +25,8 @@ class TestConfigureLocalMode:
     def test_sets_policy_config(self, monkeypatch):
         monkeypatch.delenv("POLICY_CONFIG", raising=False)
         configure_local_mode()
-        assert os.environ["POLICY_CONFIG"] == "config/policy_config.yaml"
+        assert os.environ["POLICY_CONFIG"].endswith("config/policy_config.yaml")
+        assert os.path.isabs(os.environ["POLICY_CONFIG"])
 
     def test_sets_policy_source_to_file(self, monkeypatch):
         monkeypatch.delenv("POLICY_SOURCE", raising=False)
