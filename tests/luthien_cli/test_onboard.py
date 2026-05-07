@@ -27,6 +27,18 @@ def test_write_policy(tmp_path):
     assert "http://localhost:8000" in content
 
 
+def test_write_policy_does_not_overwrite_existing(tmp_path):
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    policy_path = config_dir / "policy_config.yaml"
+    original = "custom user policy content"
+    policy_path.write_text(original)
+
+    _write_policy(str(tmp_path), "http://localhost:8000")
+
+    assert policy_path.read_text() == original
+
+
 def test_write_local_env(tmp_path):
     """Local env uses passthrough auth with admin key, no proxy key."""
     repo = tmp_path / "repo"
