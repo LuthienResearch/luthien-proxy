@@ -251,6 +251,9 @@ async def test_tool_call_response_stored(
     tc = tool_calls[0]
     assert tc["tool_name"] == "get_weather"
     assert tc["tool_call_id"] is not None
+    assert tc["tool_input"] == {"location": "Tokyo"}, (
+        f"Expected tool_input to round-trip the original args, got: {tc['tool_input']}"
+    )
 
 
 @pytest.mark.asyncio
@@ -444,7 +447,11 @@ async def test_markdown_export_with_tool_calls(
     assert f"# Conversation History: {session_id}" in markdown
     assert "## Turn 1" in markdown
     assert "### User" in markdown
-    assert "### Tool Call" in markdown or "calculate" in markdown.lower()
+    # service._format_message_markdown emits literal `### Tool Call` for
+    # MessageType.TOOL_CALL — assert that strictly. The tool name then
+    # appears in the **Tool:** line beneath it.
+    assert "### Tool Call" in markdown, f"Expected `### Tool Call` header in export. Got:\n{markdown}"
+    assert "calculate" in markdown, f"Expected tool name `calculate` in export. Got:\n{markdown}"
 
 
 # === Session list ===
@@ -503,6 +510,9 @@ async def test_session_list_ordered_by_recency(
             session_id=session_id_1,
             messages=[{"role": "user", "content": "First session"}],
         )
+        # 0.5s ensures the two sessions land in different DB timestamp buckets
+        # (Postgres timestamps are microsecond-precision; SQLite is millisecond).
+        # Anything sub-millisecond risks identical timestamps and ambiguous order.
         await asyncio.sleep(0.5)
         await _post_messages(
             client,
@@ -519,7 +529,10 @@ async def test_session_list_ordered_by_recency(
 
     assert response.status_code == 200
     session_ids = [s["session_id"] for s in response.json()["sessions"]]
-    if session_id_1 in session_ids and session_id_2 in session_ids:
-        assert session_ids.index(session_id_2) < session_ids.index(session_id_1), (
-            f"Expected {session_id_2} to appear before {session_id_1}, got order: {session_ids[:10]}"
-        )
+    assert session_id_1 in session_ids and session_id_2 in session_ids, (
+        f"Both sessions must be present in list before checking order. "
+        f"Looking for {session_id_1} and {session_id_2}; got first 10: {session_ids[:10]}"
+    )
+    assert session_ids.index(session_id_2) < session_ids.index(session_id_1), (
+        f"Expected {session_id_2} to appear before {session_id_1}, got order: {session_ids[:10]}"
+    )
