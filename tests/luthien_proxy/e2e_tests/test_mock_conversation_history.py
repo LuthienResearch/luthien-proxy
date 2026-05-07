@@ -233,7 +233,8 @@ async def test_tool_call_response_stored(
     admin_api_key,
 ):
     """A tool_use response is persisted as a tool_call message in the response_messages list."""
-    mock_anthropic.enqueue(tool_response("get_weather", {"location": "Tokyo"}))
+    expected_tool_id = "toolu_test_response_xyz"
+    mock_anthropic.enqueue(tool_response("get_weather", {"location": "Tokyo"}, tool_id=expected_tool_id))
     session_id = _new_session_id("tool")
 
     async with httpx.AsyncClient(timeout=15.0) as client:
@@ -266,7 +267,9 @@ async def test_tool_call_response_stored(
     assert tool_calls, f"Expected tool_call response message, got: {turn['response_messages']}"
     tc = tool_calls[0]
     assert tc["tool_name"] == "get_weather"
-    assert tc["tool_call_id"] is not None
+    assert tc["tool_call_id"] == expected_tool_id, (
+        f"Expected tool_call_id to round-trip the mock-supplied id, got: {tc['tool_call_id']!r}"
+    )
     assert tc["tool_input"] == {"location": "Tokyo"}, (
         f"Expected tool_input to round-trip the original args, got: {tc['tool_input']}"
     )
@@ -498,8 +501,11 @@ async def test_session_appears_in_list(
             messages=[{"role": "user", "content": "Hello"}],
         )
         await asyncio.sleep(_PERSIST_DELAY_SECONDS)
+        # limit=10000 (HISTORY_SESSIONS_MAX_LIMIT) keeps the result deterministic
+        # under accumulated DB state — the default of 50 could push our
+        # just-created session off the end if the dev DB has many sessions.
         response = await client.get(
-            f"{gateway_url}/api/history/sessions",
+            f"{gateway_url}/api/history/sessions?limit=10000",
             headers={"Authorization": f"Bearer {admin_api_key}"},
         )
 
@@ -542,8 +548,11 @@ async def test_session_list_ordered_by_recency(
             messages=[{"role": "user", "content": "Second session"}],
         )
         await asyncio.sleep(_PERSIST_DELAY_SECONDS)
+        # limit=10000 (HISTORY_SESSIONS_MAX_LIMIT) keeps the result deterministic
+        # under accumulated DB state — the default of 50 could push our
+        # just-created session off the end if the dev DB has many sessions.
         response = await client.get(
-            f"{gateway_url}/api/history/sessions",
+            f"{gateway_url}/api/history/sessions?limit=10000",
             headers={"Authorization": f"Bearer {admin_api_key}"},
         )
 
