@@ -53,7 +53,7 @@ from luthien_proxy.pipeline.session import (
     extract_session_id_from_anthropic_body,
     extract_session_id_from_headers,
 )
-from luthien_proxy.pipeline.upstream_headers import expand_upstream_headers
+from luthien_proxy.pipeline.upstream_headers import expand_upstream_headers, merge_forwarded_headers
 from luthien_proxy.pipeline.stream_protocol_validator import validate_anthropic_event_ordering
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
@@ -406,17 +406,13 @@ async def process_anthropic_request(
 
         # Expand configurable upstream headers (e.g. Helicone session/auth headers).
         # Templates in UPSTREAM_HEADERS env var are expanded with per-request context.
-        upstream = expand_upstream_headers(
-            session_id=session_id,
-            request_path=raw_http_request.path,
+        forwarded_headers = merge_forwarded_headers(
+            base=forwarded_headers,
+            upstream=expand_upstream_headers(
+                session_id=session_id,
+                request_path=raw_http_request.path,
+            ),
         )
-        if upstream:
-            # Remove any upstream headers that collide with reserved client headers
-            # (case-insensitive, since HTTP headers are case-insensitive).
-            if forwarded_headers:
-                reserved = {k.lower() for k in forwarded_headers}
-                upstream = {k: v for k, v in upstream.items() if k.lower() not in reserved}
-            forwarded_headers = {**(upstream or {}), **(forwarded_headers or {})}
 
         # Create policy cache factory if database is available. The cap is
         # configured once here so every policy's cache honors the same limit;

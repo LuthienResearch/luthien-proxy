@@ -11,6 +11,7 @@ from luthien_proxy.pipeline.upstream_headers import (
     _expand_template,
     _load_header_templates,
     expand_upstream_headers,
+    merge_forwarded_headers,
     validate_upstream_headers_at_startup,
 )
 
@@ -249,6 +250,48 @@ class TestExpandUpstreamHeaders:
             json.dumps({"Helicone-Session-Id": "${session_id}"}),
         )
         assert expand_upstream_headers(None, "/v1/messages") is None
+
+class TestMergeForwardedHeaders:
+    """Tests for the merge logic used at the integration site in anthropic_processor."""
+
+    def test_returns_base_when_upstream_is_none(self):
+        base = {"anthropic-beta": "x"}
+        assert merge_forwarded_headers(base=base, upstream=None) is base
+
+    def test_returns_base_when_upstream_is_empty(self):
+        base = {"anthropic-beta": "x"}
+        assert merge_forwarded_headers(base=base, upstream={}) is base
+
+    def test_returns_upstream_when_base_is_none(self):
+        upstream = {"Helicone-Auth": "Bearer x"}
+        assert merge_forwarded_headers(base=None, upstream=upstream) == upstream
+
+    def test_returns_none_when_both_empty(self):
+        assert merge_forwarded_headers(base=None, upstream=None) is None
+        assert merge_forwarded_headers(base={}, upstream={}) is None
+
+    def test_base_wins_on_case_insensitive_collision(self):
+        # SDK adds anthropic-beta; upstream config (mistakenly) tries to override with Anthropic-Beta.
+        base = {"anthropic-beta": "sdk-value"}
+        upstream = {"Anthropic-Beta": "config-value", "Helicone-Auth": "Bearer x"}
+        merged = merge_forwarded_headers(base=base, upstream=upstream)
+        assert merged == {"anthropic-beta": "sdk-value", "Helicone-Auth": "Bearer x"}
+        # Ensure no duplicate logical header on the wire.
+        assert "Anthropic-Beta" not in merged
+
+    def test_non_colliding_headers_pass_through(self):
+        base = {"anthropic-beta": "x"}
+        upstream = {"Helicone-Auth": "Bearer y", "Helicone-Session-Id": "s"}
+        merged = merge_forwarded_headers(base=base, upstream=upstream)
+        assert merged == {
+            "anthropic-beta": "x",
+            "Helicone-Auth": "Bearer y",
+            "Helicone-Session-Id": "s",
+        }
+
+
+class TestHeliconeFullConfig:
+    """Integration-style test for the original sjawhar Helicone scenario."""
 
     def test_helicone_full_config(self, monkeypatch: pytest.MonkeyPatch):
         """Integration-style test matching the real Helicone use case."""

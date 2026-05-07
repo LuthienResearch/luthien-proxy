@@ -201,3 +201,25 @@ def expand_upstream_headers(
         if value:
             headers[name] = value
     return headers or None
+
+
+def merge_forwarded_headers(
+    base: dict[str, str] | None,
+    upstream: dict[str, str] | None,
+) -> dict[str, str] | None:
+    """Merge ``upstream`` into ``base`` with ``base`` winning on collision.
+
+    HTTP header names are case-insensitive, so the collision check is
+    case-insensitive too — without it, ``Anthropic-Beta`` from the upstream
+    config and ``anthropic-beta`` from the SDK would ship as two distinct
+    dict entries and produce duplicate header lines on the wire.
+
+    Returns ``None`` if both inputs are empty.
+    """
+    if not upstream:
+        return base or None
+    if base:
+        reserved = {k.lower() for k in base}
+        upstream = {k: v for k, v in upstream.items() if k.lower() not in reserved}
+    merged: dict[str, str] = {**upstream, **base} if base else dict(upstream)
+    return merged or None
