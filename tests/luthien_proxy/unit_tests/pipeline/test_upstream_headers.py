@@ -118,9 +118,7 @@ class TestLoadHeaderTemplates:
             _load_header_templates()
         assert "not_a_real_var" in caplog.text
 
-    def test_known_vars_do_not_warn(
-        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-    ):
+    def test_known_vars_do_not_warn(self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture):
         monkeypatch.setenv(
             "UPSTREAM_HEADERS",
             json.dumps({"X-Sess": "${session_id}", "X-Path": "${request_path}"}),
@@ -250,6 +248,7 @@ class TestExpandUpstreamHeaders:
             json.dumps({"Helicone-Session-Id": "${session_id}"}),
         )
         assert expand_upstream_headers(None, "/v1/messages") is None
+
 
 class TestMergeForwardedHeaders:
     """Tests for the merge logic used at the integration site in anthropic_processor."""

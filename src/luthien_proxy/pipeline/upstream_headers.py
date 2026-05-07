@@ -49,9 +49,8 @@ Config system bypass (intentional):
     This feature reads ``UPSTREAM_HEADERS`` directly via ``os.environ``
     rather than going through ``config_fields.py``. The config registry is
     typed for scalars; a JSON blob of arbitrary header templates does not
-    fit that model. The ``upstream_headers_enabled`` flag in
-    ``config_fields.py`` exists so the feature is discoverable on the
-    ``/config`` dashboard.
+    fit that model. Operability comes from the startup audit log
+    enumerating which env vars the templates reference.
 """
 
 from __future__ import annotations
@@ -95,9 +94,7 @@ def _validate_and_filter(parsed: dict[str, object]) -> dict[str, str]:
         if not isinstance(v, str):
             raise ValueError(f"UPSTREAM_HEADERS: value for {k!r} must be a string, got {type(v).__name__}")
         if not _HEADER_NAME_PATTERN.match(k):
-            raise ValueError(
-                f"UPSTREAM_HEADERS: header name {k!r} is not a valid RFC 7230 token"
-            )
+            raise ValueError(f"UPSTREAM_HEADERS: header name {k!r} is not a valid RFC 7230 token")
         if k.lower() in _RESERVED_HEADERS:
             logger.warning(
                 "UPSTREAM_HEADERS: dropping hop-by-hop/framing header %r (overriding it would break HTTP transport)",
@@ -142,9 +139,7 @@ def _load_header_templates() -> dict[str, str]:
         return {}
     parsed = json.loads(raw)  # raises JSONDecodeError on invalid JSON
     if not isinstance(parsed, dict):
-        raise ValueError(
-            f"UPSTREAM_HEADERS must be a JSON object, got {type(parsed).__name__}"
-        )
+        raise ValueError(f"UPSTREAM_HEADERS must be a JSON object, got {type(parsed).__name__}")
     result = _validate_and_filter(parsed)
     if result:
         logger.info("Loaded %d upstream header template(s)", len(result))

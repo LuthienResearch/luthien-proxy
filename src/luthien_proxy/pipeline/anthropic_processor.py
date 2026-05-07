@@ -53,8 +53,8 @@ from luthien_proxy.pipeline.session import (
     extract_session_id_from_anthropic_body,
     extract_session_id_from_headers,
 )
-from luthien_proxy.pipeline.upstream_headers import expand_upstream_headers, merge_forwarded_headers
 from luthien_proxy.pipeline.stream_protocol_validator import validate_anthropic_event_ordering
+from luthien_proxy.pipeline.upstream_headers import expand_upstream_headers, merge_forwarded_headers
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
     AnthropicPolicyEmission,

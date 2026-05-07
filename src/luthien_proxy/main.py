@@ -41,6 +41,7 @@ from luthien_proxy.observability.event_publisher import (
 )
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.observability.sentry import init_sentry
+from luthien_proxy.pipeline.upstream_headers import validate_upstream_headers_at_startup
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.request_log import router as request_log_router
 from luthien_proxy.session import login_page_router
@@ -189,10 +190,8 @@ def create_app(
         await _config_registry.initialize()
         logger.info("Config registry initialized")
 
-        # Validate UPSTREAM_HEADERS at startup so misconfiguration fails fast
-        # rather than silently disabling the integration on first request.
-        from luthien_proxy.pipeline.upstream_headers import validate_upstream_headers_at_startup
-
+        # Fail fast on UPSTREAM_HEADERS misconfiguration rather than silently
+        # disabling the integration on first request.
         validate_upstream_headers_at_startup()
 
         # Configure litellm globally (moved from policy file to prevent import side effects)
