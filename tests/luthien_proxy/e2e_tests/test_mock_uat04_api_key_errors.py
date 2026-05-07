@@ -122,13 +122,19 @@ async def test_wrong_admin_key_returns_clear_error(
     async with httpx.AsyncClient(timeout=10.0) as client:
         snapshot = await client.get(dashboard_url, headers=admin_headers)
         assert snapshot.status_code == 200, f"Failed to read config dashboard: {snapshot.text}"
-        bypass_field = next(f for f in snapshot.json()["config"] if f["name"] == "localhost_auth_bypass")
+        bypass_field = next(
+            (f for f in snapshot.json()["config"] if f["name"] == "localhost_auth_bypass"),
+            None,
+        )
+        assert bypass_field is not None, (
+            "localhost_auth_bypass missing from config dashboard — was the field renamed?"
+        )
         original_value = bypass_field["value"]
         original_source = bypass_field["source"]
 
         toggle_off = await client.put(bypass_url, headers=admin_headers, json={"value": False})
-        assert toggle_off.status_code == 200, f"Failed to disable bypass: {toggle_off.text}"
         try:
+            assert toggle_off.status_code == 200, f"Failed to disable bypass: {toggle_off.text}"
             response = await client.post(
                 f"{gateway_url}/api/admin/policy/set",
                 headers={"Authorization": "Bearer wrong-admin-key"},

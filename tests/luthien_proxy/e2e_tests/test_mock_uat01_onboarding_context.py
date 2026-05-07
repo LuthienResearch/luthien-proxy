@@ -41,8 +41,11 @@ def _rendered_setup_hint(gateway_url: str) -> str:
     The raw template literal contains the placeholder ``{gateway_url}`` which
     OnboardingPolicy.__init__ substitutes at policy load time. Tests must compare
     against the rendered string, not the template, or assertions are vacuous.
+
+    Mirrors the policy's ``gateway_url.rstrip("/")`` so a fixture supplying
+    ``http://host:port/`` won't silently miss.
     """
-    return _WELCOME_SETUP_HINT.format(gateway_url=gateway_url)
+    return _WELCOME_SETUP_HINT.format(gateway_url=gateway_url.rstrip("/"))
 
 
 @pytest.fixture(scope="session", autouse=True)
