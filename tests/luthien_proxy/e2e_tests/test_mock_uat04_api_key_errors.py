@@ -131,8 +131,23 @@ async def test_wrong_admin_key_returns_clear_error(
         )
         original_value = bypass_field["value"]
         original_source = bypass_field["source"]
+        # If the field's flagged sensitive in the future, dashboard_view masks
+        # value as "***" (config_registry.py:319). Catch that early so we
+        # don't restore "***" as the bool — fail with a useful message instead.
+        assert original_value in (True, False), (
+            f"localhost_auth_bypass dashboard value should be a bool, got {original_value!r} "
+            f"(source={original_source!r}). Did the field gain `sensitive=True`?"
+        )
 
         toggle_off = await client.put(bypass_url, headers=admin_headers, json={"value": False})
+        if toggle_off.status_code == 409:
+            # Env override of localhost_auth_bypass blocks DB writes
+            # (ConfigOverriddenError, config_registry.py). Skip rather than
+            # producing a confusing failure on a setup the test cannot work around.
+            pytest.skip(
+                "localhost_auth_bypass is overridden by env or CLI — cannot toggle via DB. "
+                "Unset LOCALHOST_AUTH_BYPASS in the gateway's environment to run this test."
+            )
         try:
             assert toggle_off.status_code == 200, f"Failed to disable bypass: {toggle_off.text}"
             response = await client.post(
