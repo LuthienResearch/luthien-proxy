@@ -3,7 +3,7 @@
 // ============================================================
 
 const NOOP_CLASS_REF = 'luthien_proxy.policies.noop_policy:NoOpPolicy';
-const DEFAULT_MODEL = 'claude-haiku-4-5-20241022';
+const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 const MULTI_SERIAL_CLASS_REF = 'luthien_proxy.policies.multi_serial_policy:MultiSerialPolicy';
 
 // Policies shown in the "Simple" group (top of Available column)
