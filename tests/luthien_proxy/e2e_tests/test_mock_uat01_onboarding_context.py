@@ -35,6 +35,16 @@ _WELCOME_TITLE: str = next((line.strip() for line in WELCOME_MESSAGE.splitlines(
 _WELCOME_SETUP_HINT: str = next((line.strip() for line in WELCOME_MESSAGE.splitlines() if "policy-config" in line), "")
 
 
+def _rendered_setup_hint(gateway_url: str) -> str:
+    """Render _WELCOME_SETUP_HINT with the actual gateway_url substituted in.
+
+    The raw template literal contains the placeholder ``{gateway_url}`` which
+    OnboardingPolicy.__init__ substitutes at policy load time. Tests must compare
+    against the rendered string, not the template, or assertions are vacuous.
+    """
+    return _WELCOME_SETUP_HINT.format(gateway_url=gateway_url)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _assert_welcome_message_shape():
     assert _WELCOME_TITLE, "WELCOME_MESSAGE no longer contains 'Welcome to Luthien' — update test constants"
@@ -71,7 +81,7 @@ async def test_onboarding_context_injected_on_first_turn(
     body = response.json()
     all_text = " ".join(b["text"] for b in body["content"] if b["type"] == "text")
     assert _WELCOME_TITLE in all_text
-    assert _WELCOME_SETUP_HINT.format(gateway_url=gateway_url) in all_text
+    assert _rendered_setup_hint(gateway_url) in all_text
 
 
 @pytest.mark.asyncio
@@ -99,7 +109,7 @@ async def test_onboarding_context_injected_on_first_turn_streaming(
                 all_text = await collect_sse_text(response)
 
     assert _WELCOME_TITLE in all_text
-    assert _WELCOME_SETUP_HINT.format(gateway_url=gateway_url) in all_text
+    assert _rendered_setup_hint(gateway_url) in all_text
 
 
 @pytest.mark.asyncio
@@ -127,5 +137,6 @@ async def test_onboarding_context_not_repeated_on_second_turn(
     body = response.json()
     all_text = " ".join(b["text"] for b in body["content"] if b["type"] == "text")
     assert _WELCOME_TITLE not in all_text, f"Second turn should not contain the welcome title. Got: {all_text!r}"
-    rendered_hint = _WELCOME_SETUP_HINT.format(gateway_url=gateway_url)
-    assert rendered_hint not in all_text, f"Second turn should not contain the setup hint. Got: {all_text!r}"
+    assert _rendered_setup_hint(gateway_url) not in all_text, (
+        f"Second turn should not contain the setup hint. Got: {all_text!r}"
+    )

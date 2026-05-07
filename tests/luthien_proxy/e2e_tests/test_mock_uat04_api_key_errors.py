@@ -124,6 +124,7 @@ async def test_wrong_admin_key_returns_clear_error(
         assert snapshot.status_code == 200, f"Failed to read config dashboard: {snapshot.text}"
         bypass_field = next(f for f in snapshot.json()["config"] if f["name"] == "localhost_auth_bypass")
         original_value = bypass_field["value"]
+        original_source = bypass_field["source"]
 
         toggle_off = await client.put(bypass_url, headers=admin_headers, json={"value": False})
         assert toggle_off.status_code == 200, f"Failed to disable bypass: {toggle_off.text}"
@@ -138,9 +139,17 @@ async def test_wrong_admin_key_returns_clear_error(
                 },
             )
         finally:
-            restore = await client.put(bypass_url, headers=admin_headers, json={"value": original_value})
+            # Restore in a way that preserves provenance: if the original value
+            # came from DB, PUT it back; otherwise DELETE the DB override so the
+            # field falls back to its original env/default source. This avoids
+            # leaving a residual gateway_config row that wasn't there before.
+            if original_source == "db":
+                restore = await client.put(bypass_url, headers=admin_headers, json={"value": original_value})
+            else:
+                restore = await client.delete(bypass_url, headers=admin_headers)
             assert restore.status_code == 200, (
-                f"Failed to restore localhost_auth_bypass to {original_value!r}: {restore.text}"
+                f"Failed to restore localhost_auth_bypass (source={original_source!r}, "
+                f"value={original_value!r}): {restore.status_code}: {restore.text}"
             )
 
     assert response.status_code in (401, 403), (
