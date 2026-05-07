@@ -350,6 +350,19 @@ async def test_tool_result_in_request_stored(
     assert len(session["turns"]) == 1
     req_messages = session["turns"][0]["request_messages"]
 
+    # The middle assistant message contains a tool_use block; verify the
+    # gateway persists that as a tool_call message with the same id, name,
+    # and input we sent. A regression that drops in-request tool_use storage
+    # would otherwise slip past silently if we only checked the tool_result.
+    tool_calls = [m for m in req_messages if m["message_type"] == "tool_call"]
+    assert tool_calls, f"Expected assistant tool_use to persist as tool_call message, got: {req_messages}"
+    tc = tool_calls[0]
+    assert tc["tool_call_id"] == tool_use_id
+    assert tc["tool_name"] == "get_weather"
+    assert tc["tool_input"] == {"location": "Tokyo"}, (
+        f"Expected tool_input to round-trip the original args, got: {tc['tool_input']}"
+    )
+
     tool_results = [m for m in req_messages if m["message_type"] == "tool_result"]
     assert tool_results, f"Expected tool_result message, got: {req_messages}"
     tr = tool_results[0]
@@ -482,10 +495,14 @@ async def test_markdown_export_with_tool_calls(
     # other markdown tests (e.g. test_markdown_export_basic asserts on user content).
     assert user_prompt in markdown, f"Expected user prompt {user_prompt!r} in export. Got:\n{markdown}"
     # service._format_message_markdown emits literal `### Tool Call` for
-    # MessageType.TOOL_CALL — assert that strictly. The tool name then
-    # appears in the **Tool:** line beneath it.
+    # MessageType.TOOL_CALL, with `**Tool:** `<name>`` on the next line.
+    # Assert on the formatted Tool: line, not the bare tool name — the user
+    # prompt also contains "calculate", so a substring search would be
+    # vacuously true even if the tool_use block weren't rendered at all.
     assert "### Tool Call" in markdown, f"Expected `### Tool Call` header in export. Got:\n{markdown}"
-    assert "calculate" in markdown, f"Expected tool name `calculate` in export. Got:\n{markdown}"
+    assert "**Tool:** `calculate`" in markdown, (
+        f"Expected `**Tool:** `calculate`` line under `### Tool Call`. Got:\n{markdown}"
+    )
 
 
 # === Session list ===
