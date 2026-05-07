@@ -71,6 +71,11 @@ _TEMPLATE_PATTERN = re.compile(r"\$\{([^}]+)\}")
 # RFC 7230 token: 1*tchar where tchar = ALPHA / DIGIT / "!#$%&'*+-.^_`|~"
 _HEADER_NAME_PATTERN = re.compile(r"^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$")
 
+# POSIX-ish env var name: leading letter/underscore, then alnum/underscore.
+# Stricter than the shell allows in practice but catches the typo class
+# (`${env.}` empty, `${env.NAME WITH SPACES}`, `${env.NAME-WITH-DASH}`).
+_ENV_VAR_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
 # Hop-by-hop / framing headers per RFC 7230 §6.1, plus framing headers and the
 # common-but-non-standard Proxy-Connection. Overriding these breaks HTTP
 # transport. Lower-case for case-insensitive comparison.
@@ -103,6 +108,15 @@ def _validate_and_filter(parsed: dict[str, object]) -> dict[str, str]:
             raise ValueError(f"UPSTREAM_HEADERS: value for {k!r} must be a string, got {type(v).__name__}")
         if not _HEADER_NAME_PATTERN.match(k):
             raise ValueError(f"UPSTREAM_HEADERS: header name {k!r} is not a valid RFC 7230 token")
+        for match in _TEMPLATE_PATTERN.finditer(v):
+            var = match.group(1)
+            if var.startswith("env."):
+                env_name = var[4:]
+                if not _ENV_VAR_NAME_PATTERN.match(env_name):
+                    raise ValueError(
+                        f"UPSTREAM_HEADERS: invalid env var reference ${{env.{env_name}}} in {k!r} — "
+                        "must be a non-empty identifier (letters, digits, underscore; no leading digit)"
+                    )
         if k.lower() in _RESERVED_HEADERS:
             logger.warning(
                 "UPSTREAM_HEADERS: dropping hop-by-hop/framing header %r (overriding it would break HTTP transport)",

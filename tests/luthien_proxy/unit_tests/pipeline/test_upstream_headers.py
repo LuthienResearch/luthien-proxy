@@ -60,6 +60,25 @@ class TestLoadHeaderTemplates:
         with pytest.raises(ValueError, match="not a valid RFC 7230 token"):
             _load_header_templates()
 
+    @pytest.mark.parametrize(
+        "bad_ref",
+        [
+            "${env.}",  # empty
+            "${env.WITH SPACE}",  # space
+            "${env.WITH-DASH}",  # dash
+            "${env.1LEADING_DIGIT}",
+        ],
+    )
+    def test_raises_on_invalid_env_var_reference(self, monkeypatch: pytest.MonkeyPatch, bad_ref: str):
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"X-Custom": f"prefix {bad_ref} suffix"}))
+        with pytest.raises(ValueError, match="invalid env var reference"):
+            _load_header_templates()
+
+    def test_accepts_valid_env_var_references(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"X-A": "${env.FOO}", "X-B": "${env._UNDER}"}))
+        # Does not raise.
+        _load_header_templates()
+
     def test_drops_hop_by_hop_headers_with_warning(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ):
