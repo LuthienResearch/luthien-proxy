@@ -1,8 +1,16 @@
 """Mock e2e tests for conversation history storage and export.
 
-These tests verify that the gateway correctly persists conversations to the
-database and exposes them via the history API. They use the in-process mock
-Anthropic server with deterministic responses — no real API calls.
+These tests verify that the gateway correctly persists conversation **structure**
+to the database and exposes it via the history API: message types, tool_call /
+tool_result fields, multi-turn ordering, markdown export shape, recency ordering.
+Uses the in-process mock Anthropic server — no real API calls.
+
+Scope split (the sibling file has overlapping smoke coverage on purpose):
+- ``test_mock_conversation_history.py`` (this file) — *is the parsed structure
+  right?* Asserts on ``message_type``, ``tool_name``, ``tool_call_id``,
+  ``tool_input``, markdown headers, etc.
+- ``test_mock_session_history.py`` — *does session-ID extraction work?*
+  Asserts on the ``metadata.user_id`` → session_id mapping path.
 
 Run:
     ./scripts/run_e2e.sh mock
@@ -91,7 +99,8 @@ async def _export_session_markdown(
 
 
 def _new_session_id(prefix: str) -> str:
-    return f"e2e-test-{prefix}-{uuid.uuid4().hex[:8]}"
+    """Generate a session ID with full UUID4 to avoid cross-run collisions."""
+    return f"e2e-test-{prefix}-{uuid.uuid4().hex}"
 
 
 # === Basic conversation storage ===
@@ -118,8 +127,10 @@ async def test_simple_conversation_stored(
             messages=[{"role": "user", "content": "Say hello in exactly 3 words."}],
         )
         assert body["type"] == "message"
+        # Mock backend is deterministic, so the gateway-returned text should
+        # match exactly what we enqueued.
         assistant_text = " ".join(b.get("text", "") for b in body["content"] if b.get("type") == "text")
-        assert assistant_text, f"Expected non-empty assistant text, got: {body['content']}"
+        assert assistant_text == "Hello, world today.", f"Expected exact mock-text round-trip, got: {assistant_text!r}"
 
         await asyncio.sleep(_PERSIST_DELAY_SECONDS)
         session = await _get_session_detail(
