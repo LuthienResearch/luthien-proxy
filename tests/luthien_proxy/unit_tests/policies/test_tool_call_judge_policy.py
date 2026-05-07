@@ -14,12 +14,18 @@ import pytest
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
     InputJSONDelta,
+    Message,
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
+    RawMessageDeltaEvent,
+    RawMessageStartEvent,
+    RawMessageStopEvent,
     TextBlock,
     TextDelta,
     ToolUseBlock,
+    Usage,
 )
+from tests.luthien_proxy.fixtures.anthropic_stream_validator import validate_anthropic_event_ordering
 from tests.luthien_proxy.unit_tests.policies.anthropic_event_builders import (
     block_stop,
     event_types,
@@ -52,6 +58,25 @@ def _make_policy(**overrides) -> ToolCallJudgePolicy:
 def _make_context() -> PolicyContext:
     """Create a fresh PolicyContext for testing."""
     return PolicyContext.for_testing(transaction_id="test-txn")
+
+
+def _full_stream(events: list) -> list:
+    """Wrap events in message_start + ... + message_stop for the stream validator."""
+    message_start = RawMessageStartEvent(
+        type="message_start",
+        message=Message.model_construct(
+            type="message",
+            id="test",
+            role="assistant",
+            content=[],
+            model="claude-haiku",
+            stop_reason=None,
+            stop_sequence=None,
+            usage=Usage(input_tokens=1, output_tokens=1),
+        ),
+    )
+    message_stop = RawMessageStopEvent(type="message_stop")
+    return [message_start, *events, message_stop]
 
 
 # ============================================================================
@@ -634,3 +659,76 @@ class TestPolicyConfiguration:
         policy = _make_policy(judge_instructions=custom_instructions)
 
         assert policy._judge_instructions == custom_instructions
+
+
+# ============================================================================
+# H5: streaming stop_reason correction when all tools are blocked
+# ============================================================================
+
+
+class TestStreamingStopReasonCorrection:
+    @pytest.mark.asyncio
+    async def test_streaming_all_tools_blocked_corrects_stop_reason_to_end_turn(self):
+        """H5 regression: when all tools blocked in streaming, message_delta stop_reason must
+        be corrected from 'tool_use' to 'end_turn'.
+
+        Before fix: ToolCallJudgePolicy has no message_delta handler → stop_reason stays
+        'tool_use' with text-only content → API rejects next turn with 400.
+        """
+        policy = _make_policy()
+        ctx = _make_context()
+
+        judge_result = JudgeResult(probability=0.9, explanation="blocked", prompt=[], response_text="")
+        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
+            mock_eval.return_value = judge_result
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"cmd":"x"}', 0)), ctx)
+            tool_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        delta_ev = next(e for e in msg_events if isinstance(e, RawMessageDeltaEvent))
+        assert delta_ev.delta.stop_reason == "end_turn", (
+            f"Expected 'end_turn' but got {delta_ev.delta.stop_reason!r}; "
+            "ToolCallJudgePolicy must handle message_delta to correct stop_reason when all tools blocked"
+        )
+
+        all_events = tool_events + msg_events
+        validate_anthropic_event_ordering(_full_stream(all_events)).assert_valid()
+
+    @pytest.mark.asyncio
+    async def test_streaming_mixed_tools_partial_block_keeps_tool_use_stop_reason(self):
+        """H5 boundary: when some tool_use blocks remain (not all blocked), stop_reason stays 'tool_use'."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        judge_blocked = JudgeResult(probability=0.9, explanation="blocked", prompt=[], response_text="")
+        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
+            mock_eval.side_effect = [None, judge_blocked]
+
+            await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, tool_start(0, tool_id="toolu_0", name="Tool0")), ctx
+            )
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, tool_start(1, tool_id="toolu_1", name="Tool1")), ctx
+            )
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"y":2}', 1)), ctx)
+            tool1_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        delta_ev = next(e for e in msg_events if isinstance(e, RawMessageDeltaEvent))
+        assert delta_ev.delta.stop_reason == "tool_use", (
+            f"Expected 'tool_use' (some tools still emitted) but got {delta_ev.delta.stop_reason!r}"
+        )
+
+        all_events = tool1_events + msg_events
+        validate_anthropic_event_ordering(_full_stream(all_events)).assert_valid()

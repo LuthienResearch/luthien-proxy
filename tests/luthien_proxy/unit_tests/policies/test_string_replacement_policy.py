@@ -1485,9 +1485,7 @@ class TestRequestSideFiltering:
     @pytest.mark.asyncio
     async def test_empty_replacements_is_identity_passthrough(self):
         """apply_to='request' with empty replacements returns the original request."""
-        policy = StringReplacementPolicy(
-            config=StringReplacementConfig(replacements=[], apply_to="request")
-        )
+        policy = StringReplacementPolicy(config=StringReplacementConfig(replacements=[], apply_to="request"))
         ctx, _ = _ctx_with_recorder()
         request = _request_with_messages([{"role": "user", "content": "anything goes"}])
 

@@ -13,13 +13,18 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
+    Message,
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
     RawMessageDeltaEvent,
+    RawMessageStartEvent,
+    RawMessageStopEvent,
     TextBlock,
     TextDelta,
     ToolUseBlock,
+    Usage,
 )
+from tests.luthien_proxy.fixtures.anthropic_stream_validator import validate_anthropic_event_ordering
 from tests.luthien_proxy.unit_tests.policies.anthropic_event_builders import (
     block_stop,
     event_types,
@@ -58,6 +63,25 @@ def _make_policy(on_error: str = "block") -> SimpleLLMPolicy:
 
 def _make_context() -> PolicyContext:
     return PolicyContext.for_testing(transaction_id="test-txn")
+
+
+def _full_stream(events: list) -> list:
+    """Wrap events in message_start + ... + message_stop for the stream validator."""
+    message_start = RawMessageStartEvent(
+        type="message_start",
+        message=Message.model_construct(
+            type="message",
+            id="test",
+            role="assistant",
+            content=[],
+            model="claude-haiku",
+            stop_reason=None,
+            stop_sequence=None,
+            usage=Usage(input_tokens=1, output_tokens=1),
+        ),
+    )
+    message_stop = RawMessageStopEvent(type="message_stop")
+    return [message_start, *events, message_stop]
 
 
 # ============================================================================
@@ -569,3 +593,153 @@ class TestJudgeErrorEmptyResponseInjection:
             e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
         ]
         assert any(JUDGE_ERROR_BLOCKED_MESSAGE in d.delta.text for d in error_deltas)
+
+
+# ============================================================================
+# H2: multi-block replacement indices
+# ============================================================================
+
+
+class TestMultiBlockReplacementIndices:
+    @pytest.mark.asyncio
+    async def test_replacement_with_multiple_blocks_uses_monotonic_indices(self):
+        """H2 regression: two replacement blocks must use indices [0, 1], not [0, 0]."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        blocks = (
+            ReplacementBlock(type="text", text="A"),
+            ReplacementBlock(type="text", text="B"),
+        )
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="replace", blocks=blocks)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"command":"ls"}', 0)), ctx)
+            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        all_events = stop_events + msg_events
+        start_indices = [e.index for e in all_events if isinstance(e, RawContentBlockStartEvent)]
+
+        assert len(start_indices) == 2, f"Expected 2 replacement blocks, got {len(start_indices)}"
+        assert start_indices[0] < start_indices[1], (
+            f"Replacement block indices must be monotonically increasing, got {start_indices}"
+        )
+
+        validate_anthropic_event_ordering(_full_stream(all_events)).assert_valid()
+
+
+# ============================================================================
+# H1: empty preamble + blocked tool index
+# ============================================================================
+
+
+class TestEmptyPreambleBlockedTool:
+    @pytest.mark.asyncio
+    async def test_empty_preamble_then_blocked_tool_does_not_reuse_index(self):
+        """H1 regression: blocked tool at idx 1 (preamble at idx 0 suppressed) emits correct stream."""
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="block")
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("", 0)), ctx)
+            preamble_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            assert preamble_events == [], "Empty preamble must be fully suppressed"
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta("{}", 1)), ctx)
+            tool_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        assert event_types(tool_events) == ["content_block_start", "content_block_delta", "content_block_stop"]
+        start = tool_events[0]
+        assert isinstance(start, RawContentBlockStartEvent)
+        assert start.index == 1, f"Blocked text must be at idx 1, got {start.index}"
+
+        delta_ev = next(e for e in msg_events if isinstance(e, RawMessageDeltaEvent))
+        assert delta_ev.delta.stop_reason == "end_turn"
+
+        all_events = tool_events + msg_events
+        validate_anthropic_event_ordering(_full_stream(all_events)).assert_valid()
+
+
+# ============================================================================
+# H3: warning index with single tool + judge failure
+# ============================================================================
+
+
+class TestWarningIndexNoCollision:
+    @pytest.mark.asyncio
+    async def test_single_tool_judge_failure_warning_index_no_collision(self):
+        """H3 regression: no preamble, tool at idx 0, judge fails (on_error=pass).
+        Warning must be at idx 1, not idx 0 (collision with emitted tool).
+        """
+        policy = _make_policy(on_error="pass")
+        ctx = _make_context()
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="pass", judge_failed=True)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"command":"ls"}', 0)), ctx)
+            tool_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        all_events = tool_events + msg_events
+        start_indices = [e.index for e in all_events if isinstance(e, RawContentBlockStartEvent)]
+
+        assert start_indices == [0, 1], f"Expected tool@0 and warning@1, got {start_indices}"
+
+        delta_ev = next(e for e in msg_events if isinstance(e, RawMessageDeltaEvent))
+        assert delta_ev.delta.stop_reason == "tool_use"
+
+        validate_anthropic_event_ordering(_full_stream(all_events)).assert_valid()
+
+
+# ============================================================================
+# H6: block mode + judge failure on tool emits judge-failed text
+# ============================================================================
+
+
+class TestBlockModeJudgeFailureTool:
+    @pytest.mark.asyncio
+    async def test_block_mode_judge_failure_on_tool_emits_judge_failed_text(self):
+        """H6 regression: on_error='block' + judge failure → judge-failed blocked message, no warning."""
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="block", judge_failed=True)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"command":"ls"}', 0)), ctx)
+            tool_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        assert event_types(tool_events) == ["content_block_start", "content_block_delta", "content_block_stop"]
+        delta = next(e for e in tool_events if isinstance(e, RawContentBlockDeltaEvent))
+        assert isinstance(delta.delta, TextDelta)
+        assert "Bash" in delta.delta.text
+        assert "policy evaluation unavailable" in delta.delta.text
+
+        warning_in_msg = any(isinstance(e, RawContentBlockStartEvent) for e in msg_events)
+        assert not warning_in_msg, "No warning block should be injected in block mode with judge failure"
+
+        delta_ev = next(e for e in msg_events if isinstance(e, RawMessageDeltaEvent))
+        assert delta_ev.delta.stop_reason == "end_turn"
+
+        all_events = tool_events + msg_events
+        validate_anthropic_event_ordering(_full_stream(all_events)).assert_valid()
