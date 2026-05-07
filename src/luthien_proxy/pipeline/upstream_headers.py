@@ -30,19 +30,22 @@ Validation:
       time. Misconfiguration fails the gateway at startup, not at first
       request.
     * Header names must match the RFC 7230 token spec.
-    * Hop-by-hop / framing headers (``Connection``, ``Transfer-Encoding``,
-      ``Content-Length``, ``Keep-Alive``, ``Trailer``, ``Trailers``,
-      ``Proxy-Connection``) are dropped with a warning — overriding them
-      breaks HTTP transport.
+    * Hop-by-hop / framing headers (``Connection``, ``Content-Length``,
+      ``Keep-Alive``, ``Proxy-Authenticate``, ``Proxy-Authorization``,
+      ``Proxy-Connection``, ``TE``, ``Trailer``, ``Trailers``,
+      ``Transfer-Encoding``, ``Upgrade``) are dropped with a warning —
+      overriding them breaks HTTP transport.
     * Unknown template variables (``${foo}`` that isn't ``session_id``,
       ``request_path``, or ``env.X``) are logged at load time, not on every
       request.
 
 Restart required:
 
-    Templates are parsed once and cached for the process lifetime. Changes
-    to ``UPSTREAM_HEADERS`` or any referenced env var require a gateway
-    restart.
+    Template structure is parsed once and cached for the process lifetime,
+    so changes to ``UPSTREAM_HEADERS`` itself require a gateway restart.
+    Referenced env vars (``${env.X}``) are read per request — mutating them
+    in the running process takes effect on the next request, but this is
+    not a recommended workflow.
 
 Config system bypass (intentional):
 
@@ -68,17 +71,22 @@ _TEMPLATE_PATTERN = re.compile(r"\$\{([^}]+)\}")
 # RFC 7230 token: 1*tchar where tchar = ALPHA / DIGIT / "!#$%&'*+-.^_`|~"
 _HEADER_NAME_PATTERN = re.compile(r"^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$")
 
-# Hop-by-hop / framing headers. Overriding these breaks HTTP transport.
-# Lower-case for case-insensitive comparison.
+# Hop-by-hop / framing headers per RFC 7230 §6.1, plus framing headers and the
+# common-but-non-standard Proxy-Connection. Overriding these breaks HTTP
+# transport. Lower-case for case-insensitive comparison.
 _RESERVED_HEADERS = frozenset(
     {
         "connection",
         "content-length",
         "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
         "proxy-connection",
+        "te",
         "trailer",
         "trailers",
         "transfer-encoding",
+        "upgrade",
     }
 )
 
@@ -106,7 +114,13 @@ def _validate_and_filter(parsed: dict[str, object]) -> dict[str, str]:
 
 
 def _audit_template_vars(templates: dict[str, str]) -> None:
-    """Log which env vars and template variables are referenced (operator audit)."""
+    """Log referenced env vars / template variables and flag the ones unset.
+
+    The unset-at-startup warning catches the typo class where ``Helicone-Auth``
+    expands to ``""`` (silently dropped) or ``"Bearer "`` (upstream rejects)
+    because ``${env.HELICONE_API_KEY}`` is misspelled. Surfacing it at
+    startup beats correlating with downstream 401s after the fact.
+    """
     env_refs: set[str] = set()
     unknown: set[str] = set()
     for value in templates.values():
@@ -121,6 +135,12 @@ def _audit_template_vars(templates: dict[str, str]) -> None:
             "UPSTREAM_HEADERS: referencing env vars: %s",
             ", ".join(sorted(env_refs)),
         )
+        unset = {v for v in env_refs if not os.environ.get(v)}
+        if unset:
+            logger.warning(
+                "UPSTREAM_HEADERS: referenced env var(s) are unset and will expand to empty: %s",
+                ", ".join(sorted(unset)),
+            )
     if unknown:
         logger.warning(
             "UPSTREAM_HEADERS: unknown template variable(s): %s — will be left unexpanded",

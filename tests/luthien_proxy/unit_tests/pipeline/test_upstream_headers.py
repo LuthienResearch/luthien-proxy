@@ -71,9 +71,13 @@ class TestLoadHeaderTemplates:
                     "Transfer-Encoding": "chunked",
                     "Content-Length": "0",
                     "Keep-Alive": "timeout=5",
+                    "Proxy-Authenticate": "Basic",
+                    "Proxy-Authorization": "Basic abc",
+                    "Proxy-Connection": "close",
+                    "TE": "trailers",
                     "Trailer": "Expires",
                     "Trailers": "Expires",
-                    "Proxy-Connection": "close",
+                    "Upgrade": "h2c",
                     "X-Custom": "kept",
                 }
             ),
@@ -83,6 +87,8 @@ class TestLoadHeaderTemplates:
         assert result == {"X-Custom": "kept"}
         assert "Connection" in caplog.text
         assert "Transfer-Encoding" in caplog.text
+        assert "Upgrade" in caplog.text
+        assert "Proxy-Authorization" in caplog.text
 
     def test_reserved_check_is_case_insensitive(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"CONTENT-LENGTH": "0", "X-Custom": "kept"}))
@@ -96,6 +102,8 @@ class TestLoadHeaderTemplates:
     def test_audit_log_lists_referenced_env_vars(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ):
+        monkeypatch.setenv("HELICONE_API_KEY", "x")
+        monkeypatch.setenv("USER", "y")
         monkeypatch.setenv(
             "UPSTREAM_HEADERS",
             json.dumps(
@@ -109,6 +117,33 @@ class TestLoadHeaderTemplates:
             _load_header_templates()
         assert "HELICONE_API_KEY" in caplog.text
         assert "USER" in caplog.text
+
+    def test_warns_on_unset_referenced_env_vars(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ):
+        monkeypatch.delenv("HELICONE_API_KEY", raising=False)
+        monkeypatch.delenv("MISSING_THING", raising=False)
+        monkeypatch.setenv("USER", "present")
+        monkeypatch.setenv(
+            "UPSTREAM_HEADERS",
+            json.dumps(
+                {
+                    "Helicone-Auth": "Bearer ${env.HELICONE_API_KEY}",
+                    "Helicone-User": "${env.USER}",
+                    "X-Other": "${env.MISSING_THING}",
+                }
+            ),
+        )
+        with caplog.at_level(logging.WARNING, logger="luthien_proxy.pipeline.upstream_headers"):
+            _load_header_templates()
+        assert "unset" in caplog.text.lower()
+        assert "HELICONE_API_KEY" in caplog.text
+        assert "MISSING_THING" in caplog.text
+        # USER is set, must not appear in the unset warning line.
+        # (It will appear in the "referencing" info line, which is fine.)
+        warning_lines = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("HELICONE_API_KEY" in r.getMessage() for r in warning_lines)
+        assert not any("USER" in r.getMessage() and "unset" in r.getMessage() for r in warning_lines)
 
     def test_unknown_template_var_warns_at_load_time(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
