@@ -127,10 +127,15 @@ async def test_simple_conversation_stored(
             messages=[{"role": "user", "content": "Say hello in exactly 3 words."}],
         )
         assert body["type"] == "message"
-        # Mock backend is deterministic, so the gateway-returned text should
-        # match exactly what we enqueued.
-        assistant_text = " ".join(b.get("text", "") for b in body["content"] if b.get("type") == "text")
-        assert assistant_text == "Hello, world today.", f"Expected exact mock-text round-trip, got: {assistant_text!r}"
+        # Mock backend is deterministic — text_response() emits a single
+        # text block. Assert that shape rather than joining (joining would
+        # silently insert separators between blocks if the mock ever emits
+        # multiple, masking a regression in stream assembly).
+        text_blocks = [b for b in body["content"] if b.get("type") == "text"]
+        assert len(text_blocks) == 1, f"Expected single text block from mock, got {len(text_blocks)}: {body['content']}"
+        assert text_blocks[0]["text"] == "Hello, world today.", (
+            f"Expected exact mock-text round-trip, got: {text_blocks[0]['text']!r}"
+        )
 
         await asyncio.sleep(_PERSIST_DELAY_SECONDS)
         session = await _get_session_detail(
