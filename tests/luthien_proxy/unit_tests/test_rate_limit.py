@@ -210,3 +210,27 @@ def test_negative_rpm_raises():
 def test_negative_burst_raises():
     with pytest.raises(ValueError, match="burst"):
         TokenBucketRateLimiter(rpm=60, burst=-1)
+
+
+def test_zero_max_keys_raises():
+    with pytest.raises(ValueError, match="max_keys"):
+        TokenBucketRateLimiter(rpm=60, burst=0, max_keys=0)
+
+
+@pytest.mark.asyncio
+async def test_refill_capped_at_burst():
+    from unittest.mock import patch
+
+    limiter = TokenBucketRateLimiter(rpm=60, burst=5)
+    with patch("luthien_proxy.rate_limit.time.monotonic", return_value=1000.0):
+        for _ in range(5):
+            await limiter.check("key")
+
+    with patch("luthien_proxy.rate_limit.time.monotonic", return_value=1000.0 + 3600.0):
+        for _ in range(5):
+            await limiter.check("key")
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            await limiter.check("key")
+        assert exc_info.value.status_code == 429

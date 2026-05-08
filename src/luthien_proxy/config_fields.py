@@ -101,7 +101,7 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
     # ── rate limiting ─────────────────────────────────────────────────────────
     ConfigFieldMeta(
         "rate_limit_rpm", "RATE_LIMIT_RPM", int, 0,
-        "Per-key request rate limit (requests per minute). 0 disables rate limiting.",
+        "Per-key request rate limit (requests per minute). 0 disables rate limiting. Keyed on the auth credential — in CLIENT_KEY mode all users share one bucket.",
         category="rate_limiting", restart_required=True,
     ),
     ConfigFieldMeta(

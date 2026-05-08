@@ -17,8 +17,8 @@ class TokenBucketRateLimiter:
     Uses one asyncio.Lock per key to ensure concurrency safety without a global
     bottleneck. A meta-lock serialises only the short dict lookup/creation step.
 
-    Keys are SHA-256 hashed before storage so raw credential values are never
-    held in memory.
+    Keys are SHA-256 hashed before storage — raw credential values are never
+    retained; only their digests are stored in _buckets.
 
     RPM=0 disables limiting entirely (all requests pass through unchecked).
 
@@ -42,6 +42,12 @@ class TokenBucketRateLimiter:
     that coroutine's state update is lost and the next request for the same key
     gets a fresh full-burst bucket. This breaks serialization across the eviction
     boundary but is acceptable for an in-process limiter under normal load.
+
+    Note: rate limiting is keyed on the raw credential value (after hashing).
+    In auth_mode=CLIENT_KEY or the client-key branch of BOTH, all users share
+    one CLIENT_API_KEY, so they share one bucket — this is a global rate limit
+    in those modes, not per-user. In PASSTHROUGH mode each user has their own
+    key and gets their own bucket.
     """
 
     def __init__(self, rpm: int, burst: int, max_keys: int = 10_000) -> None:
@@ -53,12 +59,14 @@ class TokenBucketRateLimiter:
             max_keys: Maximum number of per-key buckets (LRU eviction when exceeded).
 
         Raises:
-            ValueError: If rpm or burst is negative.
+            ValueError: If rpm or burst is negative, or max_keys < 1.
         """
         if rpm < 0:
             raise ValueError(f"rpm must be >= 0, got {rpm}")
         if burst < 0:
             raise ValueError(f"burst must be >= 0, got {burst}")
+        if max_keys < 1:
+            raise ValueError(f"max_keys must be >= 1, got {max_keys}")
         self.rpm = rpm
         self.burst: float = float(burst if burst > 0 else rpm)
         self.max_keys = max_keys
