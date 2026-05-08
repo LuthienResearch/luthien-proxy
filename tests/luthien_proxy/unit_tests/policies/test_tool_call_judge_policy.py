@@ -473,6 +473,23 @@ class TestStreamingStopReasonCorrection:
         assert len(delta_events) == 1
         assert delta_events[0].delta.stop_reason == "max_tokens"
 
+    @pytest.mark.asyncio
+    async def test_stop_reason_tool_use_unchanged_when_no_blocks_seen(self):
+        """Upstream sent stop_reason='tool_use' but no tool_use blocks were seen.
+
+        This locks the documented invariant: only rewrite when *we* blocked
+        something. If we never saw a tool_use block, the upstream stream is
+        either malformed or empty — pass it through unchanged rather than
+        silently coercing it.
+        """
+        policy = _make_policy()
+        ctx = _make_context()
+
+        original = message_delta("tool_use")
+        msg_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, original), ctx)
+
+        assert msg_events == [original]
+
 
 # ============================================================================
 # Non-Streaming Response
