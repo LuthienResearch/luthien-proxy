@@ -35,6 +35,7 @@ from anthropic.types import (
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
+    RawMessageDeltaEvent,
     TextBlock,
     TextDelta,
     ToolUseBlock,
@@ -86,6 +87,7 @@ class _BufferedAnthropicToolUse:
 class _ToolCallJudgeAnthropicState:
     buffered_tool_uses: dict[int, _BufferedAnthropicToolUse] = field(default_factory=dict)
     blocked_blocks: set[int] = field(default_factory=set)
+    emitted_tool_indices: set[int] = field(default_factory=set)
 
 
 class ToolCallJudgeConfig(BaseModel):
@@ -277,6 +279,9 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         elif isinstance(event, RawContentBlockStopEvent):
             return await self._handle_anthropic_content_block_stop(event, context)
 
+        elif isinstance(event, RawMessageDeltaEvent):
+            return self._handle_anthropic_message_delta(event, context)
+
         return [event]
 
     # ========================================================================
@@ -356,6 +361,7 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
 
         # Tool call allowed - reconstruct the full event sequence from buffered data
         logger.debug(f"Tool call '{tool_call['name']}' allowed, re-emitting buffered events")
+        self._anthropic_state(context).emitted_tool_indices.add(index)
         tool_use_block = ToolUseBlock(type="tool_use", id=buffered.id, name=buffered.name, input={})
         start_event = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=tool_use_block)
         json_delta = InputJSONDelta(type="input_json_delta", partial_json=buffered.input_json or "{}")
@@ -365,6 +371,22 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
             cast(MessageStreamEvent, delta_event),
             cast(MessageStreamEvent, event),
         ]
+
+    def _handle_anthropic_message_delta(
+        self,
+        event: RawMessageDeltaEvent,
+        context: "PolicyContext",
+    ) -> list[MessageStreamEvent]:
+        state = self._anthropic_state(context)
+        has_emitted_tool = bool(state.emitted_tool_indices)
+        expected_stop = "tool_use" if has_emitted_tool else "end_turn"
+        if event.delta.stop_reason == "tool_use" and not has_emitted_tool:
+            event = RawMessageDeltaEvent.model_construct(
+                type="message_delta",
+                delta=event.delta.model_copy(update={"stop_reason": expected_stop}),
+                usage=event.usage,
+            )
+        return [cast(MessageStreamEvent, event)]
 
     def _extract_tool_call_from_anthropic_block(self, block: "AnthropicToolUseBlock") -> ToolCallDict:
         """Extract tool call dict from a tool_use content block dict."""
