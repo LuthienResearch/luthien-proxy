@@ -67,8 +67,8 @@ from luthien_proxy.telemetry import restore_context
 from luthien_proxy.types import RawHttpRequest
 from luthien_proxy.usage_telemetry.collector import UsageCollector
 from luthien_proxy.utils import db
+from luthien_proxy.utils import policy_cache as policy_cache_utils
 from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
-from luthien_proxy.utils.policy_cache import PolicyCache
 
 
 class _ErrorDetail(TypedDict):
@@ -406,9 +406,9 @@ async def process_anthropic_request(
         # Create policy cache factory if database is available. The cap is
         # configured once here so every policy's cache honors the same limit;
         # 0-or-negative in settings means "unbounded" (pass None to the cache).
-        cache_cap_setting = get_settings().policy_cache_max_entries
-        cache_cap: int | None = cache_cap_setting if cache_cap_setting > 0 else None
-        policy_cache_factory = (lambda name: PolicyCache(db_pool, name, max_entries=cache_cap)) if db_pool else None
+        # Shared with the admin policy-test endpoint via utils.policy_cache so
+        # both call sites stay in lockstep on the cap-resolution rule.
+        policy_cache_factory = policy_cache_utils.build_factory(db_pool)
 
         # Create policy context
         policy_ctx = PolicyContext(

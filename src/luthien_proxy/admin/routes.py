@@ -51,7 +51,7 @@ from luthien_proxy.settings import client_error_detail, get_settings
 from luthien_proxy.types import RawHttpRequest
 from luthien_proxy.usage_telemetry.config import resolve_telemetry_config
 from luthien_proxy.utils import db
-from luthien_proxy.utils.policy_cache import PolicyCache, PolicyCacheFactory
+from luthien_proxy.utils import policy_cache as policy_cache_utils
 
 logger = logging.getLogger(__name__)
 
@@ -470,23 +470,6 @@ def _build_test_user_credential(body_api_key: str | None) -> Credential | None:
     return None
 
 
-def _build_policy_cache_factory(db_pool: db.DatabasePool | None) -> PolicyCacheFactory | None:
-    """Build a policy cache factory the same way the gateway pipeline does.
-
-    Mirrors :mod:`luthien_proxy.pipeline.anthropic_processor` (the cap is
-    pulled fresh from settings so admin-side overrides resolved after import
-    take effect, matching the gateway path). ``None`` is returned when no
-    database is configured — policies that require persistent caching will
-    raise from ``ctx.policy_cache(...)`` exactly as they do for real traffic
-    in dockerless dev without DB.
-    """
-    if db_pool is None:
-        return None
-    cache_cap_setting = get_settings().policy_cache_max_entries
-    cache_cap: int | None = cache_cap_setting if cache_cap_setting > 0 else None
-    return lambda name: PolicyCache(db_pool, name, max_entries=cache_cap)
-
-
 def _build_test_raw_http_request(
     fastapi_request: Request,
     original_request: AnthropicRequest,
@@ -538,7 +521,7 @@ def _build_test_policy_context(
     """
     raw_http_request = _build_test_raw_http_request(fastapi_request, original_request)
     user_credential = _build_test_user_credential(body_api_key)
-    policy_cache_factory = _build_policy_cache_factory(db_pool)
+    policy_cache_factory = policy_cache_utils.build_factory(db_pool)
     # Synthetic but stable-shaped session id; prefix marks the run as admin
     # test traffic for anyone reading the activity stream. Operators who
     # filter for production traffic can drop ``admin-test-*`` sessions.
