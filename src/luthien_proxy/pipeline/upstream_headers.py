@@ -79,7 +79,7 @@ _ENV_VAR_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # Hop-by-hop / framing headers per RFC 7230 §6.1, plus framing headers and the
 # common-but-non-standard Proxy-Connection. Overriding these breaks HTTP
 # transport. Lower-case for case-insensitive comparison.
-_RESERVED_HEADERS = frozenset(
+_HOP_BY_HOP_HEADERS = frozenset(
     {
         "connection",
         "content-length",
@@ -119,7 +119,7 @@ def _validate_and_filter(parsed: dict[str, object]) -> dict[str, str]:
                         "must be a non-empty identifier (letters, digits, underscore; no leading digit)"
                     )
         lower = k.lower()
-        if lower in _RESERVED_HEADERS:
+        if lower in _HOP_BY_HOP_HEADERS:
             logger.warning(
                 "UPSTREAM_HEADERS: dropping hop-by-hop/framing header %r (overriding it would break HTTP transport)",
                 k,
@@ -154,11 +154,11 @@ def _audit_template_vars(templates: dict[str, str]) -> None:
             "UPSTREAM_HEADERS: referencing env vars: %s",
             ", ".join(sorted(env_refs)),
         )
-        unset = {v for v in env_refs if not os.environ.get(v)}
-        if unset:
+        unset_or_empty = {v for v in env_refs if not os.environ.get(v)}
+        if unset_or_empty:
             logger.warning(
-                "UPSTREAM_HEADERS: referenced env var(s) are unset and will expand to empty: %s",
-                ", ".join(sorted(unset)),
+                "UPSTREAM_HEADERS: referenced env var(s) are unset or empty and will expand to empty: %s",
+                ", ".join(sorted(unset_or_empty)),
             )
     if unknown:
         logger.warning(
@@ -260,7 +260,6 @@ def merge_forwarded_headers(
         return base or None
     if not base:
         return upstream
-    reserved = {k.lower() for k in base}
-    upstream = {k: v for k, v in upstream.items() if k.lower() not in reserved}
-    merged: dict[str, str] = {**upstream, **base}
-    return merged or None
+    base_keys_lower = {k.lower() for k in base}
+    upstream = {k: v for k, v in upstream.items() if k.lower() not in base_keys_lower}
+    return {**upstream, **base}
