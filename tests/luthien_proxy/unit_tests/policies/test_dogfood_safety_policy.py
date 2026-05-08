@@ -3,9 +3,19 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from anthropic.lib.streaming import MessageStreamEvent
+from anthropic.types import (
+    InputJSONDelta,
+    RawContentBlockDeltaEvent,
+    RawContentBlockStartEvent,
+    RawContentBlockStopEvent,
+    RawMessageDeltaEvent,
+    ToolUseBlock,
+)
+from tests.luthien_proxy.unit_tests.policies.anthropic_event_builders import message_delta
 
 from luthien_proxy.policies.dogfood_safety_policy import (
     DogfoodSafetyConfig,
@@ -251,6 +261,110 @@ class TestAnthropicNonStreaming:
         assert result["content"][0]["text"] == "Let me run that"
         assert result["content"][1]["type"] == "tool_use"
         assert "BLOCKED" in result["content"][2]["text"]
+
+
+# ============================================================================
+# Streaming stop_reason correction
+# ============================================================================
+
+
+def _tool_start(index: int, tool_id: str = "toolu_1", name: str = "Bash") -> RawContentBlockStartEvent:
+    return RawContentBlockStartEvent(
+        type="content_block_start",
+        index=index,
+        content_block=ToolUseBlock(type="tool_use", id=tool_id, name=name, input={}),
+    )
+
+
+def _tool_delta(index: int, partial_json: str) -> RawContentBlockDeltaEvent:
+    return RawContentBlockDeltaEvent(
+        type="content_block_delta",
+        index=index,
+        delta=InputJSONDelta(type="input_json_delta", partial_json=partial_json),
+    )
+
+
+def _block_stop(index: int) -> RawContentBlockStopEvent:
+    return RawContentBlockStopEvent(type="content_block_stop", index=index)
+
+
+class TestStreamingStopReasonCorrection:
+    """Streaming path must rewrite stop_reason='tool_use' → 'end_turn' when all tool_use blocked.
+
+    Mirrors the non-streaming path's existing behavior (line 215-217) and the
+    same fix applied to ToolCallJudgePolicy in this PR.
+    """
+
+    @pytest.mark.asyncio
+    async def test_stop_reason_corrected_after_dangerous_tool_blocked(self):
+        """Single dangerous tool_use blocked → message_delta('tool_use') rewritten to 'end_turn'."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0)), ctx)
+        await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, _tool_delta(0, '{"command":"docker compose down"}')), ctx
+        )
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
+
+        msg_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
+
+        delta_events = [e for e in msg_events if isinstance(e, RawMessageDeltaEvent)]
+        assert len(delta_events) == 1
+        assert delta_events[0].delta.stop_reason == "end_turn"
+
+    @pytest.mark.asyncio
+    async def test_stop_reason_kept_when_tool_safe(self):
+        """Safe tool_use passed through → stop_reason stays 'tool_use'."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0)), ctx)
+        await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, _tool_delta(0, '{"command":"echo hello"}')), ctx
+        )
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
+
+        msg_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
+
+        delta_events = [e for e in msg_events if isinstance(e, RawMessageDeltaEvent)]
+        assert len(delta_events) == 1
+        assert delta_events[0].delta.stop_reason == "tool_use"
+
+    @pytest.mark.asyncio
+    async def test_stop_reason_kept_with_mixed_tools(self):
+        """Mixed safe + dangerous → stop_reason stays 'tool_use' (safe tool survives)."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        # Index 0: safe
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0, tool_id="toolu_safe")), ctx)
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_delta(0, '{"command":"echo hi"}')), ctx)
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
+
+        # Index 1: dangerous
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(1, tool_id="toolu_bad")), ctx)
+        await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, _tool_delta(1, '{"command":"docker compose down"}')), ctx
+        )
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(1)), ctx)
+
+        msg_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
+
+        delta_events = [e for e in msg_events if isinstance(e, RawMessageDeltaEvent)]
+        assert len(delta_events) == 1
+        assert delta_events[0].delta.stop_reason == "tool_use"
+
+    @pytest.mark.asyncio
+    async def test_stop_reason_unchanged_when_no_blocks_observed(self):
+        """No tool_use seen → message_delta passes through unchanged."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        original = message_delta("tool_use")
+        msg_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, original), ctx)
+
+        assert msg_events == [original]
 
 
 # ============================================================================

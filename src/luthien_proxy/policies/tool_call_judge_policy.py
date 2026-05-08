@@ -35,6 +35,7 @@ from anthropic.types import (
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
+    RawMessageDeltaEvent,
     TextBlock,
     TextDelta,
     ToolUseBlock,
@@ -86,6 +87,7 @@ class _BufferedAnthropicToolUse:
 class _ToolCallJudgeAnthropicState:
     buffered_tool_uses: dict[int, _BufferedAnthropicToolUse] = field(default_factory=dict)
     blocked_blocks: set[int] = field(default_factory=set)
+    had_allowed_tool_use: bool = False
 
 
 class ToolCallJudgeConfig(BaseModel):
@@ -277,6 +279,9 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         elif isinstance(event, RawContentBlockStopEvent):
             return await self._handle_anthropic_content_block_stop(event, context)
 
+        elif isinstance(event, RawMessageDeltaEvent):
+            return self._handle_anthropic_message_delta(event, context)
+
         return [event]
 
     # ========================================================================
@@ -354,7 +359,9 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
                 cast(MessageStreamEvent, event),
             ]
 
-        # Tool call allowed - reconstruct the full event sequence from buffered data
+        # Tool call allowed - reconstruct the full event sequence from buffered data.
+        # Flip the gate that tells _handle_anthropic_message_delta to keep stop_reason="tool_use".
+        self._anthropic_state(context).had_allowed_tool_use = True
         logger.debug(f"Tool call '{tool_call['name']}' allowed, re-emitting buffered events")
         tool_use_block = ToolUseBlock(type="tool_use", id=buffered.id, name=buffered.name, input={})
         start_event = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=tool_use_block)
@@ -365,6 +372,33 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
             cast(MessageStreamEvent, delta_event),
             cast(MessageStreamEvent, event),
         ]
+
+    def _handle_anthropic_message_delta(
+        self,
+        event: RawMessageDeltaEvent,
+        context: "PolicyContext",
+    ) -> list[MessageStreamEvent]:
+        """Rewrite stop_reason from 'tool_use' to 'end_turn' if every tool_use was blocked.
+
+        Without this, downstream consumers (e.g. Claude Code) read stop_reason='tool_use',
+        expect a tool_use content block to invoke, find only the substituted text block,
+        and abort with "The model's tool call could not be parsed". Mirrors the
+        stop_reason rewrite in `on_anthropic_response`.
+
+        Note: deliberately one-directional ("tool_use" → "end_turn"). Unlike
+        `simple_llm_policy._handle_message_delta`, this policy never *introduces*
+        tool_use blocks, so the reverse rewrite is unreachable.
+        """
+        state = self._anthropic_state(context)
+        if state.blocked_blocks and not state.had_allowed_tool_use and event.delta.stop_reason == "tool_use":
+            # model_construct skips re-validation; mirrors simple_llm_policy._handle_message_delta.
+            rewritten = RawMessageDeltaEvent.model_construct(
+                type="message_delta",
+                delta=event.delta.model_copy(update={"stop_reason": "end_turn"}),
+                usage=event.usage,
+            )
+            return [cast(MessageStreamEvent, rewritten)]
+        return [cast(MessageStreamEvent, event)]
 
     def _extract_tool_call_from_anthropic_block(self, block: "AnthropicToolUseBlock") -> ToolCallDict:
         """Extract tool call dict from a tool_use content block dict."""

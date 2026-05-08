@@ -30,6 +30,7 @@ from anthropic.types import (
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
+    RawMessageDeltaEvent,
     TextBlock,
     TextDelta,
     ToolUseBlock,
@@ -79,6 +80,8 @@ class _BufferedAnthropicToolUse:
 @dataclass
 class _DogfoodAnthropicState:
     buffered_tool_uses: dict[int, _BufferedAnthropicToolUse] = field(default_factory=dict)
+    blocked_blocks: set[int] = field(default_factory=set)
+    had_allowed_tool_use: bool = False
 
 
 class DogfoodSafetyConfig(BaseModel):
@@ -129,6 +132,14 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
     def _anthropic_state(self, context: "PolicyContext") -> _DogfoodAnthropicState:
         """Get or create request-scoped Anthropic streaming state."""
         return context.get_request_state(self, _DogfoodAnthropicState, _DogfoodAnthropicState)
+
+    def _anthropic_blocked_blocks(self, context: "PolicyContext") -> set[int]:
+        """Indices of tool_use blocks that were substituted with text in the streaming path.
+
+        Streaming-only: the non-streaming `on_anthropic_response` derives the same
+        information from the rewritten content list directly.
+        """
+        return self._anthropic_state(context).blocked_blocks
 
     def _anthropic_buffered_tool_uses(self, context: "PolicyContext") -> dict[int, _BufferedAnthropicToolUse]:
         """Get request-scoped Anthropic tool_use buffers."""
@@ -248,6 +259,7 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
             is_blocked, command = self._is_dangerous(buffered.name, buffered.input_json)
 
             if is_blocked:
+                self._anthropic_blocked_blocks(context).add(event.index)
                 msg = self._format_blocked_message(command)
                 context.record_event(
                     "policy.dogfood_safety.blocked",
@@ -272,6 +284,9 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
                     cast(MessageStreamEvent, event),
                 ]
 
+            # Allowed tool — flip the gate that tells _handle_anthropic_message_delta
+            # to keep stop_reason="tool_use".
+            self._anthropic_state(context).had_allowed_tool_use = True
             tool_use_block = ToolUseBlock(
                 type="tool_use",
                 id=buffered.id,
@@ -294,7 +309,33 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
                 cast(MessageStreamEvent, event),
             ]
 
+        if isinstance(event, RawMessageDeltaEvent):
+            return self._handle_anthropic_message_delta(event, context)
+
         return [event]
+
+    def _handle_anthropic_message_delta(
+        self,
+        event: RawMessageDeltaEvent,
+        context: "PolicyContext",
+    ) -> list[MessageStreamEvent]:
+        """Rewrite stop_reason from 'tool_use' to 'end_turn' if every tool_use was blocked.
+
+        Mirrors the stop_reason rewrite in `on_anthropic_response` and the same
+        fix in `tool_call_judge_policy._handle_anthropic_message_delta`. Without
+        this, downstream consumers see stop_reason='tool_use' but no surviving
+        tool_use block (replaced with text) and abort.
+        """
+        state = self._anthropic_state(context)
+        if state.blocked_blocks and not state.had_allowed_tool_use and event.delta.stop_reason == "tool_use":
+            # model_construct skips re-validation; mirrors simple_llm_policy._handle_message_delta.
+            rewritten = RawMessageDeltaEvent.model_construct(
+                type="message_delta",
+                delta=event.delta.model_copy(update={"stop_reason": "end_turn"}),
+                usage=event.usage,
+            )
+            return [cast(MessageStreamEvent, rewritten)]
+        return [cast(MessageStreamEvent, event)]
 
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
         """Clean up request-scoped Anthropic state."""
