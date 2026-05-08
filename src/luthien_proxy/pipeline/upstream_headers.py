@@ -30,11 +30,11 @@ Validation:
       time. Misconfiguration fails the gateway at startup, not at first
       request.
     * Header names must match the RFC 7230 token spec.
-    * Hop-by-hop / framing headers (``Connection``, ``Content-Length``,
-      ``Keep-Alive``, ``Proxy-Authenticate``, ``Proxy-Authorization``,
-      ``Proxy-Connection``, ``TE``, ``Trailer``, ``Trailers``,
-      ``Transfer-Encoding``, ``Upgrade``) are dropped with a warning —
-      overriding them breaks HTTP transport.
+    * Hop-by-hop / framing / transport-owned headers (``Connection``,
+      ``Content-Length``, ``Host``, ``Keep-Alive``, ``Proxy-Authenticate``,
+      ``Proxy-Authorization``, ``Proxy-Connection``, ``TE``, ``Trailer``,
+      ``Trailers``, ``Transfer-Encoding``, ``Upgrade``) are dropped with a
+      warning — overriding them breaks HTTP transport or vhost routing.
     * Unknown template variables (``${foo}`` that isn't ``session_id``,
       ``request_path``, or ``env.X``) are logged at load time, not on every
       request.
@@ -83,6 +83,7 @@ _HOP_BY_HOP_HEADERS = frozenset(
     {
         "connection",
         "content-length",
+        "host",
         "keep-alive",
         "proxy-authenticate",
         "proxy-authorization",
@@ -248,18 +249,12 @@ def merge_forwarded_headers(
     config and ``anthropic-beta`` from the SDK would ship as two distinct
     dict entries and produce duplicate header lines on the wire.
 
-    Returns ``None`` if both inputs are empty.
-
-    .. note::
-       When one input is empty, the *other input is returned by reference*
-       (no copy) to avoid an allocation on the request hot path. Callers
-       must treat the return value as read-only — mutating it would
-       silently mutate the original ``base`` or ``upstream`` dict.
+    Always returns a fresh dict (or ``None``); callers may mutate freely.
     """
     if not upstream:
-        return base or None
+        return dict(base) if base else None
     if not base:
-        return upstream
+        return dict(upstream)
     base_keys_lower = {k.lower() for k in base}
     upstream = {k: v for k, v in upstream.items() if k.lower() not in base_keys_lower}
     return {**upstream, **base}

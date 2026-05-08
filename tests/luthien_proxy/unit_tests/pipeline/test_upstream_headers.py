@@ -90,6 +90,7 @@ class TestLoadHeaderTemplates:
                     "Transfer-Encoding": "chunked",
                     "Content-Length": "0",
                     "Keep-Alive": "timeout=5",
+                    "Host": "evil.example.com",
                     "Proxy-Authenticate": "Basic",
                     "Proxy-Authorization": "Basic abc",
                     "Proxy-Connection": "close",
@@ -108,6 +109,7 @@ class TestLoadHeaderTemplates:
         assert "Transfer-Encoding" in caplog.text
         assert "Upgrade" in caplog.text
         assert "Proxy-Authorization" in caplog.text
+        assert "Host" in caplog.text
 
     def test_reserved_check_is_case_insensitive(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"CONTENT-LENGTH": "0", "X-Custom": "kept"}))
@@ -313,22 +315,29 @@ class TestExpandUpstreamHeaders:
 class TestMergeForwardedHeaders:
     """Tests for the merge logic used at the integration site in anthropic_processor."""
 
-    def test_returns_base_when_upstream_is_none(self):
+    def test_returns_fresh_copy_of_base_when_upstream_is_none(self):
         base = {"anthropic-beta": "x"}
-        assert merge_forwarded_headers(base=base, upstream=None) is base
+        result = merge_forwarded_headers(base=base, upstream=None)
+        assert result == base
+        assert result is not base  # Fresh copy — caller may mutate freely.
 
-    def test_returns_base_when_upstream_is_empty(self):
+    def test_returns_fresh_copy_of_base_when_upstream_is_empty(self):
         base = {"anthropic-beta": "x"}
-        assert merge_forwarded_headers(base=base, upstream={}) is base
+        result = merge_forwarded_headers(base=base, upstream={})
+        assert result == base
+        assert result is not base
 
-    def test_returns_upstream_when_base_is_none(self):
+    def test_returns_fresh_copy_of_upstream_when_base_is_none(self):
         upstream = {"Helicone-Auth": "Bearer x"}
-        # Aliased by reference per merge_forwarded_headers' contract.
-        assert merge_forwarded_headers(base=None, upstream=upstream) is upstream
+        result = merge_forwarded_headers(base=None, upstream=upstream)
+        assert result == upstream
+        assert result is not upstream
 
-    def test_returns_upstream_when_base_is_empty(self):
+    def test_returns_fresh_copy_of_upstream_when_base_is_empty(self):
         upstream = {"Helicone-Auth": "Bearer x"}
-        assert merge_forwarded_headers(base={}, upstream=upstream) is upstream
+        result = merge_forwarded_headers(base={}, upstream=upstream)
+        assert result == upstream
+        assert result is not upstream
 
     def test_returns_none_when_both_empty(self):
         assert merge_forwarded_headers(base=None, upstream=None) is None
