@@ -221,7 +221,7 @@ async def anthropic_messages(
 async def proxy_passthrough(
     request: Request,
     path: str,
-    _rate_limit: None = Depends(check_rate_limit),
+    _rate_limit: None = Depends(check_rate_limit),  # auth enforced transitively via check_rate_limit → verify_token
 ):
     """Transparent proxy for /v1/* endpoints not explicitly handled.
 

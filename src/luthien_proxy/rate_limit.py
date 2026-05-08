@@ -107,8 +107,9 @@ class TokenBucketRateLimiter:
             tokens, last_time = state[0], state[1]
             elapsed = now - last_time
             tokens = min(self.burst, tokens + elapsed * (self.rpm / 60.0))
-            state[1] = now  # advance timestamp on both allow and deny paths so
-            # Retry-After is computed from the deny moment, not the last success
+            # Advance timestamp on both allow and deny paths so Retry-After is
+            # computed from the deny moment, not the last successful request.
+            state[1] = now
 
             if tokens < 1.0:
                 tokens_needed = 1.0 - tokens
