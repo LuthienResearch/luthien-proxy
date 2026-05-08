@@ -456,6 +456,47 @@ BASE_REQUEST: dict = {
 }
 
 
+async def _wait_for_session(
+    client: httpx.AsyncClient,
+    *,
+    gateway_url: str,
+    admin_api_key: str,
+    session_id: str,
+    expected_turns: int = 1,
+    timeout: float = 5.0,
+    poll_interval: float = 0.05,
+) -> dict:
+    """Poll ``GET /api/history/sessions/{session_id}`` until persisted with N turns.
+
+    Replaces fixed ``await asyncio.sleep(...)`` calls in mock_e2e tests.
+    Persistence happens asynchronously after the gateway returns the response,
+    so a fixed sleep either over-waits (slow tests) or under-waits (flake).
+    Polling waits exactly as long as needed.
+
+    Raises TimeoutError with the last observed status + turn count to make
+    flakes diagnosable. Returns the JSON body (a ``SessionDetail`` dict).
+    """
+    gw = gateway_url.rstrip("/")
+    headers = {"Authorization": f"Bearer {admin_api_key}"}
+    deadline = time.monotonic() + timeout
+    last_status: int | None = None
+    last_turn_count = 0
+    while True:
+        resp = await client.get(f"{gw}/api/history/sessions/{session_id}", headers=headers)
+        last_status = resp.status_code
+        if resp.status_code == 200:
+            data = resp.json()
+            last_turn_count = len(data.get("turns", []))
+            if last_turn_count >= expected_turns:
+                return data
+        if time.monotonic() > deadline:
+            raise TimeoutError(
+                f"Session {session_id!r} did not reach {expected_turns} turn(s) within {timeout}s; "
+                f"last status={last_status}, last turn count={last_turn_count}"
+            )
+        await asyncio.sleep(poll_interval)
+
+
 async def collect_sse_text(response: "httpx.Response") -> str:
     """Collect all text_delta values from an SSE streaming response into a single string.
 
