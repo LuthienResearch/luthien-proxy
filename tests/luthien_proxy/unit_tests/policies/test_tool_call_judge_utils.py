@@ -265,6 +265,7 @@ class TestBuildBlockedTextEvents:
         assert isinstance(events[0].content_block, TextBlock)
         assert events[0].index == 3
         assert isinstance(events[1], RawContentBlockDeltaEvent)
+        assert events[1].index == 3
         assert isinstance(events[1].delta, TextDelta)
         assert events[1].delta.text == "BLOCKED: dangerous"
         assert events[2].type == "content_block_stop"
