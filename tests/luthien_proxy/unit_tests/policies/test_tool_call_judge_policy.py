@@ -14,21 +14,18 @@ import pytest
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
     InputJSONDelta,
-    Message,
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
     RawMessageDeltaEvent,
-    RawMessageStartEvent,
-    RawMessageStopEvent,
     TextBlock,
     TextDelta,
     ToolUseBlock,
-    Usage,
 )
 from tests.luthien_proxy.fixtures.anthropic_stream_validator import validate_anthropic_event_ordering
 from tests.luthien_proxy.unit_tests.policies.anthropic_event_builders import (
     block_stop,
     event_types,
+    full_stream,
     message_delta,
     text_delta,
     text_start,
@@ -58,25 +55,6 @@ def _make_policy(**overrides) -> ToolCallJudgePolicy:
 def _make_context() -> PolicyContext:
     """Create a fresh PolicyContext for testing."""
     return PolicyContext.for_testing(transaction_id="test-txn")
-
-
-def _full_stream(events: list) -> list:
-    """Wrap events in message_start + ... + message_stop for the stream validator."""
-    message_start = RawMessageStartEvent(
-        type="message_start",
-        message=Message.model_construct(
-            type="message",
-            id="test",
-            role="assistant",
-            content=[],
-            model="claude-haiku",
-            stop_reason=None,
-            stop_sequence=None,
-            usage=Usage(input_tokens=1, output_tokens=1),
-        ),
-    )
-    message_stop = RawMessageStopEvent(type="message_stop")
-    return [message_start, *events, message_stop]
 
 
 # ============================================================================
@@ -697,7 +675,7 @@ class TestStreamingStopReasonCorrection:
         )
 
         all_events = tool_events + msg_events
-        validate_anthropic_event_ordering(_full_stream(all_events)).assert_valid()
+        validate_anthropic_event_ordering(full_stream(all_events)).assert_valid()
 
     @pytest.mark.asyncio
     async def test_streaming_mixed_tools_partial_block_keeps_tool_use_stop_reason(self):
@@ -731,4 +709,4 @@ class TestStreamingStopReasonCorrection:
         )
 
         all_events = tool1_events + msg_events
-        validate_anthropic_event_ordering(_full_stream(all_events)).assert_valid()
+        validate_anthropic_event_ordering(full_stream(all_events)).assert_valid()

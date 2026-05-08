@@ -13,21 +13,18 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
-    Message,
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
     RawMessageDeltaEvent,
-    RawMessageStartEvent,
-    RawMessageStopEvent,
     TextBlock,
     TextDelta,
     ToolUseBlock,
-    Usage,
 )
 from tests.luthien_proxy.fixtures.anthropic_stream_validator import validate_anthropic_event_ordering
 from tests.luthien_proxy.unit_tests.policies.anthropic_event_builders import (
     block_stop,
     event_types,
+    full_stream,
     message_delta,
     text_delta,
     text_start,
@@ -63,25 +60,6 @@ def _make_policy(on_error: str = "block") -> SimpleLLMPolicy:
 
 def _make_context() -> PolicyContext:
     return PolicyContext.for_testing(transaction_id="test-txn")
-
-
-def _full_stream(events: list) -> list:
-    """Wrap events in message_start + ... + message_stop for the stream validator."""
-    message_start = RawMessageStartEvent(
-        type="message_start",
-        message=Message.model_construct(
-            type="message",
-            id="test",
-            role="assistant",
-            content=[],
-            model="claude-haiku",
-            stop_reason=None,
-            stop_sequence=None,
-            usage=Usage(input_tokens=1, output_tokens=1),
-        ),
-    )
-    message_stop = RawMessageStopEvent(type="message_stop")
-    return [message_start, *events, message_stop]
 
 
 # ============================================================================
@@ -629,7 +607,46 @@ class TestMultiBlockReplacementIndices:
             f"Replacement block indices must be monotonically increasing, got {start_indices}"
         )
 
-        validate_anthropic_event_ordering(_full_stream(all_events)).assert_valid()
+        validate_anthropic_event_ordering(full_stream(all_events)).assert_valid()
+
+    @pytest.mark.asyncio
+    async def test_replacement_then_passthrough_no_index_collision(self):
+        """Replacing one block with 2 then passing the next upstream block must not collide.
+
+        tool@0 → replace([A, B]) emits at [0, 1]; tool@1 → pass must emit at 2 (not 1).
+        """
+        policy = _make_policy()
+        ctx = _make_context()
+
+        replace_action = JudgeAction(
+            action="replace",
+            blocks=(ReplacementBlock(type="text", text="A"), ReplacementBlock(type="text", text="B")),
+        )
+        pass_action = JudgeAction(action="pass")
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = [replace_action, pass_action]
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"cmd":"ls"}', 0)), ctx)
+            replace_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"cmd":"echo"}', 1)), ctx)
+            pass_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        all_events = replace_events + pass_events + msg_events
+        start_indices = [e.index for e in all_events if isinstance(e, RawContentBlockStartEvent)]
+
+        assert len(start_indices) == 3, f"Expected A, B, tool — got {start_indices}"
+        assert start_indices == sorted(set(start_indices)), (
+            f"Indices must be strictly increasing with no duplicates, got {start_indices}"
+        )
+        validate_anthropic_event_ordering(full_stream(all_events)).assert_valid()
 
 
 # ============================================================================
@@ -669,7 +686,7 @@ class TestEmptyPreambleBlockedTool:
         assert delta_ev.delta.stop_reason == "end_turn"
 
         all_events = tool_events + msg_events
-        validate_anthropic_event_ordering(_full_stream(all_events)).assert_valid()
+        validate_anthropic_event_ordering(full_stream(all_events)).assert_valid()
 
 
 # ============================================================================
@@ -704,7 +721,7 @@ class TestWarningIndexNoCollision:
         delta_ev = next(e for e in msg_events if isinstance(e, RawMessageDeltaEvent))
         assert delta_ev.delta.stop_reason == "tool_use"
 
-        validate_anthropic_event_ordering(_full_stream(all_events)).assert_valid()
+        validate_anthropic_event_ordering(full_stream(all_events)).assert_valid()
 
 
 # ============================================================================
@@ -742,4 +759,4 @@ class TestBlockModeJudgeFailureTool:
         assert delta_ev.delta.stop_reason == "end_turn"
 
         all_events = tool_events + msg_events
-        validate_anthropic_event_ordering(_full_stream(all_events)).assert_valid()
+        validate_anthropic_event_ordering(full_stream(all_events)).assert_valid()

@@ -96,6 +96,7 @@ class _SimpleLLMAnthropicState:
     original_had_tool_use: bool = False
     judge_error_occurred: bool = False
     max_emitted_index: int = -1
+    index_shift: int = 0  # cumulative offset from multi-block replacements (N blocks → shift += N-1)
 
 
 class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
@@ -386,16 +387,23 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             if action.judge_failed:
                 state.judge_error_occurred = True
 
+            emitted_index = index + state.index_shift
             if action.action == "pass":
                 state.emitted_blocks.append(descriptor)
-                state.max_emitted_index = max(state.max_emitted_index, index)
+                state.max_emitted_index = max(state.max_emitted_index, emitted_index)
                 events: list[MessageStreamEvent] = []
                 if pending_start is not None:
-                    events.append(pending_start)
-                events.extend(self._emit_anthropic_text_events(index, text, event))
+                    orig_start = cast(RawContentBlockStartEvent, pending_start)
+                    shifted_start = RawContentBlockStartEvent(
+                        type="content_block_start",
+                        index=emitted_index,
+                        content_block=orig_start.content_block,
+                    )
+                    events.append(cast(MessageStreamEvent, shifted_start))
+                events.extend(self._emit_anthropic_text_events(emitted_index, text))
                 return events
             elif action.action == "replace":
-                return self._emit_anthropic_replacement_events(index, action, state, event)
+                return self._emit_anthropic_replacement_events(emitted_index, action, state)
             # Judge blocked the text block — suppress entirely (pending_start was
             # never emitted, so there's nothing to close).
             return []
@@ -415,12 +423,13 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             if action.judge_failed:
                 state.judge_error_occurred = True
 
+            emitted_index = index + state.index_shift
             if action.action == "pass":
                 state.emitted_blocks.append(descriptor)
-                state.max_emitted_index = max(state.max_emitted_index, index)
-                return self._emit_anthropic_tool_events(index, buffered, event)
+                state.max_emitted_index = max(state.max_emitted_index, emitted_index)
+                return self._emit_anthropic_tool_events(emitted_index, buffered)
             elif action.action == "replace":
-                return self._emit_anthropic_replacement_events(index, action, state, event)
+                return self._emit_anthropic_replacement_events(emitted_index, action, state)
             # Tool start was suppressed — emit a text block so the client
             # knows the tool call was blocked and can continue the conversation.
             if action.judge_failed:
@@ -428,8 +437,8 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             else:
                 blocked_text = _blocked_tool_message(buffered.name)
             state.emitted_blocks.append(self._block_descriptor_from_text(blocked_text))
-            state.max_emitted_index = max(state.max_emitted_index, index)
-            return self._make_anthropic_text_block_events(index, blocked_text)
+            state.max_emitted_index = max(state.max_emitted_index, emitted_index)
+            return self._make_anthropic_text_block_events(emitted_index, blocked_text)
 
         return [cast(MessageStreamEvent, event)]
 
@@ -465,30 +474,22 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         events.append(cast(MessageStreamEvent, event))
         return events
 
-    def _emit_anthropic_text_events(
-        self,
-        index: int,
-        text: str,
-        stop_event: RawContentBlockStopEvent,
-    ) -> list[MessageStreamEvent]:
-        """Emit buffered text as a single delta + stop."""
+    def _emit_anthropic_text_events(self, index: int, text: str) -> list[MessageStreamEvent]:
+        """Emit buffered text as a single delta + stop at the given index."""
         text_delta = TextDelta.model_construct(type="text_delta", text=text)
         delta_event = RawContentBlockDeltaEvent.model_construct(
             type="content_block_delta", index=index, delta=text_delta
         )
+        stop_event = RawContentBlockStopEvent(type="content_block_stop", index=index)
         return [cast(MessageStreamEvent, delta_event), cast(MessageStreamEvent, stop_event)]
 
-    def _emit_anthropic_tool_events(
-        self,
-        index: int,
-        buffered: _BufferedToolUse,
-        stop_event: RawContentBlockStopEvent,
-    ) -> list[MessageStreamEvent]:
-        """Reconstruct tool_use block events: start + json delta + stop."""
+    def _emit_anthropic_tool_events(self, index: int, buffered: _BufferedToolUse) -> list[MessageStreamEvent]:
+        """Reconstruct tool_use block events: start + json delta + stop at the given index."""
         tool_block = ToolUseBlock(type="tool_use", id=buffered.id, name=buffered.name, input={})
         start_event = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=tool_block)
         json_delta = InputJSONDelta(type="input_json_delta", partial_json=buffered.input_json or "{}")
         delta_event = RawContentBlockDeltaEvent(type="content_block_delta", index=index, delta=json_delta)
+        stop_event = RawContentBlockStopEvent(type="content_block_stop", index=index)
         return [
             cast(MessageStreamEvent, start_event),
             cast(MessageStreamEvent, delta_event),
@@ -514,17 +515,14 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
 
     def _emit_anthropic_replacement_events(
         self,
-        index: int,
+        emitted_index: int,
         action: JudgeAction,
         state: _SimpleLLMAnthropicState,
-        stop_event: RawContentBlockStopEvent,
     ) -> list[MessageStreamEvent]:
-        """Emit replacement block events with monotonically increasing indices."""
         events: list[MessageStreamEvent] = []
-        current_index = index
+        current_index = emitted_index
 
         for rblock in action.blocks or ():
-            state.emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
             block_stop = RawContentBlockStopEvent(type="content_block_stop", index=current_index)
 
             if rblock.type == "text":
@@ -561,8 +559,20 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                     ]
                 )
 
+            else:
+                logger.warning(
+                    "SimpleLLMPolicy: unknown replacement block type %r — skipping, index not consumed",
+                    rblock.type,
+                )
+                continue
+
+            state.emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
             state.max_emitted_index = max(state.max_emitted_index, current_index)
             current_index += 1
+
+        num_emitted = current_index - emitted_index
+        if num_emitted > 1:
+            state.index_shift += num_emitted - 1
 
         return events
 

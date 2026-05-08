@@ -378,12 +378,10 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         context: "PolicyContext",
     ) -> list[MessageStreamEvent]:
         state = self._anthropic_state(context)
-        has_emitted_tool = bool(state.emitted_tool_indices)
-        expected_stop = "tool_use" if has_emitted_tool else "end_turn"
-        if event.delta.stop_reason == "tool_use" and not has_emitted_tool:
+        if event.delta.stop_reason == "tool_use" and not state.emitted_tool_indices:
             event = RawMessageDeltaEvent.model_construct(
                 type="message_delta",
-                delta=event.delta.model_copy(update={"stop_reason": expected_stop}),
+                delta=event.delta.model_copy(update={"stop_reason": "end_turn"}),
                 usage=event.usage,
             )
         return [cast(MessageStreamEvent, event)]

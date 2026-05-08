@@ -357,7 +357,7 @@ Three invariants the Anthropic API enforces on streaming responses:
 3. **No empty text blocks**: Emitting a `content_block_start` for a text block with no subsequent delta is technically valid but can confuse clients.
 
 **Which functions own each invariant**:
-- Invariant 1: `SimpleLLMPolicy._emit_anthropic_replacement_events` (tracks `current_index`), `SimpleLLMPolicy._handle_block_stop` (tracks `state.max_emitted_index`), `SimpleLLMPolicy._handle_message_delta` (uses `state.max_emitted_index + 1` for warning index)
+- Invariant 1: `SimpleLLMPolicy._emit_anthropic_replacement_events` (tracks `current_index`, updates `state.index_shift` for multi-block replacements), `SimpleLLMPolicy._handle_block_stop` (tracks `state.max_emitted_index`, applies `state.index_shift`), `SimpleLLMPolicy._handle_message_delta` (uses `state.max_emitted_index + 1` for warning index). Also `ToolCallJudgePolicy._handle_anthropic_content_block_stop` (tracks `state.emitted_tool_indices` — blocked tools reuse the original index slot without shifting).
 - Invariant 2: `SimpleLLMPolicy._handle_message_delta` (checks `emitted_blocks` for tool_use type), `ToolCallJudgePolicy._handle_anthropic_message_delta` (checks `emitted_tool_indices`)
 - Invariant 3: No dedicated owner — avoid emitting empty text blocks
 

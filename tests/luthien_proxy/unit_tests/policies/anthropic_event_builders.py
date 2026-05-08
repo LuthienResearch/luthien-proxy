@@ -9,10 +9,13 @@ from __future__ import annotations
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
     InputJSONDelta,
+    Message,
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
     RawMessageDeltaEvent,
+    RawMessageStartEvent,
+    RawMessageStopEvent,
     TextBlock,
     TextDelta,
     ToolUseBlock,
@@ -69,3 +72,22 @@ def message_delta(stop_reason: str = "end_turn") -> RawMessageDeltaEvent:
 def event_types(events: list[MessageStreamEvent]) -> list[str]:
     """Extract event type strings for easy assertion."""
     return [getattr(e, "type", None) for e in events]
+
+
+def full_stream(events: list) -> list:
+    """Wrap events in message_start + ... + message_stop for the stream validator."""
+    message_start = RawMessageStartEvent(
+        type="message_start",
+        message=Message.model_construct(
+            type="message",
+            id="test",
+            role="assistant",
+            content=[],
+            model="claude-haiku",
+            stop_reason=None,
+            stop_sequence=None,
+            usage=Usage(input_tokens=1, output_tokens=1),
+        ),
+    )
+    message_stop = RawMessageStopEvent(type="message_stop")
+    return [message_start, *events, message_stop]
