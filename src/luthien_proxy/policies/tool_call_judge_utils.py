@@ -178,8 +178,9 @@ def handle_tool_use_block_delta(
     event: RawContentBlockDeltaEvent,
     buffer: dict[int, BufferedToolUse],
 ) -> list[MessageStreamEvent]:
-    """Accumulate InputJSONDelta for buffered tool_use blocks; pass through if index is not
-    buffered or delta is not an InputJSONDelta.
+    """Accumulate InputJSONDelta for buffered tool_use blocks.
+
+    Pass through if index is not buffered or delta is not an InputJSONDelta.
     """
     if event.index in buffer and isinstance(event.delta, InputJSONDelta):
         buffer[event.index].input_json += event.delta.partial_json
