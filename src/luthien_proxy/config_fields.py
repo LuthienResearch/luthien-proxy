@@ -267,7 +267,9 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
     ),
     ConfigFieldMeta(
         "retention_s3_encryption", "RETENTION_S3_ENCRYPTION", str, "AES256",
-        "S3 server-side encryption algorithm: AES256 or aws:kms",
+        "S3 server-side encryption: AES256, aws:kms, or 'bucket-default' to omit "
+        "the SSE header and let bucket policy apply (use this if your bucket "
+        "policy mandates a specific encryption mode that conflicts with AES256)",
         category="retention",
     ),
     ConfigFieldMeta(
