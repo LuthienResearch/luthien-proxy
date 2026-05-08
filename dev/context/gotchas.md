@@ -346,4 +346,21 @@ Policies using session-level state trackers (like `ConversationLinkPolicy`'s onc
 
 ---
 
+## 2026-05-08 — Anthropic streaming invariants (issue #708)
+
+Three invariants the Anthropic API enforces on streaming responses:
+
+1. **Monotonic block indices**: `content_block_start.index` must be strictly increasing across the stream. Emitting two starts at the same index causes a 400 on the next turn.
+
+2. **stop_reason must match content**: If `message_delta.stop_reason == "tool_use"`, at least one `tool_use` content block must have been emitted. If all tools are blocked/replaced by text, `stop_reason` must be corrected to `"end_turn"` before the event is forwarded.
+
+3. **No empty text blocks**: Emitting a `content_block_start` for a text block with no subsequent delta is technically valid but can confuse clients.
+
+**Which functions own each invariant**:
+- Invariant 1: `SimpleLLMPolicy._emit_anthropic_replacement_events` (tracks `current_index`), `SimpleLLMPolicy._handle_block_stop` (tracks `state.max_emitted_index`), `SimpleLLMPolicy._handle_message_delta` (uses `state.max_emitted_index + 1` for warning index)
+- Invariant 2: `SimpleLLMPolicy._handle_message_delta` (checks `emitted_blocks` for tool_use type), `ToolCallJudgePolicy._handle_anthropic_message_delta` (checks `emitted_tool_indices`)
+- Invariant 3: No dedicated owner — avoid emitting empty text blocks
+
+---
+
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)
