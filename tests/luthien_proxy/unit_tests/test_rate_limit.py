@@ -224,10 +224,27 @@ def test_zero_max_keys_raises():
 
 
 @pytest.mark.asyncio
+async def test_client_key_mode_shared_bucket():
+    from unittest.mock import patch
+
+    from fastapi import HTTPException
+
+    limiter = TokenBucketRateLimiter(rpm=60, burst=60)
+    shared_key = "shared-client-api-key"
+    with patch("luthien_proxy.rate_limit.time.monotonic", return_value=1000.0):
+        for _ in range(60):
+            await limiter.check(shared_key)
+        with pytest.raises(HTTPException) as exc_info:
+            await limiter.check(shared_key)
+    assert exc_info.value.status_code == 429
+    assert len(limiter._buckets) == 1
+
+
+@pytest.mark.asyncio
 async def test_refill_capped_at_burst():
     from unittest.mock import patch
 
-    limiter = TokenBucketRateLimiter(rpm=60, burst=5)
+    limiter = TokenBucketRateLimiter(rpm=5, burst=5)
     with patch("luthien_proxy.rate_limit.time.monotonic", return_value=1000.0):
         for _ in range(5):
             await limiter.check("key")
@@ -248,15 +265,17 @@ async def test_steady_state_rate():
 
     from fastapi import HTTPException
 
-    limiter = TokenBucketRateLimiter(rpm=60, burst=1)
+    limiter = TokenBucketRateLimiter(rpm=60, burst=60)
     t0 = 1000.0
     with patch("luthien_proxy.rate_limit.time.monotonic", return_value=t0):
-        await limiter.check("key")
+        for _ in range(60):
+            await limiter.check("key")
 
     for elapsed, expected_admitted in [(0.9, 0), (1.0, 1), (1.5, 1), (2.0, 1)]:
-        limiter2 = TokenBucketRateLimiter(rpm=60, burst=1)
+        limiter2 = TokenBucketRateLimiter(rpm=60, burst=60)
         with patch("luthien_proxy.rate_limit.time.monotonic", return_value=t0):
-            await limiter2.check("key")
+            for _ in range(60):
+                await limiter2.check("key")
         with patch("luthien_proxy.rate_limit.time.monotonic", return_value=t0 + elapsed):
             if expected_admitted:
                 await limiter2.check("key")
@@ -270,7 +289,7 @@ async def test_concurrent_different_keys():
     import asyncio as asyncio_mod
     from unittest.mock import patch
 
-    limiter = TokenBucketRateLimiter(rpm=60, burst=1)
+    limiter = TokenBucketRateLimiter(rpm=60, burst=60)
     with patch("luthien_proxy.rate_limit.time.monotonic", return_value=1000.0):
         await asyncio_mod.gather(
             limiter.check("key_a"),

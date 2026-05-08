@@ -56,8 +56,10 @@ class TokenBucketRateLimiter:
 
         Args:
             rpm: Requests per minute. 0 disables rate limiting. Must be >= 0.
-            burst: Absolute token bucket capacity (maximum tokens held at any time).
-                0 defaults to rpm. Must be >= rpm to allow sustained throughput.
+            burst: Maximum tokens the bucket can hold (controls burst capacity,
+                not sustained throughput). 0 defaults to rpm. Setting burst < rpm
+                limits how many requests can be made at once but does not reduce
+                the sustained rate (which is always rpm).
             max_keys: Maximum number of per-key buckets (LRU eviction when exceeded).
 
         Raises:
@@ -70,6 +72,7 @@ class TokenBucketRateLimiter:
         if max_keys < 1:
             raise ValueError(f"max_keys must be >= 1, got {max_keys}")
         self.rpm = rpm
+        # Stored as float to avoid repeated int→float casts in the hot path.
         self.burst: float = float(burst if burst > 0 else rpm)
         self.max_keys = max_keys
         # Per-key state: (asyncio.Lock, mutable_state)

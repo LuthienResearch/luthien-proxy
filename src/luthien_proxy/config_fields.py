@@ -106,7 +106,7 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
     ),
     ConfigFieldMeta(
         "rate_limit_burst", "RATE_LIMIT_BURST", int, 0,
-        "Per-key burst capacity (absolute token bucket cap). 0 defaults to RPM value. Must be >= 1 if set.",
+        "Maximum tokens the bucket can hold (controls burst capacity, not sustained throughput). 0 defaults to RPM value.",
         category="rate_limiting", restart_required=True,
     ),
 
