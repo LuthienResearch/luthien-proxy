@@ -18,6 +18,7 @@ from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
 )
 from luthien_proxy.policy_manager import PolicyManager
+from luthien_proxy.rate_limit import TokenBucketRateLimiter
 from luthien_proxy.usage_telemetry.collector import UsageCollector
 from luthien_proxy.utils import db
 
@@ -44,6 +45,7 @@ class Dependencies:
     enable_request_logging: bool = field(default=False)
     usage_collector: UsageCollector | None = field(default=None)
     config_registry: ConfigRegistry | None = field(default=None)
+    rate_limiter: TokenBucketRateLimiter | None = field(default=None)
     last_credential_info: dict[str, Any] = field(default_factory=dict)
 
     def get_anthropic_policy(self) -> AnthropicExecutionInterface:
@@ -199,6 +201,11 @@ def get_config_registry(request: Request) -> ConfigRegistry | None:
     return get_dependencies(request).config_registry
 
 
+def get_rate_limiter(request: Request) -> TokenBucketRateLimiter | None:
+    """Get rate limiter from dependencies."""
+    return get_dependencies(request).rate_limiter
+
+
 async def require_config_registry(
     config_registry: ConfigRegistry | None = Depends(get_config_registry),
 ) -> ConfigRegistry:
@@ -250,4 +257,5 @@ __all__ = [
     "get_usage_collector",
     "get_config_registry",
     "require_config_registry",
+    "get_rate_limiter",
 ]

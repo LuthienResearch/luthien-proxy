@@ -98,6 +98,18 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         category="auth", db_settable=True, restart_required=False,
     ),
 
+    # ── rate limiting ─────────────────────────────────────────────────────────
+    ConfigFieldMeta(
+        "rate_limit_rpm", "RATE_LIMIT_RPM", int, 0,
+        "Per-key request rate limit (requests per minute). 0 disables rate limiting. Keyed on the auth credential — in CLIENT_KEY mode all users share one bucket.",
+        category="rate_limiting", restart_required=True,
+    ),
+    ConfigFieldMeta(
+        "rate_limit_burst", "RATE_LIMIT_BURST", int, 0,
+        "Per-key burst capacity (absolute token bucket cap). 0 defaults to RPM value. Must be >= 1 if set.",
+        category="rate_limiting", restart_required=True,
+    ),
+
     # ── policy ────────────────────────────────────────────────────────────
     ConfigFieldMeta(
         "policy_source", "POLICY_SOURCE", str, "db-fallback-file",
@@ -264,6 +276,7 @@ CONFIG_FIELDS_BY_NAME: dict[str, ConfigFieldMeta] = {f.name: f for f in CONFIG_F
 CONFIG_CATEGORIES: tuple[str, ...] = (
     "server",
     "auth",
+    "rate_limiting",
     "policy",
     "database",
     "llm",
