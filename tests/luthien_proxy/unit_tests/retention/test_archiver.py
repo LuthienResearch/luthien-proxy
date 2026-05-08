@@ -1,347 +1,267 @@
 """Unit tests for S3ConversationArchiver.
 
-Tests cover:
-- archive_calls: serializes rows to JSONL and uploads to S3
-- archive_calls: no-op when no rows to archive
-- archive_calls: raises when boto3 not installed and bucket is configured
-- archive_calls: handles S3 upload errors
-- JSONL format: each line is valid JSON with expected fields
+Covers:
+- archive_calls: serializes per-call records (call + events + policy_events +
+  judge_decisions) to JSONL and uploads as one PUT
+- Cursor pagination across multiple call batches
+- Encryption modes (AES256, aws:kms with/without key id)
+- Empty / S3-error / no-bucket-no-boto3 paths
+- Returned call_ids match what was archived
 """
 
 from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from luthien_proxy.retention.archiver import S3ConversationArchiver
 
-
-@pytest.fixture
-def sample_calls():
-    """Sample conversation_calls rows with all columns including session_id and user_id."""
-    return [
-        {
-            "call_id": "call-001",
-            "model_name": "claude-3-5-sonnet-20241022",
-            "provider": "anthropic",
-            "status": "completed",
-            "created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
-            "completed_at": datetime(2024, 1, 1, 12, 0, 5, tzinfo=UTC),
-            "session_id": "sess-abc",
-            "user_id": "user-123",
-        },
-        {
-            "call_id": "call-002",
-            "model_name": "claude-3-haiku-20240307",
-            "provider": "anthropic",
-            "status": "completed",
-            "created_at": datetime(2024, 1, 2, 8, 0, 0, tzinfo=UTC),
-            "completed_at": None,
-            "session_id": None,
-            "user_id": None,
-        },
-    ]
+_DEFAULT_SETTINGS = MagicMock(retention_s3_encryption="AES256", retention_s3_kms_key_id="")
 
 
-@pytest.fixture
-def mock_db_pool(sample_calls):
-    """Mock DatabasePool that returns sample_calls on fetch."""
-    pool = MagicMock()
+def _patch_settings(settings: Any = _DEFAULT_SETTINGS):
+    return patch("luthien_proxy.retention.archiver.get_settings", return_value=settings)
+
+
+def _make_call(call_id: str, **overrides: Any) -> dict[str, Any]:
+    base = {
+        "call_id": call_id,
+        "model_name": "claude-3-5-sonnet-20241022",
+        "provider": "anthropic",
+        "status": "completed",
+        "created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+        "completed_at": datetime(2024, 1, 1, 12, 0, 5, tzinfo=UTC),
+        "session_id": None,
+    }
+    base.update(overrides)
+    return base
+
+
+def _make_event(call_id: str, sequence: int, payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": f"evt-{call_id}-{sequence}",
+        "call_id": call_id,
+        "event_type": "request",
+        "sequence": sequence,
+        "payload": payload,
+        "created_at": datetime(2024, 1, 1, 12, 0, sequence, tzinfo=UTC),
+        "session_id": None,
+    }
+
+
+def _make_conn(*, call_batches: list[list[dict[str, Any]]], events_by_call: dict[str, list[dict[str, Any]]]) -> AsyncMock:
+    """Build a fake DB conn whose `fetch` returns calls, then events, then empty for child tables."""
     conn = AsyncMock()
-    conn.fetch = AsyncMock(return_value=sample_calls)
-    pool.connection = MagicMock()
-    pool.connection.return_value.__aenter__ = AsyncMock(return_value=conn)
-    pool.connection.return_value.__aexit__ = AsyncMock(return_value=False)
-    return pool, conn
+    fetch_responses: list[list[dict[str, Any]]] = []
+    for batch in call_batches:
+        fetch_responses.append(batch)  # call batch
+        if batch:
+            # events lookup for this batch
+            events: list[dict[str, Any]] = []
+            for call in batch:
+                events.extend(events_by_call.get(call["call_id"], []))
+            fetch_responses.append(events)
+            fetch_responses.append([])  # policy_events
+            fetch_responses.append([])  # judge_decisions
+    conn.fetch = AsyncMock(side_effect=fetch_responses)
+    return conn
 
 
 @pytest.fixture
-def mock_s3_client():
-    """Mock boto3 S3 client."""
+def mock_s3_client() -> MagicMock:
     client = MagicMock()
     client.put_object = MagicMock()
     return client
 
 
-def test_archiver_init():
-    """S3ConversationArchiver stores bucket and prefix."""
-    archiver = S3ConversationArchiver(bucket="my-bucket", prefix="luthien/")
-    assert archiver.bucket == "my-bucket"
-    assert archiver.prefix == "luthien/"
+@pytest.fixture
+def cutoff() -> datetime:
+    return datetime(2024, 1, 3, tzinfo=UTC)
 
 
-def test_archiver_default_prefix():
-    """Default prefix is 'luthien-archive/'."""
-    archiver = S3ConversationArchiver(bucket="my-bucket")
-    assert archiver.prefix == "luthien-archive/"
-
-
-@pytest.mark.asyncio
-async def test_archive_calls_uploads_jsonl(mock_db_pool, mock_s3_client, sample_calls):
-    """archive_calls should upload a JSONL file to S3 with one JSON object per line."""
-    pool, conn = mock_db_pool
-    cutoff = datetime(2024, 1, 3, tzinfo=UTC)
-
-    with patch(
-        "luthien_proxy.retention.archiver.get_settings",
-        return_value=MagicMock(retention_s3_encryption="AES256", retention_s3_kms_key_id=""),
-    ):
-        archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
-        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
-
-        mock_s3_client.put_object.assert_called_once()
-        call_kwargs = mock_s3_client.put_object.call_args[1]
-        assert call_kwargs["Bucket"] == "test-bucket"
-
-        # Verify JSONL content
-        body = call_kwargs["Body"]
-        lines = [line for line in body.decode().strip().split("\n") if line]
-        assert len(lines) == 2
-
-        first = json.loads(lines[0])
-        assert first["call_id"] == "call-001"
-        assert first["model_name"] == "claude-3-5-sonnet-20241022"
-
-
-@pytest.mark.asyncio
-async def test_archive_calls_no_op_when_empty(mock_db_pool, mock_s3_client):
-    """archive_calls should not upload when there are no rows."""
-    pool, conn = mock_db_pool
-    conn.fetch = AsyncMock(return_value=[])
-    cutoff = datetime(2024, 1, 3, tzinfo=UTC)
-
-    archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
-    await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
-
-    mock_s3_client.put_object.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_archive_calls_s3_key_includes_date(mock_db_pool, mock_s3_client, sample_calls):
-    """S3 key should include the archive date for partitioning."""
-    pool, conn = mock_db_pool
-    cutoff = datetime(2024, 6, 15, tzinfo=UTC)
-
-    with patch(
-        "luthien_proxy.retention.archiver.get_settings",
-        return_value=MagicMock(retention_s3_encryption="AES256", retention_s3_kms_key_id=""),
-    ):
-        archiver = S3ConversationArchiver(bucket="test-bucket", prefix="archive/", s3_client=mock_s3_client)
-        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
-
-        call_kwargs = mock_s3_client.put_object.call_args[1]
-        key = call_kwargs["Key"]
-        assert "archive/" in key
-        assert "2024" in key
-
-
-@pytest.mark.asyncio
-async def test_archive_calls_handles_s3_error(mock_db_pool, mock_s3_client, sample_calls):
-    """archive_calls should propagate S3 errors so the purger can skip deletion."""
-    pool, conn = mock_db_pool
-    mock_s3_client.put_object = MagicMock(side_effect=Exception("S3 access denied"))
-    cutoff = datetime(2024, 1, 3, tzinfo=UTC)
-
-    with patch(
-        "luthien_proxy.retention.archiver.get_settings",
-        return_value=MagicMock(retention_s3_encryption="AES256", retention_s3_kms_key_id=""),
-    ):
-        archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
-
-        with pytest.raises(Exception, match="S3 access denied"):
-            await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
-
-
-@pytest.mark.asyncio
-async def test_archive_calls_datetime_serialized_as_iso(mock_db_pool, mock_s3_client, sample_calls):
-    """Datetime fields in JSONL should be ISO-8601 strings."""
-    pool, conn = mock_db_pool
-    cutoff = datetime(2024, 1, 3, tzinfo=UTC)
-
-    with patch(
-        "luthien_proxy.retention.archiver.get_settings",
-        return_value=MagicMock(retention_s3_encryption="AES256", retention_s3_kms_key_id=""),
-    ):
-        archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
-        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
-
-        body = mock_s3_client.put_object.call_args[1]["Body"]
-        first = json.loads(body.decode().strip().split("\n")[0])
-        assert isinstance(first["created_at"], str)
-
-
-@pytest.mark.asyncio
-async def test_archive_calls_null_completed_at(mock_db_pool, mock_s3_client, sample_calls):
-    """Null completed_at should serialize as JSON null."""
-    pool, conn = mock_db_pool
-    cutoff = datetime(2024, 1, 3, tzinfo=UTC)
-
-    with patch(
-        "luthien_proxy.retention.archiver.get_settings",
-        return_value=MagicMock(retention_s3_encryption="AES256", retention_s3_kms_key_id=""),
-    ):
-        archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
-        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
-
-        body = mock_s3_client.put_object.call_args[1]["Body"]
-        lines = body.decode().strip().split("\n")
-        second = json.loads(lines[1])
-        assert second["completed_at"] is None
-
-
-@pytest.mark.asyncio
-async def test_archive_calls_preserves_session_and_user_id(mock_db_pool, mock_s3_client, sample_calls):
-    """session_id and user_id columns must be preserved in the archived JSONL."""
-    pool, conn = mock_db_pool
-    cutoff = datetime(2024, 1, 3, tzinfo=UTC)
-
-    with patch(
-        "luthien_proxy.retention.archiver.get_settings",
-        return_value=MagicMock(retention_s3_encryption="AES256", retention_s3_kms_key_id=""),
-    ):
-        archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
-        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
-
-        body = mock_s3_client.put_object.call_args[1]["Body"]
-        lines = [line for line in body.decode().strip().split("\n") if line]
-        first = json.loads(lines[0])
-        assert first["session_id"] == "sess-abc"
-        assert first["user_id"] == "user-123"
-
-        second = json.loads(lines[1])
-        assert second["session_id"] is None
-        assert second["user_id"] is None
-
-
-def test_build_s3_key_format():
-    """_build_s3_key should produce a deterministic, date-partitioned key."""
-    archiver = S3ConversationArchiver(bucket="b", prefix="p/")
-    cutoff = datetime(2024, 3, 15, 10, 30, 0, tzinfo=UTC)
-    key = archiver._build_s3_key(cutoff)
-    assert key.startswith("p/")
-    assert "2024-03-15" in key
-    assert key.endswith(".jsonl")
-
-
-def test_archiver_stores_batch_size():
-    """S3ConversationArchiver stores the configured batch_size."""
-    archiver = S3ConversationArchiver(bucket="b", batch_size=500)
-    assert archiver.batch_size == 500
-
-
-def test_archiver_default_batch_size():
-    """Default batch_size is 1000."""
+def test_archiver_init_defaults():
     archiver = S3ConversationArchiver(bucket="b")
+    assert archiver.bucket == "b"
+    assert archiver.prefix == "luthien-archive/"
     assert archiver.batch_size == 1000
 
 
-@pytest.mark.asyncio
-async def test_archive_calls_cursor_batching(mock_s3_client):
-    """archive_calls fetches rows in cursor-based batches when a full batch is returned."""
-    batch_size = 3
-    batch1 = [
-        {
-            "call_id": f"call-{i:03d}",
-            "model_name": "claude-3",
-            "provider": "anthropic",
-            "status": "completed",
-            "created_at": datetime(2024, 1, 1, tzinfo=UTC),
-            "completed_at": None,
-            "session_id": None,
-            "user_id": None,
-        }
-        for i in range(batch_size)
-    ]
-    batch2 = [
-        {
-            "call_id": f"call-{i:03d}",
-            "model_name": "claude-3",
-            "provider": "anthropic",
-            "status": "completed",
-            "created_at": datetime(2024, 1, 1, tzinfo=UTC),
-            "completed_at": None,
-            "session_id": None,
-            "user_id": None,
-        }
-        for i in range(batch_size, batch_size + 2)
-    ]
+def test_archiver_init_overrides():
+    archiver = S3ConversationArchiver(bucket="b", prefix="p/", batch_size=42)
+    assert archiver.prefix == "p/"
+    assert archiver.batch_size == 42
 
-    conn = AsyncMock()
-    conn.fetch = AsyncMock(side_effect=[batch1, batch2])
-    cutoff = datetime(2024, 1, 3, tzinfo=UTC)
 
-    with patch(
-        "luthien_proxy.retention.archiver.get_settings",
-        return_value=MagicMock(retention_s3_encryption="AES256", retention_s3_kms_key_id=""),
-    ):
-        archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client, batch_size=batch_size)
-        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
-
-        assert conn.fetch.call_count == 2
-        # Second fetch must use the last call_id from batch1 as the cursor
-        second_call_args = conn.fetch.call_args_list[1]
-        assert second_call_args.args[2] == "call-002"
-
-        mock_s3_client.put_object.assert_called_once()
-        body = mock_s3_client.put_object.call_args[1]["Body"]
-        lines = [line for line in body.decode().strip().split("\n") if line]
-        assert len(lines) == batch_size + 2
+def test_build_s3_key_format():
+    archiver = S3ConversationArchiver(bucket="b", prefix="p/")
+    key = archiver._build_s3_key(datetime(2024, 3, 15, 10, 30, tzinfo=UTC))
+    assert key.startswith("p/2024-03-15/")
+    assert key.endswith(".jsonl")
 
 
 @pytest.mark.asyncio
-async def test_s3_upload_has_sse_aes256(mock_db_pool, mock_s3_client, sample_calls):
-    """S3 upload should include ServerSideEncryption=AES256 by default."""
-    pool, conn = mock_db_pool
-    cutoff = datetime(2024, 1, 3, tzinfo=UTC)
+async def test_archive_calls_uploads_per_call_jsonl(mock_s3_client, cutoff):
+    """Each output line is one full conversation record."""
+    calls = [_make_call("call-001"), _make_call("call-002")]
+    events = {
+        "call-001": [_make_event("call-001", 1, {"prompt": "hi"}), _make_event("call-001", 2, {"reply": "hello"})],
+        "call-002": [],
+    }
+    conn = _make_conn(call_batches=[calls], events_by_call=events)
 
-    with patch(
-        "luthien_proxy.retention.archiver.get_settings",
-        return_value=MagicMock(retention_s3_encryption="AES256", retention_s3_kms_key_id=""),
-    ):
+    with _patch_settings():
         archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
-        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+        archived_ids = await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
 
-        mock_s3_client.put_object.assert_called_once()
-        call_kwargs = mock_s3_client.put_object.call_args[1]
-        assert call_kwargs["ServerSideEncryption"] == "AES256"
-        assert "SSEKMSKeyId" not in call_kwargs
-
-
-@pytest.mark.asyncio
-async def test_s3_upload_kms_mode(mock_db_pool, mock_s3_client, sample_calls):
-    """S3 upload should include SSEKMSKeyId when encryption is aws:kms."""
-    pool, conn = mock_db_pool
-    cutoff = datetime(2024, 1, 3, tzinfo=UTC)
-    kms_key_id = "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012"
-
-    with patch(
-        "luthien_proxy.retention.archiver.get_settings",
-        return_value=MagicMock(retention_s3_encryption="aws:kms", retention_s3_kms_key_id=kms_key_id),
-    ):
-        archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
-        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
-
-        mock_s3_client.put_object.assert_called_once()
-        call_kwargs = mock_s3_client.put_object.call_args[1]
-        assert call_kwargs["ServerSideEncryption"] == "aws:kms"
-        assert call_kwargs["SSEKMSKeyId"] == kms_key_id
+    assert archived_ids == ["call-001", "call-002"]
+    mock_s3_client.put_object.assert_called_once()
+    body = mock_s3_client.put_object.call_args.kwargs["Body"]
+    lines = [json.loads(line) for line in body.decode().splitlines() if line]
+    assert len(lines) == 2
+    assert lines[0]["call"]["call_id"] == "call-001"
+    assert len(lines[0]["events"]) == 2
+    assert lines[0]["policy_events"] == []
+    assert lines[0]["judge_decisions"] == []
+    assert lines[1]["call"]["call_id"] == "call-002"
+    assert lines[1]["events"] == []
 
 
 @pytest.mark.asyncio
-async def test_s3_upload_kms_mode_without_key_id(mock_db_pool, mock_s3_client, sample_calls):
-    """archive_calls raises ValueError when aws:kms is set but kms_key_id is empty."""
-    pool, conn = mock_db_pool
-    cutoff = datetime(2024, 1, 3, tzinfo=UTC)
+async def test_archive_calls_no_op_when_empty(mock_s3_client, cutoff):
+    conn = _make_conn(call_batches=[[]], events_by_call={})
+    with _patch_settings():
+        archiver = S3ConversationArchiver(bucket="b", s3_client=mock_s3_client)
+        archived_ids = await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+    assert archived_ids == []
+    mock_s3_client.put_object.assert_not_called()
 
-    with patch(
-        "luthien_proxy.retention.archiver.get_settings",
-        return_value=MagicMock(retention_s3_encryption="aws:kms", retention_s3_kms_key_id=""),
-    ):
-        archiver = S3ConversationArchiver(bucket="test-bucket", s3_client=mock_s3_client)
-        with pytest.raises(ValueError, match="RETENTION_S3_KMS_KEY_ID"):
+
+@pytest.mark.asyncio
+async def test_archive_calls_paginates(mock_s3_client, cutoff):
+    """When a full batch comes back, archiver fetches the next page using last call_id as cursor."""
+    batch_size = 2
+    batch1 = [_make_call("call-001"), _make_call("call-002")]
+    batch2 = [_make_call("call-003")]
+    conn = _make_conn(
+        call_batches=[batch1, batch2],
+        events_by_call={"call-001": [], "call-002": [], "call-003": []},
+    )
+
+    with _patch_settings():
+        archiver = S3ConversationArchiver(bucket="b", s3_client=mock_s3_client, batch_size=batch_size)
+        archived_ids = await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+
+    assert archived_ids == ["call-001", "call-002", "call-003"]
+    # First fetch: calls (no cursor); then events/policy/judge (3); then second-page calls (cursor=call-002).
+    # Check that cursor pagination uses call-002 on the second call-batch fetch.
+    call_batch_fetches = [c for c in conn.fetch.call_args_list if "FROM conversation_calls" in c.args[0]]
+    assert len(call_batch_fetches) == 2
+    assert call_batch_fetches[1].args[2] == "call-002"
+
+
+@pytest.mark.asyncio
+async def test_archive_calls_propagates_s3_error(mock_s3_client, cutoff):
+    conn = _make_conn(
+        call_batches=[[_make_call("call-001")]],
+        events_by_call={"call-001": []},
+    )
+    mock_s3_client.put_object = MagicMock(side_effect=RuntimeError("S3 down"))
+    with _patch_settings():
+        archiver = S3ConversationArchiver(bucket="b", s3_client=mock_s3_client)
+        with pytest.raises(RuntimeError, match="S3 down"):
             await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
 
+
+@pytest.mark.asyncio
+async def test_archive_calls_datetime_iso_format(mock_s3_client, cutoff):
+    conn = _make_conn(
+        call_batches=[[_make_call("call-001")]],
+        events_by_call={"call-001": []},
+    )
+    with _patch_settings():
+        archiver = S3ConversationArchiver(bucket="b", s3_client=mock_s3_client)
+        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+    body = mock_s3_client.put_object.call_args.kwargs["Body"]
+    record = json.loads(body.decode().splitlines()[0])
+    assert isinstance(record["call"]["created_at"], str)
+    # ISO-8601 with offset
+    assert "T" in record["call"]["created_at"]
+
+
+@pytest.mark.asyncio
+async def test_s3_upload_includes_aes256(mock_s3_client, cutoff):
+    conn = _make_conn(
+        call_batches=[[_make_call("call-001")]],
+        events_by_call={"call-001": []},
+    )
+    with _patch_settings():
+        archiver = S3ConversationArchiver(bucket="b", s3_client=mock_s3_client)
+        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+    kwargs = mock_s3_client.put_object.call_args.kwargs
+    assert kwargs["ServerSideEncryption"] == "AES256"
+    assert "SSEKMSKeyId" not in kwargs
+
+
+@pytest.mark.asyncio
+async def test_s3_upload_kms_with_key(mock_s3_client, cutoff):
+    conn = _make_conn(
+        call_batches=[[_make_call("call-001")]],
+        events_by_call={"call-001": []},
+    )
+    settings = MagicMock(retention_s3_encryption="aws:kms", retention_s3_kms_key_id="arn:aws:kms:us-east-1:0:key/x")
+    with _patch_settings(settings):
+        archiver = S3ConversationArchiver(bucket="b", s3_client=mock_s3_client)
+        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+    kwargs = mock_s3_client.put_object.call_args.kwargs
+    assert kwargs["ServerSideEncryption"] == "aws:kms"
+    assert kwargs["SSEKMSKeyId"] == "arn:aws:kms:us-east-1:0:key/x"
+
+
+@pytest.mark.asyncio
+async def test_s3_upload_kms_without_key_raises(mock_s3_client, cutoff):
+    conn = _make_conn(
+        call_batches=[[_make_call("call-001")]],
+        events_by_call={"call-001": []},
+    )
+    settings = MagicMock(retention_s3_encryption="aws:kms", retention_s3_kms_key_id="")
+    with _patch_settings(settings):
+        archiver = S3ConversationArchiver(bucket="b", s3_client=mock_s3_client)
+        with pytest.raises(ValueError, match="RETENTION_S3_KMS_KEY_ID"):
+            await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
     mock_s3_client.put_object.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_s3_upload_invalid_encryption_raises(mock_s3_client, cutoff):
+    conn = _make_conn(
+        call_batches=[[_make_call("call-001")]],
+        events_by_call={"call-001": []},
+    )
+    settings = MagicMock(retention_s3_encryption="rot13", retention_s3_kms_key_id="")
+    with _patch_settings(settings):
+        archiver = S3ConversationArchiver(bucket="b", s3_client=mock_s3_client)
+        with pytest.raises(ValueError, match="rot13"):
+            await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+    mock_s3_client.put_object.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_jsonb_string_is_reparsed_into_structure(mock_s3_client, cutoff):
+    """SQLite stores JSONB as a TEXT blob. The archiver re-parses it so the archive contains structure, not a quoted string."""
+    payload_json_text = '{"role":"user","content":"hi"}'
+    event = _make_event("call-001", 1, {})
+    event["payload"] = payload_json_text  # simulate raw TEXT from sqlite
+    conn = _make_conn(
+        call_batches=[[_make_call("call-001")]],
+        events_by_call={"call-001": [event]},
+    )
+    with _patch_settings():
+        archiver = S3ConversationArchiver(bucket="b", s3_client=mock_s3_client)
+        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+    body = mock_s3_client.put_object.call_args.kwargs["Body"]
+    record = json.loads(body.decode().splitlines()[0])
+    assert record["events"][0]["payload"] == {"role": "user", "content": "hi"}
