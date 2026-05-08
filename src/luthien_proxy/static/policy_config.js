@@ -84,7 +84,6 @@ const state = {
     credentialSource: 'server',
     showHidden: false,
     expandedChainIndex: -1,
-    expandedAvailablePolicy: null,
     collapsedCategories: new Set(['fun_and_goofy', 'advanced']),
 };
 
@@ -256,13 +255,8 @@ function toggleShowHidden() {
 }
 
 // ============================================================
-// Policy interaction — expand details or add to chain
+// Policy interaction — add to chain
 // ============================================================
-function togglePolicyExpand(classRef) {
-    state.expandedAvailablePolicy = (state.expandedAvailablePolicy === classRef) ? null : classRef;
-    renderAvailable();
-}
-
 function addToChain(classRef, event) {
     if (event) event.stopPropagation();
     const p = getPolicy(classRef);

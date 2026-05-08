@@ -283,6 +283,20 @@ class TestDiscoverPolicies:
             assert "config_schema" in policy
             assert "example_config" in policy
 
+    def test_policy_has_ui_metadata_fields(self) -> None:
+        """Every discovered policy exposes the UIMetadata fields with correct types."""
+        policies = discover_policies()
+        assert policies, "expected at least one discovered policy"
+
+        for policy in policies:
+            assert isinstance(policy["category"], str)
+            assert isinstance(policy["display_name"], str)
+            assert isinstance(policy["short_description"], str)
+            assert isinstance(policy["ui_policy_preview"], str)
+            assert isinstance(policy["catalog_badges"], list)
+            for badge in policy["catalog_badges"]:
+                assert isinstance(badge, str)
+
     def test_class_ref_format(self) -> None:
         """Verify class_ref is in module:ClassName format."""
         policies = discover_policies()
