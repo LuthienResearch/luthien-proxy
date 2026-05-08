@@ -213,7 +213,15 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             )
             return result
         except Exception as exc:
-            logger.error(f"SimpleLLM judge failed: {exc}", exc_info=True)
+            logger.error(
+                f"SimpleLLM judge failed: {exc}",
+                exc_info=True,
+                extra={
+                    "transaction_id": context.transaction_id,
+                    "block_type": descriptor.type,
+                    "block_index": len(emitted_blocks),
+                },
+            )
             context.record_event(
                 "policy.simple_llm.judge_error",
                 {
