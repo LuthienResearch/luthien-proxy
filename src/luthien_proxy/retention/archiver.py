@@ -34,7 +34,7 @@ from luthien_proxy.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
-_VALID_ENCRYPTION_MODES: frozenset[str] = frozenset({"AES256", "aws:kms"})
+_VALID_ENCRYPTION_MODES: frozenset[str] = frozenset({"AES256", "aws:kms", "bucket-default"})
 
 # Explicit column lists keep the archive shape stable across schema changes.
 # `user_id` is intentionally absent — `conversation_calls` has no such column
@@ -154,14 +154,17 @@ class S3ConversationArchiver:
         self._s3_client = boto3.client("s3")
         return self._s3_client
 
-    def _build_s3_key(self, cutoff: datetime) -> str:
-        """Build a date-partitioned S3 key for the archive file.
+    def _build_s3_key(self, cutoff: datetime, run_id: str, batch_index: int) -> str:
+        """Build a date-partitioned S3 key for one batch of an archive run.
 
-        Format: {prefix}{YYYY-MM-DD}/{timestamp}-{uuid4}.jsonl
+        Format: {prefix}{YYYY-MM-DD}/{timestamp}-{run_id}-{batch:04d}.jsonl
+
+        run_id is shared across batches in one purge; batch_index increments
+        per batch. Together they make object listing / restore deterministic.
         """
         date_str = cutoff.strftime("%Y-%m-%d")
         ts_str = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        return f"{self.prefix}{date_str}/{ts_str}-{uuid.uuid4().hex[:8]}.jsonl"
+        return f"{self.prefix}{date_str}/{ts_str}-{run_id}-{batch_index:04d}.jsonl"
 
     async def _fetch_call_batch(
         self,
@@ -212,12 +215,74 @@ class S3ConversationArchiver:
             grouped[row["call_id"]].append(_row_to_dict(row, columns))
         return grouped
 
+    def _build_put_kwargs(self, key: str, body: bytes) -> dict[str, Any]:
+        """Build S3 put_object kwargs, validating encryption settings up-front.
+
+        Returns a dict ready to splat into ``s3.put_object``. Raises if the
+        configured encryption mode is unknown or aws:kms without a key id.
+        """
+        settings = get_settings()
+        mode = settings.retention_s3_encryption
+        if mode not in _VALID_ENCRYPTION_MODES:
+            raise ValueError(
+                f"RETENTION_S3_ENCRYPTION={mode!r} is not valid. "
+                f"Must be one of: {sorted(_VALID_ENCRYPTION_MODES)}"
+            )
+        kwargs: dict[str, Any] = {
+            "Bucket": self.bucket,
+            "Key": key,
+            "Body": body,
+            "ContentType": "application/x-ndjson",
+        }
+        if mode == "bucket-default":
+            return kwargs
+        kwargs["ServerSideEncryption"] = mode
+        if mode == "aws:kms":
+            if not settings.retention_s3_kms_key_id:
+                raise ValueError(
+                    "RETENTION_S3_ENCRYPTION=aws:kms requires RETENTION_S3_KMS_KEY_ID to be set. "
+                    "Leaving it unset silently falls back to the AWS-managed default key, "
+                    "which is weaker than an explicitly configured customer-managed KMS key."
+                )
+            kwargs["SSEKMSKeyId"] = settings.retention_s3_kms_key_id
+        return kwargs
+
+    async def _build_batch_records(
+        self, db_conn: Any, call_rows: list[Any]
+    ) -> list[str]:
+        """Build per-call JSONL lines for one batch of call rows."""
+        call_ids = [row["call_id"] for row in call_rows]
+        events = await self._fetch_children(db_conn, "conversation_events", _EVENT_COLUMNS, call_ids)
+        policy_events = await self._fetch_children(
+            db_conn, "policy_events", _POLICY_EVENT_COLUMNS, call_ids
+        )
+        judge_decisions = await self._fetch_children(
+            db_conn, "conversation_judge_decisions", _JUDGE_COLUMNS, call_ids
+        )
+        lines: list[str] = []
+        for row in call_rows:
+            cid = row["call_id"]
+            record = {
+                "call": _row_to_dict(row, _CALL_COLUMNS),
+                "events": events.get(cid, []),
+                "policy_events": policy_events.get(cid, []),
+                "judge_decisions": judge_decisions.get(cid, []),
+            }
+            lines.append(json.dumps(record))
+        return lines
+
     async def archive_calls(self, *, db_conn: Any, cutoff: datetime) -> list[str]:
         """Archive full conversation records older than cutoff.
 
         Each output JSONL line is a self-contained record:
 
             {"call": {...}, "events": [...], "policy_events": [...], "judge_decisions": [...]}
+
+        Each batch (`batch_size` calls + their descendants) is uploaded as its
+        own S3 object, so peak memory is bounded to one batch — not the entire
+        archive — and a partially-failing run still gets the earlier batches
+        durably stored. Object keys share a per-run uuid so all batches from
+        one purge cycle list together under the date prefix.
 
         Args:
             db_conn: An active DB connection (ConnectionProtocol). The caller
@@ -226,81 +291,76 @@ class S3ConversationArchiver:
             cutoff: Calls with `created_at < cutoff` will be archived.
 
         Returns:
-            The list of call_ids that were successfully archived. The caller
-            should delete only these (not the original cutoff filter), so
-            late-arriving rows that match the cutoff between archive and
-            delete are not silently dropped.
+            The list of call_ids that were successfully written to S3. May be
+            shorter than the number of calls eligible for purge if a later
+            batch failed; the caller should delete only the returned ids so
+            unarchived rows survive for the next run to retry.
 
         Raises:
-            Exception: If the S3 upload fails. The caller should catch this
-                and skip deletion to avoid data loss.
+            ValueError: If encryption settings are invalid (raised before any
+                upload attempt). Other S3 errors are caught per-batch; if no
+                batch succeeds the function returns an empty list rather than
+                raising, so the purger can defer deletion until next run.
         """
-        jsonl_lines: list[str] = []
+        # Validate encryption config before doing any work — no point fetching
+        # batches if the upload will reject every one of them.
+        self._build_put_kwargs(key="probe", body=b"")
+
+        s3 = self._get_s3_client()
+        run_id = uuid.uuid4().hex[:8]
         archived_ids: list[str] = []
         last_call_id: str | None = None
+        batch_index = 0
+        total_archived = 0
 
         while True:
             call_rows = await self._fetch_call_batch(db_conn, cutoff, last_call_id)
             if not call_rows:
                 break
 
-            call_ids = [row["call_id"] for row in call_rows]
-            events = await self._fetch_children(db_conn, "conversation_events", _EVENT_COLUMNS, call_ids)
-            policy_events = await self._fetch_children(
-                db_conn, "policy_events", _POLICY_EVENT_COLUMNS, call_ids
-            )
-            judge_decisions = await self._fetch_children(
-                db_conn, "conversation_judge_decisions", _JUDGE_COLUMNS, call_ids
-            )
+            lines = await self._build_batch_records(db_conn, call_rows)
+            body = "\n".join(lines).encode("utf-8")
+            key = self._build_s3_key(cutoff, run_id, batch_index)
+            put_kwargs = self._build_put_kwargs(key=key, body=body)
 
-            for row in call_rows:
-                cid = row["call_id"]
-                record = {
-                    "call": _row_to_dict(row, _CALL_COLUMNS),
-                    "events": events.get(cid, []),
-                    "policy_events": policy_events.get(cid, []),
-                    "judge_decisions": judge_decisions.get(cid, []),
-                }
-                jsonl_lines.append(json.dumps(record))
-                archived_ids.append(cid)
+            try:
+                await asyncio.to_thread(s3.put_object, **put_kwargs)
+            except Exception:
+                logger.exception(
+                    "S3 upload failed on batch %d (key=%s) — stopping archive run; "
+                    "%d earlier batches persisted",
+                    batch_index,
+                    key,
+                    batch_index,
+                )
+                # Stop the run. archived_ids holds only the call_ids whose
+                # batches were durably uploaded. Subsequent runs will pick up
+                # from where this one stopped (the cutoff predicate will still
+                # match the unarchived rows) and re-emit them under a new
+                # run_id, so no row is silently lost.
+                break
 
+            archived_ids.extend(row["call_id"] for row in call_rows)
+            total_archived += len(call_rows)
+            logger.info(
+                "Archived batch %d (%d records) to s3://%s/%s",
+                batch_index,
+                len(call_rows),
+                self.bucket,
+                key,
+            )
+            batch_index += 1
             last_call_id = call_rows[-1]["call_id"]
             if len(call_rows) < self.batch_size:
                 break
 
-        if not jsonl_lines:
+        if total_archived == 0:
             logger.debug("No conversation_calls to archive before %s", cutoff.isoformat())
-            return []
-
-        total = len(jsonl_lines)
-        logger.info("Archiving %d conversation records to s3://%s", total, self.bucket)
-
-        body = "\n".join(jsonl_lines).encode("utf-8")
-        key = self._build_s3_key(cutoff)
-
-        s3 = self._get_s3_client()
-        settings = get_settings()
-        if settings.retention_s3_encryption not in _VALID_ENCRYPTION_MODES:
-            raise ValueError(
-                f"RETENTION_S3_ENCRYPTION={settings.retention_s3_encryption!r} is not valid. "
-                f"Must be one of: {sorted(_VALID_ENCRYPTION_MODES)}"
+        else:
+            logger.info(
+                "Archive run %s complete: %d records across %d batch(es)",
+                run_id,
+                total_archived,
+                batch_index,
             )
-        put_kwargs = {
-            "Bucket": self.bucket,
-            "Key": key,
-            "Body": body,
-            "ContentType": "application/x-ndjson",
-            "ServerSideEncryption": settings.retention_s3_encryption,
-        }
-        if settings.retention_s3_encryption == "aws:kms":
-            if not settings.retention_s3_kms_key_id:
-                raise ValueError(
-                    "RETENTION_S3_ENCRYPTION=aws:kms requires RETENTION_S3_KMS_KEY_ID to be set. "
-                    "Leaving it unset silently falls back to the AWS-managed default key, "
-                    "which is weaker than an explicitly configured customer-managed KMS key."
-                )
-            put_kwargs["SSEKMSKeyId"] = settings.retention_s3_kms_key_id
-
-        await asyncio.to_thread(s3.put_object, **put_kwargs)
-        logger.info("Archived %d records to s3://%s/%s", total, self.bucket, key)
         return archived_ids

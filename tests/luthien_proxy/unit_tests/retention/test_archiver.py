@@ -98,9 +98,10 @@ def test_archiver_init_overrides():
 
 def test_build_s3_key_format():
     archiver = S3ConversationArchiver(bucket="b", prefix="p/")
-    key = archiver._build_s3_key(datetime(2024, 3, 15, 10, 30, tzinfo=UTC))
+    key = archiver._build_s3_key(datetime(2024, 3, 15, 10, 30, tzinfo=UTC), run_id="abc12345", batch_index=2)
     assert key.startswith("p/2024-03-15/")
-    assert key.endswith(".jsonl")
+    assert "abc12345" in key
+    assert key.endswith("-0002.jsonl")
 
 
 @pytest.mark.asyncio
@@ -141,8 +142,8 @@ async def test_archive_calls_no_op_when_empty(mock_s3_client, cutoff):
 
 
 @pytest.mark.asyncio
-async def test_archive_calls_paginates(mock_s3_client, cutoff):
-    """When a full batch comes back, archiver fetches the next page using last call_id as cursor."""
+async def test_archive_calls_paginates_one_put_per_batch(mock_s3_client, cutoff):
+    """Each batch becomes its own S3 object — bounded memory across the run."""
     batch_size = 2
     batch1 = [_make_call("call-001"), _make_call("call-002")]
     batch2 = [_make_call("call-003")]
@@ -156,15 +157,25 @@ async def test_archive_calls_paginates(mock_s3_client, cutoff):
         archived_ids = await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
 
     assert archived_ids == ["call-001", "call-002", "call-003"]
-    # First fetch: calls (no cursor); then events/policy/judge (3); then second-page calls (cursor=call-002).
-    # Check that cursor pagination uses call-002 on the second call-batch fetch.
+    # Two PUTs, one per batch — not one combined upload.
+    assert mock_s3_client.put_object.call_count == 2
+
     call_batch_fetches = [c for c in conn.fetch.call_args_list if "FROM conversation_calls" in c.args[0]]
     assert len(call_batch_fetches) == 2
     assert call_batch_fetches[1].args[2] == "call-002"
 
+    # Both batches share a run_id portion in their key.
+    keys = [call.kwargs["Key"] for call in mock_s3_client.put_object.call_args_list]
+    # Key shape: prefix/YYYY-MM-DD/timestamp-runid-NNNN.jsonl
+    suffixes = [k.rsplit("-", 1)[1] for k in keys]
+    assert suffixes == ["0000.jsonl", "0001.jsonl"]
+    runids = ["-".join(k.rsplit("-", 2)[1:2]) for k in keys]
+    assert runids[0] == runids[1]
+
 
 @pytest.mark.asyncio
-async def test_archive_calls_propagates_s3_error(mock_s3_client, cutoff):
+async def test_archive_calls_first_batch_failure_returns_empty(mock_s3_client, cutoff):
+    """When the first S3 PUT fails, return an empty list — purger must skip deletion."""
     conn = _make_conn(
         call_batches=[[_make_call("call-001")]],
         events_by_call={"call-001": []},
@@ -172,8 +183,29 @@ async def test_archive_calls_propagates_s3_error(mock_s3_client, cutoff):
     mock_s3_client.put_object = MagicMock(side_effect=RuntimeError("S3 down"))
     with _patch_settings():
         archiver = S3ConversationArchiver(bucket="b", s3_client=mock_s3_client)
-        with pytest.raises(RuntimeError, match="S3 down"):
-            await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+        archived_ids = await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+    assert archived_ids == []
+
+
+@pytest.mark.asyncio
+async def test_archive_calls_partial_success_returns_durably_uploaded_ids(mock_s3_client, cutoff):
+    """First batch uploads; second batch fails. Return only the first batch's call_ids."""
+    batch_size = 2
+    batch1 = [_make_call("call-001"), _make_call("call-002")]
+    batch2 = [_make_call("call-003"), _make_call("call-004")]
+    conn = _make_conn(
+        call_batches=[batch1, batch2],
+        events_by_call={c["call_id"]: [] for c in batch1 + batch2},
+    )
+    # Succeed first call, fail second.
+    mock_s3_client.put_object = MagicMock(side_effect=[None, RuntimeError("S3 down")])
+
+    with _patch_settings():
+        archiver = S3ConversationArchiver(bucket="b", s3_client=mock_s3_client, batch_size=batch_size)
+        archived_ids = await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+
+    assert archived_ids == ["call-001", "call-002"]
+    assert mock_s3_client.put_object.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -233,6 +265,22 @@ async def test_s3_upload_kms_without_key_raises(mock_s3_client, cutoff):
         with pytest.raises(ValueError, match="RETENTION_S3_KMS_KEY_ID"):
             await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
     mock_s3_client.put_object.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_s3_upload_bucket_default_omits_sse_headers(mock_s3_client, cutoff):
+    """`bucket-default` mode lets the bucket policy apply — no SSE header on the PUT."""
+    conn = _make_conn(
+        call_batches=[[_make_call("call-001")]],
+        events_by_call={"call-001": []},
+    )
+    settings = MagicMock(retention_s3_encryption="bucket-default", retention_s3_kms_key_id="")
+    with _patch_settings(settings):
+        archiver = S3ConversationArchiver(bucket="b", s3_client=mock_s3_client)
+        await archiver.archive_calls(db_conn=conn, cutoff=cutoff)
+    kwargs = mock_s3_client.put_object.call_args.kwargs
+    assert "ServerSideEncryption" not in kwargs
+    assert "SSEKMSKeyId" not in kwargs
 
 
 @pytest.mark.asyncio
