@@ -330,4 +330,21 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 ---
 
+## Upstream Header Injection Trust Model (2026-05-07)
+
+**Decision**: `UPSTREAM_HEADERS` (PR #716) treats the operator and clients as trusted. The feature does not defend against:
+- Hostile operators — they own the env, they can already do anything.
+- Hostile clients — CRLF in `session_id` is malformed input, not an attack.
+- "Exfiltration" of the operator's own secrets to a destination they configured.
+
+**What is in scope**: input hygiene (CRLF/NUL stripping, RFC 7230 token validation, hop-by-hop blocklist). Failures fail loud at startup; misconfiguration cannot silently disable the integration.
+
+**Explicitly rejected** (from PR #595's stack):
+- **Sensitive-env-var blocklist** (`*KEY`, `*SECRET`, etc.). Paternalistic and breaks the canonical `HELICONE_API_KEY` use case.
+- **`Authorization` / `X-Api-Key` blocklist**. Operator may legitimately want to override these on the way upstream (e.g., a proxy that uses standard `Authorization` instead of `Helicone-Auth`).
+
+**Canonical reference**: `src/luthien_proxy/pipeline/upstream_headers.py` module docstring. Re-derive from there if the trust boundaries shift.
+
+---
+
 (Add new decisions as they're made with timestamps: YYYY-MM-DD)

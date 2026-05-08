@@ -16,6 +16,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from luthien_proxy.config_fields import CONFIG_CATEGORIES, CONFIG_FIELDS
 
+# Non-registry env vars: features that read os.environ directly because their
+# value shape (e.g. JSON blob) doesn't fit the scalar config registry. Listed
+# here so they remain discoverable in .env.example without the registry's type
+# system and dashboard plumbing.
+EXTRA_ENV_VARS: tuple[tuple[str, str, str], ...] = (
+    (
+        "UPSTREAM_HEADERS",
+        "JSON object mapping header name → template string. Templates support "
+        "${session_id}, ${request_path}, and ${env.VARNAME}. Headers expand "
+        "per-request and are merged into outbound LLM requests. Misconfiguration "
+        "fails the gateway at startup. See pipeline/upstream_headers.py.",
+        '{"Helicone-Auth":"Bearer ${env.HELICONE_API_KEY}","Helicone-Session-Id":"${session_id}"}',
+    ),
+)
+
 
 def _format_default(value: object) -> str:
     """Render a default value as it should appear after ``VAR=`` in .env.
@@ -81,6 +96,19 @@ def build_env_example_text() -> str:
                 lines.append(f"# {meta.env_var}=")
             else:
                 lines.append(f"# {meta.env_var}={_format_default(meta.default)}")
+            lines.append("")
+
+    if EXTRA_ENV_VARS:
+        lines.append("")
+        bar = "=" * (60 - len("non-registry"))
+        lines.append(f"# === NON-REGISTRY {bar}")
+        lines.append("# Env vars read directly via os.environ. Not in the config registry")
+        lines.append("# because their shape (JSON, etc.) doesn't fit scalar typing.")
+        lines.append("")
+        for env_var, description, example in EXTRA_ENV_VARS:
+            lines.append(f"# {description}")
+            lines.append(f"# Example: {env_var}={example}")
+            lines.append(f"# {env_var}=")
             lines.append("")
 
     return "\n".join(lines)
