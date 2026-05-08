@@ -359,7 +359,8 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
                 cast(MessageStreamEvent, event),
             ]
 
-        # Tool call allowed - reconstruct the full event sequence from buffered data
+        # Tool call allowed - reconstruct the full event sequence from buffered data.
+        # Flip the gate that tells _handle_anthropic_message_delta to keep stop_reason="tool_use".
         self._anthropic_state(context).had_allowed_tool_use = True
         logger.debug(f"Tool call '{tool_call['name']}' allowed, re-emitting buffered events")
         tool_use_block = ToolUseBlock(type="tool_use", id=buffered.id, name=buffered.name, input={})
@@ -382,7 +383,11 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         Without this, downstream consumers (e.g. Claude Code) read stop_reason='tool_use',
         expect a tool_use content block to invoke, find only the substituted text block,
         and abort with "The model's tool call could not be parsed". Mirrors the
-        non-streaming behavior in on_anthropic_response (line 250-252).
+        stop_reason rewrite in `on_anthropic_response`.
+
+        Note: deliberately one-directional ("tool_use" → "end_turn"). Unlike
+        `simple_llm_policy._handle_message_delta`, this policy never *introduces*
+        tool_use blocks, so the reverse rewrite is unreachable.
         """
         state = self._anthropic_state(context)
         if state.blocked_blocks and not state.had_allowed_tool_use and event.delta.stop_reason == "tool_use":

@@ -69,3 +69,8 @@ async def test_streaming_stop_reason_rewritten_when_tool_blocked(
     msg_deltas = [e for e in turn.raw_events if e.get("type") == "message_delta"]
     assert len(msg_deltas) == 1, f"Expected exactly one message_delta event, got {len(msg_deltas)}"
     assert msg_deltas[0]["delta"]["stop_reason"] == "end_turn"
+
+    # Usage must survive the rewrite — model_construct skips validation, so a
+    # future refactor that drops the usage field would silently slip through.
+    assert "usage" in msg_deltas[0], "message_delta must carry usage payload"
+    assert "output_tokens" in msg_deltas[0]["usage"]
