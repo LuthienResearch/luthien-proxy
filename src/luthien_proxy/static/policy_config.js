@@ -1059,7 +1059,7 @@ async function runTest(side) {
 
     btn.disabled = true;
     btn.textContent = '...';
-    boxIn.textContent = msg;
+    boxIn.textContent = 'Sending...';
     boxOut.textContent = 'Sending...';
     results.classList.add('visible');
     meta.textContent = '';
@@ -1085,20 +1085,37 @@ async function runTest(side) {
 
         if (!result.success) throw new Error(result.error || 'Request failed');
 
+        // Before = raw LLM response (no policy applied); After = post-policy.
+        // Backend returns `before_content` per the in-process Before/After
+        // orchestration in /api/admin/test/chat. If the policy didn't transform
+        // the request and didn't change the response, before_content == content.
         const content = result.content || '(empty response)';
-        boxIn.textContent = msg;
+        const beforeContent = result.before_content !== null && result.before_content !== undefined
+            ? result.before_content
+            : content;
+        boxIn.textContent = beforeContent;
         boxOut.textContent = content;
         boxOut.style.color = '';
 
         let metaText = 'Model: ' + (result.model || model);
+        // before_usage is set when the request hook transformed the request,
+        // triggering a second LLM call. When it differs from `usage`, show both
+        // so operators see the true cost of the preview.
         if (result.usage) {
             metaText += ' | ' + result.usage.prompt_tokens + ' in / ' + result.usage.completion_tokens + ' out';
+            if (result.before_usage && (
+                result.before_usage.prompt_tokens !== result.usage.prompt_tokens
+                || result.before_usage.completion_tokens !== result.usage.completion_tokens
+            )) {
+                metaText += ' (before: ' + result.before_usage.prompt_tokens + ' in / '
+                    + result.before_usage.completion_tokens + ' out)';
+            }
         }
         meta.textContent = metaText;
 
         testState[side] = {
             inputText: input.value,
-            originalInput: msg,
+            originalInput: beforeContent,
             outputHtml: esc(content),
             metaText: metaText,
             ran: true,
