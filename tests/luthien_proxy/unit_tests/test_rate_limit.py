@@ -100,3 +100,85 @@ async def test_burst_custom_value():
 
     with pytest.raises(HTTPException):
         await limiter.check("key")
+
+
+@pytest.mark.asyncio
+async def test_concurrent_same_key():
+    import asyncio as asyncio_mod
+
+    from fastapi import HTTPException
+
+    limiter = TokenBucketRateLimiter(rpm=60, burst=60)
+    await asyncio_mod.gather(*[limiter.check("key") for _ in range(60)])
+    with pytest.raises(HTTPException) as exc_info:
+        await limiter.check("key")
+    assert exc_info.value.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_retry_after_math():
+    from fastapi import HTTPException
+
+    limiter = TokenBucketRateLimiter(rpm=60, burst=1)
+    await limiter.check("key")
+    with pytest.raises(HTTPException) as exc_info:
+        await limiter.check("key")
+    headers = exc_info.value.headers
+    assert headers is not None
+    assert int(headers["Retry-After"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_reset_timestamp_is_unix():
+    import time as time_module
+
+    from fastapi import HTTPException
+
+    limiter = TokenBucketRateLimiter(rpm=60, burst=1)
+    await limiter.check("key")
+    with pytest.raises(HTTPException) as exc_info:
+        await limiter.check("key")
+    headers = exc_info.value.headers
+    assert headers is not None
+    reset = int(headers["X-RateLimit-Reset"])
+    now = int(time_module.time())
+    assert now <= reset <= now + 5
+
+
+@pytest.mark.asyncio
+async def test_refill_math(monkeypatch):
+    import time as time_module
+
+    from fastapi import HTTPException
+
+    limiter = TokenBucketRateLimiter(rpm=60, burst=10)
+    for _ in range(10):
+        await limiter.check("key")
+    original_monotonic = time_module.monotonic
+    monkeypatch.setattr(time_module, "monotonic", lambda: original_monotonic() + 5.0)
+    for _ in range(5):
+        await limiter.check("key")
+    with pytest.raises(HTTPException):
+        await limiter.check("key")
+
+
+@pytest.mark.asyncio
+async def test_lru_eviction():
+    limiter = TokenBucketRateLimiter(rpm=60, burst=60, max_keys=3)
+    await limiter.check("key1")
+    await limiter.check("key2")
+    await limiter.check("key3")
+    assert len(limiter._buckets) == 3
+    await limiter.check("key4")
+    assert len(limiter._buckets) == 3
+
+
+@pytest.mark.asyncio
+async def test_key_is_hashed():
+    limiter = TokenBucketRateLimiter(rpm=60, burst=60)
+    raw_key = "sk-secret-token-12345"
+    await limiter.check(raw_key)
+    assert raw_key not in limiter._buckets
+    stored_key = next(iter(limiter._buckets))
+    assert len(stored_key) == 64
+    assert all(c in "0123456789abcdef" for c in stored_key)

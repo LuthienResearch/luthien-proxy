@@ -190,13 +190,13 @@ async def check_rate_limit(
 @router.post("/v1/messages")
 async def anthropic_messages(
     request: Request,
+    _rate_limit: None = Depends(check_rate_limit),
     client_and_credential: tuple[AnthropicClient, Credential | None] = Depends(resolve_anthropic_client),
     anthropic_policy: AnthropicExecutionInterface = Depends(get_anthropic_policy),
     emitter: EventEmitterProtocol = Depends(get_emitter),
     db_pool: db.DatabasePool | None = Depends(get_db_pool),
     usage_collector: UsageCollector | None = Depends(get_usage_collector),
     credential_manager: CredentialManager | None = Depends(get_credential_manager),
-    _rate_limit: None = Depends(check_rate_limit),
 ):
     """Anthropic Messages API endpoint (native Anthropic path)."""
     anthropic_client, forwarding_credential = client_and_credential
