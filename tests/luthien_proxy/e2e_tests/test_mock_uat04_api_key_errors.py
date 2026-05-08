@@ -126,9 +126,7 @@ async def test_wrong_admin_key_returns_clear_error(
             (f for f in snapshot.json()["config"] if f["name"] == "localhost_auth_bypass"),
             None,
         )
-        assert bypass_field is not None, (
-            "localhost_auth_bypass missing from config dashboard — was the field renamed?"
-        )
+        assert bypass_field is not None, "localhost_auth_bypass missing from config dashboard — was the field renamed?"
         original_value = bypass_field["value"]
         original_source = bypass_field["source"]
         # If the field's flagged sensitive in the future, dashboard_view masks

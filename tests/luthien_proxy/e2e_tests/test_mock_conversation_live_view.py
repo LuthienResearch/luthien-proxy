@@ -199,9 +199,7 @@ async def test_live_view_shows_tool_calls(
     — not the OpenAI ``{type: "function", function: {...}}`` wrapper.
     """
     expected_tool_id = "toolu_test_live_view_xyz"
-    mock_anthropic.enqueue(
-        tool_response("get_temperature", {"city": "Paris"}, tool_id=expected_tool_id)
-    )
+    mock_anthropic.enqueue(tool_response("get_temperature", {"city": "Paris"}, tool_id=expected_tool_id))
     session_id = _new_session_id("tool")
 
     weather_tool = {
@@ -292,9 +290,7 @@ async def test_live_view_shows_policy_divergence(
     assert len(session["turns"]) == 1
     turn = session["turns"][0]
 
-    assert turn["response_was_modified"], (
-        f"Expected AllCapsPolicy to flag the response as modified. Turn: {turn}"
-    )
+    assert turn["response_was_modified"], f"Expected AllCapsPolicy to flag the response as modified. Turn: {turn}"
     assert turn["original_response_messages"] is not None, (
         "Expected original_response_messages on a policy-modified turn"
     )
@@ -302,9 +298,7 @@ async def test_live_view_shows_policy_divergence(
     final_assistant = [m for m in turn["response_messages"] if m["message_type"] == "assistant"]
     original_assistant = [m for m in turn["original_response_messages"] if m["message_type"] == "assistant"]
     assert final_assistant, f"Expected a final assistant message, got: {turn['response_messages']}"
-    assert original_assistant, (
-        f"Expected an original assistant message, got: {turn['original_response_messages']}"
-    )
+    assert original_assistant, f"Expected an original assistant message, got: {turn['original_response_messages']}"
 
     # Mock backend returns "hello world" unchanged; AllCapsPolicy uppercases it.
     assert original_assistant[0]["content"] == "hello world", (
