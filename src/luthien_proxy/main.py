@@ -43,6 +43,7 @@ from luthien_proxy.observability.redis_event_publisher import RedisEventPublishe
 from luthien_proxy.observability.sentry import init_sentry
 from luthien_proxy.pipeline.upstream_headers import validate_upstream_headers_at_startup
 from luthien_proxy.policy_manager import PolicyManager
+from luthien_proxy.rate_limit import TokenBucketRateLimiter
 from luthien_proxy.request_log import router as request_log_router
 from luthien_proxy.session import login_page_router
 from luthien_proxy.session import router as session_router
@@ -298,7 +299,15 @@ def create_app(
         else:
             logger.info("Usage telemetry disabled")
 
-        # Create Dependencies container with all services
+        _rate_limit_rpm = settings.rate_limit_rpm
+        _rate_limit_burst = settings.rate_limit_burst
+        _rate_limiter: TokenBucketRateLimiter | None = None
+        if _rate_limit_rpm and _rate_limit_rpm > 0:
+            _rate_limiter = TokenBucketRateLimiter(rpm=_rate_limit_rpm, burst=_rate_limit_burst)
+            logger.info(f"Rate limiting enabled: {_rate_limit_rpm} RPM, burst={_rate_limiter.burst}")
+        else:
+            logger.info("Rate limiting disabled (RATE_LIMIT_RPM=0)")
+
         _dependencies = Dependencies(
             db_pool=db_pool,
             redis_client=redis_client,
@@ -313,6 +322,7 @@ def create_app(
             enable_request_logging=_enable_request_logging,
             usage_collector=_usage_collector,
             config_registry=_config_registry,
+            rate_limiter=_rate_limiter,
         )
 
         # Store dependencies container in app state

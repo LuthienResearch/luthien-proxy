@@ -21,6 +21,7 @@ from luthien_proxy.dependencies import (
     get_db_pool,
     get_dependencies,
     get_emitter,
+    get_rate_limiter,
     get_usage_collector,
 )
 from luthien_proxy.llm import anthropic_client_cache
@@ -30,6 +31,7 @@ from luthien_proxy.pipeline import process_anthropic_request
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
 )
+from luthien_proxy.rate_limit import TokenBucketRateLimiter
 from luthien_proxy.usage_telemetry.collector import UsageCollector
 from luthien_proxy.utils import db
 
@@ -174,6 +176,14 @@ async def resolve_anthropic_client(
     return base_client, None
 
 
+async def check_rate_limit(
+    credential: Credential = Depends(verify_token),
+    rate_limiter: TokenBucketRateLimiter | None = Depends(get_rate_limiter),
+) -> None:
+    if rate_limiter is not None:
+        await rate_limiter.check(credential.value)
+
+
 # === ROUTES ===
 
 
@@ -186,6 +196,7 @@ async def anthropic_messages(
     db_pool: db.DatabasePool | None = Depends(get_db_pool),
     usage_collector: UsageCollector | None = Depends(get_usage_collector),
     credential_manager: CredentialManager | None = Depends(get_credential_manager),
+    _rate_limit: None = Depends(check_rate_limit),
 ):
     """Anthropic Messages API endpoint (native Anthropic path)."""
     anthropic_client, forwarding_credential = client_and_credential
@@ -210,6 +221,7 @@ async def proxy_passthrough(
     request: Request,
     path: str,
     _: Credential = Depends(verify_token),
+    _rate_limit: None = Depends(check_rate_limit),
 ):
     """Transparent proxy for /v1/* endpoints not explicitly handled.
 

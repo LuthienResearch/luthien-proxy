@@ -52,6 +52,10 @@ class Settings(_SettingsBase):
     auth_mode: AuthMode = AuthMode.BOTH
     localhost_auth_bypass: bool = True
 
+    # ── rate_limiting ───────────────────────────────────────────────
+    rate_limit_rpm: int = 0
+    rate_limit_burst: int = 0
+
     # ── policy ──────────────────────────────────────────────────────
     policy_source: str = "db-fallback-file"
     policy_config: str = ""

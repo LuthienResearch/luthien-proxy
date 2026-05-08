@@ -89,6 +89,7 @@ class TestGatewayAuthAndClientResolution:
         deps.emitter = MagicMock()
         deps.db_pool = None
         deps.enable_request_logging = False
+        deps.rate_limiter = None
         deps.get_anthropic_policy.return_value = mock_anthropic_policy
 
         app.state.dependencies = deps
@@ -548,6 +549,7 @@ class TestProxyPassthrough:
         deps.anthropic_client = None
         deps.db_pool = None
         deps.enable_request_logging = False
+        deps.rate_limiter = None
         app.state.dependencies = deps
         return app
 

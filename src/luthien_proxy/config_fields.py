@@ -164,6 +164,18 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         category="llm",
     ),
 
+    # ── rate limiting ─────────────────────────────────────────────────────────
+    ConfigFieldMeta(
+        "rate_limit_rpm", "RATE_LIMIT_RPM", int, 0,
+        "Per-key request rate limit (requests per minute). 0 disables rate limiting.",
+        category="rate_limiting", db_settable=True, restart_required=False,
+    ),
+    ConfigFieldMeta(
+        "rate_limit_burst", "RATE_LIMIT_BURST", int, 0,
+        "Per-key burst size (max tokens above RPM). 0 defaults to RPM value.",
+        category="rate_limiting", db_settable=True, restart_required=False,
+    ),
+
     # ── security ──────────────────────────────────────────────────────────
     ConfigFieldMeta(
         "credential_encryption_key", "CREDENTIAL_ENCRYPTION_KEY", str, None,
@@ -264,6 +276,7 @@ CONFIG_FIELDS_BY_NAME: dict[str, ConfigFieldMeta] = {f.name: f for f in CONFIG_F
 CONFIG_CATEGORIES: tuple[str, ...] = (
     "server",
     "auth",
+    "rate_limiting",
     "policy",
     "database",
     "llm",
