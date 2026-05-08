@@ -40,8 +40,9 @@ class TokenBucketRateLimiter:
 
     Note: if a bucket is evicted while a coroutine is holding its per-key lock,
     that coroutine's state update is lost and the next request for the same key
-    gets a fresh full-burst bucket. This breaks serialization across the eviction
-    boundary but is acceptable for an in-process limiter under normal load.
+    gets a fresh full-burst bucket — the key can briefly exceed its limit by up
+    to burst tokens. This is acceptable for an in-process limiter under normal
+    load (requires sustained churn at cardinality > max_keys).
 
     Note: rate limiting is keyed on the raw credential value (after hashing).
     In auth_mode=CLIENT_KEY or the client-key branch of BOTH, all users share
@@ -55,7 +56,8 @@ class TokenBucketRateLimiter:
 
         Args:
             rpm: Requests per minute. 0 disables rate limiting. Must be >= 0.
-            burst: Maximum token accumulation. 0 defaults to rpm.
+            burst: Absolute token bucket capacity (maximum tokens held at any time).
+                0 defaults to rpm. Must be >= rpm to allow sustained throughput.
             max_keys: Maximum number of per-key buckets (LRU eviction when exceeded).
 
         Raises:
