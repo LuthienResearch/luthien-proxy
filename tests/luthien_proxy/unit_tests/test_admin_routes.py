@@ -1050,6 +1050,55 @@ class TestSendChatRoute:
         assert result.error is not None
         assert "Failed to initialize Anthropic client" in result.error
 
+    @pytest.mark.asyncio
+    async def test_raw_http_request_body_aliases_anthropic_request(self):
+        """Pin the production-parity contract: ``ctx.raw_http_request.body is request``.
+
+        In the gateway pipeline (pipeline/anthropic_processor.py) the parsed
+        JSON body is reused as both ``RawHttpRequest.body`` and the typed
+        ``AnthropicRequest`` — same dict identity. The admin test path must
+        match: a policy that mutates ``request`` in ``on_anthropic_request``
+        and then reads ``ctx.raw_http_request.body`` must see the mutation.
+        Without this parity, the Before/After preview would lie about what
+        production does for any policy that writes through ``request`` and
+        reads through ``raw_http_request.body``.
+
+        Two assertions: (1) direct identity — the request the hook receives
+        IS the body on raw_http_request; (2) mutation propagation — a
+        top-level write on ``request`` is visible via ``raw_http_request.body``
+        without going through the AnthropicRequest path again.
+        """
+
+        observations: dict[str, object] = {}
+
+        class _IdentityCheckingPolicy(_RecordingPolicy):
+            async def on_anthropic_request(self, request, context):
+                # Record identity at hook-entry time.
+                observations["request_is_body"] = request is context.raw_http_request.body
+                # Mutate the request and verify the mutation is visible via
+                # raw_http_request.body — the operator-visible contract.
+                request["system"] = "mutated-by-test"
+                observations["body_sees_mutation"] = context.raw_http_request.body.get("system") == "mutated-by-test"
+                return request
+
+        policy = _IdentityCheckingPolicy()
+        client = MagicMock()
+        client.complete = AsyncMock(return_value=_anthropic_response("ok"))
+        deps = _make_deps(policy=policy, anthropic_client=client)
+
+        request = ChatRequest(model="claude-haiku-4-5", message="hi")
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
+
+        assert result.success is True
+        assert observations["request_is_body"] is True, (
+            "raw_http_request.body must alias the AnthropicRequest the hook receives — "
+            "production parity at pipeline/anthropic_processor.py."
+        )
+        assert observations["body_sees_mutation"] is True, (
+            "Top-level mutations on the AnthropicRequest must be visible through "
+            "raw_http_request.body. If not, the Before/After preview lies about production."
+        )
+
 
 class TestAuthConfigUpdateRequestValidation:
     """Test Pydantic validation on AuthConfigUpdateRequest."""

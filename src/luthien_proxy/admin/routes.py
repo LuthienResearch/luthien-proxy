@@ -489,13 +489,15 @@ def _build_test_raw_http_request(
     invocation.
     """
     headers = {k.lower(): v for k, v in fastapi_request.headers.items()}
-    # Shallow copy intentionally — mirrors the aliasing semantics of the
-    # gateway pipeline at anthropic_processor.py (`raw_http_request = RawHttpRequest(body=body, ...)`
-    # where `body` is the parsed inbound JSON), so policy hooks reading
-    # raw_http_request.body see the same nested-list/dict identities they
-    # would in production. A future deep-copy on either side should be
-    # made on both sides to keep the contract consistent.
-    body = cast(dict[str, Any], dict(original_request))
+    # Same identity as production: pipeline/anthropic_processor.py constructs
+    # RawHttpRequest with the parsed JSON body and uses that same dict as the
+    # AnthropicRequest, so ``raw_http_request.body is anthropic_request`` in
+    # production. Mirror that here by aliasing the request directly — without
+    # this, a policy that mutates ``original_request`` in ``on_anthropic_request``
+    # and then reads ``ctx.raw_http_request.body`` would see different state in
+    # the test path than in production, and the Before/After preview would lie
+    # about what production would do.
+    body = cast(dict[str, Any], original_request)
     return RawHttpRequest(
         body=body,
         headers=headers,
@@ -522,8 +524,11 @@ def _build_test_policy_context(
     the changelog), the same credential manager, the same policy cache
     factory, and a credential whose type/value matches what a passthrough
     request would carry. The session_id is a per-test synthetic marker so
-    the activity monitor groups a Before/After run as one logical session
-    and operators can identify test traffic at a glance.
+    the activity monitor groups *this* Before/After run (a single
+    ``send_chat`` invocation) as one logical session and operators can
+    identify test traffic at a glance. Consecutive admin-test invocations
+    are independent sessions — each call generates a fresh
+    ``admin-test-session-{8-hex}`` id.
     """
     raw_http_request = _build_test_raw_http_request(fastapi_request, original_request)
     user_credential = _build_test_user_credential(body_api_key)
@@ -620,6 +625,8 @@ async def send_chat(
     try:
         policy: AnthropicExecutionInterface = deps.get_anthropic_policy()
     except HTTPException:
+        # Let FastAPI handle HTTPException (preserves status code); fall through
+        # to the catch-all only for unexpected errors. Don't simplify this away.
         raise
     except Exception as e:
         logger.error(f"Failed to resolve active policy: {repr(e)}", exc_info=True)
@@ -669,6 +676,10 @@ async def send_chat(
             model=body.model,
         )
 
+    # Capture before_content/before_usage from the pre-hook response so that
+    # response-hook mutations of ``before_response`` (when ``upstream_for_after
+    # = before_response`` in the request-hook-passthrough path) don't poison
+    # the Before view. Don't reorder these below the response hook.
     before_content = _extract_text_content(before_response)
     before_usage = _coerce_usage(before_response)
 
