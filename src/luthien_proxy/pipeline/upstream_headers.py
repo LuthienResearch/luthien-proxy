@@ -101,6 +101,7 @@ _KNOWN_VARS = frozenset({"session_id", "request_path"})
 def _validate_and_filter(parsed: dict[str, object]) -> dict[str, str]:
     """Validate parsed JSON object and drop reserved headers. Raises on bad input."""
     result: dict[str, str] = {}
+    seen_lower: dict[str, str] = {}
     for k, v in parsed.items():
         if not isinstance(k, str):
             raise ValueError(f"UPSTREAM_HEADERS: header name must be a string, got {type(k).__name__}: {k!r}")
@@ -117,12 +118,16 @@ def _validate_and_filter(parsed: dict[str, object]) -> dict[str, str]:
                         f"UPSTREAM_HEADERS: invalid env var reference ${{env.{env_name}}} in {k!r} — "
                         "must be a non-empty identifier (letters, digits, underscore; no leading digit)"
                     )
-        if k.lower() in _RESERVED_HEADERS:
+        lower = k.lower()
+        if lower in _RESERVED_HEADERS:
             logger.warning(
                 "UPSTREAM_HEADERS: dropping hop-by-hop/framing header %r (overriding it would break HTTP transport)",
                 k,
             )
             continue
+        if lower in seen_lower:
+            raise ValueError(f"UPSTREAM_HEADERS: duplicate header (case-insensitive): {seen_lower[lower]!r} and {k!r}")
+        seen_lower[lower] = k
         result[k] = v
     return result
 

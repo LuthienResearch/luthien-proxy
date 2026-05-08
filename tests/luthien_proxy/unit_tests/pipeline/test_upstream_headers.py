@@ -118,6 +118,12 @@ class TestLoadHeaderTemplates:
         monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"Authorization": "Bearer override"}))
         assert _load_header_templates() == {"Authorization": "Bearer override"}
 
+    def test_raises_on_intra_config_case_insensitive_duplicate(self, monkeypatch: pytest.MonkeyPatch):
+        # Two casings of the same logical header would otherwise ship as two header lines.
+        monkeypatch.setenv("UPSTREAM_HEADERS", json.dumps({"Helicone-Auth": "a", "HELICONE-AUTH": "b"}))
+        with pytest.raises(ValueError, match="duplicate header"):
+            _load_header_templates()
+
     def test_audit_log_lists_referenced_env_vars(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ):
