@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
-from typing import Any
+import uuid
+from typing import Any, cast
 
-import httpx
 import litellm
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from luthien_proxy.admin.policy_discovery import discover_policies, validate_policy_config
@@ -22,6 +23,7 @@ from luthien_proxy.dependencies import (
     Dependencies,
     get_db_pool,
     get_dependencies,
+    get_emitter,
     get_policy_manager,
     require_config_registry,
     require_credential_manager,
@@ -34,14 +36,22 @@ from luthien_proxy.inference.registry import (
     ProviderRecord,
     UnknownBackendTypeError,
 )
+from luthien_proxy.llm import anthropic_client_cache
+from luthien_proxy.llm.anthropic_client import AnthropicClient
+from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
+from luthien_proxy.observability.emitter import EventEmitterProtocol
+from luthien_proxy.policy_core.anthropic_execution_interface import AnthropicExecutionInterface
+from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.policy_manager import (
     PolicyEnableResult,
     PolicyInfo,
     PolicyManager,
 )
 from luthien_proxy.settings import client_error_detail, get_settings
+from luthien_proxy.types import RawHttpRequest
 from luthien_proxy.usage_telemetry.config import resolve_telemetry_config
 from luthien_proxy.utils import db
+from luthien_proxy.utils import policy_cache as policy_cache_utils
 
 logger = logging.getLogger(__name__)
 
@@ -108,19 +118,58 @@ class ChatRequest(BaseModel):
     )
     api_key: str | None = Field(
         default=None,
-        description="Optional API key to use for this test request. "
-        "Overrides the server's client key as the credential sent to the gateway.",
+        description="Optional Anthropic API key to use for this test request. "
+        "Overrides the server's configured Anthropic credential. The test endpoint "
+        "calls Anthropic directly (not through the gateway HTTP boundary), so this "
+        "key is sent to Anthropic, not used to authenticate against the proxy.",
     )
 
 
 class ChatResponse(BaseModel):
-    """Response from test chat."""
+    """Response from the admin policy-test endpoint.
+
+    The endpoint runs two steps:
+      1. Call Anthropic directly with the original request → ``before_content``.
+      2. Run the active policy's request/response hooks against that exchange,
+         re-calling Anthropic if the request hook transforms the request → ``content``.
+
+    Operators use the diff between ``before_content`` and ``content`` to verify
+    a policy actually does what they think before activating it on real traffic.
+
+    Caveat — model jitter: when the request hook rewrites the request and
+    triggers a second LLM call, ``before_content`` and ``content`` reflect
+    *two independent* LLM samples. Differences can come from sampling
+    variance, not just from the policy. For a strict "policy effect only"
+    diff, prefer policies that transform responses rather than requests, or
+    set ``temperature=0`` upstream.
+    """
 
     success: bool
-    content: str | None = None
+    content: str | None = Field(
+        default=None,
+        description="Post-policy content (After). Reflects the active policy's full effect.",
+    )
+    before_content: str | None = Field(
+        default=None,
+        description="Raw LLM content (Before) — what Anthropic returned for the original request "
+        "with no policy in the way. None when the LLM call failed or in mock mode. "
+        "When the active policy rewrites the request and a second LLM call is "
+        "issued for After, the Before/After diff includes sampling variance from "
+        "two independent draws, not just the policy's effect.",
+    )
     error: str | None = None
     model: str | None = None
-    usage: dict[str, Any] | None = None
+    usage: dict[str, Any] | None = Field(
+        default=None,
+        description="Usage stats from the After-side LLM call. When the request was not "
+        "transformed (single-call optimization), this equals ``before_usage``.",
+    )
+    before_usage: dict[str, Any] | None = Field(
+        default=None,
+        description="Usage stats from the Before-side LLM call. Surfaced so operators can "
+        "see total cost when the policy triggers a second LLM call (Before + After). "
+        "When no second call is issued, equals ``usage``.",
+    )
 
 
 class AuthConfigResponse(BaseModel):
@@ -321,106 +370,382 @@ async def list_models(
     return {"models": get_available_models()}
 
 
+def _coerce_usage(response: AnthropicResponse | None) -> dict[str, Any] | None:
+    """Convert AnthropicUsage TypedDict (or absent usage) to a plain dict.
+
+    Pyright treats TypedDicts as a distinct type from ``dict[str, Any]``;
+    the ChatResponse field is the latter, so coerce explicitly.
+    """
+    if response is None:
+        return None
+    usage = response.get("usage")
+    if usage is None:
+        return None
+    return dict(usage)
+
+
+def _extract_text_content(response: AnthropicResponse | None) -> str | None:
+    """Concatenate text-block content from an Anthropic response.
+
+    Tool-use, thinking, and other non-text blocks are intentionally elided —
+    text concatenation is a useful approximation for the operator-facing
+    Before/After preview, even if the underlying response carries richer
+    structure. The full response object is not surfaced to the UI.
+    """
+    if response is None:
+        return None
+    parts: list[str] = []
+    for block in response.get("content", []):
+        if isinstance(block, dict) and block.get("type") == "text":
+            text = block.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+    if not parts:
+        return None
+    return "".join(parts)
+
+
+def _snapshot_request(request: AnthropicRequest) -> AnthropicRequest:
+    """Deep-copy a request so we can compare pre- and post-hook state.
+
+    A policy whose ``on_anthropic_request`` mutates the input dict in place
+    and returns the same reference will defeat any post-hook equality check
+    that reads the dict on both sides — both sides see post-mutation state,
+    look equal, and the optimizer would wrongly skip the second LLM call.
+    Snapshot before invoking the hook to keep the comparison honest.
+    """
+    return cast(AnthropicRequest, copy.deepcopy(request))
+
+
+async def _resolve_test_anthropic_client(
+    body_api_key: str | None,
+    server_client: AnthropicClient | None,
+) -> tuple[AnthropicClient | None, str | None]:
+    """Resolve the AnthropicClient to use for a test-chat call.
+
+    Precedence:
+      1. Caller-supplied api_key (forwards directly to Anthropic, cached).
+      2. Server's configured upstream client (set via ANTHROPIC_API_KEY).
+    Returns (client, error_message). On failure, client is None.
+    """
+    if body_api_key is not None and body_api_key.strip():
+        try:
+            client = await anthropic_client_cache.get_client(
+                body_api_key.strip(),
+                auth_type="api_key",
+            )
+            return client, None
+        except Exception as exc:
+            logger.error(f"Failed to build AnthropicClient from supplied api_key: {repr(exc)}")
+            return None, "Failed to initialize Anthropic client with supplied api_key"
+
+    if server_client is not None:
+        return server_client, None
+
+    return None, (
+        "No Anthropic API key available — set ANTHROPIC_API_KEY on the server or supply api_key in the request body"
+    )
+
+
+def _build_test_user_credential(body_api_key: str | None) -> Credential | None:
+    """Construct the user_credential a test-path policy should observe.
+
+    Mirrors the gateway's credential-shape semantics:
+      - body.api_key supplied → passthrough-style ``Credential(API_KEY)`` so
+        policies that key off ``ctx.user_credential`` see exactly what they
+        would for a passthrough request.
+      - Otherwise → None, matching the gateway's "client-key match" branch
+        where the inbound credential authenticated the request but the
+        upstream call uses the server's ANTHROPIC_API_KEY (no per-user
+        credential to forward). Policies that strictly require a user
+        credential will surface the same error they would for a real
+        client-key request — that's the realistic preview, not a bug.
+    """
+    if body_api_key is not None and body_api_key.strip():
+        return Credential(
+            value=body_api_key.strip(),
+            credential_type=CredentialType.API_KEY,
+            platform="anthropic",
+        )
+    return None
+
+
+def _build_test_raw_http_request(
+    fastapi_request: Request,
+    original_request: AnthropicRequest,
+) -> RawHttpRequest:
+    """Build a RawHttpRequest that reflects the admin test invocation.
+
+    ``RawHttpRequest`` exists so policies can recover headers/body that the
+    typed ``AnthropicRequest`` doesn't carry. For the admin test path we
+    expose the inbound headers (e.g. ``anthropic-beta``, ``x-session-id``)
+    from the admin caller and the synthetic Anthropic body — the exact
+    surface a policy would see if this same request had landed on
+    ``/v1/messages``.
+
+    Note: the inbound path is the admin URL, not ``/v1/messages``. Policies
+    that gate behavior on the request path (uncommon) will see
+    ``/api/admin/test/chat`` and can reasonably treat that as a test
+    invocation.
+    """
+    headers = {k.lower(): v for k, v in fastapi_request.headers.items()}
+    # Same identity as production: pipeline/anthropic_processor.py constructs
+    # RawHttpRequest with the parsed JSON body and uses that same dict as the
+    # AnthropicRequest, so ``raw_http_request.body is anthropic_request`` in
+    # production. Mirror that here by aliasing the request directly — without
+    # this, a policy that mutates ``original_request`` in ``on_anthropic_request``
+    # and then reads ``ctx.raw_http_request.body`` would see different state in
+    # the test path than in production, and the Before/After preview would lie
+    # about what production would do.
+    body = cast(dict[str, Any], original_request)
+    return RawHttpRequest(
+        body=body,
+        headers=headers,
+        method=fastapi_request.method,
+        path=fastapi_request.url.path,
+    )
+
+
+def _build_test_policy_context(
+    *,
+    transaction_id: str,
+    original_request: AnthropicRequest,
+    fastapi_request: Request,
+    emitter: EventEmitterProtocol,
+    credential_manager: CredentialManager,
+    db_pool: db.DatabasePool | None,
+    body_api_key: str | None,
+) -> PolicyContext:
+    """Build a full PolicyContext matching the one the gateway pipeline creates.
+
+    The directive: a test-path policy must see the same context shape it
+    would for real ``/v1/messages`` traffic. That means the same emitter
+    (test-path events DO appear in the activity monitor — by design, see
+    the changelog), the same credential manager, the same policy cache
+    factory, and a credential whose type/value matches what a passthrough
+    request would carry. The session_id is a per-test synthetic marker so
+    the activity monitor groups *this* Before/After run (a single
+    ``send_chat`` invocation) as one logical session and operators can
+    identify test traffic at a glance. Consecutive admin-test invocations
+    are independent sessions — each call generates a fresh
+    ``admin-test-session-{8-hex}`` id.
+    """
+    raw_http_request = _build_test_raw_http_request(fastapi_request, original_request)
+    user_credential = _build_test_user_credential(body_api_key)
+    policy_cache_factory = policy_cache_utils.build_factory(db_pool)
+    # Synthetic but stable-shaped session id; prefix marks the run as admin
+    # test traffic for anyone reading the activity stream. Operators who
+    # filter for production traffic can drop ``admin-test-*`` sessions.
+    session_id = f"admin-test-session-{uuid.uuid4().hex[:8]}"
+
+    return PolicyContext(
+        transaction_id=transaction_id,
+        request=None,  # No OpenAI-format request — native Anthropic path.
+        emitter=emitter,
+        raw_http_request=raw_http_request,
+        session_id=session_id,
+        user_credential=user_credential,
+        credential_manager=credential_manager,
+        policy_cache_factory=policy_cache_factory,
+    )
+
+
 @router.post("/test/chat", response_model=ChatResponse)
 async def send_chat(
     body: ChatRequest,
+    fastapi_request: Request,
     _: str = Depends(verify_admin_token),
+    deps: Dependencies = Depends(get_dependencies),
+    db_pool: db.DatabasePool | None = Depends(get_db_pool),
+    credential_manager: CredentialManager = Depends(require_credential_manager),
+    emitter: EventEmitterProtocol = Depends(get_emitter),
 ):
-    """Send a test message through the proxy with the active policy.
+    """Send a test message and return Before/After previews of the active policy.
 
-    Forwards the request to the gateway's /v1/messages endpoint using either
-    the server's CLIENT_API_KEY or a custom API key. In mock mode, returns the
-    user's message as an echo without calling the LLM or running the policy
-    pipeline (useful for quick checks without API credits).
+    This endpoint orchestrates two steps directly, never crossing the
+    ``/v1/messages`` HTTP boundary:
+
+      1. Call Anthropic with the operator's original request → ``before_content``
+         (what the LLM would have said with no policy in the way).
+      2. Run the active policy's ``on_anthropic_request`` and ``on_anthropic_response``
+         hooks against a full ``PolicyContext`` (same emitter, credential
+         manager, and policy cache the gateway pipeline uses) and re-call
+         Anthropic if the request was transformed → ``content`` (what the
+         policy turned the LLM's response into).
+
+    Architectural note: policies decide what happens to a request — clients
+    (including this admin test path) do not. The orchestration runs the policy
+    hooks programmatically, so the gateway's request/response pipeline is never
+    involved and no client-facing protocol opt-in is required. The
+    PolicyContext is built with the same dependencies the gateway hands to
+    its pipeline so judge-style policies (LLM judges, ToolCallJudgePolicy,
+    DogfoodSafety, the Block presets) can run against test traffic exactly
+    as they would against real traffic.
+
+    Observability note: the test-path PolicyContext shares the production
+    emitter. Test-run policy events DO appear in the activity monitor and
+    are recorded for observability — the session_id is prefixed
+    ``admin-test-session-`` so operators can identify or filter test
+    traffic. (See changelog.)
+
+    Streaming-only policies (those that only implement ``on_anthropic_stream_event``)
+    will appear as no-ops in the After view. The non-streaming hooks are the
+    source of truth for this endpoint by design — faking a stream would be
+    misleading. Tool-use and thinking blocks are elided from the text preview.
+
+    Caveat — model jitter: when ``on_anthropic_request`` rewrites the
+    request and triggers a second LLM call, ``before_content`` and
+    ``content`` are *two independent* LLM samples. The diff includes
+    sampling variance, not just the policy's effect. Operators should
+    prefer ``temperature=0`` for clean policy-effect previews of
+    request-transforming policies.
 
     Requires admin authentication.
     """
-    settings = get_settings()
-
-    # Mock mode: echo the user's message back as if the LLM responded with it.
-    # Useful for testing how a policy transforms text without spending API credits.
+    # Mock mode: skip both the LLM call and the policy. This is the lightest
+    # operator-facing smoke test (no API credits, no policy needed). Before
+    # and After are both the echoed message — the diff is intentionally empty
+    # so the operator sees that mock mode is a no-op end-to-end.
     if body.use_mock:
         return ChatResponse(
             success=True,
             content=body.message,
+            before_content=body.message,
             model=body.model,
         )
 
-    # Determine which API key to use: custom key takes precedence over server client key
-    test_api_key = settings.client_api_key
-    if body.api_key is not None and body.api_key.strip():
-        test_api_key = body.api_key.strip()
+    # Resolve the upstream Anthropic client first — fast-fail if no creds.
+    client, key_error = await _resolve_test_anthropic_client(body.api_key, deps.anthropic_client)
+    if client is None:
+        return ChatResponse(success=False, error=key_error, model=body.model)
 
-    if not test_api_key:
+    # Resolve the active policy. If the active policy doesn't implement the
+    # Anthropic hook surface this raises HTTPException(500) — same behavior as
+    # the gateway path.
+    try:
+        policy: AnthropicExecutionInterface = deps.get_anthropic_policy()
+    except HTTPException:
+        # Let FastAPI handle HTTPException (preserves status code); fall through
+        # to the catch-all only for unexpected errors. Don't simplify this away.
+        raise
+    except Exception as e:
+        logger.error(f"Failed to resolve active policy: {repr(e)}", exc_info=True)
         return ChatResponse(
             success=False,
-            error="No API key available — set CLIENT_API_KEY on the server or provide a custom key",
+            error=client_error_detail(str(e), "Failed to resolve active policy"),
             model=body.model,
         )
 
-    # Use the internal self-URL so this works both on the host and inside Docker,
-    # where the external port mapping (e.g. 8001) is not reachable from the container.
-    base_url = f"http://localhost:{settings.gateway_port}"
+    # Build the original Anthropic request. Kept minimal on purpose — the test
+    # endpoint is a preview tool, not a full conversation harness.
+    original_request: AnthropicRequest = cast(
+        AnthropicRequest,
+        {
+            "model": body.model,
+            "messages": [{"role": "user", "content": body.message}],
+            "max_tokens": 1024,
+        },
+    )
 
-    # Build Anthropic-format request payload
-    payload: dict[str, Any] = {
-        "model": body.model,
-        "messages": [{"role": "user", "content": body.message}],
-        "max_tokens": 1024,
-        "stream": False,
-    }
+    transaction_id = f"admin-test-{uuid.uuid4().hex[:12]}"
+    ctx = _build_test_policy_context(
+        transaction_id=transaction_id,
+        original_request=original_request,
+        fastapi_request=fastapi_request,
+        emitter=emitter,
+        credential_manager=credential_manager,
+        db_pool=db_pool,
+        body_api_key=body.api_key,
+    )
 
+    # Mirror the gateway's anthropic-beta header forwarding so beta features
+    # (prompt caching, etc.) behave identically in this preview and in
+    # production. See pipeline/anthropic_processor.py — same line.
+    forwarded_headers: dict[str, str] | None = None
+    if beta := fastapi_request.headers.get("anthropic-beta"):
+        forwarded_headers = {"anthropic-beta": beta}
+
+    # Step 1: Before — call Anthropic with the unmodified original request.
     try:
-        async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
-            response = await client.post(
-                f"{base_url}/v1/messages",
-                json=payload,
-                headers={"x-api-key": test_api_key},
-            )
+        before_response = await client.complete(original_request, extra_headers=forwarded_headers)
+    except Exception as e:
+        logger.error(f"Test chat: LLM call (before) failed: {repr(e)}", exc_info=True)
+        return ChatResponse(
+            success=False,
+            error=client_error_detail(str(e), "Anthropic API call failed"),
+            model=body.model,
+        )
 
-        if response.status_code != 200:
-            error_detail = response.text
-            try:
-                error_json = response.json()
-                error_detail = error_json.get("detail", error_detail)
-            except ValueError as e:
-                logger.debug(f"Could not parse error response as JSON: {repr(e)}")
+    # Capture before_content/before_usage from the pre-hook response so that
+    # response-hook mutations of ``before_response`` (when ``upstream_for_after
+    # = before_response`` in the request-hook-passthrough path) don't poison
+    # the Before view. Don't reorder these below the response hook.
+    before_content = _extract_text_content(before_response)
+    before_usage = _coerce_usage(before_response)
+
+    # Step 2: After — run policy hooks. on_anthropic_request may rewrite the
+    # request; if it did, we re-call Anthropic with the transformed request so
+    # the After preview reflects the realistic full-pipeline outcome. If the
+    # request hook is a passthrough, reuse the Before response (one LLM call).
+    #
+    # The pre-hook snapshot is critical: a policy that mutates the input dict
+    # in place and returns the same reference would defeat any post-hook
+    # equality check that reads the live dict on both sides. Comparison is
+    # against the snapshot taken BEFORE the hook ran.
+    pre_hook_snapshot = _snapshot_request(original_request)
+    try:
+        transformed_request = await policy.on_anthropic_request(original_request, ctx)
+    except Exception as e:
+        logger.error(f"Test chat: policy.on_anthropic_request failed: {repr(e)}", exc_info=True)
+        return ChatResponse(
+            success=False,
+            before_content=before_content,
+            before_usage=before_usage,
+            error=client_error_detail(str(e), "Policy request hook failed"),
+            model=body.model,
+            usage=before_usage,
+        )
+
+    if transformed_request == pre_hook_snapshot:
+        upstream_for_after = before_response
+    else:
+        try:
+            upstream_for_after = await client.complete(transformed_request, extra_headers=forwarded_headers)
+        except Exception as e:
+            logger.error(f"Test chat: LLM call (after, transformed request) failed: {repr(e)}", exc_info=True)
             return ChatResponse(
                 success=False,
-                error=f"Proxy returned {response.status_code}: {error_detail}",
+                before_content=before_content,
+                before_usage=before_usage,
+                error=client_error_detail(str(e), "Anthropic API call (post-request-hook) failed"),
                 model=body.model,
+                usage=before_usage,
             )
 
-        data = response.json()
-
-        # Extract content from Anthropic response format
-        content = None
-        for block in data.get("content", []):
-            if isinstance(block, dict) and block.get("type") == "text":
-                content = (content or "") + block.get("text", "")
-
-        # Extract usage
-        usage = data.get("usage")
-
-        return ChatResponse(
-            success=True,
-            content=content,
-            model=body.model,
-            usage=usage,
-        )
-    except httpx.TimeoutException:
-        return ChatResponse(
-            success=False,
-            error="Request timed out (120s limit)",
-            model=body.model,
-        )
+    try:
+        after_response = await policy.on_anthropic_response(upstream_for_after, ctx)
     except Exception as e:
-        logger.error(f"Test chat failed: {repr(e)}", exc_info=True)
+        logger.error(f"Test chat: policy.on_anthropic_response failed: {repr(e)}", exc_info=True)
         return ChatResponse(
             success=False,
-            error=client_error_detail(str(e), "An unexpected error occurred"),
+            before_content=before_content,
+            before_usage=before_usage,
+            error=client_error_detail(str(e), "Policy response hook failed"),
             model=body.model,
+            usage=before_usage,
         )
+
+    after_content = _extract_text_content(after_response)
+    usage = _coerce_usage(after_response)
+
+    return ChatResponse(
+        success=True,
+        content=after_content,
+        before_content=before_content,
+        before_usage=before_usage,
+        model=body.model,
+        usage=usage,
+    )
 
 
 def _config_to_response(config: AuthConfig) -> AuthConfigResponse:

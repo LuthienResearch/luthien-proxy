@@ -10,7 +10,7 @@ import pytest
 
 from luthien_proxy.utils.db import DatabasePool
 from luthien_proxy.utils.db_sqlite import SqlitePool
-from luthien_proxy.utils.policy_cache import DEFAULT_MAX_ENTRIES, PolicyCache
+from luthien_proxy.utils.policy_cache import DEFAULT_MAX_ENTRIES, PolicyCache, build_factory
 
 
 @pytest.fixture
@@ -815,3 +815,49 @@ class TestPolicyCacheSizeCap:
         # The oldest dead row is gone; the most-recent put always survives.
         assert await cache.get("c_live") == {"v": "live"}
         assert await cache.get("a_dead") is None
+
+
+class TestBuildFactory:
+    """build_factory is the shared call site used by both the gateway pipeline
+    and the admin policy-test endpoint to assemble PolicyCache instances. The
+    rules it encodes (None on no-DB, lazy settings read, non-positive cap →
+    unbounded) live in this one helper rather than being duplicated.
+    """
+
+    def test_returns_none_when_db_pool_is_none(self):
+        """No DB → no factory. Caller (PolicyContext) treats this as 'caching unavailable'."""
+        assert build_factory(None) is None
+
+    def test_returns_callable_when_db_pool_provided(self, monkeypatch):
+        """With a DB, returns a factory that, called with a name, builds a PolicyCache."""
+        from luthien_proxy.utils import policy_cache as policy_cache_module
+
+        # Patch the symbol policy_cache imported (top-level import binds the
+        # callable into this module's namespace; patching settings.get_settings
+        # directly wouldn't affect the bound reference).
+        fake_settings = MagicMock()
+        fake_settings.policy_cache_max_entries = 42
+        monkeypatch.setattr(policy_cache_module, "get_settings", lambda: fake_settings)
+
+        db_pool = MagicMock(spec=DatabasePool)
+        factory = build_factory(db_pool)
+        assert factory is not None
+
+        cache = factory("my-policy")
+        assert isinstance(cache, PolicyCache)
+        assert cache.max_entries == 42
+
+    def test_non_positive_cap_means_unbounded(self, monkeypatch):
+        """policy_cache_max_entries=0 (or negative) → max_entries=None (unbounded)."""
+        from luthien_proxy.utils import policy_cache as policy_cache_module
+
+        fake_settings = MagicMock()
+        fake_settings.policy_cache_max_entries = 0
+        monkeypatch.setattr(policy_cache_module, "get_settings", lambda: fake_settings)
+
+        db_pool = MagicMock(spec=DatabasePool)
+        factory = build_factory(db_pool)
+        assert factory is not None
+
+        cache = factory("my-policy")
+        assert cache.max_entries is None  # unbounded
