@@ -515,41 +515,50 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         state: _SimpleLLMAnthropicState,
         stop_event: RawContentBlockStopEvent,
     ) -> list[MessageStreamEvent]:
-        """Emit replacement block events."""
+        """Emit replacement block events with monotonically increasing indices."""
         events: list[MessageStreamEvent] = []
+        current_index = index
 
         for rblock in action.blocks or ():
             state.emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
+            block_stop = RawContentBlockStopEvent(type="content_block_stop", index=current_index)
 
             if rblock.type == "text":
                 text_block = TextBlock(type="text", text="")
-                start = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=text_block)
+                start = RawContentBlockStartEvent(
+                    type="content_block_start", index=current_index, content_block=text_block
+                )
                 text_delta = TextDelta.model_construct(type="text_delta", text=rblock.text or "")
                 delta = RawContentBlockDeltaEvent.model_construct(
-                    type="content_block_delta", index=index, delta=text_delta
+                    type="content_block_delta", index=current_index, delta=text_delta
                 )
                 events.extend(
                     [
                         cast(MessageStreamEvent, start),
                         cast(MessageStreamEvent, delta),
+                        cast(MessageStreamEvent, block_stop),
                     ]
                 )
 
             elif rblock.type == "tool_use":
                 tool_id = f"toolu_{uuid4().hex[:24]}"
                 tool_block = ToolUseBlock(type="tool_use", id=tool_id, name=rblock.name or "", input={})
-                start = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=tool_block)
+                start = RawContentBlockStartEvent(
+                    type="content_block_start", index=current_index, content_block=tool_block
+                )
                 json_str = json.dumps(rblock.input or {})
                 json_delta = InputJSONDelta(type="input_json_delta", partial_json=json_str)
-                delta = RawContentBlockDeltaEvent(type="content_block_delta", index=index, delta=json_delta)
+                delta = RawContentBlockDeltaEvent(type="content_block_delta", index=current_index, delta=json_delta)
                 events.extend(
                     [
                         cast(MessageStreamEvent, start),
                         cast(MessageStreamEvent, delta),
+                        cast(MessageStreamEvent, block_stop),
                     ]
                 )
 
-        events.append(cast(MessageStreamEvent, stop_event))
+            current_index += 1
+
         return events
 
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
