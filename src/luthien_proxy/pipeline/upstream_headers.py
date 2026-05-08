@@ -100,7 +100,14 @@ _KNOWN_VARS = frozenset({"session_id", "request_path"})
 
 
 def _validate_and_filter(parsed: dict[str, object]) -> dict[str, str]:
-    """Validate parsed JSON object and drop reserved headers. Raises on bad input."""
+    """Validate parsed JSON object and drop reserved headers. Raises on bad input.
+
+    Validation order is fail-loud-first: type errors → RFC 7230 token →
+    template-var refs → hop-by-hop drop → case-insensitive duplicate. A
+    hop-by-hop entry with a malformed name (e.g. ``"Connection ": "close"``)
+    raises rather than being silently dropped — operator gets the louder
+    error first.
+    """
     result: dict[str, str] = {}
     seen_lower: dict[str, str] = {}
     for k, v in parsed.items():
@@ -225,6 +232,12 @@ def expand_upstream_headers(
     Returns ``None`` when no headers are configured (avoids unnecessary dict
     allocation on the hot path) or when every configured header expands to
     the empty string.
+
+    Note: the empty-skip catches templates that expand to ``""`` entirely.
+    A *partially* empty expansion like ``"Bearer ${env.MISSING}"`` produces
+    the literal string ``"Bearer "`` and ships as a malformed header — the
+    upstream will 401, and the startup audit log warns operators about
+    unset/empty referenced env vars to catch the typo class at boot.
     """
     templates = _load_header_templates()
     if not templates:
