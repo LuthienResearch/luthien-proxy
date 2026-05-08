@@ -14,11 +14,52 @@ from luthien_proxy.webhook.sender import (
     build_payload,
 )
 
+
+def _fire_kwargs(**overrides: object) -> dict[str, object]:
+    """Return default fire_and_forget kwargs, with overrides merged in."""
+    defaults: dict[str, object] = {
+        "session_id": "s",
+        "transaction_id": "t",
+        "model": "m",
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "duration_ms": 0,
+        "is_streaming": False,
+        "success": True,
+        "http_status": 200,
+    }
+    defaults.update(overrides)
+    return defaults
+
+
+def _payload(**overrides: object) -> ConversationCompletedPayload:
+    """Build a payload dict with sensible defaults for testing."""
+    base: dict[str, object] = {
+        "session_id": None,
+        "transaction_id": "t",
+        "model": "m",
+        "usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+        },
+        "duration_ms": 0,
+        "is_streaming": False,
+        "success": True,
+        "http_status": 200,
+        "timestamp": "2026-01-01T00:00:00+00:00",
+    }
+    base.update(overrides)
+    return base  # type: ignore[return-value]
+
+
 # ── Payload builder tests ──────────────────────────────────────────────────────
 
 
 def test_build_payload_non_streaming():
-    """build_payload returns correct structure for non-streaming response."""
+    """build_payload returns correct structure for non-streaming success."""
     payload = build_payload(
         session_id="sess-123",
         transaction_id="txn-abc",
@@ -27,6 +68,8 @@ def test_build_payload_non_streaming():
         output_tokens=50,
         duration_ms=1234,
         is_streaming=False,
+        success=True,
+        http_status=200,
     )
     assert payload["session_id"] == "sess-123"
     assert payload["transaction_id"] == "txn-abc"
@@ -34,8 +77,12 @@ def test_build_payload_non_streaming():
     assert payload["usage"]["input_tokens"] == 100
     assert payload["usage"]["output_tokens"] == 50
     assert payload["usage"]["total_tokens"] == 150
+    assert payload["usage"]["cache_creation_input_tokens"] == 0
+    assert payload["usage"]["cache_read_input_tokens"] == 0
     assert payload["duration_ms"] == 1234
     assert payload["is_streaming"] is False
+    assert payload["success"] is True
+    assert payload["http_status"] == 200
     assert "timestamp" in payload
 
 
@@ -49,14 +96,35 @@ def test_build_payload_streaming():
         output_tokens=300,
         duration_ms=5000,
         is_streaming=True,
+        success=True,
+        http_status=200,
     )
     assert payload["session_id"] is None
     assert payload["is_streaming"] is True
     assert payload["usage"]["total_tokens"] == 500
 
 
-def test_build_payload_zero_tokens():
-    """build_payload handles zero token counts."""
+def test_build_payload_includes_cache_tokens():
+    """Cache token counts are surfaced in the usage dict for prompt-cache analytics."""
+    payload = build_payload(
+        session_id="s",
+        transaction_id="t",
+        model="m",
+        input_tokens=10,
+        output_tokens=5,
+        duration_ms=1,
+        is_streaming=False,
+        success=True,
+        http_status=200,
+        cache_creation_input_tokens=42,
+        cache_read_input_tokens=99,
+    )
+    assert payload["usage"]["cache_creation_input_tokens"] == 42
+    assert payload["usage"]["cache_read_input_tokens"] == 99
+
+
+def test_build_payload_failure():
+    """success=False / non-200 status is captured in the payload."""
     payload = build_payload(
         session_id="s",
         transaction_id="t",
@@ -64,12 +132,15 @@ def test_build_payload_zero_tokens():
         input_tokens=0,
         output_tokens=0,
         duration_ms=0,
-        is_streaming=False,
+        is_streaming=True,
+        success=False,
+        http_status=503,
     )
-    assert payload["usage"]["total_tokens"] == 0
+    assert payload["success"] is False
+    assert payload["http_status"] == 503
 
 
-# ── WebhookSender tests ────────────────────────────────────────────────────────
+# ── WebhookSender fixtures ────────────────────────────────────────────────────
 
 
 @pytest.fixture
@@ -86,26 +157,19 @@ async def sender_with_retries():
     await s.stop()
 
 
+# ── _attempt_send tests ───────────────────────────────────────────────────────
+
+
 @pytest.mark.asyncio
 async def test_send_success(sender):
     """Successful delivery returns True and makes one POST."""
     mock_response = MagicMock()
     mock_response.status_code = 200
-
     mock_client = AsyncMock()
     mock_client.post = AsyncMock(return_value=mock_response)
     sender._client = mock_client
 
-    payload: ConversationCompletedPayload = {
-        "session_id": "s",
-        "transaction_id": "t",
-        "model": "m",
-        "usage": {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
-        "duration_ms": 100,
-        "is_streaming": False,
-        "timestamp": "2026-01-01T00:00:00+00:00",
-    }
-    result = await sender._attempt_send(payload)
+    result = await sender._attempt_send(_payload())
     assert result is True
     mock_client.post.assert_called_once()
 
@@ -115,22 +179,11 @@ async def test_send_http_error_returns_false(sender):
     """4xx/5xx response returns False (will be retried)."""
     mock_response = MagicMock()
     mock_response.status_code = 503
-
     mock_client = AsyncMock()
     mock_client.post = AsyncMock(return_value=mock_response)
     sender._client = mock_client
 
-    payload: ConversationCompletedPayload = {
-        "session_id": None,
-        "transaction_id": "t",
-        "model": "m",
-        "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
-        "duration_ms": 0,
-        "is_streaming": False,
-        "timestamp": "2026-01-01T00:00:00+00:00",
-    }
-    result = await sender._attempt_send(payload)
-    assert result is False
+    assert await sender._attempt_send(_payload()) is False
 
 
 @pytest.mark.asyncio
@@ -140,17 +193,10 @@ async def test_send_network_error_returns_false(sender):
     mock_client.post = AsyncMock(side_effect=httpx.ConnectError("connection refused"))
     sender._client = mock_client
 
-    payload: ConversationCompletedPayload = {
-        "session_id": None,
-        "transaction_id": "t",
-        "model": "m",
-        "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
-        "duration_ms": 0,
-        "is_streaming": False,
-        "timestamp": "2026-01-01T00:00:00+00:00",
-    }
-    result = await sender._attempt_send(payload)
-    assert result is False
+    assert await sender._attempt_send(_payload()) is False
+
+
+# ── fire_and_forget tests ─────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -158,16 +204,7 @@ async def test_fire_and_forget_success(sender):
     """fire_and_forget dispatches a background task that succeeds."""
     with patch.object(sender, "_attempt_send", new_callable=AsyncMock) as mock_send:
         mock_send.return_value = True
-        sender.fire_and_forget(
-            session_id="s",
-            transaction_id="t",
-            model="m",
-            input_tokens=10,
-            output_tokens=20,
-            duration_ms=500,
-            is_streaming=False,
-        )
-        # Allow the background task to run
+        sender.fire_and_forget(**_fire_kwargs())
         await asyncio.sleep(0.05)
         mock_send.assert_called_once()
 
@@ -180,18 +217,10 @@ async def test_fire_and_forget_retries_on_failure(sender_with_retries):
     async def fail_twice_then_succeed(payload):
         nonlocal call_count
         call_count += 1
-        return call_count >= 3  # Fail first 2, succeed on 3rd
+        return call_count >= 3
 
     with patch.object(sender_with_retries, "_attempt_send", side_effect=fail_twice_then_succeed):
-        sender_with_retries.fire_and_forget(
-            session_id="s",
-            transaction_id="t",
-            model="m",
-            input_tokens=10,
-            output_tokens=20,
-            duration_ms=500,
-            is_streaming=False,
-        )
+        sender_with_retries.fire_and_forget(**_fire_kwargs())
         await asyncio.sleep(0.5)
         assert call_count == 3
 
@@ -207,89 +236,35 @@ async def test_fire_and_forget_gives_up_after_max_retries(sender_with_retries):
         return False
 
     with patch.object(sender_with_retries, "_attempt_send", side_effect=always_fail):
-        sender_with_retries.fire_and_forget(
-            session_id="s",
-            transaction_id="t",
-            model="m",
-            input_tokens=10,
-            output_tokens=20,
-            duration_ms=500,
-            is_streaming=False,
-        )
+        sender_with_retries.fire_and_forget(**_fire_kwargs())
         await asyncio.sleep(0.5)
-        # max_retries=3 means 1 initial + 3 retries = 4 total attempts
-        assert call_count == 4
+        assert call_count == 4  # 1 initial + 3 retries
 
 
 @pytest.mark.asyncio
-async def test_fire_and_forget_no_crash_on_exception(sender):
-    """fire_and_forget does not propagate exceptions to caller."""
+async def test_fire_and_forget_no_crash_on_exception():
+    """fire_and_forget does not propagate exceptions to caller; task completes within retries."""
+    s = WebhookSender(url="https://example.com/webhook", max_retries=2, retry_delay_seconds=0.001)
 
     async def raise_exception(payload):
         raise RuntimeError("unexpected error")
 
-    with patch.object(sender, "_attempt_send", side_effect=raise_exception):
-        # Should not raise
-        sender.fire_and_forget(
-            session_id="s",
-            transaction_id="t",
-            model="m",
-            input_tokens=0,
-            output_tokens=0,
-            duration_ms=0,
-            is_streaming=False,
-        )
-        await asyncio.sleep(0.05)
+    with patch.object(s, "_attempt_send", side_effect=raise_exception):
+        s.fire_and_forget(**_fire_kwargs())
+        # Wait long enough for all retries (3 attempts × 1ms) to finish.
+        await asyncio.sleep(0.2)
+    await s.stop()
 
 
-# ── WebhookSender disabled (no URL) ───────────────────────────────────────────
+# ── Disabled / scheme rejection ──────────────────────────────────────────────
 
 
 def test_sender_disabled_when_no_url():
-    """WebhookSender with no URL is disabled."""
-    sender = WebhookSender(url=None)
-    assert sender.enabled is False
+    assert WebhookSender(url=None).enabled is False
 
 
 def test_sender_enabled_when_url_set():
-    """WebhookSender with URL is enabled."""
-    sender = WebhookSender(url="https://example.com/hook")
-    assert sender.enabled is True
-
-
-# ── _safe_url tests ───────────────────────────────────────────────────────────
-
-
-def test_safe_url_strips_userinfo_preserves_port():
-    """Credentials are stripped, port is preserved."""
-    sender = WebhookSender(url="https://user:pass@hooks.example.com:8443/webhook?key=secret")
-    assert sender.safe_url == "https://hooks.example.com:8443/webhook"
-
-
-def test_safe_url_no_port():
-    """URL without port round-trips correctly."""
-    sender = WebhookSender(url="https://hooks.example.com/webhook")
-    assert sender.safe_url == "https://hooks.example.com/webhook"
-
-
-def test_safe_url_strips_query_and_fragment():
-    """Query string and fragment are removed."""
-    sender = WebhookSender(url="https://hooks.example.com/webhook?token=abc#section")
-    assert sender.safe_url == "https://hooks.example.com/webhook"
-
-
-def test_safe_url_redacts_path_secret_segments():
-    """Path segments beyond the first are replaced with '...' to protect Slack/Discord-style secrets."""
-    sender = WebhookSender(url="https://hooks.slack.com/services/T123/B456/SECRET_TOKEN")
-    assert sender.safe_url == "https://hooks.slack.com/services/..."
-    assert "SECRET_TOKEN" not in sender.safe_url
-    assert "T123" not in sender.safe_url
-
-
-def test_safe_url_empty_when_no_url():
-    """Returns empty string when no URL configured."""
-    sender = WebhookSender(url=None)
-    assert sender.safe_url == ""
+    assert WebhookSender(url="https://example.com/hook").enabled is True
 
 
 @pytest.mark.parametrize("bad_scheme", ["file:///etc/passwd", "javascript://x", "ftp://example.com/hook"])
@@ -302,20 +277,87 @@ def test_bad_scheme_disables_sender(bad_scheme: str):
 
 @pytest.mark.asyncio
 async def test_fire_and_forget_noop_when_disabled():
-    """fire_and_forget does nothing when sender is disabled."""
     sender = WebhookSender(url=None)
     with patch.object(sender, "_attempt_send", new_callable=AsyncMock) as mock_send:
-        sender.fire_and_forget(
-            session_id="s",
-            transaction_id="t",
-            model="m",
-            input_tokens=0,
-            output_tokens=0,
-            duration_ms=0,
-            is_streaming=False,
-        )
+        sender.fire_and_forget(**_fire_kwargs())
         await asyncio.sleep(0.05)
         mock_send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_fire_and_forget_noop_after_stop():
+    """Once stop() has been called, fire_and_forget does not schedule new tasks."""
+    sender = WebhookSender(url="https://example.com/hook")
+    await sender.stop()
+    with patch.object(sender, "_attempt_send", new_callable=AsyncMock) as mock_send:
+        sender.fire_and_forget(**_fire_kwargs())
+        await asyncio.sleep(0.05)
+        mock_send.assert_not_called()
+
+
+# ── safe_url tests ────────────────────────────────────────────────────────────
+
+
+def test_safe_url_strips_userinfo_redacts_path():
+    """Credentials are stripped, port is preserved, path is fully redacted."""
+    sender = WebhookSender(url="https://user:pass@hooks.example.com:8443/webhook?key=secret")
+    assert sender.safe_url == "https://hooks.example.com:8443/..."
+
+
+def test_safe_url_no_path():
+    """URL without a path stays clean."""
+    sender = WebhookSender(url="https://hooks.example.com")
+    assert sender.safe_url == "https://hooks.example.com"
+
+
+def test_safe_url_empty_path_root():
+    """Bare '/' path is preserved (no secret to leak)."""
+    sender = WebhookSender(url="https://hooks.example.com/")
+    assert sender.safe_url == "https://hooks.example.com/"
+
+
+def test_safe_url_strips_query_and_fragment():
+    sender = WebhookSender(url="https://hooks.example.com/webhook?token=abc#section")
+    safe = sender.safe_url
+    assert "token" not in safe
+    assert "abc" not in safe
+    assert "section" not in safe
+
+
+def test_safe_url_redacts_multi_segment_path():
+    """Slack/Discord-style multi-segment secrets are redacted."""
+    sender = WebhookSender(url="https://hooks.slack.com/services/T123/B456/SECRET_TOKEN")
+    safe = sender.safe_url
+    assert "SECRET_TOKEN" not in safe
+    assert "T123" not in safe
+    assert "B456" not in safe
+
+
+def test_safe_url_redacts_single_segment_secret():
+    """Single-segment path secrets (RequestBin/ngrok/custom hooks) are redacted.
+
+    Regression for PR #741 issue #4: previous logic preserved the first path
+    segment, so https://x/SECRET leaked SECRET intact.
+    """
+    sender = WebhookSender(url="https://hooks.example.com/SECRET_AT_ROOT")
+    safe = sender.safe_url
+    assert "SECRET_AT_ROOT" not in safe
+    assert safe == "https://hooks.example.com/..."
+
+
+def test_safe_url_brackets_ipv6():
+    """IPv6 hosts get bracketed; port preserved."""
+    sender = WebhookSender(url="http://[::1]:8080/hook")
+    safe = sender.safe_url
+    assert "[::1]" in safe
+    assert ":8080" in safe
+
+
+def test_safe_url_empty_when_no_url():
+    assert WebhookSender(url=None).safe_url == ""
+
+
+# ── Backpressure / observability ──────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -333,70 +375,133 @@ async def test_fire_and_forget_drops_when_backpressure_cap_reached():
 
     with patch.object(sender, "_attempt_send", side_effect=_blocking_send):
         for i in range(2):
-            sender.fire_and_forget(
-                session_id=f"s{i}",
-                transaction_id=f"t{i}",
-                model="m",
-                input_tokens=0,
-                output_tokens=0,
-                duration_ms=0,
-                is_streaming=False,
-            )
+            sender.fire_and_forget(**_fire_kwargs(session_id=f"s{i}", transaction_id=f"t{i}"))
         await send_started.wait()
-        assert len(sender._pending_tasks) == 2
-        assert sender._dropped_due_to_backpressure == 0
+        assert sender.pending_depth == 2
+        assert sender.dropped_count == 0
 
-        sender.fire_and_forget(
-            session_id="s_dropped",
-            transaction_id="t_dropped",
-            model="m",
-            input_tokens=0,
-            output_tokens=0,
-            duration_ms=0,
-            is_streaming=False,
-        )
-        assert len(sender._pending_tasks) == 2
-        assert sender._dropped_due_to_backpressure == 1
+        sender.fire_and_forget(**_fire_kwargs(session_id="dropped", transaction_id="dropped"))
+        assert sender.pending_depth == 2
+        assert sender.dropped_count == 1
 
         block_release.set()
         await asyncio.gather(*list(sender._pending_tasks), return_exceptions=True)
 
 
+def test_observability_properties():
+    """Counters are exposed via public properties."""
+    sender = WebhookSender(url="https://example.com/hook", max_pending_tasks=42)
+    assert sender.pending_depth == 0
+    assert sender.dropped_count == 0
+    assert sender.max_pending_tasks == 42
+
+
 @pytest.mark.asyncio
-async def test_stop_cancels_pending_tasks():
-    """stop() cancels in-flight tasks and clears _pending_tasks."""
+async def test_set_add_callback_ordering_no_race():
+    """Task is in _pending_tasks before discard callback can fire (regression for issue #9)."""
     sender = WebhookSender(url="https://example.com/hook")
+
+    # Use an _attempt_send that returns synchronously — the task may complete
+    # very quickly. The set.add must happen before the discard callback.
+    async def fast_send(payload):
+        return True
+
+    with patch.object(sender, "_attempt_send", side_effect=fast_send):
+        for _ in range(20):
+            sender.fire_and_forget(**_fire_kwargs())
+        # Briefly let things run; this would crash with KeyError if discard
+        # ran before add.
+        await asyncio.sleep(0.1)
+    await sender.stop()
+
+
+# ── Backpressure log cadence ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_backpressure_log_decade_thresholds(caplog):
+    """Backpressure log fires at 1, 10, 100, 1000, then every 1000."""
+    import logging
+
+    sender = WebhookSender(url="https://example.com/hook", max_pending_tasks=0)
+    # max_pending_tasks=0 means every send is dropped.
+    fire_kwargs = _fire_kwargs()
+    with caplog.at_level(logging.WARNING, logger="luthien_proxy.webhook.sender"):
+        for _ in range(150):
+            sender.fire_and_forget(**fire_kwargs)
+    # Expect log entries at n=1, 10, 100 (not at n=20, 50, etc.)
+    log_lines = [r.message for r in caplog.records if "backpressure" in r.message.lower()]
+    # 1, 10, 100 → 3 messages within the first 150 drops
+    assert len(log_lines) == 3, f"expected 3 log lines, got {len(log_lines)}: {log_lines}"
+    assert sender.dropped_count == 150
+
+
+# ── stop() — drain semantics ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_stop_drains_completing_tasks_within_timeout():
+    """stop() waits for in-flight tasks that finish within the drain window."""
+    sender = WebhookSender(url="https://example.com/hook", shutdown_drain_seconds=2.0)
+
+    completed = asyncio.Event()
+
+    async def quick_send(payload):
+        await asyncio.sleep(0.05)
+        completed.set()
+        return True
+
+    with patch.object(sender, "_attempt_send", side_effect=quick_send):
+        sender.fire_and_forget(**_fire_kwargs())
+        await sender.stop()
+    assert completed.is_set(), "stop() should have allowed the in-flight task to complete"
+    assert sender.pending_depth == 0
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_tasks_exceeding_drain_timeout():
+    """stop() cancels in-flight tasks that don't finish within the drain window."""
+    sender = WebhookSender(url="https://example.com/hook", shutdown_drain_seconds=0.05)
 
     block_release = asyncio.Event()
 
-    async def _blocking_send(payload):
+    async def blocking_send(payload):
         await block_release.wait()
         return True
 
-    with patch.object(sender, "_attempt_send", side_effect=_blocking_send):
-        sender.fire_and_forget(
-            session_id="s1",
-            transaction_id="t1",
-            model="m",
-            input_tokens=0,
-            output_tokens=0,
-            duration_ms=0,
-            is_streaming=False,
-        )
+    with patch.object(sender, "_attempt_send", side_effect=blocking_send):
+        sender.fire_and_forget(**_fire_kwargs())
         await asyncio.sleep(0.01)
-        assert len(sender._pending_tasks) == 1
-
+        assert sender.pending_depth == 1
         await sender.stop()
+    assert sender.pending_depth == 0
+    # Sanity: the block_release was never set — task must have been cancelled.
+    assert not block_release.is_set()
 
-        assert len(sender._pending_tasks) == 0
+
+@pytest.mark.asyncio
+async def test_stop_immediate_cancel_when_drain_zero():
+    """shutdown_drain_seconds=0 reverts to immediate cancellation (legacy behavior)."""
+    sender = WebhookSender(url="https://example.com/hook", shutdown_drain_seconds=0.0)
+    block_release = asyncio.Event()
+
+    async def blocking_send(payload):
+        await block_release.wait()
+        return True
+
+    with patch.object(sender, "_attempt_send", side_effect=blocking_send):
+        sender.fire_and_forget(**_fire_kwargs())
+        await asyncio.sleep(0.01)
+        assert sender.pending_depth == 1
+        await sender.stop()
+    assert sender.pending_depth == 0
 
 
 @pytest.mark.asyncio
 async def test_stop_is_noop_when_no_pending_tasks():
-    """stop() does nothing when there are no pending tasks."""
     sender = WebhookSender(url="https://example.com/hook")
     await sender.stop()
-    assert len(sender._pending_tasks) == 0
+    assert sender.pending_depth == 0
 
 
 # ── Singleton client tests ─────────────────────────────────────────────────────
@@ -416,25 +521,14 @@ async def test_single_client_created_across_retries():
             max_retries=2,
             retry_delay_seconds=0.001,
         )
-
         for i in range(5):
-            sender.fire_and_forget(
-                session_id=f"s{i}",
-                transaction_id=f"t{i}",
-                model="m",
-                input_tokens=1,
-                output_tokens=1,
-                duration_ms=10,
-                is_streaming=False,
-            )
+            sender.fire_and_forget(**_fire_kwargs(session_id=f"s{i}", transaction_id=f"t{i}"))
         await asyncio.sleep(0.1)
-
         mock_client_cls.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_stop_closes_client():
-    """stop() calls aclose() on the shared HTTP client exactly once."""
     with patch("luthien_proxy.webhook.sender.httpx.AsyncClient") as mock_client_cls:
         mock_instance = AsyncMock()
         mock_instance.aclose = AsyncMock()
@@ -442,5 +536,4 @@ async def test_stop_closes_client():
 
         sender = WebhookSender(url="https://example.com/hook")
         await sender.stop()
-
         mock_instance.aclose.assert_called_once()

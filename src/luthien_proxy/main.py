@@ -314,6 +314,7 @@ def create_app(
             max_retries=settings.webhook_max_retries,
             retry_delay_seconds=settings.webhook_retry_delay_seconds,
             max_pending_tasks=settings.webhook_max_pending_tasks,
+            shutdown_drain_seconds=settings.webhook_shutdown_drain_seconds,
         )
         if _webhook_sender.enabled:
             logger.info("Webhook event export enabled (url=%s)", _webhook_sender.safe_url)
@@ -346,7 +347,7 @@ def create_app(
         yield
 
         # Shutdown
-        if _webhook_sender is not None and _webhook_sender.enabled:
+        if _webhook_sender is not None:
             await _webhook_sender.stop()
         if _telemetry_sender is not None:
             await _telemetry_sender.stop()

@@ -25,6 +25,7 @@ from luthien_proxy.dependencies import (
     get_dependencies,
     get_emitter,
     get_policy_manager,
+    get_webhook_sender,
     require_config_registry,
     require_credential_manager,
     require_inference_provider_registry,
@@ -52,6 +53,7 @@ from luthien_proxy.types import RawHttpRequest
 from luthien_proxy.usage_telemetry.config import resolve_telemetry_config
 from luthien_proxy.utils import db
 from luthien_proxy.utils import policy_cache as policy_cache_utils
+from luthien_proxy.webhook.sender import WebhookSender
 
 logger = logging.getLogger(__name__)
 
@@ -1237,6 +1239,44 @@ async def delete_config_value(
         "value": "***" if meta.sensitive else new_resolved.value,
         "source": new_resolved.source.value,
     }
+
+
+class WebhookStatsResponse(BaseModel):
+    """Webhook delivery stats for operator dashboards / alerting."""
+
+    enabled: bool
+    safe_url: str
+    pending_depth: int
+    dropped_count: int
+    max_pending_tasks: int
+
+
+@router.get("/webhook/stats", response_model=WebhookStatsResponse)
+async def webhook_stats(
+    _: str = Depends(verify_admin_token),
+    webhook_sender: WebhookSender | None = Depends(get_webhook_sender),
+):
+    """Return webhook backpressure / delivery stats.
+
+    `pending_depth` is current in-flight tasks; `dropped_count` is the
+    cumulative count of webhooks dropped because the pending-task cap was hit
+    (process lifetime — resets on restart).
+    """
+    if webhook_sender is None:
+        return WebhookStatsResponse(
+            enabled=False,
+            safe_url="",
+            pending_depth=0,
+            dropped_count=0,
+            max_pending_tasks=0,
+        )
+    return WebhookStatsResponse(
+        enabled=webhook_sender.enabled,
+        safe_url=webhook_sender.safe_url,
+        pending_depth=webhook_sender.pending_depth,
+        dropped_count=webhook_sender.dropped_count,
+        max_pending_tasks=webhook_sender.max_pending_tasks,
+    )
 
 
 __all__ = ["router"]

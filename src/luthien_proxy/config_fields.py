@@ -247,7 +247,7 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
     # ── webhook ───────────────────────────────────────────────────────────
     ConfigFieldMeta(
         "webhook_url", "WEBHOOK_URL", str, "",
-        "Endpoint URL to POST conversation completion events to (leave empty to disable)",
+        "Endpoint URL to POST conversation completion events to (leave empty to disable). At-most-once delivery: failures after retries are dropped, shutdown drains then cancels, process crashes lose in-flight events. Not suitable for systems that require at-least-once / durable delivery.",
         category="webhook",
     ),
     ConfigFieldMeta(
@@ -263,6 +263,11 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
     ConfigFieldMeta(
         "webhook_max_pending_tasks", "WEBHOOK_MAX_PENDING_TASKS", int, 1000,
         "Maximum number of in-flight webhook delivery tasks. When exceeded, new webhooks are dropped and logged. Prevents unbounded memory growth when the webhook endpoint is slow or down.",
+        category="webhook",
+    ),
+    ConfigFieldMeta(
+        "webhook_shutdown_drain_seconds", "WEBHOOK_SHUTDOWN_DRAIN_SECONDS", float, 5.0,
+        "On gateway shutdown, wait up to this many seconds for in-flight webhook deliveries to finish before cancelling them. Set to 0 for immediate cancel.",
         category="webhook",
     ),
 

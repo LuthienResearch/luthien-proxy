@@ -1869,3 +1869,36 @@ class TestInferenceProviderRoutes:
         with pytest.raises(HTTPException) as exc:
             await delete_inference_provider(name="p", _=AUTH_TOKEN, registry=mock_registry)
         assert exc.value.status_code == 503
+
+
+class TestWebhookStatsRoute:
+    """Test /api/admin/webhook/stats route handler."""
+
+    @pytest.mark.asyncio
+    async def test_returns_disabled_shape_when_sender_missing(self):
+        from luthien_proxy.admin.routes import webhook_stats
+
+        result = await webhook_stats(_=AUTH_TOKEN, webhook_sender=None)
+        assert result.enabled is False
+        assert result.safe_url == ""
+        assert result.pending_depth == 0
+        assert result.dropped_count == 0
+        assert result.max_pending_tasks == 0
+
+    @pytest.mark.asyncio
+    async def test_returns_sender_counters(self):
+        from luthien_proxy.admin.routes import webhook_stats
+
+        sender = MagicMock()
+        sender.enabled = True
+        sender.safe_url = "https://hooks.example.com/..."
+        sender.pending_depth = 7
+        sender.dropped_count = 42
+        sender.max_pending_tasks = 1000
+
+        result = await webhook_stats(_=AUTH_TOKEN, webhook_sender=sender)
+        assert result.enabled is True
+        assert result.safe_url == "https://hooks.example.com/..."
+        assert result.pending_depth == 7
+        assert result.dropped_count == 42
+        assert result.max_pending_tasks == 1000

@@ -638,6 +638,7 @@ async def _handle_execution_streaming(
         with restore_context(parent_context):
             chunk_count = 0
             emitted_any = False
+            stream_completed = False
             final_status = 200
             accumulated_events: list[MessageStreamEvent] = []
             with tracer.start_as_current_span("process_response") as response_span:
@@ -659,6 +660,7 @@ async def _handle_execution_streaming(
                             accumulated_events.append(cast_emitted)
                             chunk_count += 1
                             yield _format_sse_event(cast_emitted)
+                    stream_completed = True
                 except Exception as e:
                     caught_exception = True
                     # Headers may already be sent, so emit an in-stream error event.
@@ -760,22 +762,32 @@ async def _handle_execution_streaming(
                                 input_tokens=usage.get("input_tokens", 0),
                                 output_tokens=usage.get("output_tokens", 0),
                             )
-                    if webhook_sender and webhook_sender.enabled and final_status == 200:
-                        _input_tokens = 0
-                        _output_tokens = 0
-                        if reconstructed is not None and "usage" in reconstructed:
-                            _usage = reconstructed["usage"]
-                            _input_tokens = _usage.get("input_tokens", 0)
-                            _output_tokens = _usage.get("output_tokens", 0)
+                    # Fire webhook only when we know the final state of the response
+                    # to the client. Skipping on bare client-disconnect (no
+                    # caught exception, no completion, no empty-stream branch)
+                    # avoids reporting a false success — see PR #741 issue #2.
+                    if (
+                        webhook_sender
+                        and webhook_sender.enabled
+                        and (stream_completed or caught_exception or not emitted_any)
+                    ):
+                        _usage = (reconstructed or {}).get("usage", {}) if reconstructed else {}
+                        _model = (reconstructed.get("model") if reconstructed else None) or io.request.get(
+                            "model", "unknown"
+                        )
                         _duration_ms = int((time.monotonic() - request_start_time) * 1000) if request_start_time else 0
                         webhook_sender.fire_and_forget(
                             session_id=policy_ctx.session_id,
                             transaction_id=call_id,
-                            model=io.request.get("model", "unknown"),
-                            input_tokens=_input_tokens,
-                            output_tokens=_output_tokens,
+                            model=_model,
+                            input_tokens=_usage.get("input_tokens", 0),
+                            output_tokens=_usage.get("output_tokens", 0),
+                            cache_creation_input_tokens=_usage.get("cache_creation_input_tokens", 0),
+                            cache_read_input_tokens=_usage.get("cache_read_input_tokens", 0),
                             duration_ms=_duration_ms,
                             is_streaming=True,
+                            success=stream_completed and final_status == 200,
+                            http_status=final_status,
                         )
 
     return FastAPIStreamingResponse(
@@ -880,6 +892,10 @@ async def _handle_execution_non_streaming(
                     output_tokens=usage.get("output_tokens", 0),
                 )
 
+        # Non-streaming reaches here only on the success path; error paths
+        # raise BackendAPIError above and never fire the webhook. The
+        # streaming path's stream_completed/caught_exception logic has no
+        # equivalent here because there's no in-band error event to send.
         if webhook_sender and webhook_sender.enabled:
             _ns_usage = final_response.get("usage") or {}
             _duration_ms = int((time.monotonic() - request_start_time) * 1000) if request_start_time else 0
@@ -889,8 +905,12 @@ async def _handle_execution_non_streaming(
                 model=final_response.get("model") or io.request.get("model", "unknown"),
                 input_tokens=_ns_usage.get("input_tokens", 0),
                 output_tokens=_ns_usage.get("output_tokens", 0),
+                cache_creation_input_tokens=_ns_usage.get("cache_creation_input_tokens", 0),
+                cache_read_input_tokens=_ns_usage.get("cache_read_input_tokens", 0),
                 duration_ms=_duration_ms,
                 is_streaming=False,
+                success=True,
+                http_status=200,
             )
 
         return JSONResponse(

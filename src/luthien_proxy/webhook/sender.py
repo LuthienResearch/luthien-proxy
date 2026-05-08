@@ -1,8 +1,14 @@
 """Webhook sender for conversation completion events.
 
 Fires a POST request to a configurable endpoint when a conversation completes.
-Supports exponential-backoff retry logic for failed deliveries.
-Failures are logged and discarded — never block the response path.
+Exponential backoff with jitter, capped retry delay, bounded pending-task pool,
+and a bounded drain window on shutdown.
+
+**Delivery semantics: at-most-once, best-effort.** Failures after retries are
+logged and dropped. Webhooks queued at shutdown beyond the drain window are
+cancelled. Process crash mid-retry loses the event. Not suitable for systems
+that require at-least-once delivery (use the durable Postgres event recorder
+for that).
 """
 
 from __future__ import annotations
@@ -29,12 +35,15 @@ SEND_TIMEOUT_SECONDS = 10
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY_SECONDS = 1.0
 DEFAULT_MAX_PENDING_TASKS = 1000
+DEFAULT_SHUTDOWN_DRAIN_SECONDS = 5.0
 
 
 class _UsageCounts(TypedDict):
     input_tokens: int
     output_tokens: int
     total_tokens: int
+    cache_creation_input_tokens: int
+    cache_read_input_tokens: int
 
 
 class ConversationCompletedPayload(TypedDict):
@@ -46,6 +55,8 @@ class ConversationCompletedPayload(TypedDict):
     usage: _UsageCounts
     duration_ms: int
     is_streaming: bool
+    success: bool
+    http_status: int
     timestamp: str
 
 
@@ -58,6 +69,10 @@ def build_payload(
     output_tokens: int,
     duration_ms: int,
     is_streaming: bool,
+    success: bool,
+    http_status: int,
+    cache_creation_input_tokens: int = 0,
+    cache_read_input_tokens: int = 0,
 ) -> ConversationCompletedPayload:
     """Build the JSON payload for a conversation completion webhook.
 
@@ -69,6 +84,13 @@ def build_payload(
         output_tokens: Number of output tokens generated.
         duration_ms: Total request duration in milliseconds.
         is_streaming: Whether the response was streamed.
+        success: True iff the conversation completed cleanly and the client
+            received the full response. False on errors and on streaming
+            client-disconnect mid-flight.
+        http_status: Final HTTP status the gateway returned (or would have
+            returned, for streamed responses where headers were already sent).
+        cache_creation_input_tokens: Anthropic prompt-cache write tokens.
+        cache_read_input_tokens: Anthropic prompt-cache read tokens.
 
     Returns:
         Typed payload dict ready for JSON serialisation.
@@ -81,9 +103,13 @@ def build_payload(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=input_tokens + output_tokens,
+            cache_creation_input_tokens=cache_creation_input_tokens,
+            cache_read_input_tokens=cache_read_input_tokens,
         ),
         duration_ms=duration_ms,
         is_streaming=is_streaming,
+        success=success,
+        http_status=http_status,
         timestamp=datetime.now(UTC).isoformat(),
     )
 
@@ -108,6 +134,7 @@ class WebhookSender:
         max_retries: int = DEFAULT_MAX_RETRIES,
         retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
         max_pending_tasks: int = DEFAULT_MAX_PENDING_TASKS,
+        shutdown_drain_seconds: float = DEFAULT_SHUTDOWN_DRAIN_SECONDS,
     ) -> None:
         """Initialize the webhook sender.
 
@@ -118,6 +145,9 @@ class WebhookSender:
             max_pending_tasks: Maximum in-flight delivery tasks. New webhooks
                 are dropped (with a warning log) when this cap is reached.
                 Prevents unbounded memory growth when the endpoint is slow/down.
+            shutdown_drain_seconds: On ``stop()``, wait up to this long for
+                in-flight tasks to finish before cancelling survivors. Set to
+                ``0`` for immediate cancel-only (legacy behavior).
         """
         self._url = url or None
         if self._url:
@@ -131,8 +161,10 @@ class WebhookSender:
         self._max_retries = max_retries
         self._retry_delay_seconds = retry_delay_seconds
         self._max_pending_tasks = max_pending_tasks
+        self._shutdown_drain_seconds = shutdown_drain_seconds
         self._pending_tasks: set[asyncio.Task[None]] = set()
         self._dropped_due_to_backpressure = 0
+        self._stopped = False
         self._client = httpx.AsyncClient(timeout=SEND_TIMEOUT_SECONDS) if self._url else None
 
     @property
@@ -141,13 +173,29 @@ class WebhookSender:
         return bool(self._url)
 
     @property
-    def safe_url(self) -> str:
-        """URL safe for logging: strips userinfo, query, fragment, and path secret segments.
+    def pending_depth(self) -> int:
+        """Current in-flight delivery task count. Useful for backpressure alerting."""
+        return len(self._pending_tasks)
 
-        Slack/Discord/GitHub-style webhooks embed secrets in the path
-        (e.g. /services/T.../B.../SECRET). Preserve only the first path
-        segment and replace the rest with '...' to avoid leaking those secrets
-        while still making the log entry useful for identifying the endpoint.
+    @property
+    def dropped_count(self) -> int:
+        """Cumulative count of webhooks dropped due to pending-task cap (process lifetime)."""
+        return self._dropped_due_to_backpressure
+
+    @property
+    def max_pending_tasks(self) -> int:
+        """Configured cap on in-flight delivery tasks."""
+        return self._max_pending_tasks
+
+    @property
+    def safe_url(self) -> str:
+        """URL safe for logging: keeps scheme + host:port, redacts the entire path, query, fragment.
+
+        Any path segment can be a secret (Slack/Discord/GitHub bake them in
+        deeper paths; RequestBin/ngrok-style hooks bake them at the root).
+        Preserving "the first path segment" was unsafe for the root case
+        (https://host/SECRET → SECRET preserved). Redacting the whole path is
+        the only safe default; operators identify the endpoint by host:port.
         """
         if not self._url:
             return ""
@@ -156,9 +204,7 @@ class WebhookSender:
         if ":" in host:
             host = f"[{host}]"
         netloc = f"{host}:{parsed.port}" if parsed.port else host
-        # Keep only the first path segment; redact the rest
-        path_parts = parsed.path.split("/")
-        safe_path = "/".join(path_parts[:2]) + ("/..." if len(path_parts) > 2 else "")
+        safe_path = "/..." if parsed.path and parsed.path != "/" else parsed.path
         return urlunparse(parsed._replace(netloc=netloc, path=safe_path, query="", fragment=""))
 
     async def _attempt_send(self, payload: ConversationCompletedPayload) -> bool:
@@ -245,28 +291,39 @@ class WebhookSender:
         output_tokens: int,
         duration_ms: int,
         is_streaming: bool,
+        success: bool,
+        http_status: int,
+        cache_creation_input_tokens: int = 0,
+        cache_read_input_tokens: int = 0,
     ) -> None:
         """Dispatch a webhook delivery as a background task.
 
         Returns immediately — never blocks the response path. If the sender is
-        disabled (no URL configured), this is a no-op.
+        disabled, stopped, or at the pending-task cap, this is a no-op (with
+        backpressure logging in the cap case).
 
         Args:
             session_id: Session identifier.
             transaction_id: Unique transaction ID.
-            model: Model name.
+            model: Model name actually used by the upstream (response-side
+                preferred; request-side fallback).
             input_tokens: Input token count.
             output_tokens: Output token count.
             duration_ms: Request duration in milliseconds.
             is_streaming: Whether the response was streamed.
+            success: True iff the conversation completed cleanly.
+            http_status: Final HTTP status returned to the client.
+            cache_creation_input_tokens: Anthropic prompt-cache write tokens.
+            cache_read_input_tokens: Anthropic prompt-cache read tokens.
         """
-        if not self.enabled:
+        if not self.enabled or self._stopped:
             return
 
         if len(self._pending_tasks) >= self._max_pending_tasks:
             self._dropped_due_to_backpressure += 1
             n = self._dropped_due_to_backpressure
-            if n == 1 or (n < 1000 and n % 10 == 0) or n % 1000 == 0:
+            # Decade thresholds for early signal, then every 1000 for sustained backpressure.
+            if n in (1, 10, 100, 1000) or n % 1000 == 0:
                 logger.warning(
                     "Webhook backpressure: dropped %d webhook(s) — pending task cap %d reached (url=%s)",
                     self._dropped_due_to_backpressure,
@@ -283,28 +340,58 @@ class WebhookSender:
             output_tokens=output_tokens,
             duration_ms=duration_ms,
             is_streaming=is_streaming,
+            success=success,
+            http_status=http_status,
+            cache_creation_input_tokens=cache_creation_input_tokens,
+            cache_read_input_tokens=cache_read_input_tokens,
         )
-        task = asyncio.create_task(self._send_with_retries(payload))
+        # Insert a placeholder before scheduling so the discard callback can never
+        # fire before the task is in the set, regardless of asyncio scheduling.
+        task = asyncio.ensure_future(self._send_with_retries(payload))
+        self._pending_tasks.add(task)
         task.add_done_callback(self._pending_tasks.discard)
         task.add_done_callback(_log_task_exception)
-        # add() after callbacks: safe because create_task does not run the
-        # coroutine before the next event-loop tick, so the task cannot
-        # complete (and trigger discard) before it enters the set.
-        self._pending_tasks.add(task)
 
     async def stop(self) -> None:
-        """Cancel pending tasks and close the shared HTTP client.
+        """Drain pending tasks (bounded), cancel survivors, close the HTTP client.
 
-        Call during application shutdown to prevent 'Event loop is closed' errors
-        from in-flight tasks sleeping in exponential backoff, and to release
-        the underlying connection pool cleanly.
+        Sequence:
+          1. Mark stopped so subsequent fire_and_forget calls are no-ops.
+          2. Wait up to ``shutdown_drain_seconds`` for in-flight deliveries
+             (including their retry backoff sleeps) to finish.
+          3. Cancel anything still running.
+          4. Close the shared httpx client.
+
+        Call during application shutdown.
         """
+        self._stopped = True
         if self._pending_tasks:
             tasks = list(self._pending_tasks)
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            drained = 0
+            cancelled = 0
+            if self._shutdown_drain_seconds > 0:
+                done, pending = await asyncio.wait(
+                    tasks,
+                    timeout=self._shutdown_drain_seconds,
+                    return_when=asyncio.ALL_COMPLETED,
+                )
+                drained = len(done)
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    await asyncio.gather(*pending, return_exceptions=True)
+                cancelled = len(pending)
+            else:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                cancelled = len(tasks)
             self._pending_tasks.clear()
-            logger.debug("WebhookSender stopped (%d in-flight tasks cancelled)", len(tasks))
+            logger.info(
+                "WebhookSender stopped: %d drained, %d cancelled, %d dropped (lifetime)",
+                drained,
+                cancelled,
+                self._dropped_due_to_backpressure,
+            )
         if self._client is not None:
             await self._client.aclose()
