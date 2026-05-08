@@ -180,7 +180,7 @@ def handle_tool_use_block_delta(
     if event.index in buffer and isinstance(event.delta, InputJSONDelta):
         buffer[event.index].input_json += event.delta.partial_json
         return []
-    return [event]
+    return [cast(MessageStreamEvent, event)]
 
 
 def build_allowed_tool_use_events(

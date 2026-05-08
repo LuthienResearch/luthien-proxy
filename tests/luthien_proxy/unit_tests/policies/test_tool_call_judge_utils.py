@@ -7,6 +7,8 @@ Tests for the utility functions used by ToolCallJudgePolicy:
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 from anthropic.types import (
     InputJSONDelta,
@@ -18,10 +20,12 @@ from anthropic.types import (
     ToolUseBlock,
 )
 
+from luthien_proxy.llm.types.anthropic import AnthropicResponse
 from luthien_proxy.policies.tool_call_judge_policy import ToolCallJudgeConfig
 from luthien_proxy.policies.tool_call_judge_utils import (
     BufferedToolUse,
     build_allowed_tool_use_events,
+    build_blocked_non_streaming_response,
     build_blocked_text_events,
     build_judge_prompt,
     handle_tool_use_block_delta,
@@ -211,6 +215,20 @@ class TestHandleToolUseBlockDelta:
         result = handle_tool_use_block_delta(event, buffer)
         assert len(result) == 1
 
+    def test_non_input_json_delta_on_buffered_index_passes_through(self):
+        """Non-InputJSONDelta arriving on a buffered index passes through unchanged.
+
+        The Anthropic stream contract makes this impossible in practice, but the
+        function must not silently drop such events.
+        """
+        buffer = {0: BufferedToolUse(id="t", name="Bash")}
+        delta = TextDelta(type="text_delta", text="unexpected")
+        event = RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=delta)
+        result = handle_tool_use_block_delta(event, buffer)
+        assert len(result) == 1
+        assert result[0] is event
+        assert buffer[0].input_json == ""
+
 
 class TestBuildAllowedToolUseEvents:
     def test_returns_start_delta_stop(self):
@@ -250,6 +268,57 @@ class TestBuildBlockedTextEvents:
         assert isinstance(events[1].delta, TextDelta)
         assert events[1].delta.text == "BLOCKED: dangerous"
         assert events[2].type == "content_block_stop"
+
+
+def _make_response(content: list, stop_reason: str | None) -> AnthropicResponse:
+    return cast(
+        AnthropicResponse,
+        {
+            "id": "msg_test",
+            "type": "message",
+            "role": "assistant",
+            "content": content,
+            "model": "claude-haiku-4-5",
+            "stop_reason": stop_reason,
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        },
+    )
+
+
+class TestBuildBlockedNonStreamingResponse:
+    def test_all_tool_use_replaced_rewrites_stop_reason(self):
+        original = _make_response(
+            content=[{"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}],
+            stop_reason="tool_use",
+        )
+        new_content = [{"type": "text", "text": "BLOCKED"}]
+        result = build_blocked_non_streaming_response(original, new_content)  # type: ignore[arg-type]
+        assert result.get("stop_reason") == "end_turn"
+        assert result["content"] == new_content
+
+    def test_remaining_tool_use_preserves_stop_reason(self):
+        original = _make_response(
+            content=[
+                {"type": "tool_use", "id": "t1", "name": "Bash", "input": {}},
+                {"type": "tool_use", "id": "t2", "name": "Read", "input": {}},
+            ],
+            stop_reason="tool_use",
+        )
+        new_content = [
+            {"type": "text", "text": "BLOCKED"},
+            {"type": "tool_use", "id": "t2", "name": "Read", "input": {}},
+        ]
+        result = build_blocked_non_streaming_response(original, new_content)  # type: ignore[arg-type]
+        assert result.get("stop_reason") == "tool_use"
+
+    def test_non_tool_use_stop_reason_preserved(self):
+        original = _make_response(
+            content=[{"type": "text", "text": "hello"}],
+            stop_reason="end_turn",
+        )
+        new_content = [{"type": "text", "text": "modified"}]
+        result = build_blocked_non_streaming_response(original, new_content)  # type: ignore[arg-type]
+        assert result.get("stop_reason") == "end_turn"
 
 
 if __name__ == "__main__":
