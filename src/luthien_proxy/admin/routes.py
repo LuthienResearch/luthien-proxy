@@ -435,7 +435,7 @@ async def _resolve_test_anthropic_client(
                 auth_type="api_key",
             )
             return client, None
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:
             logger.error(f"Failed to build AnthropicClient from supplied api_key: {repr(exc)}")
             return None, "Failed to initialize Anthropic client with supplied api_key"
 
@@ -489,6 +489,12 @@ def _build_test_raw_http_request(
     invocation.
     """
     headers = {k.lower(): v for k, v in fastapi_request.headers.items()}
+    # Shallow copy intentionally — mirrors the aliasing semantics of the
+    # gateway pipeline at anthropic_processor.py (`raw_http_request = RawHttpRequest(body=body, ...)`
+    # where `body` is the parsed inbound JSON), so policy hooks reading
+    # raw_http_request.body see the same nested-list/dict identities they
+    # would in production. A future deep-copy on either side should be
+    # made on both sides to keep the contract consistent.
     body = cast(dict[str, Any], dict(original_request))
     return RawHttpRequest(
         body=body,
