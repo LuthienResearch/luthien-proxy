@@ -43,7 +43,7 @@ from luthien_proxy.admin.routes import (
     update_telemetry_config,
 )
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CachedCredential, CredentialManager
-from luthien_proxy.credentials import CredentialError
+from luthien_proxy.credentials import Credential, CredentialError, CredentialType
 from luthien_proxy.dependencies import require_credential_manager
 from luthien_proxy.policy_manager import PolicyEnableResult
 
@@ -326,6 +326,61 @@ def _make_deps(*, policy=None, anthropic_client=None, raise_on_get_policy=False)
     return deps
 
 
+def _make_fastapi_request(headers: dict[str, str] | None = None) -> MagicMock:
+    """Build a minimal FastAPI Request stand-in.
+
+    send_chat reads ``request.headers`` (dict-like), ``request.method``, and
+    ``request.url.path`` to build the RawHttpRequest. A MagicMock with
+    those attributes is sufficient.
+    """
+    fastapi_request = MagicMock()
+    fastapi_request.headers = dict(headers or {"x-test": "1"})
+    fastapi_request.method = "POST"
+    fastapi_request.url = MagicMock()
+    fastapi_request.url.path = "/api/admin/test/chat"
+    return fastapi_request
+
+
+def _make_emitter() -> MagicMock:
+    """Build a recording emitter stand-in (matches EventEmitterProtocol's record(...))."""
+    emitter = MagicMock()
+    emitter.record = MagicMock()
+    return emitter
+
+
+def _make_credential_manager() -> MagicMock:
+    """Build a CredentialManager stand-in.
+
+    Tests don't exercise credential_manager methods directly; they only need
+    something to thread through PolicyContext. Policies that consume the
+    manager get a MagicMock — they can patch around it as needed.
+    """
+    return MagicMock()
+
+
+def _send_chat_kwargs(
+    *,
+    deps,
+    fastapi_request=None,
+    db_pool=None,
+    credential_manager=None,
+    emitter=None,
+):
+    """Build the keyword args for send_chat with sensible defaults.
+
+    The route handler now takes 6 dependencies; tests don't all care about
+    every one. This helper centralizes the defaults.
+    """
+    return {
+        "fastapi_request": fastapi_request or _make_fastapi_request(),
+        "_": AUTH_TOKEN,
+        "deps": deps,
+        "db_pool": db_pool,
+        "credential_manager": credential_manager or _make_credential_manager(),
+        "emitter": emitter or _make_emitter(),
+    }
+
+
 class TestSendChatRoute:
     """Test send_chat route handler — Before/After orchestration."""
 
@@ -341,7 +396,7 @@ class TestSendChatRoute:
         deps = _make_deps(policy=policy, anthropic_client=client)
 
         request = ChatRequest(model="claude-haiku-4-5", message="Hello!")
-        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
 
         assert isinstance(result, ChatResponse)
         assert result.success is True
@@ -369,7 +424,7 @@ class TestSendChatRoute:
         deps = _make_deps(policy=policy, anthropic_client=client)
 
         request = ChatRequest(model="claude-haiku-4-5", message="hi")
-        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
 
         assert result.success is True
         assert result.before_content == "hello world"
@@ -394,7 +449,7 @@ class TestSendChatRoute:
         deps = _make_deps(policy=policy, anthropic_client=client)
 
         request = ChatRequest(model="claude-haiku-4-5", message="explain x")
-        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
 
         assert result.success is True
         assert result.before_content == "long winded original answer"
@@ -425,7 +480,7 @@ class TestSendChatRoute:
         deps = _make_deps(policy=policy, anthropic_client=client)
 
         request = ChatRequest(model="claude-haiku-4-5", message="how do I do bad thing")
-        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
 
         assert result.success is True
         assert result.before_content == "dangerous instructions"
@@ -440,7 +495,7 @@ class TestSendChatRoute:
         deps = _make_deps(policy=policy, anthropic_client=client)
 
         request = ChatRequest(model="claude-haiku-4-5", message="echo me", use_mock=True)
-        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
 
         assert result.success is True
         assert result.before_content == "echo me"
@@ -455,7 +510,7 @@ class TestSendChatRoute:
         deps = _make_deps(policy=None, anthropic_client=None)
 
         request = ChatRequest(model="claude-haiku-4-5", message="hi", use_mock=True)
-        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
 
         assert result.success is True
         assert result.before_content == "hi"
@@ -467,7 +522,7 @@ class TestSendChatRoute:
         deps = _make_deps(policy=_RecordingPolicy(), anthropic_client=None)
 
         request = ChatRequest(model="claude-haiku-4-5", message="Hello!")
-        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
 
         assert result.success is False
         assert result.error is not None
@@ -484,7 +539,7 @@ class TestSendChatRoute:
         deps = _make_deps(policy=_RecordingPolicy(), anthropic_client=None)
         request = ChatRequest(model="claude-haiku-4-5", message="hi", api_key="sk-test-1")
 
-        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
 
         assert result.success is True
         assert result.before_content == "ok"
@@ -499,7 +554,7 @@ class TestSendChatRoute:
         deps = _make_deps(policy=policy, anthropic_client=client)
 
         request = ChatRequest(model="claude-haiku-4-5", message="hi")
-        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
 
         assert result.success is False
         assert result.before_content is None
@@ -522,7 +577,7 @@ class TestSendChatRoute:
         deps = _make_deps(policy=policy, anthropic_client=client)
 
         request = ChatRequest(model="claude-haiku-4-5", message="hi")
-        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
 
         assert result.success is False
         assert result.before_content == "raw"
@@ -543,7 +598,7 @@ class TestSendChatRoute:
         deps = _make_deps(policy=policy, anthropic_client=client)
 
         request = ChatRequest(model="claude-haiku-4-5", message="hi")
-        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
 
         assert result.success is False
         assert result.before_content == "raw"
@@ -560,7 +615,7 @@ class TestSendChatRoute:
 
         request = ChatRequest(model="claude-haiku-4-5", message="hi")
         with pytest.raises(HTTPException) as exc_info:
-            await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+            await send_chat(body=request, **_send_chat_kwargs(deps=deps))
 
         assert exc_info.value.status_code == 500
 
@@ -585,7 +640,7 @@ class TestSendChatRoute:
         deps = _make_deps(policy=policy, anthropic_client=client)
 
         request = ChatRequest(model="claude-haiku-4-5", message="use a tool")
-        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
 
         assert result.success is True
         assert result.before_content is None
@@ -623,6 +678,196 @@ class TestSendChatRoute:
         resp = ChatResponse(success=True, content="after", before_content="before")
         assert resp.content == "after"
         assert resp.before_content == "before"
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.anthropic_client_cache.get_client")
+    async def test_full_policy_context_is_threaded_through_hooks(self, mock_get_client):
+        """The PolicyContext passed to hooks carries emitter, credential_manager, raw_http_request, session_id."""
+
+        captured_contexts: list = []
+
+        class _ContextCapturingPolicy(_RecordingPolicy):
+            async def on_anthropic_request(self, request, context):
+                captured_contexts.append(context)
+                return await super().on_anthropic_request(request, context)
+
+            async def on_anthropic_response(self, response, context):
+                captured_contexts.append(context)
+                return await super().on_anthropic_response(response, context)
+
+        policy = _ContextCapturingPolicy()
+        client = MagicMock()
+        client.complete = AsyncMock(return_value=_anthropic_response("ok"))
+        mock_get_client.return_value = client
+        deps = _make_deps(policy=policy, anthropic_client=None)
+        emitter = _make_emitter()
+        cred_mgr = _make_credential_manager()
+        fastapi_request = _make_fastapi_request({"x-session-id": "abc", "anthropic-beta": "prompt-caching-2024-07-31"})
+
+        request = ChatRequest(model="claude-haiku-4-5", message="hi", api_key="sk-test-1")
+        result = await send_chat(
+            body=request,
+            **_send_chat_kwargs(
+                deps=deps,
+                fastapi_request=fastapi_request,
+                emitter=emitter,
+                credential_manager=cred_mgr,
+            ),
+        )
+        assert result.success is True
+
+        # Both hooks saw the same ctx; ctx is fully populated.
+        assert len(captured_contexts) == 2
+        ctx = captured_contexts[0]
+        assert ctx is captured_contexts[1]
+        # transaction_id is per-test (uuid prefix).
+        assert ctx.transaction_id.startswith("admin-test-")
+        # session_id marks it as test traffic.
+        assert ctx.session_id is not None
+        assert ctx.session_id.startswith("admin-test-session-")
+        # Emitter and credential manager are the wired dependencies.
+        assert ctx.emitter is emitter
+        # credential_manager flows through; access via the property does not raise.
+        assert ctx._credential_manager is cred_mgr  # noqa: SLF001 — testing wiring
+        # user_credential reflects body.api_key (passthrough-style API key credential).
+        assert ctx.user_credential is not None
+        assert ctx.user_credential.value == "sk-test-1"
+        assert ctx.user_credential.credential_type == CredentialType.API_KEY
+        # raw_http_request carries the inbound headers from the admin caller.
+        assert ctx.raw_http_request is not None
+        assert ctx.raw_http_request.headers.get("anthropic-beta") == "prompt-caching-2024-07-31"
+        assert ctx.raw_http_request.path == "/api/admin/test/chat"
+
+    @pytest.mark.asyncio
+    async def test_user_credential_is_none_when_no_api_key_supplied(self):
+        """Without body.api_key, user_credential is None — matches client-key-mode semantics."""
+
+        captured: list = []
+
+        class _Cap(_RecordingPolicy):
+            async def on_anthropic_request(self, request, context):
+                captured.append(context)
+                return await super().on_anthropic_request(request, context)
+
+        client = MagicMock()
+        client.complete = AsyncMock(return_value=_anthropic_response("x"))
+        # Server has its own anthropic client configured (client-key mode).
+        deps = _make_deps(policy=_Cap(), anthropic_client=client)
+
+        request = ChatRequest(model="claude-haiku-4-5", message="hi")  # no api_key
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
+        assert result.success is True
+        assert captured[0].user_credential is None
+
+    @pytest.mark.asyncio
+    async def test_policy_cache_factory_is_set_when_db_pool_present(self):
+        """When db_pool is present, ctx.has_policy_cache is True (factory was wired)."""
+
+        captured: list = []
+
+        class _Cap(_RecordingPolicy):
+            async def on_anthropic_request(self, request, context):
+                captured.append(context)
+                return await super().on_anthropic_request(request, context)
+
+        client = MagicMock()
+        client.complete = AsyncMock(return_value=_anthropic_response("x"))
+        deps = _make_deps(policy=_Cap(), anthropic_client=client)
+        # db_pool is a stand-in — PolicyCache won't actually run, the factory is just installed.
+        db_pool = MagicMock()
+
+        request = ChatRequest(model="claude-haiku-4-5", message="hi")
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps, db_pool=db_pool))
+        assert result.success is True
+        assert captured[0].has_policy_cache is True
+
+    @pytest.mark.asyncio
+    async def test_policy_cache_factory_is_none_without_db_pool(self):
+        """Without a db_pool, ctx.has_policy_cache is False — same as dockerless dev without DB."""
+
+        captured: list = []
+
+        class _Cap(_RecordingPolicy):
+            async def on_anthropic_request(self, request, context):
+                captured.append(context)
+                return await super().on_anthropic_request(request, context)
+
+        client = MagicMock()
+        client.complete = AsyncMock(return_value=_anthropic_response("x"))
+        deps = _make_deps(policy=_Cap(), anthropic_client=client)
+
+        request = ChatRequest(model="claude-haiku-4-5", message="hi")
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps, db_pool=None))
+        assert result.success is True
+        assert captured[0].has_policy_cache is False
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.anthropic_client_cache.get_client")
+    async def test_simple_llm_policy_runs_end_to_end_via_test_endpoint(self, mock_get_client):
+        """End-to-end: a SimpleLLMPolicy runs through the test endpoint with a real PolicyContext.
+
+        Mocks at the Anthropic-client and judge boundaries only — the policy's
+        own machinery (block descriptors, credential resolution via
+        credential_manager.resolve, judge invocation, response rebuilding)
+        runs unmodified. This pins that the test endpoint can preview the
+        most operationally-interesting class of policies (LLM judges) and
+        not just trivial response transformers.
+        """
+        from luthien_proxy.policies.simple_llm_policy import SimpleLLMPolicy
+        from luthien_proxy.policies.simple_llm_utils import (
+            JudgeAction,
+            ReplacementBlock,
+            SimpleLLMJudgeConfig,
+        )
+
+        config = SimpleLLMJudgeConfig(
+            instructions="Replace any mention of 'cat' with 'dog'.",
+            on_error="pass",
+            auth_provider="user_credentials",
+        )
+        policy = SimpleLLMPolicy(config=config)
+
+        # Anthropic-client returns a text block; judge returns a "replace" action.
+        before = _anthropic_response("I love cats.")
+        client = MagicMock()
+        client.complete = AsyncMock(return_value=before)
+        mock_get_client.return_value = client
+
+        # credential_manager.resolve must return a Credential (the user_credential
+        # from the test ctx, since auth_provider='user_credentials').
+        cred_mgr = MagicMock()
+        cred_mgr.resolve = AsyncMock(
+            return_value=Credential(
+                value="sk-test-1",
+                credential_type=CredentialType.API_KEY,
+                platform="anthropic",
+            )
+        )
+
+        deps = _make_deps(policy=policy, anthropic_client=None)
+        request = ChatRequest(model="claude-haiku-4-5", message="tell me about cats", api_key="sk-test-1")
+
+        with patch(
+            "luthien_proxy.policies.simple_llm_policy.call_simple_llm_judge",
+            new=AsyncMock(
+                return_value=JudgeAction(
+                    action="replace",
+                    blocks=(ReplacementBlock(type="text", text="I love dogs."),),
+                )
+            ),
+        ):
+            result = await send_chat(
+                body=request,
+                **_send_chat_kwargs(deps=deps, credential_manager=cred_mgr),
+            )
+
+        assert result.success is True
+        assert result.before_content == "I love cats."
+        assert result.content == "I love dogs."
+        # credential_manager.resolve was actually called by the policy — proves
+        # the full PolicyContext (with credential_manager wired) threaded
+        # through the hooks.
+        cred_mgr.resolve.assert_awaited()
 
 
 class TestAuthConfigUpdateRequestValidation:
