@@ -155,7 +155,7 @@ async def test_refill_math(monkeypatch):
     for _ in range(10):
         await limiter.check("key")
     original_monotonic = time_module.monotonic
-    monkeypatch.setattr(time_module, "monotonic", lambda: original_monotonic() + 5.0)
+    monkeypatch.setattr("luthien_proxy.rate_limit.time.monotonic", lambda: original_monotonic() + 5.0)
     for _ in range(5):
         await limiter.check("key")
     with pytest.raises(HTTPException):
@@ -190,10 +190,21 @@ async def test_lru_eviction_spares_recently_accessed():
 
 @pytest.mark.asyncio
 async def test_key_is_hashed():
+    import hashlib
+
     limiter = TokenBucketRateLimiter(rpm=60, burst=60)
     raw_key = "sk-secret-token-12345"
     await limiter.check(raw_key)
     assert raw_key not in limiter._buckets
     stored_key = next(iter(limiter._buckets))
-    assert len(stored_key) == 64
-    assert all(c in "0123456789abcdef" for c in stored_key)
+    assert stored_key == hashlib.sha256(raw_key.encode()).hexdigest()
+
+
+def test_negative_rpm_raises():
+    with pytest.raises(ValueError, match="rpm"):
+        TokenBucketRateLimiter(rpm=-1, burst=0)
+
+
+def test_negative_burst_raises():
+    with pytest.raises(ValueError, match="burst"):
+        TokenBucketRateLimiter(rpm=60, burst=-1)

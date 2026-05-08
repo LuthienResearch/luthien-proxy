@@ -35,6 +35,11 @@ class TokenBucketRateLimiter:
     on verify_token, so only authenticated callers consume bucket capacity. This is
     intentional: it prevents unauthenticated attackers from evicting legitimate
     users' buckets.
+
+    Note: if a bucket is evicted while a coroutine is holding its per-key lock,
+    that coroutine's state update is lost and the next request for the same key
+    gets a fresh full-burst bucket. This breaks serialization across the eviction
+    boundary but is acceptable for an in-process limiter under normal load.
     """
 
     def __init__(self, rpm: int, burst: int, max_keys: int = 10_000) -> None:
@@ -100,7 +105,8 @@ class TokenBucketRateLimiter:
             tokens, last_time = state[0], state[1]
             elapsed = now - last_time
             tokens = min(self.burst, tokens + elapsed * (self.rpm / 60.0))
-            state[1] = now
+            state[1] = now  # advance timestamp on both allow and deny paths so
+            # Retry-After is computed from the deny moment, not the last success
 
             if tokens < 1.0:
                 tokens_needed = 1.0 - tokens
