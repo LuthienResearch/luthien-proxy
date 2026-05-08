@@ -328,6 +328,12 @@ def create_app(
             _purger = ConversationPurger(db_pool=db_pool, retention_days=_retention_days, archiver=_archiver)
             _purger.start()
         else:
+            if settings.archive_s3_bucket:
+                logger.warning(
+                    "ARCHIVE_S3_BUCKET=%s is set but CONVERSATION_RETENTION_DAYS is not — "
+                    "no archival will run. Set CONVERSATION_RETENTION_DAYS to enable.",
+                    settings.archive_s3_bucket,
+                )
             logger.info("Conversation retention disabled (CONVERSATION_RETENTION_DAYS not set)")
 
         _dependencies = Dependencies(
