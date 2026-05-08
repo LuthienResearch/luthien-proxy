@@ -163,14 +163,29 @@ async def test_refill_math(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_lru_eviction():
+async def test_lru_eviction_fifo_when_no_access():
     limiter = TokenBucketRateLimiter(rpm=60, burst=60, max_keys=3)
     await limiter.check("key1")
     await limiter.check("key2")
     await limiter.check("key3")
     assert len(limiter._buckets) == 3
+    key1_hash = limiter._hash_key("key1")
     await limiter.check("key4")
     assert len(limiter._buckets) == 3
+    assert key1_hash not in limiter._buckets
+
+
+@pytest.mark.asyncio
+async def test_lru_eviction_spares_recently_accessed():
+    limiter = TokenBucketRateLimiter(rpm=60, burst=60, max_keys=3)
+    await limiter.check("key1")
+    await limiter.check("key2")
+    await limiter.check("key3")
+    await limiter.check("key1")
+    key2_hash = limiter._hash_key("key2")
+    await limiter.check("key4")
+    assert len(limiter._buckets) == 3
+    assert key2_hash not in limiter._buckets
 
 
 @pytest.mark.asyncio

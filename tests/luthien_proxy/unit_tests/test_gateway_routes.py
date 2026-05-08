@@ -579,3 +579,71 @@ class TestProxyPassthrough:
         client = TestClient(mock_app, raise_server_exceptions=False)
         response = client.get("/v1/models")
         assert response.status_code == 401
+
+
+class TestRateLimitingRouteIntegration:
+    """Test that rate limiting 429s surface correctly through the FastAPI route."""
+
+    @pytest.fixture
+    def rate_limited_app(self):
+        from luthien_proxy.dependencies import Dependencies
+        from luthien_proxy.gateway_routes import router
+        from luthien_proxy.policy_core import AnthropicExecutionInterface
+        from luthien_proxy.rate_limit import TokenBucketRateLimiter
+
+        app = FastAPI()
+        app.include_router(router)
+
+        mock_policy_manager = MagicMock()
+        mock_policy = MagicMock()
+        mock_policy.__class__.__name__ = "TestPolicy"
+        mock_policy_manager.current_policy = mock_policy
+
+        mock_anthropic_client = MagicMock(spec=AnthropicClient)
+        mock_anthropic_client._base_url = None
+
+        mock_credential_manager = MagicMock(spec=CredentialManager)
+        mock_credential_manager.config = AuthConfig(
+            auth_mode=AuthMode.CLIENT_KEY,
+            validate_credentials=True,
+            valid_cache_ttl_seconds=3600,
+            invalid_cache_ttl_seconds=300,
+        )
+        mock_credential_manager.validate_credential = AsyncMock(return_value=True)
+
+        mock_anthropic_policy = MagicMock(spec=AnthropicExecutionInterface)
+
+        deps = MagicMock(spec=Dependencies)
+        deps.api_key = "test-proxy-key"
+        deps.anthropic_client = mock_anthropic_client
+        deps.credential_manager = mock_credential_manager
+        deps.emitter = MagicMock()
+        deps.db_pool = None
+        deps.enable_request_logging = False
+        deps.rate_limiter = TokenBucketRateLimiter(rpm=60, burst=1)
+        deps.get_anthropic_policy.return_value = mock_anthropic_policy
+
+        app.state.dependencies = deps
+        return app
+
+    def test_rate_limited_request_returns_429_with_headers(self, rate_limited_app):
+        from tests.constants import DEFAULT_TEST_MODEL
+
+        with patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process:
+            mock_process.return_value = MagicMock()
+            client = TestClient(rate_limited_app, raise_server_exceptions=False)
+            payload = {
+                "model": DEFAULT_TEST_MODEL,
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 10,
+            }
+            headers = {"Authorization": "Bearer test-proxy-key"}
+            response1 = client.post("/v1/messages", json=payload, headers=headers)
+            assert response1.status_code == 200
+
+            response2 = client.post("/v1/messages", json=payload, headers=headers)
+            assert response2.status_code == 429
+            assert "Retry-After" in response2.headers
+            assert "x-ratelimit-limit" in response2.headers
+            assert "x-ratelimit-remaining" in response2.headers
+            assert "x-ratelimit-reset" in response2.headers

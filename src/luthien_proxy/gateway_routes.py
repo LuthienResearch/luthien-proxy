@@ -180,6 +180,7 @@ async def check_rate_limit(
     credential: Credential = Depends(verify_token),
     rate_limiter: TokenBucketRateLimiter | None = Depends(get_rate_limiter),
 ) -> None:
+    """Enforce per-key rate limit. Raises HTTP 429 if the key's bucket is exhausted."""
     if rate_limiter is not None:
         await rate_limiter.check(credential.value)
 
