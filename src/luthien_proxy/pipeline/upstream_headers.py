@@ -249,6 +249,12 @@ def merge_forwarded_headers(
     dict entries and produce duplicate header lines on the wire.
 
     Returns ``None`` if both inputs are empty.
+
+    .. note::
+       When one input is empty, the *other input is returned by reference*
+       (no copy) to avoid an allocation on the request hot path. Callers
+       must treat the return value as read-only — mutating it would
+       silently mutate the original ``base`` or ``upstream`` dict.
     """
     if not upstream:
         return base or None
