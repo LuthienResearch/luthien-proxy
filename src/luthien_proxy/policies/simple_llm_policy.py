@@ -95,6 +95,7 @@ class _SimpleLLMAnthropicState:
     emitted_blocks: list[BlockDescriptor] = field(default_factory=list)
     original_had_tool_use: bool = False
     judge_error_occurred: bool = False
+    max_emitted_index: int = -1
 
 
 class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
@@ -387,6 +388,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
 
             if action.action == "pass":
                 state.emitted_blocks.append(descriptor)
+                state.max_emitted_index = max(state.max_emitted_index, index)
                 events: list[MessageStreamEvent] = []
                 if pending_start is not None:
                     events.append(pending_start)
@@ -415,6 +417,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
 
             if action.action == "pass":
                 state.emitted_blocks.append(descriptor)
+                state.max_emitted_index = max(state.max_emitted_index, index)
                 return self._emit_anthropic_tool_events(index, buffered, event)
             elif action.action == "replace":
                 return self._emit_anthropic_replacement_events(index, action, state, event)
@@ -425,6 +428,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             else:
                 blocked_text = _blocked_tool_message(buffered.name)
             state.emitted_blocks.append(self._block_descriptor_from_text(blocked_text))
+            state.max_emitted_index = max(state.max_emitted_index, index)
             return self._make_anthropic_text_block_events(index, blocked_text)
 
         return [cast(MessageStreamEvent, event)]
@@ -443,7 +447,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
 
         # Inject judge-unavailable warning as a content block before message_delta
         if state.judge_error_occurred and self._config.on_error == "pass":
-            warning_index = len(state.emitted_blocks)
+            warning_index = state.max_emitted_index + 1
             events.extend(self._make_anthropic_warning_events(warning_index))
         elif state.judge_error_occurred and not state.emitted_blocks:
             events.extend(self._make_anthropic_text_block_events(0, JUDGE_ERROR_BLOCKED_MESSAGE))
@@ -557,6 +561,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                     ]
                 )
 
+            state.max_emitted_index = max(state.max_emitted_index, current_index)
             current_index += 1
 
         return events
