@@ -128,6 +128,7 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
         return context.get_request_state(self, _DogfoodAnthropicState, _DogfoodAnthropicState)
 
     def _anthropic_buffered_tool_uses(self, context: "PolicyContext") -> dict[int, BufferedToolUse]:
+        """Get request-scoped Anthropic tool_use buffers."""
         return self._anthropic_state(context).buffered_tool_uses
 
     # ========================================================================

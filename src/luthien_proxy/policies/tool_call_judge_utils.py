@@ -1,12 +1,14 @@
-"""Utilities for tool call judging with LLM.
+"""Utilities for tool call judging and Anthropic streaming tool_use buffering.
 
-This module provides the core judging functionality used by ToolCallJudgePolicy,
-and shared streaming buffer mechanics used by both ToolCallJudgePolicy and
-DogfoodSafetyPolicy:
+Judge-specific helpers (used by ToolCallJudgePolicy):
 - Building judge prompts
 - Parsing judge responses
-- Creating blocked response messages
-- Buffering and re-emitting streaming tool_use event sequences
+
+Policy-agnostic streaming helpers (used by any policy that intercepts tool_use blocks):
+- BufferedToolUse: accumulates input JSON across streaming deltas
+- handle_tool_use_block_start / handle_tool_use_block_delta: buffer or pass through
+- build_allowed_tool_use_events / build_blocked_text_events: reconstruct event sequences
+- build_blocked_non_streaming_response: apply modified content with stop_reason fix-up
 """
 
 from __future__ import annotations
@@ -229,8 +231,8 @@ def build_blocked_non_streaming_response(
 ) -> "AnthropicResponse":
     """Build a non-streaming response with modified content, fixing stop_reason if needed.
 
-    If all tool_use blocks were replaced (none remain in new_content) and the
-    original stop_reason was "tool_use", corrects it to "end_turn".
+    If new_content contains no tool_use blocks and response.stop_reason is "tool_use",
+    rewrites stop_reason to "end_turn".
     """
     modified_response = dict(response)
     modified_response["content"] = new_content

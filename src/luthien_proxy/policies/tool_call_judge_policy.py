@@ -191,6 +191,7 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         return context.get_request_state(self, _ToolCallJudgeAnthropicState, _ToolCallJudgeAnthropicState)
 
     def _anthropic_buffered_tool_uses(self, context: "PolicyContext") -> dict[int, BufferedToolUse]:
+        """Get request-scoped Anthropic tool_use buffer."""
         return self._anthropic_state(context).buffered_tool_uses
 
     def _anthropic_blocked_blocks(self, context: "PolicyContext") -> set[int]:
@@ -289,6 +290,7 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         event: RawContentBlockStopEvent,
         context: "PolicyContext",
     ) -> list[MessageStreamEvent]:
+        """Handle content_block_stop event - judge buffered tool_use if present."""
         index = event.index
         buffered_tool_uses = self._anthropic_buffered_tool_uses(context)
 
@@ -317,6 +319,7 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         }
 
     def _tool_call_from_anthropic_buffer(self, buffered: BufferedToolUse) -> ToolCallDict:
+        """Create tool call dict from buffered data."""
         return {
             "id": buffered.id,
             "name": buffered.name,
