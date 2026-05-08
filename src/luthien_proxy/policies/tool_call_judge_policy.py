@@ -385,11 +385,7 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         non-streaming behavior in on_anthropic_response (line 250-252).
         """
         state = self._anthropic_state(context)
-        if (
-            state.blocked_blocks
-            and not state.had_allowed_tool_use
-            and event.delta.stop_reason == "tool_use"
-        ):
+        if state.blocked_blocks and not state.had_allowed_tool_use and event.delta.stop_reason == "tool_use":
             rewritten = RawMessageDeltaEvent.model_construct(
                 type="message_delta",
                 delta=event.delta.model_copy(update={"stop_reason": "end_turn"}),

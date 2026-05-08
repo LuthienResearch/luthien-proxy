@@ -70,4 +70,4 @@ message_stop()
 
 - Trello: https://trello.com/c/zjzq6aP5
 - Branch: `fix/tool-judge-streaming-stop-reason`
-- PR: (filled later)
+- PR: https://github.com/LuthienResearch/luthien-proxy/pull/721
