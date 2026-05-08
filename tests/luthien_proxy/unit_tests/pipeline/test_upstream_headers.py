@@ -323,7 +323,12 @@ class TestMergeForwardedHeaders:
 
     def test_returns_upstream_when_base_is_none(self):
         upstream = {"Helicone-Auth": "Bearer x"}
-        assert merge_forwarded_headers(base=None, upstream=upstream) == upstream
+        # Aliased by reference per merge_forwarded_headers' contract.
+        assert merge_forwarded_headers(base=None, upstream=upstream) is upstream
+
+    def test_returns_upstream_when_base_is_empty(self):
+        upstream = {"Helicone-Auth": "Bearer x"}
+        assert merge_forwarded_headers(base={}, upstream=upstream) is upstream
 
     def test_returns_none_when_both_empty(self):
         assert merge_forwarded_headers(base=None, upstream=None) is None

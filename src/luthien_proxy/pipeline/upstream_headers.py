@@ -258,8 +258,9 @@ def merge_forwarded_headers(
     """
     if not upstream:
         return base or None
-    if base:
-        reserved = {k.lower() for k in base}
-        upstream = {k: v for k, v in upstream.items() if k.lower() not in reserved}
-    merged: dict[str, str] = {**upstream, **base} if base else dict(upstream)
+    if not base:
+        return upstream
+    reserved = {k.lower() for k in base}
+    upstream = {k: v for k, v in upstream.items() if k.lower() not in reserved}
+    merged: dict[str, str] = {**upstream, **base}
     return merged or None
