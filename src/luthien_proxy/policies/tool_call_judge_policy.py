@@ -391,6 +391,7 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         """
         state = self._anthropic_state(context)
         if state.blocked_blocks and not state.had_allowed_tool_use and event.delta.stop_reason == "tool_use":
+            # model_construct skips re-validation; mirrors simple_llm_policy._handle_message_delta.
             rewritten = RawMessageDeltaEvent.model_construct(
                 type="message_delta",
                 delta=event.delta.model_copy(update={"stop_reason": "end_turn"}),

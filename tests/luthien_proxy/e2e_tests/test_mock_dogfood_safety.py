@@ -112,6 +112,51 @@ async def test_streaming_dangerous_command_is_blocked(
     assert "BLOCKED" in full_text, f"Expected BLOCKED message in streaming response, got: {full_text!r}"
 
 
+@pytest.mark.asyncio
+async def test_streaming_blocked_tool_rewrites_stop_reason(
+    mock_anthropic: MockAnthropicServer,
+    gateway_healthy,
+    gateway_url,
+    auth_headers,
+    admin_api_key,
+):
+    """Streaming regression: when every tool_use is blocked, terminal message_delta.stop_reason == 'end_turn'.
+
+    Without the fix, the SSE stream emits text-only content blocks but a
+    terminal message_delta carrying stop_reason='tool_use' — Claude Code
+    aborts with "The model's tool call could not be parsed".
+    """
+    mock_anthropic.enqueue(tool_response("Bash", {"command": "docker compose down"}))
+
+    message_deltas: list[dict] = []
+    async with policy_context(_DOGFOOD_SAFETY, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            async with client.stream(
+                "POST",
+                f"{gateway_url}/v1/messages",
+                json={**_BASE_REQUEST, "stream": True},
+                headers=auth_headers,
+            ) as response:
+                assert response.status_code == 200
+                async for line in response.aiter_lines():
+                    if line.startswith("data:"):
+                        try:
+                            event = json.loads(line[len("data:") :].strip())
+                        except json.JSONDecodeError:
+                            continue
+                        if event.get("type") == "message_delta":
+                            message_deltas.append(event)
+
+    assert len(message_deltas) == 1, f"Expected exactly one message_delta event, got {len(message_deltas)}"
+    assert message_deltas[0]["delta"]["stop_reason"] == "end_turn", (
+        f"Expected stop_reason='end_turn' after blocking all tool_use, "
+        f"got {message_deltas[0]['delta']['stop_reason']!r}"
+    )
+    # Usage must survive the rewrite.
+    assert "usage" in message_deltas[0]
+    assert "output_tokens" in message_deltas[0]["usage"]
+
+
 # =============================================================================
 # Safe commands pass through unchanged
 # =============================================================================
