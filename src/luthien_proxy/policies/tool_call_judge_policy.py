@@ -381,10 +381,7 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         if event.delta.stop_reason == "tool_use" and not state.emitted_tool_indices:
             logger.info(
                 "Rewriting stop_reason tool_use -> end_turn (all tool calls blocked)",
-                extra={
-                    "transaction_id": context.transaction_id,
-                    "emitted_tool_indices": list(state.emitted_tool_indices),
-                },
+                extra={"transaction_id": context.transaction_id},
             )
             event = RawMessageDeltaEvent.model_construct(
                 type="message_delta",

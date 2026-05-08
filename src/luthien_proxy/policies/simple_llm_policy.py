@@ -189,6 +189,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         descriptor: BlockDescriptor,
         emitted_blocks: list[BlockDescriptor],
         context: "PolicyContext",
+        upstream_index: int = 0,
     ) -> JudgeAction:
         """Call the judge LLM.
 
@@ -219,7 +220,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                 extra={
                     "transaction_id": context.transaction_id,
                     "block_type": descriptor.type,
-                    "block_index": len(emitted_blocks),
+                    "upstream_index": upstream_index,
                 },
             )
             context.record_event(
@@ -387,11 +388,14 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             # block (start + stop with no content) produces {"type":"text","text":""}
             # in the client's conversation history, which Anthropic rejects with
             # 400 "text content blocks must be non-empty" on the next turn.
+            # Skipping the judge here is intentional: an empty block has no
+            # content to evaluate, so state.emitted_blocks and
+            # state.judge_error_occurred are deliberately left unchanged.
             if not text:
                 return []
 
             descriptor = self._block_descriptor_from_text(text)
-            action = await self._judge_block(descriptor, state.emitted_blocks, context)
+            action = await self._judge_block(descriptor, state.emitted_blocks, context, upstream_index=index)
             if action.judge_failed:
                 state.judge_error_occurred = True
 
@@ -427,7 +431,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                 logger.warning(f"Malformed tool input JSON for '{buffered.name}', using raw string")
                 input_data = {"_raw": buffered.input_json}
             descriptor = self._block_descriptor_from_tool(buffered.name, input_data)
-            action = await self._judge_block(descriptor, state.emitted_blocks, context)
+            action = await self._judge_block(descriptor, state.emitted_blocks, context, upstream_index=index)
             if action.judge_failed:
                 state.judge_error_occurred = True
 
@@ -527,6 +531,10 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         action: JudgeAction,
         state: _SimpleLLMAnthropicState,
     ) -> list[MessageStreamEvent]:
+        # If action.blocks is empty/None the loop never runs: the upstream block's
+        # index slot is silently dropped (num_emitted == 0, index_shift unchanged).
+        # This is a deliberate "0-block replace = suppress" — the validator only
+        # requires strictly monotonic index starts, so a gap is valid.
         events: list[MessageStreamEvent] = []
         current_index = emitted_index
 
@@ -579,6 +587,8 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             current_index += 1
 
         num_emitted = current_index - emitted_index
+        # Only shift when N > 1: a 1-for-1 replacement consumes the same upstream
+        # index slot it came from, so downstream indices are unaffected.
         if num_emitted > 1:
             state.index_shift += num_emitted - 1
 
