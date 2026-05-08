@@ -50,7 +50,9 @@ from pydantic import BaseModel, Field, field_validator
 from luthien_proxy.policy_core import (
     AnthropicHookPolicy,
     BasePolicy,
+    Category,
     PolicyContext,
+    UIMetadata,
 )
 from luthien_proxy.policy_core.anthropic_execution_interface import AnthropicPolicyEmission
 
@@ -295,6 +297,12 @@ class StringReplacementPolicy(BasePolicy, AnthropicHookPolicy):
     - "Cool" -> "Radical" (title case)
     - "cOOl" -> "rADical" (mixed: c->r lower, O->A upper, O->D upper, l->i lower, extra chars literal)
     """
+
+    ui = UIMetadata(
+        display_name="String Replacement",
+        short_description="Replaces specified strings in LLM responses (e.g. find & replace).",
+        category=Category.SIMPLE_UTILITIES,
+    )
 
     def __init__(self, config: StringReplacementConfig | None = None):
         """Initialize with optional config. Accepts dict or Pydantic model."""

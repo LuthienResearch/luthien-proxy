@@ -15,7 +15,12 @@ from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicPolicyEmission,
 )
 from luthien_proxy.policy_core.anthropic_hook_policy import AnthropicHookPolicy
-from luthien_proxy.policy_core.base_policy import BasePolicy
+from luthien_proxy.policy_core.base_policy import (
+    BasePolicy,
+    CatalogBadge,
+    Category,
+    UIMetadata,
+)
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.policy_core.text_modifier_policy import TextModifierPolicy
 
@@ -29,4 +34,8 @@ __all__ = [
     "PolicyContext",
     # Text modifier base class
     "TextModifierPolicy",
+    # UI catalog metadata (no runtime effect)
+    "UIMetadata",
+    "Category",
+    "CatalogBadge",
 ]

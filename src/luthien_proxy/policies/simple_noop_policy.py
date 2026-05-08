@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from luthien_proxy.policies.simple_policy import SimplePolicy
+from luthien_proxy.policy_core import Category, UIMetadata
 
 
 class SimpleNoOpPolicy(SimplePolicy):
@@ -12,6 +13,12 @@ class SimpleNoOpPolicy(SimplePolicy):
     no transformations. Useful for testing streaming reconstruction without policy logic,
     and as an MVP example of extending SimplePolicy.
     """
+
+    ui = UIMetadata(
+        display_name="Simple No-Op",
+        short_description="Buffered no-op for testing streaming reconstruction.",
+        category=Category.INTERNAL,
+    )
 
     pass
 

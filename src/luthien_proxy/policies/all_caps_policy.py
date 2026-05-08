@@ -10,7 +10,7 @@ Example config:
 
 from __future__ import annotations
 
-from luthien_proxy.policy_core import TextModifierPolicy
+from luthien_proxy.policy_core import Category, TextModifierPolicy, UIMetadata
 
 
 class AllCapsPolicy(TextModifierPolicy):
@@ -18,6 +18,12 @@ class AllCapsPolicy(TextModifierPolicy):
 
     Tool calls, thinking blocks, and images pass through unchanged.
     """
+
+    ui = UIMetadata(
+        display_name="All Caps",
+        short_description="Converts all response text to UPPERCASE.",
+        category=Category.SIMPLE_UTILITIES,
+    )
 
     def modify_text(self, text: str) -> str:
         """Convert text to uppercase."""

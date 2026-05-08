@@ -53,6 +53,9 @@ from luthien_proxy.policies.tool_call_judge_utils import (
 from luthien_proxy.policy_core import (
     AnthropicHookPolicy,
     BasePolicy,
+    CatalogBadge,
+    Category,
+    UIMetadata,
 )
 from luthien_proxy.settings import get_settings
 from luthien_proxy.utils.constants import DEFAULT_JUDGE_MAX_TOKENS, TOOL_ARGS_TRUNCATION_LENGTH
@@ -151,6 +154,19 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         blocked_message_template: Template for blocked message with variables:
             {tool_name}, {tool_arguments}, {probability}, {explanation}
     """
+
+    # NOTE: ui_policy_preview is a UI hint only. The actual runtime block message
+    # is templated at runtime with dynamic data (tool_name, tool_arguments,
+    # probability, explanation) — see the f-string at the block-emission site
+    # in this file. The preview here is a static teaser; the production message
+    # includes the specific tool call details.
+    ui = UIMetadata(
+        display_name="Tool Call Judge",
+        short_description="Evaluates tool calls with an LLM and blocks harmful ones.",
+        category=Category.ACTIVE_MONITORING,
+        catalog_badges=(CatalogBadge.BLOCKS,),
+        ui_policy_preview="⛔ Tool call blocked: Evaluated as harmful by the LLM safety judge.",
+    )
 
     @property
     def short_policy_name(self) -> str:

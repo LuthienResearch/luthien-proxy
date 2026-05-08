@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
-from luthien_proxy.policy_core import TextModifierPolicy
+from luthien_proxy.policy_core import Category, TextModifierPolicy, UIMetadata
 
 if TYPE_CHECKING:
     from anthropic.lib.streaming import MessageStreamEvent
@@ -89,6 +89,12 @@ class OnboardingPolicy(TextModifierPolicy):
     On subsequent turns (when the request contains prior assistant messages),
     the policy passes everything through unchanged.
     """
+
+    ui = UIMetadata(
+        display_name="Onboarding",
+        short_description="Shows a welcome message on the first conversation turn.",
+        category=Category.SIMPLE_UTILITIES,
+    )
 
     def __init__(self, config: OnboardingPolicyConfig | dict | None = None):
         """Initialize with optional config. Accepts dict or Pydantic model."""

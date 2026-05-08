@@ -40,6 +40,9 @@ from pydantic import BaseModel, Field
 from luthien_proxy.policy_core import (
     AnthropicHookPolicy,
     BasePolicy,
+    CatalogBadge,
+    Category,
+    UIMetadata,
 )
 
 if TYPE_CHECKING:
@@ -111,6 +114,17 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
     Protects the proxy from being killed by the agent running through it.
     Uses pure regex — zero latency, no LLM dependency, deterministic.
     """
+
+    # NOTE: ui_policy_preview is a UI hint only. The actual runtime block message
+    # is templated with dynamic data (the specific command being blocked) — see
+    # the f-string at line ~183 of this file. The preview here is approximate.
+    ui = UIMetadata(
+        display_name="Dogfood Safety",
+        short_description="Blocks self-destructive commands during internal dogfooding.",
+        category=Category.ACTIVE_MONITORING,
+        catalog_badges=(CatalogBadge.BLOCKS,),
+        ui_policy_preview="⛔ Blocked: Self-destructive command detected. Blocked to protect the running gateway from being torn down.",
+    )
 
     @property
     def short_policy_name(self) -> str:

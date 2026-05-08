@@ -1,6 +1,7 @@
 """Policy that enforces concise responses by cutting filler and hedging."""
 
 from luthien_proxy.policies.simple_llm_policy import SimpleLLMJudgeConfig, SimpleLLMPolicy
+from luthien_proxy.policy_core import Category, UIMetadata
 
 
 class NoYappingPolicy(SimpleLLMPolicy):
@@ -9,6 +10,12 @@ class NoYappingPolicy(SimpleLLMPolicy):
     Cuts phrases like 'Certainly!', 'Great question!', 'Let me explain...',
     and excessive qualifiers, leaving only substantive content.
     """
+
+    ui = UIMetadata(
+        display_name="No Yapping",
+        short_description="Enforces concise responses by cutting filler, hedging, and preamble.",
+        category=Category.FUN_AND_GOOFY,
+    )
 
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""

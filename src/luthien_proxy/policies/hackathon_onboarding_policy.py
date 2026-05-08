@@ -18,6 +18,7 @@ from __future__ import annotations
 from pydantic import Field
 
 from luthien_proxy.policies.onboarding_policy import OnboardingPolicy, OnboardingPolicyConfig
+from luthien_proxy.policy_core import Category, UIMetadata
 
 WELCOME_MESSAGE = """
 
@@ -67,6 +68,12 @@ class HackathonOnboardingPolicy(OnboardingPolicy):
     On subsequent turns (when the request contains prior assistant messages),
     the policy passes everything through unchanged.
     """
+
+    ui = UIMetadata(
+        display_name="Hackathon Onboarding",
+        short_description="Welcome message with hackathon context on first turn.",
+        category=Category.INTERNAL,
+    )
 
     def __init__(self, config: HackathonOnboardingPolicyConfig | dict | None = None):
         """Initialize with optional config. Accepts dict or Pydantic model."""

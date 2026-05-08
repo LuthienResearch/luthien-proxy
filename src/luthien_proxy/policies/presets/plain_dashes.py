@@ -1,6 +1,7 @@
 """Policy that replaces em-dashes with regular dashes."""
 
 from luthien_proxy.policies.simple_llm_policy import SimpleLLMJudgeConfig, SimpleLLMPolicy
+from luthien_proxy.policy_core import Category, UIMetadata
 
 
 class PlainDashesPolicy(SimpleLLMPolicy):
@@ -9,6 +10,12 @@ class PlainDashesPolicy(SimpleLLMPolicy):
     Converts Unicode em-dashes and en-dashes to regular hyphens.
     Useful for terminal environments where Unicode dashes render poorly.
     """
+
+    ui = UIMetadata(
+        display_name="Plain Dashes",
+        short_description="Replaces em-dashes (—) with regular dashes (-).",
+        category=Category.SIMPLE_UTILITIES,
+    )
 
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""

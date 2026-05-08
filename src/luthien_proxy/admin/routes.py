@@ -96,6 +96,21 @@ class PolicyClassInfo(BaseModel):
     description: str = Field(..., description="Description of what the policy does")
     config_schema: dict[str, Any] = Field(default_factory=dict, description="Schema for config parameters")
     example_config: dict[str, Any] = Field(default_factory=dict, description="Example configuration")
+    # UI catalog metadata. No runtime effect; consumed by /policy-config catalog UI.
+    category: str = Field(default="advanced", description="UI catalog category for top-level grouping")
+    display_name: str = Field(default="", description="Friendly display name (e.g., 'De-Slop')")
+    short_description: str = Field(default="", description="One-liner for the catalog card")
+    catalog_badges: list[str] = Field(
+        default_factory=list,
+        description="UI tag chips next to the display name (e.g., 'Blocks', 'Judge')",
+    )
+    ui_policy_preview: str = Field(
+        default="",
+        description=(
+            "UI hint shown on the catalog card. PREVIEW ONLY — production output may "
+            "differ for LLM-judge or templated runtime alerts."
+        ),
+    )
 
 
 class PolicyListResponse(BaseModel):
@@ -352,6 +367,11 @@ async def list_available_policies(
             description=p["description"],
             config_schema=p["config_schema"],
             example_config=p["example_config"],
+            category=p.get("category", "advanced"),
+            display_name=p.get("display_name", ""),
+            short_description=p.get("short_description", ""),
+            catalog_badges=p.get("catalog_badges", []),
+            ui_policy_preview=p.get("ui_policy_preview", ""),
         )
         for p in discovered
     ]
