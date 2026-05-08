@@ -384,6 +384,18 @@ def _send_chat_kwargs(
 class TestSendChatRoute:
     """Test send_chat route handler — Before/After orchestration."""
 
+    def test_recording_policy_satisfies_anthropic_execution_interface(self):
+        """Pin that the test stub structurally matches the AnthropicExecutionInterface protocol.
+
+        AnthropicExecutionInterface is runtime_checkable; if the stub diverges
+        from the protocol (e.g. a hook signature changes), this test fails
+        loudly instead of letting the rest of the suite test against a stub
+        that no longer represents what production policies look like.
+        """
+        from luthien_proxy.policy_core.anthropic_execution_interface import AnthropicExecutionInterface
+
+        assert isinstance(_RecordingPolicy(), AnthropicExecutionInterface)
+
     @pytest.mark.asyncio
     async def test_passthrough_policy_runs_one_llm_call(self):
         """Policy that doesn't transform request: single LLM call, Before == After."""
@@ -868,6 +880,175 @@ class TestSendChatRoute:
         # the full PolicyContext (with credential_manager wired) threaded
         # through the hooks.
         cred_mgr.resolve.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_in_place_mutating_request_hook_still_triggers_second_llm_call(self):
+        """Regression: pre-hook snapshot detects mutation even when the hook returns the same ref.
+
+        The earlier signature-comparison code read the live request dict on
+        both sides of the hook call. A policy that mutates in place and
+        returns the same reference would defeat that — both sides see the
+        post-mutation state, look equal, and the optimizer wrongly skipped
+        the second LLM call. This test pins that we now snapshot before the
+        hook runs.
+        """
+
+        def mutate_in_place_return_same_ref(req):
+            # Mutate the input dict and return the same reference.
+            req["system"] = "mutated-by-policy"
+            return req
+
+        policy = _RecordingPolicy(request_transform=mutate_in_place_return_same_ref)
+        before = _anthropic_response("original")
+        after_upstream = _anthropic_response("mutated-context-answer")
+
+        client = MagicMock()
+        client.complete = AsyncMock(side_effect=[before, after_upstream])
+        deps = _make_deps(policy=policy, anthropic_client=client)
+
+        request = ChatRequest(model="claude-haiku-4-5", message="hi")
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
+
+        assert result.success is True
+        # Two LLM calls — the snapshot-vs-transformed comparison correctly
+        # detects the mutation despite the same-reference return.
+        assert client.complete.call_count == 2
+        assert result.before_content == "original"
+        assert result.content == "mutated-context-answer"
+        # Second call carried the mutated request.
+        second_call_request = client.complete.call_args_list[1][0][0]
+        assert second_call_request.get("system") == "mutated-by-policy"
+
+    @pytest.mark.asyncio
+    async def test_anthropic_beta_header_forwarded_to_upstream(self):
+        """anthropic-beta on the inbound admin request flows into both LLM calls.
+
+        Mirrors the gateway's beta-header forwarding so beta features (prompt
+        caching with scope, etc.) behave identically in the preview and in
+        production.
+        """
+
+        def add_system(req):
+            new = dict(req)
+            new["system"] = "Be terse."
+            return new
+
+        # Two-LLM-call path so we can assert the header on both calls.
+        policy = _RecordingPolicy(request_transform=add_system)
+        client = MagicMock()
+        client.complete = AsyncMock(
+            side_effect=[_anthropic_response("a"), _anthropic_response("b")],
+        )
+        deps = _make_deps(policy=policy, anthropic_client=client)
+        fastapi_request = _make_fastapi_request({"anthropic-beta": "prompt-caching-2024-07-31"})
+
+        request = ChatRequest(model="claude-haiku-4-5", message="hi")
+        result = await send_chat(
+            body=request,
+            **_send_chat_kwargs(deps=deps, fastapi_request=fastapi_request),
+        )
+        assert result.success is True
+
+        # Both LLM calls carried the beta header.
+        assert client.complete.call_count == 2
+        for call in client.complete.call_args_list:
+            assert call.kwargs.get("extra_headers") == {"anthropic-beta": "prompt-caching-2024-07-31"}
+
+    @pytest.mark.asyncio
+    async def test_no_extra_headers_forwarded_when_no_beta(self):
+        """Without anthropic-beta on the inbound request, extra_headers is None."""
+        policy = _RecordingPolicy()
+        client = MagicMock()
+        client.complete = AsyncMock(return_value=_anthropic_response("ok"))
+        deps = _make_deps(policy=policy, anthropic_client=client)
+        # Default _make_fastapi_request has no anthropic-beta header.
+
+        request = ChatRequest(model="claude-haiku-4-5", message="hi")
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
+        assert result.success is True
+
+        assert client.complete.call_count == 1
+        assert client.complete.call_args.kwargs.get("extra_headers") is None
+
+    @pytest.mark.asyncio
+    async def test_before_usage_equals_usage_when_single_llm_call(self):
+        """No request transformation: before_usage and usage are populated identically."""
+        policy = _RecordingPolicy()
+        usage = {"input_tokens": 11, "output_tokens": 22}
+        client = MagicMock()
+        client.complete = AsyncMock(return_value=_anthropic_response("ok", usage=usage))
+        deps = _make_deps(policy=policy, anthropic_client=client)
+
+        request = ChatRequest(model="claude-haiku-4-5", message="hi")
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
+
+        assert result.success is True
+        assert result.before_usage == usage
+        assert result.usage == usage
+
+    @pytest.mark.asyncio
+    async def test_before_usage_distinct_when_two_llm_calls(self):
+        """Request-transforming policy: before_usage and usage carry independent counts."""
+
+        def add_system(req):
+            new = dict(req)
+            new["system"] = "Be terse."
+            return new
+
+        policy = _RecordingPolicy(request_transform=add_system)
+        before_usage = {"input_tokens": 100, "output_tokens": 50}
+        after_usage = {"input_tokens": 110, "output_tokens": 5}
+        client = MagicMock()
+        client.complete = AsyncMock(
+            side_effect=[
+                _anthropic_response("long answer", usage=before_usage),
+                _anthropic_response("terse.", usage=after_usage),
+            ],
+        )
+        deps = _make_deps(policy=policy, anthropic_client=client)
+
+        request = ChatRequest(model="claude-haiku-4-5", message="hi")
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
+
+        assert result.success is True
+        assert result.before_usage == before_usage
+        assert result.usage == after_usage
+
+    @pytest.mark.asyncio
+    async def test_before_usage_surfaced_on_policy_failure_paths(self):
+        """When a policy hook fails, before_usage is preserved alongside before_content."""
+
+        def boom(_resp):
+            raise RuntimeError("policy response hook crashed")
+
+        policy = _RecordingPolicy(response_transform=boom)
+        before_usage = {"input_tokens": 7, "output_tokens": 9}
+        client = MagicMock()
+        client.complete = AsyncMock(return_value=_anthropic_response("raw", usage=before_usage))
+        deps = _make_deps(policy=policy, anthropic_client=client)
+
+        request = ChatRequest(model="claude-haiku-4-5", message="hi")
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
+
+        assert result.success is False
+        assert result.before_content == "raw"
+        assert result.before_usage == before_usage
+        # On error, usage falls back to before_usage too — operators still see cost.
+        assert result.usage == before_usage
+
+    @pytest.mark.asyncio
+    @patch("luthien_proxy.admin.routes.anthropic_client_cache.get_client")
+    async def test_supplied_api_key_cache_failure_returns_user_facing_error(self, mock_get_client):
+        """If the AnthropicClient cache raises, send_chat returns a clean error string."""
+        mock_get_client.side_effect = RuntimeError("boom")
+        deps = _make_deps(policy=_RecordingPolicy(), anthropic_client=None)
+
+        request = ChatRequest(model="claude-haiku-4-5", message="hi", api_key="sk-bad")
+        result = await send_chat(body=request, **_send_chat_kwargs(deps=deps))
+
+        assert result.success is False
+        assert result.error is not None
+        assert "Failed to initialize Anthropic client" in result.error
 
 
 class TestAuthConfigUpdateRequestValidation:

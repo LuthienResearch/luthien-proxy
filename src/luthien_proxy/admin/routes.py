@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
@@ -134,6 +135,13 @@ class ChatResponse(BaseModel):
 
     Operators use the diff between ``before_content`` and ``content`` to verify
     a policy actually does what they think before activating it on real traffic.
+
+    Caveat — model jitter: when the request hook rewrites the request and
+    triggers a second LLM call, ``before_content`` and ``content`` reflect
+    *two independent* LLM samples. Differences can come from sampling
+    variance, not just from the policy. For a strict "policy effect only"
+    diff, prefer policies that transform responses rather than requests, or
+    set ``temperature=0`` upstream.
     """
 
     success: bool
@@ -144,11 +152,24 @@ class ChatResponse(BaseModel):
     before_content: str | None = Field(
         default=None,
         description="Raw LLM content (Before) — what Anthropic returned for the original request "
-        "with no policy in the way. None when the LLM call failed or in mock mode.",
+        "with no policy in the way. None when the LLM call failed or in mock mode. "
+        "When the active policy rewrites the request and a second LLM call is "
+        "issued for After, the Before/After diff includes sampling variance from "
+        "two independent draws, not just the policy's effect.",
     )
     error: str | None = None
     model: str | None = None
-    usage: dict[str, Any] | None = None
+    usage: dict[str, Any] | None = Field(
+        default=None,
+        description="Usage stats from the After-side LLM call. When the request was not "
+        "transformed (single-call optimization), this equals ``before_usage``.",
+    )
+    before_usage: dict[str, Any] | None = Field(
+        default=None,
+        description="Usage stats from the Before-side LLM call. Surfaced so operators can "
+        "see total cost when the policy triggers a second LLM call (Before + After). "
+        "When no second call is issued, equals ``usage``.",
+    )
 
 
 class AuthConfigResponse(BaseModel):
@@ -384,15 +405,16 @@ def _extract_text_content(response: AnthropicResponse | None) -> str | None:
     return "".join(parts)
 
 
-def _request_signature(request: AnthropicRequest) -> str:
-    """Stable JSON signature for detecting whether a policy modified the request.
+def _snapshot_request(request: AnthropicRequest) -> AnthropicRequest:
+    """Deep-copy a request so we can compare pre- and post-hook state.
 
-    If the active policy's ``on_anthropic_request`` is a passthrough we can
-    skip the second LLM call and reuse the Before response as the
-    pre-response-hook input for After. Comparison is by JSON equality (the
-    request is a TypedDict of JSON-serializable values).
+    A policy whose ``on_anthropic_request`` mutates the input dict in place
+    and returns the same reference will defeat any post-hook equality check
+    that reads the dict on both sides — both sides see post-mutation state,
+    look equal, and the optimizer would wrongly skip the second LLM call.
+    Snapshot before invoking the hook to keep the comparison honest.
     """
-    return json.dumps(request, sort_keys=True, default=str)
+    return cast(AnthropicRequest, copy.deepcopy(request))
 
 
 async def _resolve_test_anthropic_client(
@@ -577,6 +599,13 @@ async def send_chat(
     source of truth for this endpoint by design — faking a stream would be
     misleading. Tool-use and thinking blocks are elided from the text preview.
 
+    Caveat — model jitter: when ``on_anthropic_request`` rewrites the
+    request and triggers a second LLM call, ``before_content`` and
+    ``content`` are *two independent* LLM samples. The diff includes
+    sampling variance, not just the policy's effect. Operators should
+    prefer ``temperature=0`` for clean policy-effect previews of
+    request-transforming policies.
+
     Requires admin authentication.
     """
     # Mock mode: skip both the LLM call and the policy. This is the lightest
@@ -633,9 +662,16 @@ async def send_chat(
         body_api_key=body.api_key,
     )
 
+    # Mirror the gateway's anthropic-beta header forwarding so beta features
+    # (prompt caching, etc.) behave identically in this preview and in
+    # production. See pipeline/anthropic_processor.py — same line.
+    forwarded_headers: dict[str, str] | None = None
+    if beta := fastapi_request.headers.get("anthropic-beta"):
+        forwarded_headers = {"anthropic-beta": beta}
+
     # Step 1: Before — call Anthropic with the unmodified original request.
     try:
-        before_response = await client.complete(original_request)
+        before_response = await client.complete(original_request, extra_headers=forwarded_headers)
     except Exception as e:
         logger.error(f"Test chat: LLM call (before) failed: {repr(e)}", exc_info=True)
         return ChatResponse(
@@ -645,11 +681,18 @@ async def send_chat(
         )
 
     before_content = _extract_text_content(before_response)
+    before_usage = _coerce_usage(before_response)
 
     # Step 2: After — run policy hooks. on_anthropic_request may rewrite the
     # request; if it did, we re-call Anthropic with the transformed request so
     # the After preview reflects the realistic full-pipeline outcome. If the
     # request hook is a passthrough, reuse the Before response (one LLM call).
+    #
+    # The pre-hook snapshot is critical: a policy that mutates the input dict
+    # in place and returns the same reference would defeat any post-hook
+    # equality check that reads the live dict on both sides. Comparison is
+    # against the snapshot taken BEFORE the hook ran.
+    pre_hook_snapshot = _snapshot_request(original_request)
     try:
         transformed_request = await policy.on_anthropic_request(original_request, ctx)
     except Exception as e:
@@ -657,24 +700,26 @@ async def send_chat(
         return ChatResponse(
             success=False,
             before_content=before_content,
+            before_usage=before_usage,
             error=client_error_detail(str(e), "Policy request hook failed"),
             model=body.model,
-            usage=_coerce_usage(before_response),
+            usage=before_usage,
         )
 
-    if _request_signature(transformed_request) == _request_signature(original_request):
+    if transformed_request == pre_hook_snapshot:
         upstream_for_after = before_response
     else:
         try:
-            upstream_for_after = await client.complete(transformed_request)
+            upstream_for_after = await client.complete(transformed_request, extra_headers=forwarded_headers)
         except Exception as e:
             logger.error(f"Test chat: LLM call (after, transformed request) failed: {repr(e)}", exc_info=True)
             return ChatResponse(
                 success=False,
                 before_content=before_content,
+                before_usage=before_usage,
                 error=client_error_detail(str(e), "Anthropic API call (post-request-hook) failed"),
                 model=body.model,
-                usage=_coerce_usage(before_response),
+                usage=before_usage,
             )
 
     try:
@@ -684,18 +729,20 @@ async def send_chat(
         return ChatResponse(
             success=False,
             before_content=before_content,
+            before_usage=before_usage,
             error=client_error_detail(str(e), "Policy response hook failed"),
             model=body.model,
-            usage=_coerce_usage(before_response),
+            usage=before_usage,
         )
 
     after_content = _extract_text_content(after_response)
-    usage = _coerce_usage(after_response if isinstance(after_response, dict) else None)
+    usage = _coerce_usage(after_response)
 
     return ChatResponse(
         success=True,
         content=after_content,
         before_content=before_content,
+        before_usage=before_usage,
         model=body.model,
         usage=usage,
     )
