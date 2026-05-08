@@ -11,7 +11,6 @@ These tests focus on the HTTP layer - ensuring routes properly:
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import httpx
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -255,383 +254,359 @@ class TestListModelsRoute:
         assert result["models"] == ["gpt-4o", "claude-3-5-sonnet-20241022"]
 
 
+class _RecordingPolicy:
+    """Stub Anthropic-execution policy that records hook calls.
+
+    Honors AnthropicExecutionInterface via duck-typing — the protocol is
+    runtime_checkable but we only need the two non-streaming hooks for
+    these tests.
+    """
+
+    def __init__(
+        self,
+        *,
+        request_transform=None,
+        response_transform=None,
+        block_response=None,
+    ):
+        self._request_transform = request_transform
+        self._response_transform = response_transform
+        self._block_response = block_response
+        self.request_calls: list[dict] = []
+        self.response_calls: list[dict] = []
+
+    async def on_anthropic_request(self, request, context):
+        self.request_calls.append(dict(request))
+        if self._request_transform is not None:
+            return self._request_transform(request)
+        return request
+
+    async def on_anthropic_response(self, response, context):
+        self.response_calls.append(dict(response))
+        if self._block_response is not None:
+            return self._block_response
+        if self._response_transform is not None:
+            return self._response_transform(response)
+        return response
+
+    # Stream hooks unused by send_chat but required for protocol completeness
+    async def on_anthropic_stream_event(self, event, context):
+        return [event]
+
+    async def on_anthropic_stream_complete(self, context):
+        return []
+
+
+def _anthropic_response(text: str, *, usage: dict | None = None) -> dict:
+    return {
+        "id": "msg_test",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": text}],
+        "model": "claude-haiku-4-5",
+        "stop_reason": "end_turn",
+        "stop_sequence": None,
+        "usage": usage or {"input_tokens": 5, "output_tokens": 7},
+    }
+
+
+def _make_deps(*, policy=None, anthropic_client=None, raise_on_get_policy=False):
+    """Build a Dependencies-like stub adequate for send_chat's call sites."""
+    deps = MagicMock()
+    deps.anthropic_client = anthropic_client
+    if raise_on_get_policy:
+        deps.get_anthropic_policy = MagicMock(
+            side_effect=HTTPException(
+                status_code=500,
+                detail="Current policy FooPolicy does not implement AnthropicExecutionInterface",
+            )
+        )
+    else:
+        deps.get_anthropic_policy = MagicMock(return_value=policy)
+    return deps
+
+
 class TestSendChatRoute:
-    """Test send_chat route handler."""
+    """Test send_chat route handler — Before/After orchestration."""
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.admin.routes.get_settings")
-    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
-    async def test_successful_chat_request(self, mock_client_class, mock_get_settings):
-        """Test successful test chat request."""
-        mock_settings = MagicMock()
-        mock_settings.client_api_key = "test-proxy-key"
-        mock_settings.gateway_port = 8000
-        mock_get_settings.return_value = mock_settings
+    async def test_passthrough_policy_runs_one_llm_call(self):
+        """Policy that doesn't transform request: single LLM call, Before == After."""
+        policy = _RecordingPolicy()  # passthrough on both hooks
+        before = _anthropic_response("raw LLM output")
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "id": "msg_123",
-            "content": [{"type": "text", "text": "Hello from the LLM!"}],
-            "usage": {"input_tokens": 10, "output_tokens": 5},
-        }
+        client = MagicMock()
+        client.complete = AsyncMock(return_value=before)
 
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client_class.return_value = mock_client
+        deps = _make_deps(policy=policy, anthropic_client=client)
 
-        request = ChatRequest(model="claude-3-haiku-20240307", message="Hello!")
-
-        result = await send_chat(body=request, _=AUTH_TOKEN)
+        request = ChatRequest(model="claude-haiku-4-5", message="Hello!")
+        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
 
         assert isinstance(result, ChatResponse)
         assert result.success is True
-        assert result.content == "Hello from the LLM!"
-        assert result.model == "claude-3-haiku-20240307"
-        assert result.usage is not None
-        assert result.usage["input_tokens"] == 10
-
-        mock_client.post.assert_called_once()
-        call_args = mock_client.post.call_args
-        assert call_args[0][0] == "http://localhost:8000/v1/messages"
-        assert call_args[1]["json"]["model"] == "claude-3-haiku-20240307"
-        assert call_args[1]["json"]["messages"][0]["content"] == "Hello!"
-        assert call_args[1]["headers"]["x-api-key"] == "test-proxy-key"
+        assert result.before_content == "raw LLM output"
+        assert result.content == "raw LLM output"
+        # Only one LLM call when request hook is a passthrough.
+        assert client.complete.call_count == 1
+        assert len(policy.request_calls) == 1
+        assert len(policy.response_calls) == 1
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.admin.routes.get_settings")
-    async def test_missing_client_api_key_and_no_custom(self, mock_get_settings):
-        """Test send_chat returns error when no API key is available."""
-        mock_settings = MagicMock()
-        mock_settings.client_api_key = None
-        mock_get_settings.return_value = mock_settings
+    async def test_response_transforming_policy_changes_after(self):
+        """Policy transforms response only: Before is raw, After reflects transform."""
 
-        request = ChatRequest(model="gpt-4o", message="Hello!")
+        def upper(response):
+            new = dict(response)
+            new["content"] = [{"type": "text", "text": response["content"][0]["text"].upper()}]
+            return new
 
-        result = await send_chat(body=request, _=AUTH_TOKEN)
+        policy = _RecordingPolicy(response_transform=upper)
+        before = _anthropic_response("hello world")
 
-        assert isinstance(result, ChatResponse)
-        assert result.success is False
-        assert "No API key available" in result.error
-        assert result.model == "gpt-4o"
+        client = MagicMock()
+        client.complete = AsyncMock(return_value=before)
+        deps = _make_deps(policy=policy, anthropic_client=client)
 
-    @pytest.mark.asyncio
-    @patch("luthien_proxy.admin.routes.get_settings")
-    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
-    async def test_custom_key_works_without_client_key(self, mock_client_class, mock_get_settings):
-        """Custom api_key works even when CLIENT_API_KEY is not configured."""
-        mock_settings = MagicMock()
-        mock_settings.client_api_key = None
-        mock_settings.gateway_port = 8000
-        mock_get_settings.return_value = mock_settings
-
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "id": "msg_123",
-            "content": [{"type": "text", "text": "OK"}],
-        }
-
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client_class.return_value = mock_client
-
-        request = ChatRequest(model="claude-3-haiku-20240307", message="Hello!", api_key="custom-key")
-
-        result = await send_chat(body=request, _=AUTH_TOKEN)
+        request = ChatRequest(model="claude-haiku-4-5", message="hi")
+        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
 
         assert result.success is True
-        call_args = mock_client.post.call_args
-        assert call_args[1]["headers"]["x-api-key"] == "custom-key"
+        assert result.before_content == "hello world"
+        assert result.content == "HELLO WORLD"
+        assert client.complete.call_count == 1
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.admin.routes.get_settings")
-    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
-    async def test_proxy_error_response(self, mock_client_class, mock_get_settings):
-        """Test send_chat handles proxy error responses."""
-        mock_settings = MagicMock()
-        mock_settings.client_api_key = "test-proxy-key"
-        mock_settings.gateway_port = 8000
-        mock_get_settings.return_value = mock_settings
+    async def test_request_transforming_policy_calls_llm_twice(self):
+        """Policy that rewrites the request triggers a second LLM call for After."""
 
-        mock_response = MagicMock()
-        mock_response.status_code = 400
-        mock_response.text = "Bad request"
-        mock_response.json.return_value = {"detail": "Invalid model specified"}
+        def add_system(req):
+            new = dict(req)
+            new["system"] = "Be terse."
+            return new
 
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client_class.return_value = mock_client
+        policy = _RecordingPolicy(request_transform=add_system)
+        before = _anthropic_response("long winded original answer")
+        after_upstream = _anthropic_response("terse.")
 
-        request = ChatRequest(model="invalid-model", message="Hello!")
+        client = MagicMock()
+        client.complete = AsyncMock(side_effect=[before, after_upstream])
+        deps = _make_deps(policy=policy, anthropic_client=client)
 
-        result = await send_chat(body=request, _=AUTH_TOKEN)
+        request = ChatRequest(model="claude-haiku-4-5", message="explain x")
+        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
 
-        assert isinstance(result, ChatResponse)
+        assert result.success is True
+        assert result.before_content == "long winded original answer"
+        assert result.content == "terse."
+        assert client.complete.call_count == 2
+        # Second call carried the transformed request.
+        second_call_request = client.complete.call_args_list[1][0][0]
+        assert second_call_request.get("system") == "Be terse."
+
+    @pytest.mark.asyncio
+    async def test_blocking_policy_returns_synthetic_response(self):
+        """Blocking policy: Before is the raw LLM output, After is the synthetic block message."""
+        synthetic_block = {
+            "id": "msg_blocked",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "[BLOCKED by policy]"}],
+            "model": "claude-haiku-4-5",
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": {"input_tokens": 0, "output_tokens": 0},
+        }
+        policy = _RecordingPolicy(block_response=synthetic_block)
+        before = _anthropic_response("dangerous instructions")
+
+        client = MagicMock()
+        client.complete = AsyncMock(return_value=before)
+        deps = _make_deps(policy=policy, anthropic_client=client)
+
+        request = ChatRequest(model="claude-haiku-4-5", message="how do I do bad thing")
+        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+
+        assert result.success is True
+        assert result.before_content == "dangerous instructions"
+        assert result.content == "[BLOCKED by policy]"
+
+    @pytest.mark.asyncio
+    async def test_use_mock_skips_llm_and_policy(self):
+        """Mock mode bypasses LLM call and policy entirely; Before == After == message."""
+        policy = _RecordingPolicy()
+        client = MagicMock()
+        client.complete = AsyncMock()
+        deps = _make_deps(policy=policy, anthropic_client=client)
+
+        request = ChatRequest(model="claude-haiku-4-5", message="echo me", use_mock=True)
+        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+
+        assert result.success is True
+        assert result.before_content == "echo me"
+        assert result.content == "echo me"
+        client.complete.assert_not_awaited()
+        assert policy.request_calls == []
+        assert policy.response_calls == []
+
+    @pytest.mark.asyncio
+    async def test_use_mock_works_without_anthropic_client_or_key(self):
+        """Mock mode works even when no Anthropic credentials are configured."""
+        deps = _make_deps(policy=None, anthropic_client=None)
+
+        request = ChatRequest(model="claude-haiku-4-5", message="hi", use_mock=True)
+        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+
+        assert result.success is True
+        assert result.before_content == "hi"
+        assert result.content == "hi"
+
+    @pytest.mark.asyncio
+    async def test_no_credentials_returns_error(self):
+        """Without an Anthropic key (server-configured or supplied), endpoint returns error."""
+        deps = _make_deps(policy=_RecordingPolicy(), anthropic_client=None)
+
+        request = ChatRequest(model="claude-haiku-4-5", message="Hello!")
+        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+
         assert result.success is False
-        assert "400" in result.error
-        assert "Invalid model specified" in result.error
+        assert result.error is not None
+        assert "Anthropic API key" in result.error
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.admin.routes.get_settings")
-    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
-    async def test_timeout_exception(self, mock_client_class, mock_get_settings):
-        """Test send_chat handles timeout exceptions."""
-        mock_settings = MagicMock()
-        mock_settings.client_api_key = "test-proxy-key"
-        mock_get_settings.return_value = mock_settings
+    @patch("luthien_proxy.admin.routes.anthropic_client_cache.get_client")
+    async def test_supplied_api_key_routes_through_cache(self, mock_get_client):
+        """A caller-supplied api_key resolves a client via the anthropic client cache."""
+        cached_client = MagicMock()
+        cached_client.complete = AsyncMock(return_value=_anthropic_response("ok"))
+        mock_get_client.return_value = cached_client
 
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(side_effect=httpx.TimeoutException("Request timed out"))
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client_class.return_value = mock_client
+        deps = _make_deps(policy=_RecordingPolicy(), anthropic_client=None)
+        request = ChatRequest(model="claude-haiku-4-5", message="hi", api_key="sk-test-1")
 
-        mock_settings.gateway_port = 8000
-        request = ChatRequest(model="gpt-4o", message="Hello!")
+        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
 
-        result = await send_chat(body=request, _=AUTH_TOKEN)
+        assert result.success is True
+        assert result.before_content == "ok"
+        mock_get_client.assert_awaited_once_with("sk-test-1", auth_type="api_key")
 
-        assert isinstance(result, ChatResponse)
+    @pytest.mark.asyncio
+    async def test_llm_failure_is_reported(self):
+        """LLM call failure surfaces as an error response (no content, no Before)."""
+        policy = _RecordingPolicy()
+        client = MagicMock()
+        client.complete = AsyncMock(side_effect=RuntimeError("anthropic 500"))
+        deps = _make_deps(policy=policy, anthropic_client=client)
+
+        request = ChatRequest(model="claude-haiku-4-5", message="hi")
+        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+
         assert result.success is False
-        assert "timed out" in result.error
-        assert "120s" in result.error
+        assert result.before_content is None
+        assert result.content is None
+        assert result.error is not None
+        # Policy hooks should not have run if the LLM call failed.
+        assert policy.request_calls == []
+        assert policy.response_calls == []
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.admin.routes.get_settings")
-    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
-    async def test_unexpected_exception_does_not_leak_details(self, mock_client_class, mock_get_settings):
-        """Test send_chat returns generic error without leaking internal details."""
-        mock_settings = MagicMock()
-        mock_settings.client_api_key = "test-proxy-key"
-        mock_settings.gateway_port = 8000
-        mock_settings.verbose_client_errors = False
-        mock_get_settings.return_value = mock_settings
+    async def test_policy_request_hook_failure_surfaces_with_before(self):
+        """If on_anthropic_request raises, Before is preserved and an error is returned."""
 
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(side_effect=RuntimeError("connection to 10.0.0.5:5432 refused"))
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client_class.return_value = mock_client
+        def boom(_req):
+            raise RuntimeError("policy request hook crashed")
 
-        request = ChatRequest(model="gpt-4o", message="Hello!")
+        policy = _RecordingPolicy(request_transform=boom)
+        client = MagicMock()
+        client.complete = AsyncMock(return_value=_anthropic_response("raw"))
+        deps = _make_deps(policy=policy, anthropic_client=client)
 
-        result = await send_chat(body=request, _=AUTH_TOKEN)
+        request = ChatRequest(model="claude-haiku-4-5", message="hi")
+        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
 
-        assert isinstance(result, ChatResponse)
         assert result.success is False
-        assert result.error == "An unexpected error occurred"
-        assert "connection" not in result.error.lower()
-        assert "10.0.0.5" not in result.error
+        assert result.before_content == "raw"
+        assert result.content is None
+        assert result.error is not None
+        assert "request hook" in result.error.lower()
 
     @pytest.mark.asyncio
-    @patch("luthien_proxy.admin.routes.get_settings")
-    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
-    async def test_uses_localhost_with_gateway_port(self, mock_client_class, mock_get_settings):
-        """send_chat always calls http://localhost:{gateway_port}, not the external request URL.
+    async def test_policy_response_hook_failure_surfaces_with_before(self):
+        """If on_anthropic_response raises, Before is preserved and an error is returned."""
 
-        This ensures the test chat endpoint works both on the host and inside Docker,
-        where the external port mapping is not reachable from within the container.
+        def boom(_resp):
+            raise RuntimeError("policy response hook crashed")
+
+        policy = _RecordingPolicy(response_transform=boom)
+        client = MagicMock()
+        client.complete = AsyncMock(return_value=_anthropic_response("raw"))
+        deps = _make_deps(policy=policy, anthropic_client=client)
+
+        request = ChatRequest(model="claude-haiku-4-5", message="hi")
+        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+
+        assert result.success is False
+        assert result.before_content == "raw"
+        assert result.content is None
+        assert result.error is not None
+        assert "response hook" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_active_policy_not_anthropic_raises_500(self):
+        """If the active policy doesn't implement AnthropicExecutionInterface, 500 is raised."""
+        client = MagicMock()
+        client.complete = AsyncMock()
+        deps = _make_deps(policy=None, anthropic_client=client, raise_on_get_policy=True)
+
+        request = ChatRequest(model="claude-haiku-4-5", message="hi")
+        with pytest.raises(HTTPException) as exc_info:
+            await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+
+        assert exc_info.value.status_code == 500
+
+    @pytest.mark.asyncio
+    async def test_no_text_blocks_returns_none_content(self):
+        """Tool-use-only response (no text blocks) returns None content — preview can't render it."""
+        tool_use_response = {
+            "id": "msg_tool",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "toolu_1", "name": "calc", "input": {"x": 1}},
+            ],
+            "model": "claude-haiku-4-5",
+            "stop_reason": "tool_use",
+            "stop_sequence": None,
+            "usage": {"input_tokens": 5, "output_tokens": 5},
+        }
+        policy = _RecordingPolicy()
+        client = MagicMock()
+        client.complete = AsyncMock(return_value=tool_use_response)
+        deps = _make_deps(policy=policy, anthropic_client=client)
+
+        request = ChatRequest(model="claude-haiku-4-5", message="use a tool")
+        result = await send_chat(body=request, _=AUTH_TOKEN, deps=deps)
+
+        assert result.success is True
+        assert result.before_content is None
+        assert result.content is None
+
+    @pytest.mark.asyncio
+    async def test_does_not_make_http_call_to_v1_messages(self):
+        """Regression guard: send_chat must not import or use httpx for /v1/messages roundtrip.
+
+        Architectural principle — policies decide; clients (including this admin
+        path) do not. The previous design routed test traffic through the
+        gateway HTTP boundary, which let a client opt into a non-default
+        response shape via a header. The current design orchestrates LLM and
+        policy as two in-process steps. This test pins that.
         """
-        mock_settings = MagicMock()
-        mock_settings.client_api_key = "test-proxy-key"
-        mock_settings.gateway_port = 9999
-        mock_get_settings.return_value = mock_settings
+        import luthien_proxy.admin.routes as admin_routes
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"id": "msg_123", "content": [{"type": "text", "text": "OK"}]}
-
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client_class.return_value = mock_client
-
-        request = ChatRequest(model="claude-3-haiku-20240307", message="Test")
-
-        await send_chat(body=request, _=AUTH_TOKEN)
-
-        call_args = mock_client.post.call_args
-        url = call_args[0][0]
-        assert url == "http://localhost:9999/v1/messages"
-
-    @pytest.mark.asyncio
-    @patch("luthien_proxy.admin.routes.get_settings")
-    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
-    async def test_real_llm_call_by_default(self, mock_client_class, mock_get_settings):
-        """Default use_mock=False does not include mock_response (real LLM call attempted)."""
-        mock_settings = MagicMock()
-        mock_settings.client_api_key = "test-proxy-key"
-        mock_settings.gateway_port = 8000
-        mock_get_settings.return_value = mock_settings
-
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"id": "msg_123", "content": [{"type": "text", "text": "real"}]}
-
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client_class.return_value = mock_client
-
-        request = ChatRequest(model="claude-3-haiku-20240307", message="Hello!")  # use_mock defaults to False
-
-        await send_chat(body=request, _=AUTH_TOKEN)
-
-        call_args = mock_client.post.call_args
-        assert "mock_response" not in call_args[1]["json"]
-
-    @pytest.mark.asyncio
-    @patch("luthien_proxy.admin.routes.get_settings")
-    async def test_mock_response_sent_when_use_mock_true(self, mock_get_settings):
-        """When use_mock=True, function returns directly without calling gateway."""
-        mock_settings = MagicMock()
-        mock_settings.client_api_key = "test-proxy-key"
-        mock_settings.gateway_port = 8000
-        mock_get_settings.return_value = mock_settings
-
-        request = ChatRequest(model="claude-3-haiku-20240307", message="Hello!", use_mock=True)
-
-        result = await send_chat(body=request, _=AUTH_TOKEN)
-
-        assert isinstance(result, ChatResponse)
-        assert result.success is True
-        assert result.content == "Hello!"
-
-    @pytest.mark.asyncio
-    @patch("luthien_proxy.admin.routes.get_settings")
-    async def test_mock_mode_works_without_any_api_key(self, mock_get_settings):
-        """Mock mode bypasses API key validation entirely."""
-        mock_settings = MagicMock()
-        mock_settings.client_api_key = None
-        mock_settings.gateway_port = 8000
-        mock_get_settings.return_value = mock_settings
-
-        request = ChatRequest(model="claude-3-haiku-20240307", message="test echo", use_mock=True)
-
-        result = await send_chat(body=request, _=AUTH_TOKEN)
-
-        assert result.success is True
-        assert result.content == "test echo"
-
-    @pytest.mark.asyncio
-    @patch("luthien_proxy.admin.routes.get_settings")
-    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
-    async def test_custom_api_key_overrides_client_key(self, mock_client_class, mock_get_settings):
-        """When api_key is provided, it's used instead of the server's proxy key."""
-        mock_settings = MagicMock()
-        mock_settings.client_api_key = "server-proxy-key"
-        mock_settings.gateway_port = 8000
-        mock_get_settings.return_value = mock_settings
-
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"id": "msg_123", "content": [{"type": "text", "text": "OK"}]}
-
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client_class.return_value = mock_client
-
-        request = ChatRequest(model="claude-3-haiku-20240307", message="Hello!", api_key="custom-key-123")
-
-        await send_chat(body=request, _=AUTH_TOKEN)
-
-        call_args = mock_client.post.call_args
-        assert call_args[1]["headers"]["x-api-key"] == "custom-key-123"
-
-    @pytest.mark.asyncio
-    @patch("luthien_proxy.admin.routes.get_settings")
-    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
-    async def test_none_api_key_uses_client_key(self, mock_client_class, mock_get_settings):
-        """When api_key is None (default), the server's proxy key is used."""
-        mock_settings = MagicMock()
-        mock_settings.client_api_key = "server-proxy-key"
-        mock_settings.gateway_port = 8000
-        mock_get_settings.return_value = mock_settings
-
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"id": "msg_123", "content": [{"type": "text", "text": "OK"}]}
-
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client_class.return_value = mock_client
-
-        request = ChatRequest(model="claude-3-haiku-20240307", message="Hello!")
-
-        await send_chat(body=request, _=AUTH_TOKEN)
-
-        call_args = mock_client.post.call_args
-        assert call_args[1]["headers"]["x-api-key"] == "server-proxy-key"
-
-    @pytest.mark.asyncio
-    @patch("luthien_proxy.admin.routes.get_settings")
-    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
-    async def test_empty_api_key_uses_client_key(self, mock_client_class, mock_get_settings):
-        """An empty string api_key falls back to the server's proxy key."""
-        mock_settings = MagicMock()
-        mock_settings.client_api_key = "server-proxy-key"
-        mock_settings.gateway_port = 8000
-        mock_get_settings.return_value = mock_settings
-
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"id": "msg_123", "content": [{"type": "text", "text": "OK"}]}
-
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client_class.return_value = mock_client
-
-        request = ChatRequest(model="claude-3-haiku-20240307", message="Hello!", api_key="")
-
-        await send_chat(body=request, _=AUTH_TOKEN)
-
-        call_args = mock_client.post.call_args
-        assert call_args[1]["headers"]["x-api-key"] == "server-proxy-key"
-
-    @pytest.mark.asyncio
-    @patch("luthien_proxy.admin.routes.get_settings")
-    @patch("luthien_proxy.admin.routes.httpx.AsyncClient")
-    async def test_whitespace_api_key_uses_client_key(self, mock_client_class, mock_get_settings):
-        """A whitespace-only api_key falls back to the server's proxy key."""
-        mock_settings = MagicMock()
-        mock_settings.client_api_key = "server-proxy-key"
-        mock_settings.gateway_port = 8000
-        mock_get_settings.return_value = mock_settings
-
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "id": "msg_123",
-            "content": [{"type": "text", "text": "OK"}],
-        }
-
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client_class.return_value = mock_client
-
-        request = ChatRequest(model="claude-3-haiku-20240307", message="Hello!", api_key="   ")
-
-        await send_chat(body=request, _=AUTH_TOKEN)
-
-        call_args = mock_client.post.call_args
-        assert call_args[1]["headers"]["x-api-key"] == "server-proxy-key"
+        assert not hasattr(admin_routes, "httpx"), (
+            "admin.routes must not import httpx — the test endpoint orchestrates "
+            "LLM + policy in-process and never crosses the /v1/messages HTTP boundary."
+        )
 
     def test_chat_request_api_key_defaults_to_none(self):
         """ChatRequest.api_key defaults to None when not provided."""
@@ -642,6 +617,12 @@ class TestSendChatRoute:
         """ChatRequest accepts api_key parameter."""
         request = ChatRequest(model="claude-3-haiku-20240307", message="Hello!", api_key="sk-test")
         assert request.api_key == "sk-test"
+
+    def test_chat_response_includes_before_content_field(self):
+        """ChatResponse includes the new before_content field."""
+        resp = ChatResponse(success=True, content="after", before_content="before")
+        assert resp.content == "after"
+        assert resp.before_content == "before"
 
 
 class TestAuthConfigUpdateRequestValidation:
