@@ -16,6 +16,7 @@ from anthropic.types import (
     InputJSONDelta,
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
+    RawMessageDeltaEvent,
     TextBlock,
     TextDelta,
     ToolUseBlock,
@@ -350,18 +351,136 @@ class TestStreamingMultipleTools:
 
 
 # ============================================================================
+# Streaming stop_reason correction
+# ============================================================================
+
+
+class TestStreamingStopReasonCorrection:
+    """Test that the streaming path rewrites stop_reason when all tool_use blocked.
+
+    Mirrors the non-streaming behavior at tool_call_judge_policy.py:250-252.
+    Without this rewrite, a downstream consumer (e.g. Claude Code) sees
+    stop_reason='tool_use' but no tool_use content block — and gives up.
+    """
+
+    @pytest.mark.asyncio
+    async def test_stop_reason_corrected_after_tool_blocked(self):
+        """Single blocked tool_use → message_delta('tool_use') rewritten to 'end_turn'."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        judge_result = JudgeResult(probability=0.9, explanation="harmful", prompt=[], response_text="")
+
+        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
+            mock_eval.return_value = judge_result
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        delta_events = [e for e in msg_events if isinstance(e, RawMessageDeltaEvent)]
+        assert len(delta_events) == 1
+        assert delta_events[0].delta.stop_reason == "end_turn"
+
+    @pytest.mark.asyncio
+    async def test_stop_reason_kept_when_tool_passed(self):
+        """Single allowed tool_use → message_delta stop_reason stays 'tool_use'."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
+            mock_eval.return_value = None  # allowed
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        delta_events = [e for e in msg_events if isinstance(e, RawMessageDeltaEvent)]
+        assert len(delta_events) == 1
+        assert delta_events[0].delta.stop_reason == "tool_use"
+
+    @pytest.mark.asyncio
+    async def test_stop_reason_kept_with_mixed_tools(self):
+        """One allowed and one blocked → stop_reason stays 'tool_use'."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
+            mock_eval.side_effect = [
+                None,  # index 0 allowed
+                JudgeResult(probability=0.9, explanation="harmful", prompt=[], response_text=""),  # index 1 blocked
+            ]
+
+            await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, tool_start(0, tool_id="toolu_1", name="Tool1")), ctx
+            )
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, tool_start(1, tool_id="toolu_2", name="Tool2")), ctx
+            )
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":2}', 1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        delta_events = [e for e in msg_events if isinstance(e, RawMessageDeltaEvent)]
+        assert len(delta_events) == 1
+        assert delta_events[0].delta.stop_reason == "tool_use"
+
+    @pytest.mark.asyncio
+    async def test_stop_reason_unchanged_with_no_tools(self):
+        """No tool_use seen → message_delta('end_turn') passes through unchanged."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        original = message_delta("end_turn")
+        msg_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, original), ctx)
+
+        assert msg_events == [original]
+
+    @pytest.mark.asyncio
+    async def test_stop_reason_passes_through_other_values(self):
+        """stop_reason values other than 'tool_use' are not rewritten even with blocks."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        judge_result = JudgeResult(probability=0.9, explanation="harmful", prompt=[], response_text="")
+
+        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
+            mock_eval.return_value = judge_result
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("max_tokens")), ctx
+            )
+
+        delta_events = [e for e in msg_events if isinstance(e, RawMessageDeltaEvent)]
+        assert len(delta_events) == 1
+        assert delta_events[0].delta.stop_reason == "max_tokens"
+
+
+# ============================================================================
 # Non-Streaming Response
 # ============================================================================
 
 
 class TestNonStreamingResponse:
-    """Test on_anthropic_response (non-streaming path).
-
-    Note: streaming stop_reason correction is not tested here because
-    ToolCallJudgePolicy doesn't handle message_delta events — they pass
-    through to the parent policy. That path is covered by
-    test_simple_llm_policy.py::TestStopReasonCorrection.
-    """
+    """Test on_anthropic_response (non-streaming path)."""
 
     @pytest.mark.asyncio
     async def test_empty_content_returns_unchanged(self):
