@@ -30,6 +30,8 @@ from luthien_proxy.policy_core import (
     AnthropicExecutionInterface,
     AnthropicPolicyEmission,
     BasePolicy,
+    Category,
+    UIMetadata,
 )
 
 if TYPE_CHECKING:
@@ -57,6 +59,12 @@ class MultiSerialPolicy(BasePolicy, AnthropicExecutionInterface):
 
     All sub-policies must implement AnthropicExecutionInterface.
     """
+
+    ui = UIMetadata(
+        display_name="Policy Chain",
+        short_description="Runs multiple policies sequentially as a pipeline.",
+        category=Category.INTERNAL,
+    )
 
     def __init__(self, policies: list[dict[str, Any]]) -> None:
         """Initialize with a list of policy config dicts to run in sequence."""

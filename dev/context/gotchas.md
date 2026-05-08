@@ -344,6 +344,15 @@ Policies using session-level state trackers (like `ConversationLinkPolicy`'s onc
 - **Fix**: Switched to an allowlist (`_REQUEST_PARAM_ALLOWLIST`). Only explicitly approved fields reach the frontend.
 - **Also**: `output_config` is sanitized to only pass `format.type`, not the full JSON schema body.
 
+## Process-Global Credential Caches Leak Across Tenants (2026-05-07)
+
+**Gotcha**: Any module-level mutable that holds a user's credential (token, OAuth tuple, API key) will be silently swapped by concurrent requests. Multi-worker deployments add per-worker non-determinism on top — each worker has its own copy of the global, so behavior depends on which worker handles which request.
+
+- **Symptom**: Admin features that "just work" using the most-recent user's credential; rate limits or usage hitting the wrong account; concurrent users seeing each other's results.
+- **Wrong**: Stash the most-recently-validated user credential in a module-level dict and have admin endpoints fall back to it when no explicit credential is supplied.
+- **Right**: Scope credentials per-request. For admin endpoints needing user credentials, accept them explicitly in the request body or look them up via authenticated identity (not "most recent"). For per-call propagation, pass through `PolicyContext` or the call stack.
+- **Reference**: PR #505 commit `36df534` removed `gateway_routes._last_user_credential` after exactly this bug. The cache had been added to let the admin test endpoint fall back to the most-recent passthrough credential when `CLIENT_API_KEY` wasn't configured; under concurrent load, an admin clicking "Run test" could end up authenticating as a different user whose request had just landed.
+
 ---
 
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

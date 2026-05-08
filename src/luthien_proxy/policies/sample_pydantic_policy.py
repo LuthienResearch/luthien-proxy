@@ -15,6 +15,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field
 
 from luthien_proxy.policies.noop_policy import NoOpPolicy
+from luthien_proxy.policy_core import Category, UIMetadata
 
 
 class RegexRuleConfig(BaseModel):
@@ -51,6 +52,12 @@ class SamplePydanticPolicy(NoOpPolicy):
     Inherits all passthrough behavior from NoOpPolicy. The interesting part
     is the SampleConfig model above, which demonstrates dynamic form generation.
     """
+
+    ui = UIMetadata(
+        display_name="Sample Pydantic",
+        short_description="Example policy demonstrating dynamic form generation.",
+        category=Category.INTERNAL,
+    )
 
     @property
     def short_policy_name(self) -> str:

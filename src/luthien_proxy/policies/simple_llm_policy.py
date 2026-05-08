@@ -48,6 +48,9 @@ from luthien_proxy.policies.simple_llm_utils import (
 from luthien_proxy.policy_core import (
     AnthropicHookPolicy,
     BasePolicy,
+    CatalogBadge,
+    Category,
+    UIMetadata,
 )
 from luthien_proxy.settings import get_settings
 
@@ -112,6 +115,13 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         temperature: Sampling temperature for judge (default: 0.0)
         max_tokens: Max output tokens for judge (default: 4096)
     """
+
+    ui = UIMetadata(
+        display_name="LLM-as-Judge",
+        short_description="Apply plain-English instructions to evaluate and rewrite responses.",
+        category=Category.ACTIVE_MONITORING,
+        catalog_badges=(CatalogBadge.JUDGE,),
+    )
 
     @property
     def short_policy_name(self) -> str:

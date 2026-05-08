@@ -56,8 +56,8 @@
             max-height: calc(100vh - 24px);
         }
         .col-header {
-            font-size: 16px; font-weight: 600; letter-spacing: 0.5px;
-            color: #a1a1aa; padding: 14px 16px 10px; flex-shrink: 0;
+            font-size: 20px; font-weight: 700; letter-spacing: 0.3px;
+            color: #e4e4e7; padding: 16px 16px 12px; flex-shrink: 0;
         }
         .col-body {
             flex: 1; overflow-y: auto; padding: 0 16px 16px;
@@ -69,29 +69,74 @@
         .col-active { border-top: 2px solid #4ade80; }
         .col-proposed.has-content { border-top: 2px solid #6b9fff; }
 
-        /* Available column */
+        /* Available column — category sections */
+        .category-section {
+            border: 1px solid #27272a; border-radius: 6px;
+            margin-bottom: 10px; overflow: hidden;
+        }
+        .category-section:first-child { margin-top: 0; }
         .group-label {
-            font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
-            color: #52525b; margin: 16px 0 8px; padding-bottom: 4px;
-            border-bottom: 1px solid #27272a;
+            font-size: 12px; font-weight: 600; letter-spacing: 0.3px;
+            color: #a1a1aa; padding: 8px 12px;
+            background: #1c1c20; cursor: pointer; user-select: none;
+            display: flex; justify-content: space-between; align-items: center;
         }
-        .group-label:first-child { margin-top: 0; }
+        .group-label:hover { color: #e4e4e7; }
+        .category-arrow { font-size: 10px; color: #52525b; }
 
+        /* Compact policy items inside categories */
         .policy-card {
-            padding: 10px 12px; border-radius: 6px; cursor: pointer;
-            transition: background 0.15s, border-color 0.15s;
-            margin-bottom: 8px;
-            border: 1px solid #27272a; background: #09090b;
+            padding: 7px 12px; cursor: pointer;
+            transition: background 0.15s;
+            border-bottom: 1px solid #1a1a1d;
         }
-        .policy-card:hover { background: #1c1c20; border-color: #3f3f46; }
-        .policy-card.selected { background: #0c1929; border-color: #6b9fff; }
+        .policy-card:last-child { border-bottom: none; }
+        .policy-card:hover { background: #1c1c20; }
         .policy-card.is-active { border-left: 3px solid #4ade80; }
         .policy-card .p-name {
-            font-weight: 600; font-size: 14px;
+            font-weight: 500; font-size: 13px;
             display: flex; align-items: center; gap: 6px;
         }
-        .policy-card .p-desc { font-size: 12px; color: #71717a; margin-top: 2px; }
-        .policy-card .p-config-hint { font-size: 11px; color: #52525b; }
+        .policy-card .p-desc { display: none; }
+        .policy-card .p-config-hint { display: none; }
+        .policy-card .p-short-desc {
+            font-size: 11px; color: #71717a; margin-top: 3px; line-height: 1.4;
+            padding-right: 28px;
+        }
+
+        /* Badges */
+        .p-badge {
+            font-size: 10px; font-weight: 600; color: #6b9fff; background: #6b9fff18;
+            border: 1px solid #6b9fff33; border-radius: 3px;
+            padding: 1px 5px; white-space: nowrap; flex-shrink: 0;
+        }
+        .p-badge-lg { font-size: 11px; padding: 2px 8px; border-radius: 4px; }
+        .proposed-badges { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+
+        /* Alert preview */
+        .proposed-alert-preview {
+            background: #1a0a0a; border: 1px solid #f8717133; border-radius: 6px;
+            padding: 10px 12px; margin: 12px 0;
+        }
+        .alert-preview-label {
+            font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+            color: #f87171; margin-bottom: 4px;
+        }
+        .alert-preview-text { font-size: 12px; color: #fca5a5; line-height: 1.5; }
+
+        /* Advanced test options */
+        .test-advanced {
+            margin-bottom: 10px;
+        }
+        .test-advanced-toggle {
+            font-size: 11px; color: #52525b; cursor: pointer; user-select: none;
+            list-style: none; margin-bottom: 8px;
+        }
+        .test-advanced-toggle::-webkit-details-marker { display: none; }
+        .test-advanced-toggle::before { content: '\25B6 '; font-size: 9px; }
+        details[open] .test-advanced-toggle::before { content: '\25BC '; }
+        .test-advanced-toggle:hover { color: #a1a1aa; }
+        .test-advanced-body { padding-left: 4px; }
         .active-dot {
             width: 6px; height: 6px; border-radius: 50%;
             background: #4ade80; display: inline-block; flex-shrink: 0;
@@ -134,7 +179,20 @@
             padding: 40px 20px;
         }
         .proposed-name { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
-        .proposed-desc { font-size: 13px; color: #a1a1aa; margin-bottom: 12px; }
+        .proposed-desc {
+            font-size: 14px; color: #a1a1aa; margin-bottom: 12px; line-height: 1.6;
+        }
+        .proposed-instructions {
+            background: #111118; border: 1px solid #27272a; border-radius: 6px;
+            padding: 12px 14px; margin-bottom: 14px;
+        }
+        .proposed-instructions-label {
+            font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+            color: #6b9fff; margin-bottom: 6px;
+        }
+        .proposed-instructions-text {
+            font-size: 13px; color: #d4d4d8; line-height: 1.6; white-space: pre-wrap;
+        }
 
         /* Config form */
         .config-form label {
@@ -171,12 +229,12 @@
 
         /* Buttons */
         .btn-activate {
-            width: 100%; padding: 10px; border: none; border-radius: 6px;
-            font-size: 14px; font-weight: 600; cursor: pointer;
+            width: 100%; padding: 14px; border: none; border-radius: 8px;
+            font-size: 16px; font-weight: 700; cursor: pointer;
             background: #6b9fff; color: #09090b; margin-top: 16px;
-            transition: background 0.15s; font-family: inherit;
+            transition: background 0.15s, transform 0.1s; font-family: inherit;
         }
-        .btn-activate:hover { background: #93b4ff; }
+        .btn-activate:hover { background: #93b4ff; transform: translateY(-1px); }
         .btn-activate:disabled { background: #27272a; color: #52525b; cursor: default; }
         .btn-activate.error-state { background: #3d0a0a; border: 1px solid #f87171; color: #fca5a5; cursor: not-allowed; }
 
@@ -213,7 +271,7 @@
 
         /* Active column */
         .active-label { font-size: 11px; color: #71717a; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
-        .active-name { font-size: 20px; font-weight: 700; color: #4ade80; margin-bottom: 4px; }
+        .active-name { font-size: 24px; font-weight: 800; color: #4ade80; margin-bottom: 4px; }
         .active-desc { font-size: 13px; color: #a1a1aa; margin-bottom: 12px; }
         .active-config {
             font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace; font-size: 12px;
@@ -278,11 +336,12 @@
         .col-active .test-textarea { background: #0d150d; border-color: #1a3a1a; }
         .col-active .test-textarea:focus { border-color: #4ade8066; }
         .test-run-btn {
-            padding: 6px 14px; background: #27272a; border: 1px solid #3f3f46;
-            color: #a1a1aa; border-radius: 4px; font-size: 12px; cursor: pointer;
+            padding: 8px 18px; background: transparent; border: 2px solid #4ade80;
+            color: #4ade80; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer;
             white-space: nowrap; transition: all 0.15s; margin-top: 1px; font-family: inherit;
+            text-transform: uppercase; letter-spacing: 0.5px;
         }
-        .test-run-btn:hover { background: #3f3f46; color: #e4e4e7; }
+        .test-run-btn:hover { background: #4ade80; color: #09090b; }
         .test-run-btn:disabled { opacity: 0.5; cursor: default; }
         .test-results { display: none; margin-top: 8px; gap: 6px; }
         .test-results.visible { display: grid; grid-template-columns: 1fr 1fr; }
@@ -474,9 +533,9 @@
 
         /* Policy card add button */
         .p-add-btn {
-            margin-left: auto; font-size: 20px; font-weight: 700; line-height: 1;
-            color: #a1a1aa; background: #27272a; border: 1px solid #3f3f46;
-            border-radius: 6px; width: 30px; height: 30px; cursor: pointer;
+            margin-left: auto; font-size: 16px; font-weight: 700; line-height: 1;
+            color: #71717a; background: transparent; border: 1px solid #3f3f46;
+            border-radius: 4px; width: 24px; height: 24px; cursor: pointer;
             transition: all 0.15s; flex-shrink: 0; position: relative;
         }
         .p-add-btn:hover { color: #fff; background: #6b9fff; border-color: #6b9fff; }
@@ -607,7 +666,7 @@
 <div class="columns">
     <!-- Available -->
     <div class="column" id="col-available">
-        <div class="col-header">Available</div>
+        <div class="col-header">Available <span style="font-size:11px;font-weight:400;color:#52525b;">(templates to choose from)</span></div>
         <div class="col-body" id="available-list">
             <div class="loading-text"><span class="spinner">&#9203;</span> Loading policies...</div>
         </div>

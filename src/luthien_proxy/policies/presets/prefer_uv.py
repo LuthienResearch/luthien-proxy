@@ -1,6 +1,7 @@
 """Policy that replaces pip commands with uv equivalents."""
 
 from luthien_proxy.policies.simple_llm_policy import SimpleLLMJudgeConfig, SimpleLLMPolicy
+from luthien_proxy.policy_core import Category, UIMetadata
 
 
 class PreferUvPolicy(SimpleLLMPolicy):
@@ -9,6 +10,12 @@ class PreferUvPolicy(SimpleLLMPolicy):
     When the LLM suggests pip-based commands (pip install, pip freeze, etc.),
     the judge replaces them with the uv equivalent (uv pip install, uv pip freeze, etc.).
     """
+
+    ui = UIMetadata(
+        display_name="Prefer uv",
+        short_description="Replaces pip commands with uv equivalents in responses.",
+        category=Category.SIMPLE_UTILITIES,
+    )
 
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""

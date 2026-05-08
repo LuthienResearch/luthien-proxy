@@ -8,11 +8,92 @@ automatic get_config() for Pydantic-based configs.
 from __future__ import annotations
 
 from collections.abc import MutableMapping, MutableSequence, MutableSet
+from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
+
+
+# ============================================================
+# UI catalog rendering metadata
+#
+# Everything in this section is consumed by the policy-config catalog UI
+# (src/luthien_proxy/static/policy_config.js) via the discovery API.
+# It has NO impact on policy execution, scheduling, or runtime behavior.
+# ============================================================
+
+
+class Category(StrEnum):
+    """Top-level Available-column section in the policy-config catalog UI.
+
+    Pure UI rendering concept; no runtime effect.
+    """
+
+    SIMPLE_UTILITIES = "simple_utilities"
+    ACTIVE_MONITORING = "active_monitoring"
+    FUN_AND_GOOFY = "fun_and_goofy"
+    ADVANCED = "advanced"
+    INTERNAL = "internal"
+
+
+class CatalogBadge(StrEnum):
+    """Tag chips rendered next to the policy name in the catalog.
+
+    Pure UI rendering concept; no runtime effect.
+    """
+
+    BLOCKS = "Blocks"
+    JUDGE = "Judge"
+
+
+@dataclass(frozen=True)
+class UIMetadata:
+    """UI-only catalog rendering metadata. NO runtime effect.
+
+    Every field here is consumed only by the policy-config catalog UI
+    (``src/luthien_proxy/static/policy_config.js``) via the discovery API.
+    Nothing here influences policy execution, scheduling, or output.
+
+    To add a new UI catalog field, add it here — not on ``BasePolicy``.
+    """
+
+    display_name: str = ""
+    """Friendly name shown in the catalog (e.g. "De-Slop").
+
+    Falls back to a regex-derived name from the class if empty."""
+
+    short_description: str = ""
+    """One-line description shown under the display name in the catalog."""
+
+    category: Category = Category.ADVANCED
+    """Top-level Available-column section in the catalog."""
+
+    catalog_badges: tuple[CatalogBadge, ...] = ()
+    """Tag chips rendered next to the policy name (e.g. "Blocks", "Judge")."""
+
+    ui_policy_preview: str = ""
+    """Preview shown in the catalog under "What this policy does" / similar.
+
+    PREVIEW ONLY — NOT a runtime contract. Production output may differ:
+    - For LLM-judge blocking policies (SimpleLLMPolicy subclasses), the
+      runtime block message is judge-LLM output, not this string.
+    - For policies with templated runtime alerts (ToolCallJudgePolicy,
+      DogfoodSafetyPolicy), the runtime template includes dynamic data
+      (tool names, probabilities, command text) not present here.
+
+    Use this field for at-a-glance UI hints only. If a policy's runtime
+    output diverges meaningfully from this preview, add an inline comment
+    on the ``ui = UIMetadata(...)`` block flagging where the production
+    output differs.
+    """
+
+
+# ============================================================
+# BasePolicy
+# ============================================================
 
 
 class BasePolicy:
@@ -29,9 +110,18 @@ class BasePolicy:
     Provides common functionality shared by all policy types:
     - short_policy_name property for human-readable identification
     - get_config() method for serializing policy configuration
+    - ``ui`` class attribute (``UIMetadata``) for catalog rendering only
 
     Policies should inherit from this class and implement AnthropicExecutionInterface
     to define the policy execution behavior.
+    """
+
+    ui: UIMetadata = UIMetadata()
+    """UI-only catalog rendering metadata. Override per-policy as needed.
+
+    Subclasses replace the entire UIMetadata; partial overrides aren't supported
+    (use ``dataclasses.replace(BasePolicy.ui, display_name=...)`` if you want
+    to compose, but in practice each policy declares its own values).
     """
 
     def freeze_configured_state(self) -> None:
@@ -117,4 +207,9 @@ class BasePolicy:
         return config
 
 
-__all__ = ["BasePolicy"]
+__all__ = [
+    "BasePolicy",
+    "Category",
+    "CatalogBadge",
+    "UIMetadata",
+]
