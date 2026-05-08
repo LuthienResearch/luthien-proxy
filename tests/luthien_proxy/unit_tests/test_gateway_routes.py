@@ -629,7 +629,10 @@ class TestRateLimitingRouteIntegration:
     def test_rate_limited_request_returns_429_with_headers(self, rate_limited_app):
         from tests.constants import DEFAULT_TEST_MODEL
 
-        with patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process:
+        with (
+            patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
+            patch("luthien_proxy.rate_limit.time.monotonic", return_value=1000.0),
+        ):
             mock_process.return_value = MagicMock()
             client = TestClient(rate_limited_app, raise_server_exceptions=False)
             payload = {
@@ -647,3 +650,44 @@ class TestRateLimitingRouteIntegration:
             assert "x-ratelimit-limit" in response2.headers
             assert "x-ratelimit-remaining" in response2.headers
             assert "x-ratelimit-reset" in response2.headers
+
+    def test_rate_limit_short_circuits_before_process_anthropic_request(self, rate_limited_app):
+        from tests.constants import DEFAULT_TEST_MODEL
+
+        with (
+            patch("luthien_proxy.gateway_routes.process_anthropic_request", new_callable=AsyncMock) as mock_process,
+            patch("luthien_proxy.rate_limit.time.monotonic", return_value=1000.0),
+        ):
+            mock_process.return_value = MagicMock()
+            client = TestClient(rate_limited_app, raise_server_exceptions=False)
+            payload = {
+                "model": DEFAULT_TEST_MODEL,
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 10,
+            }
+            headers = {"Authorization": "Bearer test-proxy-key"}
+            client.post("/v1/messages", json=payload, headers=headers)
+            mock_process.reset_mock()
+
+            response = client.post("/v1/messages", json=payload, headers=headers)
+            assert response.status_code == 429
+            mock_process.assert_not_called()
+
+    def test_proxy_passthrough_rate_limited(self, rate_limited_app):
+        with (
+            patch("luthien_proxy.gateway_routes._passthrough_client") as mock_client,
+            patch("luthien_proxy.rate_limit.time.monotonic", return_value=1000.0),
+        ):
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.content = b"{}"
+            mock_response.headers = {}
+            mock_client.request = AsyncMock(return_value=mock_response)
+
+            client = TestClient(rate_limited_app, raise_server_exceptions=False)
+            headers = {"Authorization": "Bearer test-proxy-key"}
+            response1 = client.get("/v1/models", headers=headers)
+            assert response1.status_code == 200
+
+            response2 = client.get("/v1/models", headers=headers)
+            assert response2.status_code == 429

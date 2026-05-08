@@ -105,13 +105,15 @@ async def test_burst_custom_value():
 @pytest.mark.asyncio
 async def test_concurrent_same_key():
     import asyncio as asyncio_mod
+    from unittest.mock import patch
 
     from fastapi import HTTPException
 
-    limiter = TokenBucketRateLimiter(rpm=60, burst=60)
-    await asyncio_mod.gather(*[limiter.check("key") for _ in range(60)])
-    with pytest.raises(HTTPException) as exc_info:
-        await limiter.check("key")
+    with patch("luthien_proxy.rate_limit.time.monotonic", return_value=1000.0):
+        limiter = TokenBucketRateLimiter(rpm=60, burst=60)
+        await asyncio_mod.gather(*[limiter.check("key") for _ in range(60)])
+        with pytest.raises(HTTPException) as exc_info:
+            await limiter.check("key")
     assert exc_info.value.status_code == 429
 
 

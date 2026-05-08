@@ -23,8 +23,10 @@ class TokenBucketRateLimiter:
     RPM=0 disables limiting entirely (all requests pass through unchecked).
 
     Eviction: when _buckets exceeds max_keys, the least recently used entry is
-    evicted (true LRU via OrderedDict.move_to_end). This prevents an evicted
-    rate-limited key from getting a fresh full-burst bucket on its next request.
+    evicted (true LRU via OrderedDict.move_to_end). Every check — allow or deny —
+    calls move_to_end, so a key that is actively retrying is never the LRU victim.
+    An evicted key does get a fresh full-burst bucket on its next request; the
+    primary purpose of eviction is bounding memory, not preventing limit resets.
 
     Note: in multi-replica deployments each replica maintains independent buckets,
     so the effective per-key limit is replicas × RPM. This is an in-process
