@@ -8,10 +8,24 @@ Tests for the utility functions used by ToolCallJudgePolicy:
 from __future__ import annotations
 
 import pytest
+from anthropic.types import (
+    InputJSONDelta,
+    RawContentBlockDeltaEvent,
+    RawContentBlockStartEvent,
+    RawContentBlockStopEvent,
+    TextBlock,
+    TextDelta,
+    ToolUseBlock,
+)
 
 from luthien_proxy.policies.tool_call_judge_policy import ToolCallJudgeConfig
 from luthien_proxy.policies.tool_call_judge_utils import (
+    BufferedToolUse,
+    build_allowed_tool_use_events,
+    build_blocked_text_events,
     build_judge_prompt,
+    handle_tool_use_block_delta,
+    handle_tool_use_block_start,
     parse_judge_response,
 )
 
@@ -147,6 +161,95 @@ class TestParseToJudgeResult:
             prompt=prompt,
         )
         assert result.prompt == prompt
+
+
+class TestBufferedToolUse:
+    def test_defaults(self):
+        buf = BufferedToolUse(id="toolu_1", name="Bash")
+        assert buf.input_json == ""
+
+    def test_mutable_input_json(self):
+        buf = BufferedToolUse(id="toolu_1", name="Bash")
+        buf.input_json += '{"cmd":'
+        buf.input_json += '"ls"}'
+        assert buf.input_json == '{"cmd":"ls"}'
+
+
+class TestHandleToolUseBlockStart:
+    def test_tool_use_block_buffered_and_suppressed(self):
+        content_block = ToolUseBlock(type="tool_use", id="toolu_123", name="Bash", input={})
+        event = RawContentBlockStartEvent(type="content_block_start", index=2, content_block=content_block)
+        buffer: dict = {}
+        result = handle_tool_use_block_start(event, buffer)
+        assert result == []
+        assert 2 in buffer
+        assert buffer[2].id == "toolu_123"
+        assert buffer[2].name == "Bash"
+
+    def test_non_tool_use_block_passes_through(self):
+        content_block = TextBlock(type="text", text="hello")
+        event = RawContentBlockStartEvent(type="content_block_start", index=0, content_block=content_block)
+        buffer: dict = {}
+        result = handle_tool_use_block_start(event, buffer)
+        assert len(result) == 1
+        assert buffer == {}
+
+
+class TestHandleToolUseBlockDelta:
+    def test_accumulates_json_for_buffered_index(self):
+        buffer = {0: BufferedToolUse(id="t", name="Bash")}
+        delta = InputJSONDelta(type="input_json_delta", partial_json='{"cmd":')
+        event = RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=delta)
+        result = handle_tool_use_block_delta(event, buffer)
+        assert result == []
+        assert buffer[0].input_json == '{"cmd":'
+
+    def test_non_buffered_index_passes_through(self):
+        buffer: dict = {}
+        delta = TextDelta(type="text_delta", text="hello")
+        event = RawContentBlockDeltaEvent(type="content_block_delta", index=0, delta=delta)
+        result = handle_tool_use_block_delta(event, buffer)
+        assert len(result) == 1
+
+
+class TestBuildAllowedToolUseEvents:
+    def test_returns_start_delta_stop(self):
+        buffered = BufferedToolUse(id="toolu_abc", name="MyTool", input_json='{"x":1}')
+        stop_event = RawContentBlockStopEvent(type="content_block_stop", index=1)
+        events = build_allowed_tool_use_events(buffered, stop_event)
+
+        assert len(events) == 3
+        assert isinstance(events[0], RawContentBlockStartEvent)
+        assert isinstance(events[0].content_block, ToolUseBlock)
+        assert events[0].content_block.id == "toolu_abc"
+        assert events[0].content_block.name == "MyTool"
+        assert isinstance(events[1], RawContentBlockDeltaEvent)
+        assert isinstance(events[1].delta, InputJSONDelta)
+        assert events[1].delta.partial_json == '{"x":1}'
+        assert events[2].type == "content_block_stop"
+
+    def test_empty_input_json_becomes_empty_object(self):
+        buffered = BufferedToolUse(id="t", name="T", input_json="")
+        stop_event = RawContentBlockStopEvent(type="content_block_stop", index=0)
+        events = build_allowed_tool_use_events(buffered, stop_event)
+        assert isinstance(events[1], RawContentBlockDeltaEvent)
+        assert isinstance(events[1].delta, InputJSONDelta)
+        assert events[1].delta.partial_json == "{}"
+
+
+class TestBuildBlockedTextEvents:
+    def test_returns_text_start_delta_stop(self):
+        stop_event = RawContentBlockStopEvent(type="content_block_stop", index=3)
+        events = build_blocked_text_events(3, stop_event, "BLOCKED: dangerous")
+
+        assert len(events) == 3
+        assert isinstance(events[0], RawContentBlockStartEvent)
+        assert isinstance(events[0].content_block, TextBlock)
+        assert events[0].index == 3
+        assert isinstance(events[1], RawContentBlockDeltaEvent)
+        assert isinstance(events[1].delta, TextDelta)
+        assert events[1].delta.text == "BLOCKED: dangerous"
+        assert events[2].type == "content_block_stop"
 
 
 if __name__ == "__main__":

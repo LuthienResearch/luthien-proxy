@@ -26,16 +26,20 @@ from typing import TYPE_CHECKING, cast
 
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
-    InputJSONDelta,
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
-    TextBlock,
-    TextDelta,
-    ToolUseBlock,
 )
 from pydantic import BaseModel, Field
 
+from luthien_proxy.policies.tool_call_judge_utils import (
+    BufferedToolUse,
+    build_allowed_tool_use_events,
+    build_blocked_non_streaming_response,
+    build_blocked_text_events,
+    handle_tool_use_block_delta,
+    handle_tool_use_block_start,
+)
 from luthien_proxy.policy_core import (
     AnthropicHookPolicy,
     BasePolicy,
@@ -70,15 +74,8 @@ DEFAULT_TOOL_NAMES = ["Bash", "bash", "shell", "terminal", "execute", "run_comma
 
 
 @dataclass
-class _BufferedAnthropicToolUse:
-    id: str
-    name: str
-    input_json: str = ""
-
-
-@dataclass
 class _DogfoodAnthropicState:
-    buffered_tool_uses: dict[int, _BufferedAnthropicToolUse] = field(default_factory=dict)
+    buffered_tool_uses: dict[int, BufferedToolUse] = field(default_factory=dict)
 
 
 class DogfoodSafetyConfig(BaseModel):
@@ -130,8 +127,7 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
         """Get or create request-scoped Anthropic streaming state."""
         return context.get_request_state(self, _DogfoodAnthropicState, _DogfoodAnthropicState)
 
-    def _anthropic_buffered_tool_uses(self, context: "PolicyContext") -> dict[int, _BufferedAnthropicToolUse]:
-        """Get request-scoped Anthropic tool_use buffers."""
+    def _anthropic_buffered_tool_uses(self, context: "PolicyContext") -> dict[int, BufferedToolUse]:
         return self._anthropic_state(context).buffered_tool_uses
 
     # ========================================================================
@@ -210,12 +206,7 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
                 new_content.append(block)
 
         if modified:
-            modified_response = dict(response)
-            modified_response["content"] = new_content
-            has_tool_use = any(isinstance(b, dict) and b.get("type") == "tool_use" for b in new_content)
-            if not has_tool_use and modified_response.get("stop_reason") == "tool_use":
-                modified_response["stop_reason"] = "end_turn"
-            return cast("AnthropicResponse", modified_response)
+            return build_blocked_non_streaming_response(response, new_content)
 
         return response
 
@@ -226,19 +217,10 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
         buffered_tool_uses = self._anthropic_buffered_tool_uses(context)
 
         if isinstance(event, RawContentBlockStartEvent):
-            if isinstance(event.content_block, ToolUseBlock):
-                buffered_tool_uses[event.index] = _BufferedAnthropicToolUse(
-                    id=event.content_block.id,
-                    name=event.content_block.name,
-                )
-                return []
-            return [event]
+            return handle_tool_use_block_start(event, buffered_tool_uses)
 
         if isinstance(event, RawContentBlockDeltaEvent):
-            if event.index in buffered_tool_uses and isinstance(event.delta, InputJSONDelta):
-                buffered_tool_uses[event.index].input_json += event.delta.partial_json
-                return []
-            return [event]
+            return handle_tool_use_block_delta(event, buffered_tool_uses)
 
         if isinstance(event, RawContentBlockStopEvent):
             if event.index not in buffered_tool_uses:
@@ -254,45 +236,9 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
                     {"tool_name": buffered.name, "command": command[:200]},
                 )
                 logger.warning(f"Blocked dangerous Anthropic streaming tool_use: {command[:100]}")
+                return build_blocked_text_events(event.index, event, msg)
 
-                text_block = TextBlock(type="text", text="")
-                start_event = RawContentBlockStartEvent(
-                    type="content_block_start",
-                    index=event.index,
-                    content_block=text_block,
-                )
-                delta_event = RawContentBlockDeltaEvent(
-                    type="content_block_delta",
-                    index=event.index,
-                    delta=TextDelta(type="text_delta", text=msg),
-                )
-                return [
-                    cast(MessageStreamEvent, start_event),
-                    cast(MessageStreamEvent, delta_event),
-                    cast(MessageStreamEvent, event),
-                ]
-
-            tool_use_block = ToolUseBlock(
-                type="tool_use",
-                id=buffered.id,
-                name=buffered.name,
-                input={},
-            )
-            start_event = RawContentBlockStartEvent(
-                type="content_block_start",
-                index=event.index,
-                content_block=tool_use_block,
-            )
-            delta_event = RawContentBlockDeltaEvent(
-                type="content_block_delta",
-                index=event.index,
-                delta=InputJSONDelta(type="input_json_delta", partial_json=buffered.input_json or "{}"),
-            )
-            return [
-                cast(MessageStreamEvent, start_event),
-                cast(MessageStreamEvent, delta_event),
-                cast(MessageStreamEvent, event),
-            ]
+            return build_allowed_tool_use_events(buffered, event)
 
         return [event]
 

@@ -10,8 +10,8 @@ import pytest
 from luthien_proxy.policies.dogfood_safety_policy import (
     DogfoodSafetyConfig,
     DogfoodSafetyPolicy,
-    _BufferedAnthropicToolUse,
 )
+from luthien_proxy.policies.tool_call_judge_utils import BufferedToolUse
 from luthien_proxy.policy_core.policy_context import PolicyContext
 
 
@@ -297,8 +297,8 @@ class TestStateCleanup:
         policy = _make_policy()
         policy_ctx = _make_context("txn-456")
 
-        policy._anthropic_buffered_tool_uses(policy_ctx)[0] = _BufferedAnthropicToolUse(id="a", name="test")
-        policy._anthropic_buffered_tool_uses(policy_ctx)[1] = _BufferedAnthropicToolUse(id="b", name="test2")
+        policy._anthropic_buffered_tool_uses(policy_ctx)[0] = BufferedToolUse(id="a", name="test")
+        policy._anthropic_buffered_tool_uses(policy_ctx)[1] = BufferedToolUse(id="b", name="test2")
 
         await policy.on_anthropic_streaming_policy_complete(policy_ctx)
 

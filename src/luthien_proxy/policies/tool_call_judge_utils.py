@@ -1,9 +1,12 @@
 """Utilities for tool call judging with LLM.
 
-This module provides the core judging functionality used by ToolCallJudgePolicy:
+This module provides the core judging functionality used by ToolCallJudgePolicy,
+and shared streaming buffer mechanics used by both ToolCallJudgePolicy and
+DogfoodSafetyPolicy:
 - Building judge prompts
 - Parsing judge responses
 - Creating blocked response messages
+- Buffering and re-emitting streaming tool_use event sequences
 """
 
 from __future__ import annotations
@@ -11,11 +14,24 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
+from anthropic.lib.streaming import MessageStreamEvent
+from anthropic.types import (
+    InputJSONDelta,
+    RawContentBlockDeltaEvent,
+    RawContentBlockStartEvent,
+    RawContentBlockStopEvent,
+    TextBlock,
+    TextDelta,
+    ToolUseBlock,
+)
 from pydantic import BaseModel, Field
 
 from luthien_proxy.utils.constants import DEFAULT_JUDGE_MAX_TOKENS
+
+if TYPE_CHECKING:
+    from luthien_proxy.llm.types.anthropic import AnthropicContentBlock, AnthropicResponse
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +69,15 @@ class JudgeResult:
     explanation: str
     prompt: list[dict[str, str]]
     response_text: str
+
+
+@dataclass
+class BufferedToolUse:
+    """Streaming buffer accumulating tool_use input JSON until block_stop."""
+
+    id: str
+    name: str
+    input_json: str = ""
 
 
 def parse_judge_response(content: str) -> dict[str, Any]:
@@ -136,10 +161,95 @@ def build_judge_prompt(name: str, arguments: str, judge_instructions: str) -> li
     ]
 
 
+def handle_tool_use_block_start(
+    event: RawContentBlockStartEvent,
+    buffer: dict[int, BufferedToolUse],
+) -> list[MessageStreamEvent]:
+    """Buffer ToolUseBlock start events; pass through all others."""
+    if isinstance(event.content_block, ToolUseBlock):
+        buffer[event.index] = BufferedToolUse(id=event.content_block.id, name=event.content_block.name)
+        return []
+    return [cast(MessageStreamEvent, event)]
+
+
+def handle_tool_use_block_delta(
+    event: RawContentBlockDeltaEvent,
+    buffer: dict[int, BufferedToolUse],
+) -> list[MessageStreamEvent]:
+    """Accumulate InputJSONDelta for buffered tool_use blocks; pass through others."""
+    if event.index in buffer and isinstance(event.delta, InputJSONDelta):
+        buffer[event.index].input_json += event.delta.partial_json
+        return []
+    return [event]
+
+
+def build_allowed_tool_use_events(
+    buffered: BufferedToolUse,
+    stop_event: RawContentBlockStopEvent,
+) -> list[MessageStreamEvent]:
+    """Reconstruct the full tool_use event sequence (start + delta + stop) for an allowed tool call."""
+    index = stop_event.index
+    tool_use_block = ToolUseBlock(type="tool_use", id=buffered.id, name=buffered.name, input={})
+    start = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=tool_use_block)
+    delta = RawContentBlockDeltaEvent(
+        type="content_block_delta",
+        index=index,
+        delta=InputJSONDelta(type="input_json_delta", partial_json=buffered.input_json or "{}"),
+    )
+    return [
+        cast(MessageStreamEvent, start),
+        cast(MessageStreamEvent, delta),
+        cast(MessageStreamEvent, stop_event),
+    ]
+
+
+def build_blocked_text_events(
+    index: int,
+    stop_event: RawContentBlockStopEvent,
+    message: str,
+) -> list[MessageStreamEvent]:
+    """Build replacement text block event sequence (start + delta + stop) for a blocked tool_use."""
+    text_block = TextBlock(type="text", text="")
+    start = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=text_block)
+    delta = RawContentBlockDeltaEvent(
+        type="content_block_delta",
+        index=index,
+        delta=TextDelta(type="text_delta", text=message),
+    )
+    return [
+        cast(MessageStreamEvent, start),
+        cast(MessageStreamEvent, delta),
+        cast(MessageStreamEvent, stop_event),
+    ]
+
+
+def build_blocked_non_streaming_response(
+    response: "AnthropicResponse",
+    new_content: "list[AnthropicContentBlock]",
+) -> "AnthropicResponse":
+    """Build a non-streaming response with modified content, fixing stop_reason if needed.
+
+    If all tool_use blocks were replaced (none remain in new_content) and the
+    original stop_reason was "tool_use", corrects it to "end_turn".
+    """
+    modified_response = dict(response)
+    modified_response["content"] = new_content
+    has_tool_use = any(isinstance(b, dict) and b.get("type") == "tool_use" for b in new_content)
+    if not has_tool_use and modified_response.get("stop_reason") == "tool_use":
+        modified_response["stop_reason"] = "end_turn"
+    return cast("AnthropicResponse", modified_response)
+
+
 __all__ = [
+    "BufferedToolUse",
     "JudgeConfig",
     "JudgeResult",
+    "build_allowed_tool_use_events",
+    "build_blocked_non_streaming_response",
+    "build_blocked_text_events",
     "build_judge_prompt",
+    "handle_tool_use_block_delta",
+    "handle_tool_use_block_start",
     "parse_judge_response",
     "parse_to_judge_result",
 ]
