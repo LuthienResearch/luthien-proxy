@@ -211,6 +211,14 @@ class WebhookSender:
     background tasks and so must be called under one. The gateway both
     constructs and uses the sender inside the FastAPI lifespan.
 
+    Concurrency model: single-loop asyncio. Counter increments
+    (``_dropped_due_to_backpressure``, ``_gave_up_after_retries``,
+    ``_permanent_failures``) are safe under that model because no `await`
+    appears between read and write. If anyone ever wraps `_attempt_send` in
+    `loop.run_in_executor` (or otherwise hands work to another thread), the
+    counters need an asyncio.Lock and the cap-check + create_task in
+    `fire_and_forget` needs the same.
+
     See ``__init__`` for the full argument list.
     """
 

@@ -751,6 +751,16 @@ async def _handle_execution_streaming(
                     # Cancellation is distinct from "policy emitted nothing": the
                     # except CancelledError above already set final_status=499 and
                     # we should not yield an error event to a client that's gone.
+                    #
+                    # Edge case: GeneratorExit raised by FastAPI before the policy
+                    # emits any event flows through here too — emitted_any=False,
+                    # caught_exception=False, cancelled=False (GeneratorExit is
+                    # BaseException but isn't intercepted) → routes through the
+                    # empty-stream branch with success=False, http_status=500.
+                    # Conflates "client disconnected pre-emission" with "policy
+                    # emitted nothing." Both are server-side empty deliveries
+                    # from the receiver's POV, so 500 is defensible — flagged
+                    # for clarity, not a code change.
                     is_empty_stream = not emitted_any and not caught_exception and not cancelled
                     if is_empty_stream:
                         io.ensure_request_recorded()
