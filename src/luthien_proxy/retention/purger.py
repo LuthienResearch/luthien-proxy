@@ -180,7 +180,11 @@ class ConversationPurger:
         first-run backfill of millions of rows doesn't OOM the gateway or
         hold long transactions.
         """
-        assert self._archiver is not None
+        # Plain `if archiver is None: raise`: assertions are stripped under
+        # `python -O` so an `assert` here would crash less informatively if
+        # this method were ever called on a no-archiver purger.
+        if self._archiver is None:
+            raise RuntimeError("_archive_and_delete_per_batch called without an archiver")
         archiver = self._archiver
         run_id = archiver.new_run_id()
         last_call_id: str | None = None

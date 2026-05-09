@@ -179,6 +179,17 @@ class S3ConversationArchiver:
                 "Upper bound is set by SQLite's SQLITE_MAX_VARIABLE_NUMBER (default 999); "
                 "the IN clause for child-table fetches binds one placeholder per call_id."
             )
+        # If the operator didn't inject an S3 client, probe that boto3 is
+        # importable now rather than at first archive-run, weeks after
+        # deployment. Otherwise a mistyped extras_require survives until
+        # the first purge tries to upload.
+        if s3_client is None:
+            try:
+                import boto3  # type: ignore[import-untyped]  # noqa: F401, PLC0415
+            except ImportError as exc:
+                raise RuntimeError(
+                    "ARCHIVE_S3_BUCKET is set but boto3 is not installed. Install it with: pip install boto3"
+                ) from exc
         # Normalize prefix: a non-empty prefix without a trailing slash
         # silently produces keys like "fooDATE/..." instead of "foo/DATE/...".
         # Either the operator explicitly used "" (root of bucket) or they
@@ -376,5 +387,13 @@ class S3ConversationArchiver:
 
     @staticmethod
     def new_run_id() -> str:
-        """Return a fresh run id used to group all batches from one purge."""
-        return uuid.uuid4().hex[:8]
+        """Return a fresh run id used to group all batches from one purge.
+
+        Uses the full uuid4 hex (32 chars / 128 bits). Truncating to 8 chars
+        looks tidy in S3 keys but only gives 32 bits of collision space —
+        under the multi-replica deployments tracked as a follow-up, two
+        replicas starting in the same second with the same truncated id
+        would silently overwrite each other's batch objects. The full hex
+        keeps the cost ~zero (S3 keys are cheap) and removes the risk.
+        """
+        return uuid.uuid4().hex

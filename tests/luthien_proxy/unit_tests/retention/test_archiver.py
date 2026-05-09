@@ -322,9 +322,11 @@ def test_batch_size_zero_rejected():
         S3ConversationArchiver(bucket="b", batch_size=0)
 
 
-def test_new_run_id_is_short_hex():
+def test_new_run_id_is_full_uuid_hex():
+    """Full uuid4 hex (32 chars / 128 bits) — truncated 32-bit ids would
+    collide non-trivially under multi-replica deployments."""
     rid = S3ConversationArchiver.new_run_id()
-    assert len(rid) == 8
+    assert len(rid) == 32
     int(rid, 16)  # parses as hex
 
 

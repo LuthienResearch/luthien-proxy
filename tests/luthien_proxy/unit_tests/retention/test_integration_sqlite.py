@@ -78,6 +78,48 @@ async def _insert_event(
         )
 
 
+async def _insert_policy_event(
+    pool: db_module.DatabasePool,
+    *,
+    call_id: str,
+    policy_class: str,
+    metadata: dict[str, Any],
+) -> str:
+    pe_id = f"pe-{call_id}-{policy_class}"
+    async with pool.connection() as conn:
+        await conn.execute(
+            "INSERT INTO policy_events (id, call_id, policy_class, event_type, metadata)"
+            " VALUES ($1, $2, $3, $4, $5)",
+            pe_id,
+            call_id,
+            policy_class,
+            "decision",
+            metadata,
+        )
+    return pe_id
+
+
+async def _insert_judge_decision(
+    pool: db_module.DatabasePool,
+    *,
+    call_id: str,
+    judge_prompt: dict[str, Any],
+    judge_response_text: str,
+) -> str:
+    jd_id = f"jd-{call_id}"
+    async with pool.connection() as conn:
+        await conn.execute(
+            "INSERT INTO conversation_judge_decisions"
+            " (id, call_id, judge_prompt, judge_response_text)"
+            " VALUES ($1, $2, $3, $4)",
+            jd_id,
+            call_id,
+            judge_prompt,
+            judge_response_text,
+        )
+    return jd_id
+
+
 async def _count(pool: db_module.DatabasePool, table: str) -> int:
     async with pool.connection() as conn:
         result = await conn.fetchval(f"SELECT COUNT(*) FROM {table}")
@@ -201,6 +243,58 @@ async def test_purge_partial_run_archives_and_deletes_first_batch_only(sqlite_po
     assert deleted == 2
     assert await _count(sqlite_pool, "conversation_calls") == 1
     assert s3_client.put_object.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_archive_includes_policy_events_and_judge_decisions(sqlite_pool):
+    """The archive must contain the structured payloads from policy_events
+    and conversation_judge_decisions — those tables hold what's actually
+    valuable for "we keep records for technical reference". The previous
+    metadata-only archive design lost this content on cascade delete."""
+    now = datetime.now(UTC)
+    old = now - timedelta(days=40)
+
+    await _insert_call(sqlite_pool, call_id="old-1", created_at=old)
+    await _insert_event(sqlite_pool, call_id="old-1", sequence=1, payload={"role": "user", "content": "hi"})
+    await _insert_policy_event(
+        sqlite_pool,
+        call_id="old-1",
+        policy_class="luthien_proxy.policies.NoOpPolicy",
+        metadata={"verdict": "allow", "reason": "no rule matched"},
+    )
+    await _insert_judge_decision(
+        sqlite_pool,
+        call_id="old-1",
+        judge_prompt={"system": "you are a judge", "user": "evaluate this"},
+        judge_response_text="approved",
+    )
+
+    s3_client = MagicMock()
+    s3_client.put_object = MagicMock()
+    archiver = S3ConversationArchiver(bucket="b", s3_client=s3_client)
+    purger = ConversationPurger(db_pool=sqlite_pool, retention_days=30, archiver=archiver)
+
+    deleted = await purger.purge_once()
+
+    assert deleted == 1
+    # Cascade: child rows are gone from DB.
+    assert await _count(sqlite_pool, "conversation_events") == 0
+    assert await _count(sqlite_pool, "policy_events") == 0
+    assert await _count(sqlite_pool, "conversation_judge_decisions") == 0
+
+    # Archive content: every child record's payload survives, structured.
+    body = s3_client.put_object.call_args.kwargs["Body"].decode()
+    record = json.loads(body.splitlines()[0])
+    assert record["call"]["call_id"] == "old-1"
+    assert len(record["events"]) == 1
+    assert len(record["policy_events"]) == 1
+    assert record["policy_events"][0]["metadata"] == {"verdict": "allow", "reason": "no rule matched"}
+    assert len(record["judge_decisions"]) == 1
+    assert record["judge_decisions"][0]["judge_prompt"] == {
+        "system": "you are a judge",
+        "user": "evaluate this",
+    }
+    assert record["judge_decisions"][0]["judge_response_text"] == "approved"
 
 
 @pytest.mark.asyncio
