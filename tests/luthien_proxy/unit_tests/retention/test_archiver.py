@@ -325,10 +325,16 @@ def test_prefix_multiple_leading_slashes_stripped():
     assert archiver.prefix == "foo/bar/"
 
 
-def test_batch_size_too_large_rejected():
-    """Operator setting batch_size above SQLite's parameter cap is rejected up-front."""
+def test_batch_size_at_max_accepted():
+    """Boundary: 900 is the documented max."""
+    archiver = S3ConversationArchiver(bucket="b", batch_size=900)
+    assert archiver.batch_size == 900
+
+
+def test_batch_size_above_max_rejected():
+    """Boundary: 901 just above the cap is rejected — locks the contract."""
     with pytest.raises(ValueError, match="SQLITE_MAX_VARIABLE_NUMBER"):
-        S3ConversationArchiver(bucket="b", batch_size=1000)
+        S3ConversationArchiver(bucket="b", batch_size=901)
 
 
 def test_batch_size_zero_rejected():

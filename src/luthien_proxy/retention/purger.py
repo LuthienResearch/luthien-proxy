@@ -160,19 +160,33 @@ class ConversationPurger:
         many small transactions, each touching at most _DELETE_CHUNK_SIZE
         rows from conversation_calls plus the cascading child rows.
 
-        Works uniformly on Postgres and SQLite — no dialect branch.
+        Works uniformly on Postgres and SQLite — no dialect branch. On a
+        mid-run failure, logs the running total (matching the archive
+        path's progress accounting) and returns what was actually
+        deleted.
         """
         total = 0
         last_call_id: str | None = None
+        batch_index = 0
         while True:
-            async with self._db_pool.connection() as conn:
-                call_ids = await self._fetch_call_ids_batch(
-                    conn, cutoff, last_call_id, _DELETE_CHUNK_SIZE
+            try:
+                async with self._db_pool.connection() as conn:
+                    call_ids = await self._fetch_call_ids_batch(
+                        conn, cutoff, last_call_id, _DELETE_CHUNK_SIZE
+                    )
+                if not call_ids:
+                    break
+                total += await self._delete_by_call_ids(call_ids)
+            except Exception:
+                logger.exception(
+                    "Cutoff-DELETE failed on batch %d; stopping. "
+                    "%d records deleted in earlier batches of this run.",
+                    batch_index,
+                    total,
                 )
-            if not call_ids:
-                break
-            total += await self._delete_by_call_ids(call_ids)
+                return total
             last_call_id = call_ids[-1]
+            batch_index += 1
             if len(call_ids) < _DELETE_CHUNK_SIZE:
                 break
         return total

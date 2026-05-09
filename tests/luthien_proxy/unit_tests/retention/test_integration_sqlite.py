@@ -156,6 +156,9 @@ async def test_purge_with_archiver_against_real_sqlite(sqlite_pool):
     archiver = S3ConversationArchiver(bucket="b", s3_client=s3_client, batch_size=10)
     purger = ConversationPurger(db_pool=sqlite_pool, retention_days=30, archiver=archiver)
 
+    # Capture today's date *before* the run so a 23:59:59 UTC start that
+    # crosses midnight during purge_once doesn't flake the assertion below.
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
     deleted = await purger.purge_once()
 
     assert deleted == 2  # only the two old calls
@@ -173,7 +176,6 @@ async def test_purge_with_archiver_against_real_sqlite(sqlite_pool):
     s3_client.put_object.assert_called_once()
     # Key shape: {prefix}{run-date}/cutoff-{cutoff-date}-{ts}-{run_id}-{batch:04d}.jsonl
     key = s3_client.put_object.call_args.kwargs["Key"]
-    today = datetime.now(UTC).strftime("%Y-%m-%d")
     assert key.startswith(f"luthien-archive/{today}/cutoff-")
     assert key.endswith("-0000.jsonl")
     body = s3_client.put_object.call_args.kwargs["Body"].decode()
