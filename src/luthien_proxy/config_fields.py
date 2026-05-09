@@ -248,7 +248,7 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
     ConfigFieldMeta(
         "webhook_url", "WEBHOOK_URL", str, "",
         "Endpoint URL to POST conversation completion events to (leave empty to disable). At-most-once delivery: failures after retries are dropped, shutdown drains then cancels, process crashes lose in-flight events. Not suitable for systems that require at-least-once / durable delivery.",
-        category="webhook",
+        sensitive=True, category="webhook",
     ),
     ConfigFieldMeta(
         "webhook_max_retries", "WEBHOOK_MAX_RETRIES", int, 3,
