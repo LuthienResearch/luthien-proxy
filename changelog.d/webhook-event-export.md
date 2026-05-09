@@ -11,4 +11,6 @@ pr: 741
   - URL sanitization in logs (full path redacted, userinfo stripped, IPv6 bracketed); rejects non-HTTP(S) schemes at construction
   - Backpressure observability: `pending_depth` / `dropped_count` / `max_pending_tasks` properties; admin endpoint `GET /api/admin/webhook/stats`
   - Streaming webhook is suppressed on bare client-disconnect (no false-success); fires with `success=False` on policy errors and empty streams
+  - Non-streaming webhook fires with `success=False`, `http_status=<error code>` on policy/backend errors — symmetric with streaming
+  - **`duration_ms` semantics**: non-streaming = request-received → response-ready; streaming = request-received → generator's finally (includes client-drain time, so slow consumers inflate the number). The two are not the same measurement.
   - **At-most-once delivery**: failures after retries are dropped, shutdown drains then cancels, process crashes lose in-flight events. Not suitable for systems that require at-least-once or durable delivery.

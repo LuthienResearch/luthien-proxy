@@ -829,108 +829,122 @@ async def _handle_execution_non_streaming(
     """Handle non-streaming response flow for execution-oriented policies."""
     final_response: AnthropicResponse | None = None
     response_count = 0
+    final_status = 200
 
-    with tracer.start_as_current_span("process_response") as span:
-        span.set_attribute("luthien.phase", "process_response")
-        try:
-            with tracer.start_as_current_span("policy_execute"):
-                async for emitted in emissions:
-                    if not _is_anthropic_response_emission(emitted):
-                        raise TypeError(
-                            "Non-streaming Anthropic execution policies must emit a response object, "
-                            "not streaming events."
-                        )
-                    final_response = emitted
-                    response_count += 1
-        except Exception as e:
-            _handle_anthropic_error(e, call_id)
-            # _handle_anthropic_error only raises for Anthropic SDK errors; for
-            # anything else (policy logic errors, etc.) convert to a safe 500
-            # so internal details are not exposed to the client.
-            logger.error("[%s] Unexpected error in non-streaming policy execution: %s", call_id, e)
-            raise BackendAPIError(
-                status_code=500,
-                message=client_error_detail(str(e), "An internal error occurred while processing the request."),
-                error_type="api_error",
-                client_format=ClientFormat.ANTHROPIC,
-            ) from e
+    try:
+        with tracer.start_as_current_span("process_response") as span:
+            span.set_attribute("luthien.phase", "process_response")
+            try:
+                with tracer.start_as_current_span("policy_execute"):
+                    async for emitted in emissions:
+                        if not _is_anthropic_response_emission(emitted):
+                            raise TypeError(
+                                "Non-streaming Anthropic execution policies must emit a response object, "
+                                "not streaming events."
+                            )
+                        final_response = emitted
+                        response_count += 1
+            except Exception as e:
+                _handle_anthropic_error(e, call_id)
+                # _handle_anthropic_error only raises for Anthropic SDK errors; for
+                # anything else (policy logic errors, etc.) convert to a safe 500
+                # so internal details are not exposed to the client.
+                logger.error("[%s] Unexpected error in non-streaming policy execution: %s", call_id, e)
+                raise BackendAPIError(
+                    status_code=500,
+                    message=client_error_detail(str(e), "An internal error occurred while processing the request."),
+                    error_type="api_error",
+                    client_format=ClientFormat.ANTHROPIC,
+                ) from e
 
-    io.ensure_request_recorded()
+        io.ensure_request_recorded()
 
-    if final_response is None:
-        raise RuntimeError(
-            "Anthropic execution policy did not emit a non-streaming response. "
-            "Emit exactly one response object in non-streaming mode."
-        )
+        if final_response is None:
+            raise RuntimeError(
+                "Anthropic execution policy did not emit a non-streaming response. "
+                "Emit exactly one response object in non-streaming mode."
+            )
 
-    if response_count > 1:
-        logger.warning("[%s] Execution policy emitted %d non-streaming responses; using last", call_id, response_count)
-        policy_ctx.record_event(
-            "policy.execution.multiple_non_streaming_responses",
-            {"count": response_count, "summary": "Using last emitted response"},
-        )
+        if response_count > 1:
+            logger.warning(
+                "[%s] Execution policy emitted %d non-streaming responses; using last", call_id, response_count
+            )
+            policy_ctx.record_event(
+                "policy.execution.multiple_non_streaming_responses",
+                {"count": response_count, "summary": "Using last emitted response"},
+            )
 
-    original_response_payload: dict | None = None
-    if io.first_backend_response is not None:
-        original_response_payload = dict(io.first_backend_response)
-
-    emitter.record(
-        call_id,
-        "transaction.non_streaming_response_recorded",
-        {
-            "original_response": original_response_payload,
-            "final_response": dict(final_response),
-            "session_id": policy_ctx.session_id,
-        },
-    )
-
-    with tracer.start_as_current_span("send_to_client") as span:
-        span.set_attribute("luthien.phase", "send_to_client")
-        final_response_payload = dict(final_response)
+        original_response_payload: dict | None = None
+        if io.first_backend_response is not None:
+            original_response_payload = dict(io.first_backend_response)
 
         emitter.record(
             call_id,
-            "pipeline.client_response",
-            {"payload": final_response_payload, "session_id": policy_ctx.session_id},
+            "transaction.non_streaming_response_recorded",
+            {
+                "original_response": original_response_payload,
+                "final_response": dict(final_response),
+                "session_id": policy_ctx.session_id,
+            },
         )
-        request_log_recorder.record_outbound_response(body=final_response_payload, status=200)
-        request_log_recorder.record_inbound_response(status=200, body=final_response_payload)
-        request_log_recorder.flush()
 
-        if usage_collector:
-            usage_collector.record_completed(is_streaming=False)
-            usage = final_response.get("usage")
-            if usage:
-                usage_collector.record_tokens(
-                    input_tokens=usage.get("input_tokens", 0),
-                    output_tokens=usage.get("output_tokens", 0),
-                )
+        with tracer.start_as_current_span("send_to_client") as span:
+            span.set_attribute("luthien.phase", "send_to_client")
+            final_response_payload = dict(final_response)
 
-        # Non-streaming reaches here only on the success path; error paths
-        # raise BackendAPIError above and never fire the webhook. The
-        # streaming path's stream_completed/caught_exception logic has no
-        # equivalent here because there's no in-band error event to send.
+            emitter.record(
+                call_id,
+                "pipeline.client_response",
+                {"payload": final_response_payload, "session_id": policy_ctx.session_id},
+            )
+            request_log_recorder.record_outbound_response(body=final_response_payload, status=200)
+            request_log_recorder.record_inbound_response(status=200, body=final_response_payload)
+            request_log_recorder.flush()
+
+            if usage_collector:
+                usage_collector.record_completed(is_streaming=False)
+                usage = final_response.get("usage")
+                if usage:
+                    usage_collector.record_tokens(
+                        input_tokens=usage.get("input_tokens", 0),
+                        output_tokens=usage.get("output_tokens", 0),
+                    )
+
+            return JSONResponse(
+                content=final_response_payload,
+                headers={"X-Call-ID": call_id},
+            )
+    except BackendAPIError as e:
+        final_status = e.status_code
+        raise
+    except Exception:
+        final_status = 500
+        raise
+    finally:
+        # Fire the webhook regardless of success/failure so consumers see
+        # streaming AND non-streaming failures symmetrically (R4.2). Usage
+        # data is empty on the error path; consumers should filter on success.
         if webhook_sender and webhook_sender.enabled:
-            _ns_usage = final_response.get("usage") or {}
-            _duration_ms = int((time.monotonic() - request_start_time) * 1000) if request_start_time is not None else 0
+            _ns_usage = (final_response.get("usage") if final_response else None) or {}
+            _model = (final_response.get("model") if final_response else None) or io.request.get(
+                "model", "unknown"
+            )
+            _duration_ms = (
+                int((time.monotonic() - request_start_time) * 1000) if request_start_time is not None else 0
+            )
             webhook_sender.fire_and_forget(
                 session_id=policy_ctx.session_id,
                 transaction_id=call_id,
-                model=final_response.get("model") or io.request.get("model", "unknown"),
+                model=_model,
                 input_tokens=_ns_usage.get("input_tokens", 0),
                 output_tokens=_ns_usage.get("output_tokens", 0),
                 cache_creation_input_tokens=_ns_usage.get("cache_creation_input_tokens", 0),
                 cache_read_input_tokens=_ns_usage.get("cache_read_input_tokens", 0),
                 duration_ms=_duration_ms,
                 is_streaming=False,
-                success=True,
-                http_status=200,
+                success=final_status == 200 and final_response is not None,
+                http_status=final_status,
             )
-
-        return JSONResponse(
-            content=final_response_payload,
-            headers={"X-Call-ID": call_id},
-        )
 
 
 def _format_sse_event(event: MessageStreamEvent | _StreamErrorEvent) -> str:

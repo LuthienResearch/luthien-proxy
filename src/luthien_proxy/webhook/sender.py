@@ -83,7 +83,12 @@ def build_payload(
         model: Model name used for the conversation.
         input_tokens: Number of input tokens consumed.
         output_tokens: Number of output tokens generated.
-        duration_ms: Total request duration in milliseconds.
+        duration_ms: Total request duration in milliseconds. Note: streaming
+            duration is measured at the generator's finally and so includes
+            client-drain time — slow consumers inflate the number. Non-streaming
+            duration is request-received → response-ready. The two are not the
+            same measurement; consumers comparing latency across is_streaming
+            should account for that.
         is_streaming: Whether the response was streamed.
         success: True iff the conversation completed cleanly and the client
             received the full response. False on errors and on streaming
