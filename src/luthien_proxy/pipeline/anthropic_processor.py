@@ -992,9 +992,18 @@ async def _handle_execution_non_streaming(
                 "pipeline.client_response",
                 {"payload": final_response_payload, "session_id": policy_ctx.session_id},
             )
-            request_log_recorder.record_outbound_response(body=final_response_payload, status=200)
-            request_log_recorder.record_inbound_response(status=200, body=final_response_payload)
-            request_log_recorder.flush()
+            # Wrap recorder calls so a flush failure on the success path
+            # doesn't flip control to `except Exception` → set final_status=500
+            # → fire webhook with success=False, http_status=500 for what was
+            # actually a successful response. The streaming path achieves the
+            # same isolation by firing the webhook BEFORE recorder.flush();
+            # non-streaming inverts the order, so we wrap-and-swallow instead.
+            try:
+                request_log_recorder.record_outbound_response(body=final_response_payload, status=200)
+                request_log_recorder.record_inbound_response(status=200, body=final_response_payload)
+                request_log_recorder.flush()
+            except Exception:
+                logger.exception("[%s] non-streaming recorder flush failed (response was successful)", call_id)
 
             if usage_collector:
                 usage_collector.record_completed(is_streaming=False)

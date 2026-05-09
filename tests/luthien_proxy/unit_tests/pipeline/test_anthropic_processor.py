@@ -2447,6 +2447,52 @@ class TestNonStreamingWebhookErrorPath:
         assert kwargs["output_tokens"] == 5
 
     @pytest.mark.asyncio
+    async def test_recorder_flush_failure_does_not_flip_success_to_false(self):
+        """Regression: a recorder.flush() failure on the success path used to
+        propagate to except Exception → final_status=500 → webhook reported
+        success=False, http_status=500 for what was actually a successful
+        response. The wrap-and-swallow now isolates the failure."""
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_non_streaming
+
+        response_obj: AnthropicResponse = {
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "content": [],
+            "model": "claude-test",
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": build_usage(input_tokens=3, output_tokens=2),
+        }
+
+        async def emissions():
+            yield response_obj
+
+        io, ctx, recorder, emitter = self._make_deps()
+        recorder.flush = MagicMock(side_effect=RuntimeError("recorder torn down"))
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        result = await _handle_execution_non_streaming(
+            emissions=emissions(),
+            io=io,
+            emitter=emitter,
+            policy_ctx=ctx,
+            call_id="call-flush-failed",
+            request_log_recorder=recorder,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        assert isinstance(result, JSONResponse)
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        # Webhook should still report success=True/200 — the flush failure is
+        # an audit-side problem, not a response-success problem.
+        assert kwargs["success"] is True
+        assert kwargs["http_status"] == 200
+
+    @pytest.mark.asyncio
     async def test_cancelled_error_fires_with_499_not_contradictory_200(self):
         """CancelledError yields http_status=499, not 200/success=False contradiction.
 
