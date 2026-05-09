@@ -30,9 +30,9 @@ def _log_task_exception(task: asyncio.Task[None]) -> None:
 
     The retry loop in `_send_with_retries` catches `Exception` around each
     attempt (which itself catches httpx/network errors), so any exception
-    landing here is a bug in the retry-loop scaffolding itself or a
-    `BaseException` subclass other than `CancelledError`. Don't use this
-    as the primary failure-handling path.
+    landing here is either a bug in the retry-loop scaffolding itself or a
+    `BaseException` subclass other than `CancelledError` (e.g. KeyboardInterrupt
+    or SystemExit). Don't use this as the primary failure-handling path.
     """
     if not task.cancelled() and (exc := task.exception()):
         logger.error("Webhook send task raised an unexpected exception: %r", exc)
@@ -47,6 +47,7 @@ SEND_TIMEOUT_SECONDS = 10
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY_SECONDS = 1.0
 DEFAULT_MAX_PENDING_TASKS = 1000
+MAX_PENDING_TASKS_CEILING = 100_000
 DEFAULT_SHUTDOWN_DRAIN_SECONDS = 5.0
 MAX_RETRY_DELAY_SECONDS = 60.0
 
@@ -60,7 +61,20 @@ class _UsageCounts(TypedDict):
 
 
 class ConversationCompletedPayload(TypedDict):
-    """Payload sent to the webhook endpoint on conversation completion."""
+    """Payload sent to the webhook endpoint on conversation completion.
+
+    Notes for receivers:
+      * `success=True` means the gateway built and dispatched a response, not
+        that the client received it. Webhook fires from finally blocks before
+        the response leaves the gateway. For at-least-once delivery
+        confirmation use a durable record at the receiver side.
+      * `total_tokens = input_tokens + output_tokens` only — cache tokens
+        (`cache_creation_input_tokens` / `cache_read_input_tokens`) are
+        surfaced separately so consumers can weight them per Anthropic's
+        billing model (1.25x writes, 0.1x reads).
+      * `model` may be the literal string `"unknown"` if neither response nor
+        request carried a model field. Treat as a sentinel.
+    """
 
     session_id: str | None
     transaction_id: str
@@ -181,6 +195,11 @@ class WebhookSender:
                 f"max_pending_tasks must be >= 1 (got {max_pending_tasks}); "
                 "to disable the webhook sender entirely, leave WEBHOOK_URL unset."
             )
+        if max_pending_tasks > MAX_PENDING_TASKS_CEILING:
+            raise ValueError(
+                f"max_pending_tasks must be <= {MAX_PENDING_TASKS_CEILING} (got {max_pending_tasks}); "
+                "the cap exists to bound memory under sustained backpressure — values this large defeat the point."
+            )
         if max_retries < 0:
             raise ValueError(f"max_retries must be >= 0 (got {max_retries})")
         if retry_delay_seconds < 0:
@@ -289,7 +308,11 @@ class WebhookSender:
             # 4xx: permanent unless explicitly transient (408/425/429).
             # 5xx: always retry.
             retryable = status >= 500 or status in _RETRYABLE_4XX
-            logger.warning(
+            # Per-attempt failures log at DEBUG; the retry loop logs the final
+            # outcome at WARN/ERROR. With max_retries=3 and steady traffic
+            # against a dead receiver this avoids 4× WARN per request × N RPS.
+            log = logger.debug if retryable else logger.warning
+            log(
                 "Webhook delivery failed: HTTP %d from %s%s",
                 status,
                 self.safe_url,
@@ -297,8 +320,9 @@ class WebhookSender:
             )
             return False, retryable
         except (httpx.HTTPError, TimeoutError, OSError):
-            # Network errors are transient — retry.
-            logger.warning("Webhook delivery error to %s", self.safe_url, exc_info=True)
+            # Network errors are transient — retry. Per-attempt at DEBUG;
+            # the retry loop logs the final outcome.
+            logger.debug("Webhook delivery error to %s", self.safe_url, exc_info=True)
             return False, True
 
     async def _send_with_retries(self, payload: ConversationCompletedPayload) -> None:
