@@ -767,6 +767,13 @@ async def _handle_execution_streaming(
                     # then skip the webhook. Non-streaming finally has the same
                     # property by being wrapped in its own helper.
                     #
+                    # Audit-trail consequence: the webhook is strictly more
+                    # reliable than the request_log row for failed/streaming
+                    # requests. A request whose recorder.flush() raised will
+                    # still have produced a webhook event; consumers building
+                    # audit trails should rely on the webhook as the durable
+                    # signal, not the request log table.
+                    #
                     # Gate: skip on bare client-disconnect AFTER some events
                     # were emitted (no completion flag, no exception, no
                     # empty-stream branch), to avoid reporting a false success

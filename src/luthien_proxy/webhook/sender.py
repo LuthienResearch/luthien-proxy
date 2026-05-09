@@ -28,11 +28,12 @@ logger = logging.getLogger(__name__)
 def _log_task_exception(task: asyncio.Task[None]) -> None:
     """Last-resort safety net for fire-and-forget tasks.
 
-    The retry loop in `_send_with_retries` catches `Exception` around each
-    attempt (which itself catches httpx/network errors), so any exception
-    landing here is either a bug in the retry-loop scaffolding itself or a
-    `BaseException` subclass other than `CancelledError` (e.g. KeyboardInterrupt
-    or SystemExit). Don't use this as the primary failure-handling path.
+    Logs *any* exception that escapes `_send_with_retries`. In normal flow
+    that loop catches `Exception` around each attempt, so this only fires
+    for: (a) bugs in the retry-loop scaffolding (e.g. a future refactor
+    that moves work outside the catch); (b) non-`CancelledError`
+    `BaseException` subclasses like `KeyboardInterrupt` or `SystemExit`.
+    Don't use this as the primary failure-handling path.
     """
     if not task.cancelled() and (exc := task.exception()):
         logger.error("Webhook send task raised an unexpected exception: %r", exc)
