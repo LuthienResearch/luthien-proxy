@@ -265,11 +265,13 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
     ),
     ConfigFieldMeta(
         "retention_archive_batch_size", "RETENTION_ARCHIVE_BATCH_SIZE", int, 100,
-        "Calls processed per archive-then-delete batch. Each call's events, "
-        "policy_events, and judge_decisions are fetched together — judge "
-        "decisions in particular hold large JSONB blobs (judge_prompt, "
-        "stream_chunks), so 100 keeps a single batch under typical memory "
-        "limits even with rich payloads",
+        "Calls processed per archive-then-delete batch (only used when "
+        "ARCHIVE_S3_BUCKET is set; the no-archive path uses an internal "
+        "DELETE-chunk size). Each call's events, policy_events, and "
+        "judge_decisions are fetched together — judge decisions in "
+        "particular hold large JSONB blobs (judge_prompt, stream_chunks), "
+        "so 100 keeps a single batch under typical memory limits even with "
+        "rich payloads",
         category="retention",
     ),
     ConfigFieldMeta(

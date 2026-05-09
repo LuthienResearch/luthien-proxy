@@ -280,11 +280,15 @@ class ConversationPurger:
         """Run a single purge cycle.
 
         With an archiver: drive an archive-then-delete-per-batch loop.
-        Without: DELETE everything older than cutoff in one transaction.
+        Without: paginated DELETE-by-id loop, no S3.
 
         Returns:
-            Number of conversation_calls rows deleted (0 on error or
-            nothing to delete).
+            The number of conversation_calls rows actually archived+deleted
+            in this run. ``0`` on an exception escaping the inner code.
+            On a mid-run failure (S3 PUT, fetch, or DELETE), the run
+            short-circuits but the value reflects rows that succeeded
+            before the failure — operators reading "Purged N
+            conversation_calls" should not assume N == eligible rows.
         """
         cutoff = self._cutoff_datetime()
         logger.info(
