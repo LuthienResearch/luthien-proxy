@@ -677,7 +677,8 @@ async def _handle_execution_streaming(
                     error_event = _build_error_event(e, call_id)
                     yield _format_sse_event(error_event)
                 finally:
-                    if not emitted_any and not caught_exception:
+                    is_empty_stream = not emitted_any and not caught_exception
+                    if is_empty_stream:
                         io.ensure_request_recorded()
                         logger.warning(
                             "[%s] Execution policy emitted zero streaming events; yielding error event",
@@ -688,16 +689,10 @@ async def _handle_execution_streaming(
                             {"summary": "Execution policy emitted zero streaming events"},
                         )
                         final_status = 500
-                        # Yield an Anthropic-compatible error event so the client
-                        # gets a clear signal instead of a silent empty HTTP 200.
-                        empty_stream_error = _StreamErrorEvent(
-                            type="error",
-                            error=_ErrorDetail(
-                                type="api_error",
-                                message="Request blocked: policy evaluation unavailable. Contact your administrator.",
-                            ),
-                        )
-                        yield _format_sse_event(empty_stream_error)
+                        # Yield happens at the END of finally below — if it fails
+                        # (closed writer, client disconnected during empty-stream
+                        # case), all the cleanup above still runs, including the
+                        # webhook fire and recorder flush.
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
 
                     # Validate streaming protocol compliance (log-and-warn).
@@ -794,6 +789,20 @@ async def _handle_execution_streaming(
                             success=stream_completed and final_status == 200,
                             http_status=final_status,
                         )
+
+                    # Empty-stream error event yields LAST so any failure here
+                    # (BrokenResourceError on a closed writer, GeneratorExit on
+                    # client disconnect mid-cleanup) doesn't skip the cleanup
+                    # above. See review #3 R3.3.
+                    if is_empty_stream:
+                        empty_stream_error = _StreamErrorEvent(
+                            type="error",
+                            error=_ErrorDetail(
+                                type="api_error",
+                                message="Request blocked: policy evaluation unavailable. Contact your administrator.",
+                            ),
+                        )
+                        yield _format_sse_event(empty_stream_error)
 
     return FastAPIStreamingResponse(
         streaming_with_spans(),
