@@ -160,21 +160,43 @@ def test_build_payload_includes_schema_version():
 
 
 @pytest.mark.asyncio
-async def test_async_client_constructed_with_user_agent_and_limits():
-    """httpx.AsyncClient gets a luthien-prefixed UA and pool sized to max_pending_tasks."""
+async def test_async_client_constructed_with_user_agent():
+    """httpx.AsyncClient gets a luthien-prefixed UA at construction."""
     with patch("luthien_proxy.webhook.sender.httpx.AsyncClient") as mock_client_cls:
         mock_instance = AsyncMock()
         mock_instance.aclose = AsyncMock()
         mock_client_cls.return_value = mock_instance
 
-        sender = WebhookSender(url="https://example.com/hook", max_pending_tasks=42)
+        sender = WebhookSender(url="https://example.com/hook")
         await sender.stop()
 
         mock_client_cls.assert_called_once()
         kwargs = mock_client_cls.call_args.kwargs
         assert "luthien-proxy-webhook/" in kwargs["headers"]["User-Agent"]
-        # httpx.Limits(max_connections=42) — assert the cap aligns
-        assert kwargs["limits"].max_connections == 42
+
+
+@pytest.mark.asyncio
+async def test_pool_size_bounded_by_smaller_of_task_cap_and_default():
+    """httpx pool: min(max_pending_tasks, DEFAULT_HTTPX_MAX_CONNECTIONS=100).
+
+    Connection pool serves a different purpose than the task cap: bounds
+    concurrency-against-receiver, not memory. 1000 concurrent TCP
+    connections to a single receiver overwhelms most endpoints.
+    """
+    from luthien_proxy.webhook.sender import DEFAULT_HTTPX_MAX_CONNECTIONS
+
+    with patch("luthien_proxy.webhook.sender.httpx.AsyncClient") as mock_client_cls:
+        mock_instance = AsyncMock()
+        mock_instance.aclose = AsyncMock()
+        mock_client_cls.return_value = mock_instance
+
+        # Small task cap: pool follows it
+        WebhookSender(url="https://example.com/hook", max_pending_tasks=42)
+        assert mock_client_cls.call_args.kwargs["limits"].max_connections == 42
+
+        # Large task cap: pool capped at DEFAULT_HTTPX_MAX_CONNECTIONS
+        WebhookSender(url="https://example.com/hook", max_pending_tasks=10_000)
+        assert mock_client_cls.call_args.kwargs["limits"].max_connections == DEFAULT_HTTPX_MAX_CONNECTIONS
 
 
 # ── WebhookSender fixtures ────────────────────────────────────────────────────

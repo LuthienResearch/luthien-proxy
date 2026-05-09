@@ -646,6 +646,10 @@ def _fire_webhook_for_completion(
     try:
         usage = (response.get("usage") if response else None) or {}
         model = (response.get("model") if response else None) or request_model_field or "unknown"
+        # `dict.get(k) or 0` (vs `dict.get(k, 0)`) defends against an explicit
+        # None value in the dict — operator policies can mutate the response
+        # and dict.get with a default returns None when the key exists at None.
+        # `0 or 0 == 0` so this is correct for valid zero token counts too.
         webhook_sender.fire_and_forget(
             session_id=policy_ctx.session_id,
             transaction_id=call_id,

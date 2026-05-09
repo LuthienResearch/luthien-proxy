@@ -53,6 +53,11 @@ WEBHOOK_PAYLOAD_SCHEMA_VERSION = 1
 
 
 DEFAULT_SEND_TIMEOUT_SECONDS = 10.0
+# httpx default; cap webhook pool size at this even when max_pending_tasks is
+# higher — most receivers can't sustain >100 concurrent TCP connections from a
+# single client without overwhelming. Operators with the cap-as-concurrency
+# expectation can lower max_pending_tasks instead.
+DEFAULT_HTTPX_MAX_CONNECTIONS = 100
 DEFAULT_MAX_RETRIES = 3
 MAX_RETRIES_CEILING = 20
 DEFAULT_RETRY_DELAY_SECONDS = 1.0
@@ -271,15 +276,18 @@ class WebhookSender:
         self._started_at = datetime.now(UTC)
         # User-Agent: lets receivers identify Luthien webhooks vs other sources
         # (default httpx UA is `python-httpx/<version>` which is anonymous).
-        # Connection pool: aligned with max_pending_tasks so the in-flight task
-        # cap also bounds httpx-side concurrency — without this the pool's
-        # default max_connections=100 would queue ~900 tasks at await client.post()
-        # under sustained backpressure with the 1000-task cap.
+        # Connection pool: bound by min(max_pending_tasks, DEFAULT_HTTPX_MAX_CONNECTIONS).
+        # Reasoning: the task cap bounds memory; the connection cap bounds
+        # concurrency-against-receiver. They serve different purposes —
+        # opening 1000 concurrent TCP connections to a single receiver
+        # overwhelms most endpoints. Operators wanting the "cap-as-concurrency"
+        # behavior should lower max_pending_tasks instead.
+        pool_size = min(max_pending_tasks, DEFAULT_HTTPX_MAX_CONNECTIONS)
         self._client = (
             httpx.AsyncClient(
                 timeout=send_timeout_seconds,
                 headers={"User-Agent": f"luthien-proxy-webhook/{PROXY_DISPLAY_VERSION}"},
-                limits=httpx.Limits(max_connections=max_pending_tasks),
+                limits=httpx.Limits(max_connections=pool_size),
             )
             if self._url
             else None
