@@ -13,6 +13,7 @@ Covers:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
@@ -369,6 +370,54 @@ async def test_stop_idempotent_when_never_started():
     purger = ConversationPurger(db_pool=pool, retention_days=30)
     await purger.stop()
     await purger.stop()
+
+
+@pytest.mark.asyncio
+async def test_loop_survives_purge_failure():
+    """If purge_once raises, the run loop must continue to the next iteration.
+
+    Production property: a failing purge must not stop the daily loop. The
+    `purge_once` body already swallows exceptions and returns 0, but this test
+    asserts the loop's interaction with that contract directly — not by
+    replacing _run_loop wholesale.
+    """
+    pool, _ = _make_pool()
+    purger = ConversationPurger(
+        db_pool=pool, retention_days=30, initial_delay_seconds=0, interval_seconds=9999
+    )
+
+    call_count = {"n": 0}
+    failure_done = asyncio.Event()
+    second_call_observed = asyncio.Event()
+
+    async def flaky_purge() -> int:
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            failure_done.set()
+            raise RuntimeError("simulated transient failure")
+        # Second call: signal and return.
+        second_call_observed.set()
+        return 0
+
+    purger.purge_once = flaky_purge  # type: ignore[method-assign]
+
+    # Make the inter-iteration sleep return immediately so we observe the
+    # second iteration without waiting 9999 seconds.
+    real_sleep = asyncio.sleep
+
+    async def fast_sleep(_seconds: float) -> None:
+        await real_sleep(0)
+
+    import unittest.mock as _mock
+
+    with _mock.patch("asyncio.sleep", side_effect=fast_sleep):
+        purger.start()
+        # Wait for first call to fail, then for second call to land.
+        await asyncio.wait_for(failure_done.wait(), timeout=1.0)
+        await asyncio.wait_for(second_call_observed.wait(), timeout=1.0)
+        await purger.stop()
+
+    assert call_count["n"] >= 2
 
 
 @pytest.mark.asyncio

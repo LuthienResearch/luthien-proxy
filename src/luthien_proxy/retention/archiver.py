@@ -190,10 +190,15 @@ class S3ConversationArchiver:
                 raise RuntimeError(
                     "ARCHIVE_S3_BUCKET is set but boto3 is not installed. Install it with: pip install boto3"
                 ) from exc
-        # Normalize prefix: a non-empty prefix without a trailing slash
-        # silently produces keys like "fooDATE/..." instead of "foo/DATE/...".
-        # Either the operator explicitly used "" (root of bucket) or they
-        # meant a subdirectory.
+        # Normalize prefix:
+        #   - Strip leading slashes. S3 tolerates `s3://bucket//foo/key` but
+        #     it's a foot-gun for Athena partition projection (an empty
+        #     leading segment confuses partition discovery).
+        #   - Append trailing slash if missing. A non-empty prefix without
+        #     `/` silently produces keys like `fooDATE/...` instead of
+        #     `foo/DATE/...`.
+        # Empty prefix (root of bucket) is preserved as-is.
+        prefix = prefix.lstrip("/")
         if prefix and not prefix.endswith("/"):
             prefix = prefix + "/"
         self.bucket = bucket

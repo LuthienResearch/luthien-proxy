@@ -171,6 +171,11 @@ async def test_purge_with_archiver_against_real_sqlite(sqlite_pool):
 
     # Verify the S3 payload
     s3_client.put_object.assert_called_once()
+    # Key shape: {prefix}{run-date}/cutoff-{cutoff-date}-{ts}-{run_id}-{batch:04d}.jsonl
+    key = s3_client.put_object.call_args.kwargs["Key"]
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    assert key.startswith(f"luthien-archive/{today}/cutoff-")
+    assert key.endswith("-0000.jsonl")
     body = s3_client.put_object.call_args.kwargs["Body"].decode()
     lines = [json.loads(line) for line in body.splitlines() if line]
     assert len(lines) == 2

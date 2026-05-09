@@ -297,10 +297,22 @@ class ConversationPurger:
         return count
 
     async def _run_loop(self) -> None:
-        """Periodic purge loop. Runs until cancelled."""
+        """Periodic purge loop. Runs until cancelled.
+
+        ``purge_once`` swallows its own exceptions and returns 0, so this
+        loop should never see one. The defensive try/except here is a
+        belt-and-suspenders guard: a future bug that lets an exception
+        escape ``purge_once`` would otherwise kill the daily task with no
+        recovery short of a gateway restart.
+        """
         await asyncio.sleep(self._initial_delay_seconds)
         while True:
-            await self.purge_once()
+            try:
+                await self.purge_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("purge_once raised — continuing loop")
             await asyncio.sleep(self._interval_seconds)
 
     def start(self) -> None:

@@ -311,6 +311,18 @@ def test_prefix_with_trailing_slash_unchanged():
     assert archiver.prefix == "foo/bar/"
 
 
+def test_prefix_leading_slash_stripped():
+    """`/foo/` would produce s3://bucket//foo/... — empty leading segment
+    confuses Athena partition projection."""
+    archiver = S3ConversationArchiver(bucket="b", prefix="/foo/")
+    assert archiver.prefix == "foo/"
+
+
+def test_prefix_multiple_leading_slashes_stripped():
+    archiver = S3ConversationArchiver(bucket="b", prefix="///foo/bar/")
+    assert archiver.prefix == "foo/bar/"
+
+
 def test_batch_size_too_large_rejected():
     """Operator setting batch_size above SQLite's parameter cap is rejected up-front."""
     with pytest.raises(ValueError, match="SQLITE_MAX_VARIABLE_NUMBER"):
