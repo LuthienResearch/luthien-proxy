@@ -379,8 +379,11 @@ class WebhookSender:
           3. Cancel anything still running.
           4. Close the shared httpx client.
 
-        Call during application shutdown.
+        Idempotent: subsequent calls return immediately. Safe to call from
+        multiple shutdown paths (lifespan teardown + test fixture cleanup).
         """
+        if self._stopped:
+            return
         self._stopped = True
         if self._pending_tasks:
             tasks = list(self._pending_tasks)

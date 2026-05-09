@@ -571,6 +571,22 @@ async def test_stop_is_noop_when_no_pending_tasks():
     assert sender.pending_depth == 0
 
 
+@pytest.mark.asyncio
+async def test_stop_is_idempotent():
+    """A second stop() call returns immediately rather than re-aclose-ing the client."""
+    with patch("luthien_proxy.webhook.sender.httpx.AsyncClient") as mock_client_cls:
+        mock_instance = AsyncMock()
+        mock_instance.aclose = AsyncMock()
+        mock_client_cls.return_value = mock_instance
+
+        sender = WebhookSender(url="https://example.com/hook")
+        await sender.stop()
+        await sender.stop()
+        await sender.stop()
+
+        mock_instance.aclose.assert_called_once()
+
+
 # ── Singleton client tests ─────────────────────────────────────────────────────
 
 
