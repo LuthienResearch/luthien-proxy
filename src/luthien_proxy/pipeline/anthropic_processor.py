@@ -775,7 +775,9 @@ async def _handle_execution_streaming(
                         _model = (reconstructed.get("model") if reconstructed else None) or io.request.get(
                             "model", "unknown"
                         )
-                        _duration_ms = int((time.monotonic() - request_start_time) * 1000) if request_start_time is not None else 0
+                        _duration_ms = (
+                            int((time.monotonic() - request_start_time) * 1000) if request_start_time is not None else 0
+                        )
                         webhook_sender.fire_and_forget(
                             session_id=policy_ctx.session_id,
                             transaction_id=call_id,
