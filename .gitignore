@@ -89,3 +89,11 @@ tests/**/failure_registry/*.json
 # Local scratch files
 kanban.jpg
 .e2e-logs/
+
+# Nightly maintenance — local config (may contain secrets)
+scripts/nightly/nightly.env
+# sed -i.bak* artifacts from local edits
+scripts/nightly/nightly.env.bak*
+
+# Claude Code runtime state
+.claude/scheduled_tasks.lock

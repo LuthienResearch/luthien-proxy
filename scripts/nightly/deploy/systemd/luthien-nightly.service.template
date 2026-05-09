@@ -1,0 +1,17 @@
+[Unit]
+Description=luthien-proxy nightly maintenance
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=__USER__
+WorkingDirectory=__WORKING_DIR__
+Environment=PATH=__PATH__
+ExecStart=/bin/bash -lc '__NIGHTLY_SH__'
+StandardOutput=append:__LOG_DIR__/nightly.out.log
+StandardError=append:__LOG_DIR__/nightly.err.log
+TimeoutStartSec=4h
+
+[Install]
+WantedBy=multi-user.target

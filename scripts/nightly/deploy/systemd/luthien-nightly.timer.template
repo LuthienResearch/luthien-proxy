@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly run of luthien-proxy maintenance
+
+[Timer]
+OnCalendar=__ONCALENDAR__
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target
