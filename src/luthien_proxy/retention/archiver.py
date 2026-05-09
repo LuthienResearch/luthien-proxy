@@ -167,6 +167,12 @@ class S3ConversationArchiver:
                 "Leaving it unset silently falls back to the AWS-managed default key, "
                 "which is weaker than an explicitly configured customer-managed KMS key."
             )
+        # Normalize prefix: a non-empty prefix without a trailing slash
+        # silently produces keys like "fooDATE/..." instead of "foo/DATE/...".
+        # Either the operator explicitly used "" (root of bucket) or they
+        # meant a subdirectory.
+        if prefix and not prefix.endswith("/"):
+            prefix = prefix + "/"
         self.bucket = bucket
         self.prefix = prefix
         self.batch_size = batch_size
@@ -190,14 +196,21 @@ class S3ConversationArchiver:
     def _build_s3_key(self, cutoff: datetime, run_id: str, batch_index: int) -> str:
         """Build a date-partitioned S3 key for one batch of an archive run.
 
-        Format: {prefix}{YYYY-MM-DD}/{timestamp}-{run_id}-{batch:04d}.jsonl
+        Format: ``{prefix}{run-YYYY-MM-DD}/cutoff-{cutoff-YYYY-MM-DD}-{timestamp}-{run_id}-{batch:04d}.jsonl``
+
+        Partition by *run date* (when the archive happened), not cutoff date.
+        Operators expect ``s3://bucket/luthien-archive/<today>/`` to contain
+        what was archived today. The cutoff date is encoded inside the
+        filename for restore queries that need it.
 
         run_id is shared across batches in one purge; batch_index increments
         per batch. Together they make object listing / restore deterministic.
         """
-        date_str = cutoff.strftime("%Y-%m-%d")
-        ts_str = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        return f"{self.prefix}{date_str}/{ts_str}-{run_id}-{batch_index:04d}.jsonl"
+        now = datetime.now(UTC)
+        run_date = now.strftime("%Y-%m-%d")
+        cutoff_date = cutoff.strftime("%Y-%m-%d")
+        ts_str = now.strftime("%Y%m%dT%H%M%SZ")
+        return f"{self.prefix}{run_date}/cutoff-{cutoff_date}-{ts_str}-{run_id}-{batch_index:04d}.jsonl"
 
     def _build_put_kwargs(self, key: str, body: bytes) -> dict[str, Any]:
         """Build kwargs for `s3.put_object`, honouring the configured encryption mode."""

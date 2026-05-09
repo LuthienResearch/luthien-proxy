@@ -265,12 +265,36 @@ async def test_get_s3_client_raises_when_boto3_missing(cutoff):
 # ── object key shape ──────────────────────────────────────────────────────
 
 
-def test_build_s3_key_format():
+def test_build_s3_key_partitions_by_run_date_not_cutoff():
+    """The prefix date is run-date (today), not cutoff-date. Cutoff is
+    encoded in the filename. Operators expect today's archives under today's
+    prefix."""
     archiver = S3ConversationArchiver(bucket="b", prefix="p/")
-    key = archiver._build_s3_key(datetime(2024, 3, 15, 10, 30, tzinfo=UTC), run_id="abc12345", batch_index=2)
-    assert key.startswith("p/2024-03-15/")
+    cutoff = datetime(2024, 3, 15, 10, 30, tzinfo=UTC)
+    key = archiver._build_s3_key(cutoff, run_id="abc12345", batch_index=2)
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    assert key.startswith(f"p/{today}/")
+    assert "cutoff-2024-03-15" in key
     assert "abc12345" in key
     assert key.endswith("-0002.jsonl")
+
+
+def test_prefix_without_trailing_slash_normalized():
+    """A non-empty prefix without `/` would silently produce keys like
+    'fooDATE/...' — the constructor normalizes it."""
+    archiver = S3ConversationArchiver(bucket="b", prefix="luthien-archive")
+    assert archiver.prefix == "luthien-archive/"
+
+
+def test_empty_prefix_preserved():
+    """Empty prefix means root-of-bucket — leave it alone."""
+    archiver = S3ConversationArchiver(bucket="b", prefix="")
+    assert archiver.prefix == ""
+
+
+def test_prefix_with_trailing_slash_unchanged():
+    archiver = S3ConversationArchiver(bucket="b", prefix="foo/bar/")
+    assert archiver.prefix == "foo/bar/"
 
 
 def test_new_run_id_is_short_hex():

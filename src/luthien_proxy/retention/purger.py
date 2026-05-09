@@ -16,6 +16,19 @@ unarchived rows remain for the next run to retry.
 Cascading FK deletes handle conversation_events, policy_events, and
 conversation_judge_decisions.
 
+Index strategy: the existing ``idx_conversation_calls_created`` on
+``conversation_calls(created_at)`` (from migration 003) is sufficient for
+the cursor-paginated archive query. The query is
+``WHERE created_at < $1 [AND call_id > $2] ORDER BY call_id LIMIT $3`` —
+the planner range-scans matching rows via the existing index and sorts
+the small result set by call_id. At the bounded ``batch_size=100``
+default this is a tiny sort and runs at most every ``interval_seconds``
+(daily by default). A composite ``(created_at, call_id)`` would not help
+because the leading ``created_at`` constrains row order and the planner
+still has to sort by call_id. A leading-call_id covering index would
+have to walk the PK linearly and was rejected as worse for the typical
+"most rows are fresh, few rows are eligible for purge" workload.
+
 Follows the same start/stop pattern as TelemetrySender.
 """
 
@@ -158,7 +171,7 @@ class ConversationPurger:
                     )
             except Exception:
                 logger.exception(
-                    "Archive failed on batch %d (run=%s); stopping. %d batches archived+deleted earlier in this run.",
+                    "Archive failed on batch %d (run=%s); stopping. %d batch(es) succeeded earlier in this run.",
                     batch_index,
                     run_id,
                     batch_index,
