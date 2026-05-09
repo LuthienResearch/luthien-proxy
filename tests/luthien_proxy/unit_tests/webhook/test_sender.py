@@ -407,6 +407,7 @@ def test_sender_disabled_when_no_url():
         ({"max_pending_tasks": -1}, "max_pending_tasks must be >= 1"),
         ({"max_pending_tasks": 1_000_000}, "max_pending_tasks must be <= 100000"),
         ({"max_retries": -1}, "max_retries must be >= 0"),
+        ({"max_retries": 100}, "max_retries must be <= 20"),
         ({"retry_delay_seconds": -0.1}, "retry_delay_seconds must be >= 0"),
     ],
 )

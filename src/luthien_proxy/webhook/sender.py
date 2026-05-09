@@ -46,6 +46,7 @@ _RETRYABLE_4XX = frozenset({408, 425, 429})
 
 SEND_TIMEOUT_SECONDS = 10
 DEFAULT_MAX_RETRIES = 3
+MAX_RETRIES_CEILING = 20
 DEFAULT_RETRY_DELAY_SECONDS = 1.0
 DEFAULT_MAX_PENDING_TASKS = 1000
 MAX_PENDING_TASKS_CEILING = 100_000
@@ -205,6 +206,13 @@ class WebhookSender:
             )
         if max_retries < 0:
             raise ValueError(f"max_retries must be >= 0 (got {max_retries})")
+        if max_retries > MAX_RETRIES_CEILING:
+            raise ValueError(
+                f"max_retries must be <= {MAX_RETRIES_CEILING} (got {max_retries}); "
+                "high values combine multiplicatively with retry delays + send timeout — "
+                f"e.g. max_retries=20 against a slow receiver can hold a slot for >20 minutes "
+                f"(20 × {SEND_TIMEOUT_SECONDS}s timeout + 19 × {MAX_RETRY_DELAY_SECONDS:.0f}s backoff)."
+            )
         if retry_delay_seconds < 0:
             raise ValueError(f"retry_delay_seconds must be >= 0 (got {retry_delay_seconds})")
         if shutdown_drain_seconds < 0:
@@ -524,7 +532,7 @@ class WebhookSender:
                 cancelled = len(tasks)
             self._pending_tasks.clear()
             logger.info(
-                "WebhookSender stopped: %d drained, %d cancelled, %d dropped (lifetime)",
+                "WebhookSender stopped: %d completed (any terminal state), %d cancelled, %d dropped (lifetime)",
                 drained,
                 cancelled,
                 self._dropped_due_to_backpressure,
