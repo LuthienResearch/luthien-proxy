@@ -802,11 +802,17 @@ async def _handle_execution_streaming(
                         # `final_status` MUST already be 500 from the
                         # empty-stream branch — otherwise the success-calc
                         # would silently report success=True for a 0-event
-                        # stream. Fail loud during dev/test if invariant
-                        # breaks; production-safe (assert is no-op under -O).
-                        assert not (stream_completed and not emitted_any and final_status == 200), (
-                            "invariant violated: empty-stream-after-completion did not set final_status=500"
-                        )
+                        # stream. Use an explicit if+log instead of assert
+                        # so the safety survives `python -O` (which strips
+                        # asserts). Coerce to 500 on the failure path so the
+                        # webhook still fires with coherent payload.
+                        if stream_completed and not emitted_any and final_status == 200:
+                            logger.error(
+                                "[%s] invariant violated: empty-stream-after-completion did not set "
+                                "final_status=500. Forcing 500 to keep webhook payload coherent.",
+                                call_id,
+                            )
+                            final_status = 500
                         _duration_ms = int((time.monotonic() - request_start_time) * 1000)
                         _fire_webhook_for_completion(
                             webhook_sender=webhook_sender,
@@ -869,20 +875,17 @@ async def _handle_execution_streaming(
 
                     if reconstructed is not None:
                         # Use raw backend events for original response if buffered,
-                        # otherwise fall back to accumulated (post-policy) events.
                         # Trade-off: for streaming requests, raw events are NOT buffered
-                        # separately (_buffer_raw_events=False) to avoid doubling memory
-                        # usage. This means the diff viewer will show identical original
-                        # and final responses for streaming requests. Non-streaming
-                        # requests still capture true pre-policy vs post-policy diffs.
+                        # separately (_AnthropicPolicyIO sets _buffer_raw_events=not is_streaming).
+                        # This means the diff viewer will show identical original and final
+                        # responses for streaming requests. Non-streaming requests buffer
+                        # raw events separately and capture true pre-policy vs post-policy
+                        # diffs (handled by _handle_execution_non_streaming, not here).
                         #
-                        # When raw events are NOT buffered, raw_events IS accumulated_events,
-                        # so we reuse the already-computed `reconstructed` instead of
-                        # re-running the reconstruction pass (CPU win on long streams).
-                        if not io._buffer_raw_events:
-                            raw_reconstructed = reconstructed
-                        else:
-                            raw_reconstructed = _reconstruct_response_from_stream_events(io._raw_backend_events)
+                        # Since this branch is streaming-only, raw_events IS accumulated_events
+                        # and we reuse `reconstructed` directly. The previous conditional
+                        # for the buffered-raw-events case was dead code in this codepath.
+                        raw_reconstructed = reconstructed
                         emitter.record(
                             call_id,
                             "transaction.streaming_response_recorded",
