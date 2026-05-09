@@ -2244,6 +2244,46 @@ class TestStreamingWebhookGate:
         webhook.fire_and_forget.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_mid_stream_exception_with_no_events_fires_with_request_model_fallback(self):
+        """Exception before any emission → reconstructed is None → model falls back to request.
+
+        Locks in the model fallback chain in _fire_webhook_for_completion when
+        accumulated_events is empty (no reconstruction possible).
+        """
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            raise RuntimeError("policy boom before any emit")
+            yield  # unreachable
+
+        io, span, ctx, recorder, emitter = self._make_deps()
+        io.request = {"model": "claude-from-request"}
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-empty-exc",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        await self._drain(response)
+
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        assert kwargs["success"] is False
+        assert kwargs["http_status"] == 500
+        assert kwargs["model"] == "claude-from-request"  # fell back to request.model
+        assert kwargs["input_tokens"] == 0
+        assert kwargs["output_tokens"] == 0
+
+    @pytest.mark.asyncio
     async def test_cancelled_before_emission_fires_with_499(self):
         """CancelledError before any emission → success=False, http_status=499 (not 500).
 

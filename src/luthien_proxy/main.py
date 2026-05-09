@@ -347,8 +347,7 @@ def create_app(
         yield
 
         # Shutdown
-        if _webhook_sender is not None:
-            await _webhook_sender.stop()
+        await _webhook_sender.stop()
         if _telemetry_sender is not None:
             await _telemetry_sender.stop()
         await _inference_provider_registry.close()

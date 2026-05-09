@@ -307,11 +307,13 @@ class WebhookSender:
             # 4xx: permanent unless explicitly transient (408/425/429).
             # 5xx: always retry.
             retryable = status >= 500 or status in _RETRYABLE_4XX
-            # Per-attempt failures log at DEBUG; the retry loop logs the final
-            # outcome at WARN/ERROR. With max_retries=3 and steady traffic
-            # against a dead receiver this avoids 4× WARN per request × N RPS.
-            log = logger.debug if retryable else logger.warning
-            log(
+            # Per-attempt failures (retryable AND permanent) log at DEBUG;
+            # the retry loop logs the user-visible outcome at WARN/ERROR.
+            # Permanent failures bail after the first attempt, so the loop's
+            # 'gave a permanent failure on attempt N — not retrying' carries
+            # the same status in one line. Avoids 2× log per permanent fail
+            # and 4× log per exhausted-retry request.
+            logger.debug(
                 "Webhook delivery failed: HTTP %d from %s%s",
                 status,
                 self.safe_url,
