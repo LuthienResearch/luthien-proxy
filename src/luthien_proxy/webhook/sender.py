@@ -145,9 +145,11 @@ class WebhookSender:
     Instances are singletons created at startup. The ``fire_and_forget`` method
     dispatches a background asyncio task so the response path is never blocked.
 
-    Construction must happen under a running event loop (``httpx.AsyncClient``
-    does loop-aware setup at ``__init__``). The gateway constructs the sender
-    inside the FastAPI lifespan, which satisfies this.
+    Construction must happen under a running event loop. Modern ``httpx``
+    defers transport creation to the first request, but the surrounding
+    pattern (background task scheduled in ``fire_and_forget``) still needs
+    a loop. The gateway constructs the sender inside the FastAPI lifespan,
+    which satisfies this.
 
     See ``__init__`` for the full argument list.
     """
