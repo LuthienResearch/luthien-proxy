@@ -716,6 +716,14 @@ async def _handle_execution_streaming(
                     # cancelled-before-emit would mis-classify as empty-stream
                     # and report success=False, http_status=500. 499 = Client
                     # Closed Request (matches the non-streaming behavior).
+                    #
+                    # GeneratorExit (also BaseException) is intentionally NOT
+                    # caught here. FastAPI raises it on client disconnect via
+                    # generator.aclose(); catching it here would either re-yield
+                    # to a closed writer or violate the GeneratorExit contract.
+                    # The bare-disconnect path falls through to the gate with
+                    # cancelled=False (and emitted_any=True after first event)
+                    # which correctly suppresses the webhook (no false success).
                     cancelled = True
                     final_status = 499
                     raise

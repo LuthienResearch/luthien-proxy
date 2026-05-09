@@ -231,12 +231,17 @@ class WebhookSender:
         if max_retries < 0:
             raise ValueError(f"max_retries must be >= 0 (got {max_retries})")
         if max_retries > MAX_RETRIES_CEILING:
+            # Math: 1 + max_retries attempts × send_timeout + max_retries × backoff.
+            attempts = 1 + max_retries
+            sleeps = max_retries
             raise ValueError(
                 f"max_retries must be <= {MAX_RETRIES_CEILING} (got {max_retries}); "
                 "high values combine multiplicatively with retry delays + send timeout. "
-                f"At max_retries=20, a single failed delivery occupies one of "
-                f"max_pending_tasks slots for ~20 minutes "
-                f"(20 × {send_timeout_seconds}s timeout + 19 × {MAX_RETRY_DELAY_SECONDS:.0f}s backoff). "
+                f"At max_retries={max_retries}, a single failed delivery occupies one of "
+                f"max_pending_tasks slots for up to "
+                f"~{attempts * int(send_timeout_seconds) + sleeps * int(MAX_RETRY_DELAY_SECONDS)}s "
+                f"({attempts} × {send_timeout_seconds}s timeout + {sleeps} × "
+                f"{MAX_RETRY_DELAY_SECONDS:.0f}s backoff). "
                 "A few of these against a sustained-failure receiver will fill the pool."
             )
         if retry_delay_seconds < 0:
@@ -263,7 +268,12 @@ class WebhookSender:
             elif not self._parsed_url.hostname:
                 # `https://` parses cleanly but is unusable — every POST would
                 # fail with a network error and burn the retry budget per request.
-                logger.warning("WEBHOOK_URL has no host (got %r). Webhook sender disabled.", url)
+                # Log scheme only (mirrors the bad-scheme warning above) — the
+                # full URL may carry secrets in path/userinfo.
+                logger.warning(
+                    "WEBHOOK_URL has no host (scheme %r). Webhook sender disabled.",
+                    scheme,
+                )
                 self._url = None
                 self._parsed_url = None
         self._max_retries = max_retries

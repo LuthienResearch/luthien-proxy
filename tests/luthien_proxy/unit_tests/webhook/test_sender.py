@@ -682,6 +682,21 @@ async def test_observability_properties(make_sender):
 
 
 @pytest.mark.asyncio
+async def test_started_at_is_approximately_construction_time(make_sender):
+    """started_at is captured at construction (within 1 second of now)."""
+    from datetime import UTC, datetime, timedelta
+
+    before = datetime.now(UTC)
+    sender = make_sender(url="https://example.com/hook")
+    after = datetime.now(UTC)
+
+    assert before - timedelta(seconds=1) <= sender.started_at <= after + timedelta(seconds=1)
+    # And the value is timezone-aware UTC.
+    assert sender.started_at.tzinfo is not None
+    assert sender.started_at.utcoffset() == timedelta(0)
+
+
+@pytest.mark.asyncio
 async def test_fire_and_forget_smoke_many_tasks(make_sender):
     """Smoke test: many rapid fire_and_forget calls don't crash (e.g. KeyError from discard).
 
@@ -736,6 +751,12 @@ async def test_backpressure_log_decade_thresholds(make_sender, caplog):
         # Decade thresholds: n=1, 10, 100 → 3 messages within the first 150 drops.
         assert len(log_lines) == 3, f"expected 3 log lines, got {len(log_lines)}: {log_lines}"
         assert sender.dropped_count == 150
+        # Each log message references the actual drop count at the time it fired
+        # — guards against a regression that logs a stale or fixed counter value.
+        formatted = [r.getMessage() for r in caplog.records if "backpressure" in r.message.lower()]
+        assert any("dropped 1 webhook" in m for m in formatted), formatted
+        assert any("dropped 10 webhook" in m for m in formatted), formatted
+        assert any("dropped 100 webhook" in m for m in formatted), formatted
         block_release.set()
 
 
