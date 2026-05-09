@@ -121,6 +121,8 @@ class NullEventEmitter:
 class EventEmitter:
     """Emits events to multiple sinks: stdout, database, and redis."""
 
+    dropped_db_writes: int = 0
+
     def __init__(
         self,
         db_pool: "DatabasePool | None" = None,
@@ -131,7 +133,6 @@ class EventEmitter:
         self._db_pool = db_pool
         self._event_publisher = event_publisher
         self._stdout_enabled = stdout_enabled
-        self.dropped_db_writes: int = 0
 
     async def emit(
         self,
@@ -270,13 +271,11 @@ class EventEmitter:
                     user_id,
                 )
 
-            logger.debug("Wrote event to db: %s (transaction_id=%s)", event_type, transaction_id)
+            logger.debug(f"Wrote event to db: {event_type} (transaction_id={transaction_id})")
         except (OSError, asyncpg.PostgresError, asyncpg.InternalClientError) as e:
-            self.dropped_db_writes += 1
+            EventEmitter.dropped_db_writes += 1
             logger.warning(
-                "Failed to write event to database (%d total dropped): %r",
-                self.dropped_db_writes,
-                e,
+                f"Failed to write event to database ({EventEmitter.dropped_db_writes} total dropped): {repr(e)}",
                 exc_info=True,
             )
 

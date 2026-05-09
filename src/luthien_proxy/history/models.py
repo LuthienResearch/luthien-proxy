@@ -78,8 +78,10 @@ class SessionSummary(BaseModel):
     models_used: list[str]
     preview_message: str | None = None  # Preview of session (last user message, truncated)
     # user_ids are user-asserted (JWT signature not verified) — attribution only, not authentication.
-    # All distinct user_ids attributed to calls in this session; multi-element when a session
-    # is reused across users (e.g. shared frontend session_id with separate JWTs).
+    # Distinct user_ids attributed to calls in this session:
+    #   - empty list: no call carried a user_id (TRUST_USER_ID_HEADER off and no JWT) — common default.
+    #   - one element: standard case.
+    #   - multi-element: session reused across users (e.g. shared frontend session_id, rotating JWTs).
     user_ids: list[str] = Field(default_factory=list)  # X-Luthien-User-Id or JWT sub claim
 
 

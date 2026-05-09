@@ -92,13 +92,19 @@ _USER_ID_MAX_LENGTH = 256
 
 
 def _sanitize_user_id(value: str) -> str | None:
-    """Sanitize user ID by stripping control characters and truncating.
+    """Sanitize user ID by stripping ASCII C0 controls + DEL and truncating.
+
+    Strips bytes < 0x20 and 0x7F (sufficient to prevent log/CSV injection
+    via CR/LF/TAB/NUL). Does NOT strip Unicode Cf/Cc categories
+    (zero-width joiners, RTL overrides, U+0080-U+009F C1 controls) — those
+    matter only when the value is rendered in a UI, and the history UI
+    does not render user_id today. Tighten this if/when the UI lands.
 
     Args:
         value: Raw user ID string
 
     Returns:
-        Sanitized user ID (max 256 chars, no control chars), or None if empty
+        Sanitized user ID (max 256 chars, no ASCII C0/DEL), or None if empty
     """
     cleaned = "".join(ch for ch in value if ord(ch) >= 0x20 and ord(ch) != 0x7F).strip()
     return cleaned[:_USER_ID_MAX_LENGTH] if cleaned else None
@@ -134,6 +140,10 @@ def extract_user_id_from_authorization_header(header_value: str | None) -> str |
     :func:`extract_user_id_from_bearer_token`. Centralizes the prefix logic so
     callers don't reimplement it (case-insensitive scheme match, empty token
     rejection).
+
+    Pass the *value* directly — this function does not consult a header dict.
+    The scheme check is case-insensitive, so neither caller nor wrapper needs
+    to lowercase the input.
 
     Args:
         header_value: Raw value of the ``Authorization`` header, or None.

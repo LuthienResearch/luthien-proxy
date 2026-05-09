@@ -16,9 +16,3 @@ users in the history UI and `GET /api/history/sessions?user_id=...`.
     so sessions reused across users render honestly instead of attributing
     to one). Retention/purge tooling that scrubs PII should account for
     both columns.
-
-**EventEmitter.dropped_db_writes** silently changed from a class-level
-counter (shared across all instances) to a per-instance counter. The
-class-level form was a latent bug (test isolation, multi-emitter scrape).
-Anything reading `EventEmitter.dropped_db_writes` directly will now see 0;
-read it from the instance instead.

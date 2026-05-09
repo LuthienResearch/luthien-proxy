@@ -580,15 +580,20 @@ async def _fetch_session_list_sqlite(
                 """
             )
 
-        user_filter_clause = "AND cc.user_id = $3" if user_id is not None else ""
+        # PERF: only filter through conversation_calls when a user filter is
+        # actually requested. Unfiltered list calls (the hot path) skip the
+        # conversation_calls subquery entirely. user_ids are populated by a
+        # separate post-query keyed on the page's session_ids (SQLite has no
+        # array_agg, so we can't compute them inside this query anyway).
+        user_call_filter = (
+            "AND ce.call_id IN (SELECT call_id FROM conversation_calls WHERE user_id = $3)"
+            if user_id is not None
+            else ""
+        )
         query_args: list[Any] = [limit, offset]
         if user_id is not None:
             query_args.append(user_id)
 
-        # SQLite has no array_agg, so we cannot return user_ids as a list in a
-        # single query. Fetch the per-session distinct user_ids in a separate
-        # query keyed on the page's session_ids, mirroring the model/preview
-        # batching approach.
         rows = await conn.fetch(
             f"""
             SELECT
@@ -603,9 +608,8 @@ async def _fetch_session_list_sqlite(
                     THEN 1 ELSE 0
                 END) as policy_interventions
             FROM conversation_events ce
-            LEFT JOIN conversation_calls cc ON ce.call_id = cc.call_id
             WHERE ce.session_id IS NOT NULL
-            {user_filter_clause}
+            {user_call_filter}
             GROUP BY ce.session_id
             ORDER BY last_ts DESC
             LIMIT $1 OFFSET $2
