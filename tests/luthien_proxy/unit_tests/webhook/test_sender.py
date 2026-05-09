@@ -157,6 +157,25 @@ async def sender_with_retries():
     await s.stop()
 
 
+@pytest.fixture
+async def make_sender():
+    """Factory that constructs WebhookSender instances and stops them all in teardown.
+
+    Use for tests that need bespoke construction args — avoids the httpx.AsyncClient
+    leak from direct ``WebhookSender(url=...)`` calls without a paired ``stop()``.
+    """
+    instances: list[WebhookSender] = []
+
+    def _make(**kwargs) -> WebhookSender:
+        s = WebhookSender(**kwargs)
+        instances.append(s)
+        return s
+
+    yield _make
+    for s in instances:
+        await s.stop()
+
+
 # ── _attempt_send tests ───────────────────────────────────────────────────────
 
 
@@ -263,13 +282,17 @@ def test_sender_disabled_when_no_url():
     assert WebhookSender(url=None).enabled is False
 
 
-def test_sender_enabled_when_url_set():
-    assert WebhookSender(url="https://example.com/hook").enabled is True
+@pytest.mark.asyncio
+async def test_sender_enabled_when_url_set(make_sender):
+    assert make_sender(url="https://example.com/hook").enabled is True
 
 
 @pytest.mark.parametrize("bad_scheme", ["file:///etc/passwd", "javascript://x", "ftp://example.com/hook"])
 def test_bad_scheme_disables_sender(bad_scheme: str):
-    """Non-HTTP(S) schemes log a warning and disable the sender rather than raising."""
+    """Non-HTTP(S) schemes log a warning and disable the sender rather than raising.
+
+    Bad-scheme path skips httpx.AsyncClient construction entirely, so no leak.
+    """
     sender = WebhookSender(url=bad_scheme)
     assert not sender.enabled
     assert sender.safe_url == ""
@@ -298,56 +321,63 @@ async def test_fire_and_forget_noop_after_stop():
 # ── safe_url tests ────────────────────────────────────────────────────────────
 
 
-def test_safe_url_strips_userinfo_redacts_path():
+@pytest.mark.asyncio
+async def test_safe_url_strips_userinfo_redacts_path(make_sender):
     """Credentials are stripped, port is preserved, path is fully redacted."""
-    sender = WebhookSender(url="https://user:pass@hooks.example.com:8443/webhook?key=secret")
+    sender = make_sender(url="https://user:pass@hooks.example.com:8443/webhook?key=secret")
     assert sender.safe_url == "https://hooks.example.com:8443/..."
 
 
-def test_safe_url_no_path():
+@pytest.mark.asyncio
+async def test_safe_url_no_path(make_sender):
     """URL without a path stays clean."""
-    sender = WebhookSender(url="https://hooks.example.com")
+    sender = make_sender(url="https://hooks.example.com")
     assert sender.safe_url == "https://hooks.example.com"
 
 
-def test_safe_url_empty_path_root():
+@pytest.mark.asyncio
+async def test_safe_url_empty_path_root(make_sender):
     """Bare '/' path is preserved (no secret to leak)."""
-    sender = WebhookSender(url="https://hooks.example.com/")
+    sender = make_sender(url="https://hooks.example.com/")
     assert sender.safe_url == "https://hooks.example.com/"
 
 
-def test_safe_url_strips_query_and_fragment():
-    sender = WebhookSender(url="https://hooks.example.com/webhook?token=abc#section")
+@pytest.mark.asyncio
+async def test_safe_url_strips_query_and_fragment(make_sender):
+    sender = make_sender(url="https://hooks.example.com/webhook?token=abc#section")
     safe = sender.safe_url
     assert "token" not in safe
     assert "abc" not in safe
     assert "section" not in safe
 
 
-def test_safe_url_redacts_multi_segment_path():
+@pytest.mark.asyncio
+async def test_safe_url_redacts_multi_segment_path(make_sender):
     """Slack/Discord-style multi-segment secrets are redacted."""
-    sender = WebhookSender(url="https://hooks.slack.com/services/T123/B456/SECRET_TOKEN")
+    sender = make_sender(url="https://hooks.slack.com/services/T123/B456/SECRET_TOKEN")
     safe = sender.safe_url
     assert "SECRET_TOKEN" not in safe
     assert "T123" not in safe
     assert "B456" not in safe
 
 
-def test_safe_url_redacts_single_segment_secret():
+@pytest.mark.asyncio
+async def test_safe_url_redacts_single_segment_secret(make_sender):
     """Single-segment path secrets (RequestBin/ngrok/custom hooks) are redacted.
 
     Regression for PR #741 issue #4: previous logic preserved the first path
     segment, so https://x/SECRET leaked SECRET intact.
     """
-    sender = WebhookSender(url="https://hooks.example.com/SECRET_AT_ROOT")
+    sender = make_sender(url="https://hooks.example.com/SECRET_AT_ROOT")
     safe = sender.safe_url
     assert "SECRET_AT_ROOT" not in safe
     assert safe == "https://hooks.example.com/..."
 
 
-def test_safe_url_brackets_ipv6():
+@pytest.mark.asyncio
+async def test_safe_url_brackets_ipv6(make_sender):
     """IPv6 hosts get bracketed; port preserved."""
-    sender = WebhookSender(url="http://[::1]:8080/hook")
+    sender = make_sender(url="http://[::1]:8080/hook")
     safe = sender.safe_url
     assert "[::1]" in safe
     assert ":8080" in safe
@@ -361,9 +391,9 @@ def test_safe_url_empty_when_no_url():
 
 
 @pytest.mark.asyncio
-async def test_fire_and_forget_drops_when_backpressure_cap_reached():
+async def test_fire_and_forget_drops_when_backpressure_cap_reached(make_sender):
     """fire_and_forget drops new webhooks once _pending_tasks reaches max_pending_tasks."""
-    sender = WebhookSender(url="https://example.com/hook", max_pending_tasks=2)
+    sender = make_sender(url="https://example.com/hook", max_pending_tasks=2)
 
     send_started = asyncio.Event()
     block_release = asyncio.Event()
@@ -388,9 +418,10 @@ async def test_fire_and_forget_drops_when_backpressure_cap_reached():
         await asyncio.gather(*list(sender._pending_tasks), return_exceptions=True)
 
 
-def test_observability_properties():
+@pytest.mark.asyncio
+async def test_observability_properties(make_sender):
     """Counters are exposed via public properties."""
-    sender = WebhookSender(url="https://example.com/hook", max_pending_tasks=42)
+    sender = make_sender(url="https://example.com/hook", max_pending_tasks=42)
     assert sender.pending_depth == 0
     assert sender.dropped_count == 0
     assert sender.max_pending_tasks == 42
@@ -421,21 +452,36 @@ async def test_fire_and_forget_smoke_many_tasks():
 
 
 @pytest.mark.asyncio
-async def test_backpressure_log_decade_thresholds(caplog):
-    """Backpressure log fires at 1, 10, 100, 1000, then every 1000."""
+async def test_backpressure_log_decade_thresholds(make_sender, caplog):
+    """Backpressure log fires at 1, 10, 100, 1000, then every 1000.
+
+    Uses max_pending_tasks=1 with a primed pending task that never completes,
+    so every additional fire_and_forget hits the cap. (Validation rejects
+    max_pending_tasks=0, so that approach is unavailable.)
+    """
     import logging
 
-    sender = WebhookSender(url="https://example.com/hook", max_pending_tasks=0)
-    # max_pending_tasks=0 means every send is dropped.
-    fire_kwargs = _fire_kwargs()
-    with caplog.at_level(logging.WARNING, logger="luthien_proxy.webhook.sender"):
-        for _ in range(150):
-            sender.fire_and_forget(**fire_kwargs)
-    # Expect log entries at n=1, 10, 100 (not at n=20, 50, etc.)
-    log_lines = [r.message for r in caplog.records if "backpressure" in r.message.lower()]
-    # 1, 10, 100 → 3 messages within the first 150 drops
-    assert len(log_lines) == 3, f"expected 3 log lines, got {len(log_lines)}: {log_lines}"
-    assert sender.dropped_count == 150
+    sender = make_sender(url="https://example.com/hook", max_pending_tasks=1)
+    block_release = asyncio.Event()
+
+    async def _blocking_send(payload):
+        await block_release.wait()
+        return True
+
+    with patch.object(sender, "_attempt_send", side_effect=_blocking_send):
+        # Prime the pool with one task that won't complete during the test.
+        sender.fire_and_forget(**_fire_kwargs())
+        # Let the primed task start so pending_depth == 1.
+        await asyncio.sleep(0.01)
+        with caplog.at_level(logging.WARNING, logger="luthien_proxy.webhook.sender"):
+            for _ in range(150):
+                sender.fire_and_forget(**_fire_kwargs())
+
+        log_lines = [r.message for r in caplog.records if "backpressure" in r.message.lower()]
+        # Decade thresholds: n=1, 10, 100 → 3 messages within the first 150 drops.
+        assert len(log_lines) == 3, f"expected 3 log lines, got {len(log_lines)}: {log_lines}"
+        assert sender.dropped_count == 150
+        block_release.set()
 
 
 # ── stop() — drain semantics ──────────────────────────────────────────────────
