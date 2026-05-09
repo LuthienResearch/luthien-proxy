@@ -521,4 +521,9 @@ class WebhookSender:
                 self._dropped_due_to_backpressure,
             )
         if self._client is not None:
-            await self._client.aclose()
+            try:
+                await self._client.aclose()
+            except Exception:
+                # aclose() raising during shutdown shouldn't taint subsequent
+                # teardown steps in main.py's lifespan exit. Log and move on.
+                logger.warning("WebhookSender: httpx client aclose() failed", exc_info=True)

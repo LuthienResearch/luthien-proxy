@@ -752,6 +752,43 @@ async def _handle_execution_streaming(
                         # webhook fire and recorder flush.
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
 
+                    # Reconstruct first (in-process pure-Python iteration over
+                    # already-accumulated events; rare but possible to raise on
+                    # SDK shape drift). Wrap so failure → reconstructed=None
+                    # and the webhook still fires below.
+                    try:
+                        reconstructed = _reconstruct_response_from_stream_events(accumulated_events)
+                    except Exception:
+                        logger.exception("[%s] Stream reconstruction failed", call_id)
+                        reconstructed = None
+
+                    # Fire webhook BEFORE protocol validation, recorder, emitter,
+                    # and usage_collector calls — any of those raising can't
+                    # then skip the webhook. Non-streaming finally has the same
+                    # property by being wrapped in its own helper.
+                    #
+                    # Gate: skip on bare client-disconnect AFTER some events
+                    # were emitted (no completion flag, no exception, no
+                    # empty-stream branch), to avoid reporting a false success
+                    # for a partial delivery. Cancelled-before-emit hits
+                    # `not emitted_any` and fires with success=False, http_status=499.
+                    if stream_completed or caught_exception or not emitted_any:
+                        _duration_ms = int((time.monotonic() - request_start_time) * 1000)
+                        _fire_webhook_for_completion(
+                            webhook_sender=webhook_sender,
+                            policy_ctx=policy_ctx,
+                            call_id=call_id,
+                            request_model_field=io.request.get("model"),
+                            response=reconstructed,
+                            duration_ms=_duration_ms,
+                            is_streaming=True,
+                            # Both checks load-bearing: stream_completed=True with
+                            # emitted_any=False hits the empty-stream branch above
+                            # which sets final_status=500.
+                            success=stream_completed and final_status == 200,
+                            http_status=final_status,
+                        )
+
                     # Validate streaming protocol compliance (log-and-warn).
                     # Only validate complete streams — partial/error streams will
                     # always fail completeness checks (missing message_stop, etc.)
@@ -789,33 +826,6 @@ async def _handle_execution_streaming(
 
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
-                    reconstructed = _reconstruct_response_from_stream_events(accumulated_events)
-
-                    # Fire webhook FIRST so subsequent recorder/emitter calls
-                    # raising can't skip it. The non-streaming finally has the
-                    # same property by being wrapped in its own helper.
-                    #
-                    # Gate: skip on bare client-disconnect AFTER some events
-                    # were emitted (no completion flag, no exception, no
-                    # empty-stream branch), to avoid reporting a false success
-                    # for a partial delivery. Cancelled-before-emit hits
-                    # `not emitted_any` and fires with success=False, http_status=499.
-                    if stream_completed or caught_exception or not emitted_any:
-                        _duration_ms = int((time.monotonic() - request_start_time) * 1000)
-                        _fire_webhook_for_completion(
-                            webhook_sender=webhook_sender,
-                            policy_ctx=policy_ctx,
-                            call_id=call_id,
-                            request_model_field=io.request.get("model"),
-                            response=reconstructed,
-                            duration_ms=_duration_ms,
-                            is_streaming=True,
-                            # Both checks load-bearing: stream_completed=True with
-                            # emitted_any=False hits the empty-stream branch above
-                            # which sets final_status=500.
-                            success=stream_completed and final_status == 200,
-                            http_status=final_status,
-                        )
 
                     if reconstructed is not None:
                         # Use raw backend events for original response if buffered,
