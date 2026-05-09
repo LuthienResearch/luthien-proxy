@@ -537,17 +537,19 @@ async def test_backpressure_log_decade_thresholds(make_sender, caplog):
     import logging
 
     sender = make_sender(url="https://example.com/hook", max_pending_tasks=1)
+    send_started = asyncio.Event()
     block_release = asyncio.Event()
 
     async def _blocking_send(payload):
+        send_started.set()
         await block_release.wait()
-        return True
+        return True, False
 
     with patch.object(sender, "_attempt_send", side_effect=_blocking_send):
         # Prime the pool with one task that won't complete during the test.
         sender.fire_and_forget(**_fire_kwargs())
-        # Let the primed task start so pending_depth == 1.
-        await asyncio.sleep(0.01)
+        # Wait deterministically for the primed task to enter _attempt_send.
+        await send_started.wait()
         with caplog.at_level(logging.WARNING, logger="luthien_proxy.webhook.sender"):
             for _ in range(150):
                 sender.fire_and_forget(**_fire_kwargs())

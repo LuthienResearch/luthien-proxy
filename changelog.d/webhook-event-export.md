@@ -13,4 +13,5 @@ pr: 741
   - Streaming webhook is suppressed on bare client-disconnect (no false-success); fires with `success=False` on policy errors and empty streams
   - Non-streaming webhook fires with `success=False`, `http_status=<error code>` on policy/backend errors — symmetric with streaming
   - **`duration_ms` semantics**: non-streaming = request-received → response-ready; streaming = request-received → generator's finally (includes client-drain time, so slow consumers inflate the number). The two are not the same measurement.
+  - **`success` semantics**: `success=True` means the gateway built and dispatched a response, not that the client received it. Both stream and non-stream fire from finally blocks before the response leaves the gateway. For at-least-once delivery confirmation, use the durable Postgres event recorder.
   - **At-most-once delivery**: failures after retries are dropped, shutdown drains then cancels, process crashes lose in-flight events. Not suitable for systems that require at-least-once or durable delivery.

@@ -19,6 +19,7 @@ The pipeline creates a structured span hierarchy for observability:
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import logging
@@ -956,6 +957,12 @@ async def _handle_execution_non_streaming(
             )
     except BackendAPIError as e:
         final_status = e.status_code
+        raise
+    except asyncio.CancelledError:
+        # CancelledError is a BaseException; without this branch the webhook
+        # would fire with success=False, http_status=200 (the initializer) — a
+        # contradictory pair. 499 = Client Closed Request (nginx convention).
+        final_status = 499
         raise
     except Exception:
         final_status = 500

@@ -28,10 +28,11 @@ logger = logging.getLogger(__name__)
 def _log_task_exception(task: asyncio.Task[None]) -> None:
     """Last-resort safety net for fire-and-forget tasks.
 
-    `_send_with_retries` already catches `Exception` per attempt; this only
-    fires for true bugs that escape that try/except (e.g. a `BaseException`
-    subclass other than `CancelledError`, or a defect in the retry loop
-    itself). Don't use this as the primary failure-handling path.
+    The retry loop in `_send_with_retries` catches `Exception` around each
+    attempt (which itself catches httpx/network errors), so any exception
+    landing here is a bug in the retry-loop scaffolding itself or a
+    `BaseException` subclass other than `CancelledError`. Don't use this
+    as the primary failure-handling path.
     """
     if not task.cancelled() and (exc := task.exception()):
         logger.error("Webhook send task raised an unexpected exception: %r", exc)
@@ -144,11 +145,11 @@ class WebhookSender:
     Instances are singletons created at startup. The ``fire_and_forget`` method
     dispatches a background asyncio task so the response path is never blocked.
 
-    Args:
-        url: Webhook endpoint URL. If ``None`` or empty, the sender is disabled.
-        max_retries: Number of retry attempts after the initial failure (default 3).
-        retry_delay_seconds: Base delay between retries in seconds (default 1.0).
-            Each retry doubles the delay (exponential backoff).
+    Construction must happen under a running event loop (``httpx.AsyncClient``
+    does loop-aware setup at ``__init__``). The gateway constructs the sender
+    inside the FastAPI lifespan, which satisfies this.
+
+    See ``__init__`` for the full argument list.
     """
 
     def __init__(
@@ -420,10 +421,10 @@ class WebhookSender:
             cache_creation_input_tokens=cache_creation_input_tokens,
             cache_read_input_tokens=cache_read_input_tokens,
         )
-        # ensure_future + set.add are synchronous, so the task can't complete
+        # create_task + set.add are synchronous, so the task can't complete
         # before it's tracked. set.discard() (vs set.remove()) is also safe
         # if the discard callback runs after a manual prune.
-        task = asyncio.ensure_future(self._send_with_retries(payload))
+        task = asyncio.create_task(self._send_with_retries(payload))
         self._pending_tasks.add(task)
         task.add_done_callback(self._pending_tasks.discard)
         task.add_done_callback(_log_task_exception)

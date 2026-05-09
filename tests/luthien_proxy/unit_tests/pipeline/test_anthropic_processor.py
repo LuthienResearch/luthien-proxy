@@ -1,5 +1,6 @@
 """Unit tests for the Anthropic-native pipeline processor module."""
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -2328,6 +2329,43 @@ class TestNonStreamingWebhookErrorPath:
         assert kwargs["is_streaming"] is False
         assert kwargs["input_tokens"] == 10
         assert kwargs["output_tokens"] == 5
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_fires_with_499_not_contradictory_200(self):
+        """CancelledError yields http_status=499, not 200/success=False contradiction.
+
+        Regression: CancelledError is BaseException, bypasses except Exception.
+        Previously left final_status at its initializer (200) while final_response
+        stayed None, producing success=False, http_status=200 — a contradictory
+        pair for downstream consumers indexing on either field.
+        """
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_non_streaming
+
+        async def emissions():
+            raise asyncio.CancelledError()
+            yield  # unreachable
+
+        io, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        with pytest.raises(asyncio.CancelledError):
+            await _handle_execution_non_streaming(
+                emissions=emissions(),
+                io=io,
+                emitter=emitter,
+                policy_ctx=ctx,
+                call_id="call-cancel",
+                request_log_recorder=recorder,
+                webhook_sender=webhook,
+                request_start_time=0.0,
+            )
+
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        assert kwargs["success"] is False
+        assert kwargs["http_status"] == 499
 
     @pytest.mark.asyncio
     async def test_error_path_fires_with_success_false(self):
