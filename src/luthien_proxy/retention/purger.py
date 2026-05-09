@@ -127,7 +127,13 @@ class ConversationPurger:
         last_call_id: str | None,
         batch_size: int,
     ) -> list[str]:
-        """Fetch one batch of call_ids matching the cutoff, paginated by call_id."""
+        """Fetch one batch of call_ids matching the cutoff, paginated by call_id.
+
+        Same backdated-insert caveat as the archiver path's fetch_batch:
+        a row inserted with ``created_at < cutoff`` and ``call_id < last_call_id``
+        between batches would be skipped this run, but the cutoff predicate
+        still picks it up next run. The codebase has no backdated-insert path.
+        """
         if last_call_id is None:
             rows = await conn.fetch(  # type: ignore[attr-defined]
                 "SELECT call_id FROM conversation_calls"
@@ -208,10 +214,12 @@ class ConversationPurger:
                     )
             except Exception:
                 logger.exception(
-                    "Fetch failed on batch %d (run=%s); stopping. %d batch(es) succeeded earlier in this run.",
+                    "Fetch failed on batch %d (run=%s); stopping. "
+                    "%d batch(es) succeeded earlier in this run; %d records archived+deleted so far.",
                     batch_index,
                     run_id,
                     batch_index,
+                    total_deleted,
                 )
                 return total_deleted
 
@@ -229,10 +237,12 @@ class ConversationPurger:
                 )
             except Exception:
                 logger.exception(
-                    "Archive upload failed on batch %d (run=%s); stopping. %d batch(es) succeeded earlier in this run.",
+                    "Archive upload failed on batch %d (run=%s); stopping. "
+                    "%d batch(es) succeeded earlier in this run; %d records archived+deleted so far.",
                     batch_index,
                     run_id,
                     batch_index,
+                    total_deleted,
                 )
                 return total_deleted
 
@@ -242,9 +252,11 @@ class ConversationPurger:
             except Exception:
                 logger.exception(
                     "DELETE failed for archived batch %d (run=%s); stopping. "
-                    "S3 has the archive; DB still has the rows. Next run will re-archive.",
+                    "S3 has this batch's archive; DB still has the rows. Next run will re-archive. "
+                    "%d records archived+deleted in earlier batches of this run.",
                     batch_index,
                     run_id,
+                    total_deleted,
                 )
                 return total_deleted
 

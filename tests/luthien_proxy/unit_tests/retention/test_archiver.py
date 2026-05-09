@@ -1,13 +1,15 @@
 """Unit tests for S3ConversationArchiver.
 
-The archiver now exposes only `archive_one_batch`; the per-batch loop and
-the per-batch DELETE belong to the purger. These tests cover:
+The archiver exposes ``fetch_batch`` (DB-only) and ``upload_batch`` (S3-only)
+as separate methods so the purger can release the DB connection across the
+S3 PUT. These tests cover:
 
-- Constructor-time validation of encryption settings
+- Constructor-time validation of encryption settings, batch_size cap, prefix
+  normalization, and boto3 import probe
 - Per-batch JSONL serialization (call + events + policy_events + judge_decisions)
 - Encryption modes: AES256, aws:kms (with/without key id), bucket-default
-- S3 error propagation (the purger handles "stop the run" semantics)
-- Boto3-not-installed error
+- S3 error propagation from upload_batch (the purger handles "stop the run")
+- DB-only / S3-only separation (regression guard for the connection-release fix)
 """
 
 from __future__ import annotations

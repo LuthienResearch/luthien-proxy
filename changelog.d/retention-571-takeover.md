@@ -20,3 +20,9 @@ with optional pre-purge archival to S3 (JSONL). Closes #561.
     `conversation_judge_decisions`, policy decisions in `policy_events`).
     Treat the destination bucket as data-at-rest containing user content
     when classifying for compliance, IAM, and replication policies.
+  - **Scope: this purger covers `conversation_calls` and the tables that
+    cascade off it.** It does **not** cover `request_logs` (the
+    HTTP-level table populated when `ENABLE_REQUEST_LOGGING=true`),
+    which has no FK to `conversation_calls` and is on a separate
+    retention model. If you enable both retention and request logging,
+    plan a parallel cleanup for `request_logs` (tracked as a follow-up).
