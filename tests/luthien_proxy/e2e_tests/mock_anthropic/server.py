@@ -39,10 +39,19 @@ from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MOCK_PORT = 18888
-
 # Union of all response types the queue can hold.
 AnyMockResponse = MockResponse | MockErrorResponse | MockToolResponse | MockParallelToolResponse
+
+
+def _allocate_free_port() -> int:
+    """Ask the OS for an unused TCP port. Theoretical race with another
+    process between allocation and bind, but acceptable for tests.
+    """
+    import socket
+
+    with socket.socket() as s:
+        s.bind(("", 0))
+        return s.getsockname()[1]
 
 
 class MockAnthropicServer:
@@ -61,8 +70,15 @@ class MockAnthropicServer:
         background thread while tests access from the main thread.
     """
 
-    def __init__(self, port: int = DEFAULT_MOCK_PORT):
-        self._port = port
+    def __init__(self, port: int = 0):
+        """Construct the server.
+
+        Args:
+            port: TCP port to bind. ``0`` (default) allocates an unused
+                port from the OS so multiple stacks can coexist on one
+                machine without collision.
+        """
+        self._port = port if port != 0 else _allocate_free_port()
         self._queue: queue.SimpleQueue = queue.SimpleQueue()
         self._default: AnyMockResponse = text_response("mock response")
         self._thread: threading.Thread | None = None
