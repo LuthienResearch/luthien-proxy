@@ -159,11 +159,10 @@ class WebhookSender:
     Instances are singletons created at startup. The ``fire_and_forget`` method
     dispatches a background asyncio task so the response path is never blocked.
 
-    Construction must happen under a running event loop. Modern ``httpx``
-    defers transport creation to the first request, but the surrounding
-    pattern (background task scheduled in ``fire_and_forget``) still needs
-    a loop. The gateway constructs the sender inside the FastAPI lifespan,
-    which satisfies this.
+    Construction itself does not require a running event loop (modern
+    ``httpx`` defers transport creation), but ``fire_and_forget`` schedules
+    background tasks and so must be called under one. The gateway both
+    constructs and uses the sender inside the FastAPI lifespan.
 
     See ``__init__`` for the full argument list.
     """
@@ -371,8 +370,14 @@ class WebhookSender:
                 return
 
             if attempt < self._max_retries:
-                jittered = delay * (0.5 + random.random())  # ±50% jitter
-                capped = min(jittered, MAX_RETRY_DELAY_SECONDS)
+                # Jitter as [0.5x, 1.0x] of base — keeps factor-of-2 spread but
+                # the upper bound never exceeds `delay`. Previously `±50%`
+                # ([0.5x, 1.5x]) collapsed against the MAX cap once delay
+                # reached it: `min(60 * (0.5+random), 60)` left ~50% of the
+                # distribution at exactly 60s, which is the opposite of what
+                # jitter is for during downstream overload (thundering-herd).
+                base = min(delay, MAX_RETRY_DELAY_SECONDS)
+                capped = base * (0.5 + 0.5 * random.random())
                 logger.debug(
                     "Webhook delivery attempt %d/%d to %s failed, retrying in %.1fs",
                     attempt + 1,

@@ -756,6 +756,14 @@ async def _handle_execution_streaming(
                     # Only validate complete streams — partial/error streams will
                     # always fail completeness checks (missing message_stop, etc.)
                     # and produce noisy false positives.
+                    #
+                    # Validation is **advisory**: a malformed stream that was still
+                    # delivered to the client keeps `success=True, http_status=200`
+                    # in the webhook payload. The bytes did get sent; the
+                    # protocol issue is for operator/policy debugging, not
+                    # delivery accounting. Consumers wanting strict
+                    # protocol-conformant accounting should also subscribe to
+                    # the `streaming.protocol_violation` event from the emitter.
                     if accumulated_events and final_status == 200:
                         validation = validate_anthropic_event_ordering(accumulated_events)
                         if not validation.valid:

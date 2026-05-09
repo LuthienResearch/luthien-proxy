@@ -291,6 +291,45 @@ async def test_fire_and_forget_gives_up_after_max_retries(sender_with_retries):
 
 
 @pytest.mark.asyncio
+async def test_retry_sleep_never_exceeds_max_delay():
+    """Jitter never lets the per-retry sleep exceed MAX_RETRY_DELAY_SECONDS.
+
+    Regression: previous `delay * (0.5 + random())` produced [0.5x, 1.5x],
+    which when capped at MAX collapsed ~50% of the distribution to exactly
+    MAX once `delay` reached MAX. The fix uses [0.5x, 1.0x] of base.
+    """
+    from luthien_proxy.webhook.sender import MAX_RETRY_DELAY_SECONDS
+
+    sender = WebhookSender(
+        url="https://example.com/hook",
+        max_retries=10,
+        retry_delay_seconds=120.0,  # well above MAX_RETRY_DELAY_SECONDS
+    )
+
+    sleeps_observed: list[float] = []
+
+    async def _record_sleep(seconds: float):
+        sleeps_observed.append(seconds)
+        # Don't actually sleep — just record what was asked for.
+
+    async def _always_transient_fail(payload):
+        return False, True
+
+    with (
+        patch.object(sender, "_attempt_send", side_effect=_always_transient_fail),
+        patch("luthien_proxy.webhook.sender.asyncio.sleep", side_effect=_record_sleep),
+    ):
+        sender.fire_and_forget(**_fire_kwargs())
+        await _drain_pending(sender)
+
+    await sender.stop()
+    # Bounded: every recorded sleep must be in [0, MAX_RETRY_DELAY_SECONDS].
+    assert sleeps_observed, "expected the retry loop to call asyncio.sleep at least once"
+    for s in sleeps_observed:
+        assert 0 <= s <= MAX_RETRY_DELAY_SECONDS, f"sleep {s} exceeds cap {MAX_RETRY_DELAY_SECONDS}"
+
+
+@pytest.mark.asyncio
 async def test_fire_and_forget_bails_on_permanent_failure(sender_with_retries):
     """Permanent (non-retryable) failures bail immediately — no retries."""
     call_count = 0
