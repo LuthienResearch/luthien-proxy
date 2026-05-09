@@ -36,6 +36,11 @@ def _log_task_exception(task: asyncio.Task[None]) -> None:
     that moves work outside the catch); (b) non-`CancelledError`
     `BaseException` subclasses like `KeyboardInterrupt` or `SystemExit`.
     Don't use this as the primary failure-handling path.
+
+    Safety: ``task.exception()`` raises ``InvalidStateError`` if the task
+    isn't done. This function is registered via ``add_done_callback`` so it
+    only runs after the task completes — calling it outside that context
+    would break the walrus on the right of the ``and``.
     """
     if not task.cancelled() and (exc := task.exception()):
         logger.error("Webhook send task raised an unexpected exception: %r", exc)
@@ -261,8 +266,15 @@ class WebhookSender:
                 f"shutdown_drain_seconds must be >= 0 (got {shutdown_drain_seconds}); "
                 "use 0 for immediate-cancel-only on stop()."
             )
-        if send_timeout_seconds <= 0:
-            raise ValueError(f"send_timeout_seconds must be > 0 (got {send_timeout_seconds})")
+        # 0.1s floor: any lower and a routine TCP/TLS handshake against a
+        # local receiver would time out, burning the full retry budget on
+        # every event. The bound also keeps the slot-occupancy math from
+        # __init__'s docstring honest.
+        if send_timeout_seconds < 0.1:
+            raise ValueError(
+                f"send_timeout_seconds must be >= 0.1 (got {send_timeout_seconds}); "
+                "lower values reliably time out routine TCP/TLS handshakes and burn the retry budget per event."
+            )
         self._url = url or None
         self._parsed_url: ParseResult | None = None
         if self._url:

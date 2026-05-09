@@ -505,6 +505,8 @@ def test_sender_disabled_when_no_url():
         ({"max_retries": -1}, "max_retries must be >= 0"),
         ({"max_retries": 100}, "max_retries must be <= 20"),
         ({"retry_delay_seconds": -0.1}, "retry_delay_seconds must be >= 0"),
+        ({"send_timeout_seconds": 0.0}, "send_timeout_seconds must be >= 0.1"),
+        ({"send_timeout_seconds": 0.05}, "send_timeout_seconds must be >= 0.1"),
     ],
 )
 def test_construction_rejects_invalid_args(kwargs, msg_fragment):

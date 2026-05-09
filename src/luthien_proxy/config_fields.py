@@ -254,7 +254,7 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
     # the sender and revisit the SSRF Trello card (https://trello.com/c/sBefPP2C).
     ConfigFieldMeta(
         "webhook_url", "WEBHOOK_URL", str, "",
-        "Endpoint URL to POST conversation completion events to (leave empty to disable). At-most-once delivery: failures after retries are dropped, shutdown drains then cancels, process crashes lose in-flight events. Not suitable for systems that require at-least-once / durable delivery. **Treated as operator-trusted** — the value is not subjected to SSRF protection (private IPs and localhost are reachable), so only set this from a trusted config source. **Privacy**: payloads include session_id (which may be a stable user identifier) — treat the receiver as a PII sink, same posture as conversation logs.",
+        "Endpoint URL to POST conversation completion events to (leave empty to disable). At-most-once delivery: failures after retries are dropped, shutdown drains then cancels, process crashes lose in-flight events. Not suitable for systems that require at-least-once / durable delivery. **Treated as operator-trusted** — the value is not subjected to SSRF protection (private IPs and localhost are reachable), so only set this from a trusted config source. **If you ever wire this to user-controllable input, add SSRF protection FIRST.** **Privacy**: payloads include session_id (which may be a stable user identifier) — treat the receiver as a PII sink, same posture as conversation logs.",
         sensitive=True, category="webhook",
     ),
     ConfigFieldMeta(

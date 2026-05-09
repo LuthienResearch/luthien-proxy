@@ -724,6 +724,11 @@ async def _handle_execution_streaming(
                     # The bare-disconnect path falls through to the gate with
                     # cancelled=False (and emitted_any=True after first event)
                     # which correctly suppresses the webhook (no false success).
+                    #
+                    # The `cancelled` flag set here is read in the finally
+                    # block's `is_empty_stream` calculation below — without
+                    # it we'd yield an empty-stream error event into a stream
+                    # whose client is gone.
                     cancelled = True
                     final_status = 499
                     raise
