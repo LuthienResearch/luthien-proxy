@@ -58,6 +58,10 @@ WEBHOOK_PAYLOAD_SCHEMA_VERSION = 1
 
 
 DEFAULT_SEND_TIMEOUT_SECONDS = 10.0
+# Sanity cap: combined with max_retries this bounds how long a single delivery
+# can pin a slot. With send_timeout=300 + max_retries=20 that's already 100+
+# minutes per slot — anything higher is misconfiguration.
+SEND_TIMEOUT_CEILING_SECONDS = 300.0
 # httpx default; cap webhook pool size at this even when max_pending_tasks is
 # higher — most receivers can't sustain >100 concurrent TCP connections from a
 # single client without overwhelming. Operators with the cap-as-concurrency
@@ -281,6 +285,12 @@ class WebhookSender:
                 f"send_timeout_seconds must be >= 0.1 (got {send_timeout_seconds}); "
                 "lower values reliably time out routine TCP/TLS handshakes and burn the retry budget per event."
             )
+        if send_timeout_seconds > SEND_TIMEOUT_CEILING_SECONDS:
+            raise ValueError(
+                f"send_timeout_seconds must be <= {SEND_TIMEOUT_CEILING_SECONDS:.0f} "
+                f"(got {send_timeout_seconds}); combined with max_retries this defeats the "
+                "point of max_pending_tasks (a single delivery would hold a slot for hours)."
+            )
         self._url = url or None
         self._parsed_url: ParseResult | None = None
         if self._url:
@@ -304,6 +314,20 @@ class WebhookSender:
                 )
                 self._url = None
                 self._parsed_url = None
+            else:
+                # `urlparse(...).port` lazily parses the port and raises
+                # ValueError if out of 0-65535 range (e.g. `:99999`). Surface
+                # it as a disable-and-log here instead of crashing lifespan
+                # later when _compute_safe_url() reads `.port`.
+                try:
+                    self._parsed_url.port  # noqa: B018 — eval to trigger validation
+                except ValueError:
+                    logger.warning(
+                        "WEBHOOK_URL has invalid port (scheme %r). Webhook sender disabled.",
+                        scheme,
+                    )
+                    self._url = None
+                    self._parsed_url = None
         self._max_retries = max_retries
         self._retry_delay_seconds = retry_delay_seconds
         self._max_pending_tasks = max_pending_tasks

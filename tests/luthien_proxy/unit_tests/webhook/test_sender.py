@@ -507,6 +507,7 @@ def test_sender_disabled_when_no_url():
         ({"retry_delay_seconds": -0.1}, "retry_delay_seconds must be >= 0"),
         ({"send_timeout_seconds": 0.0}, "send_timeout_seconds must be >= 0.1"),
         ({"send_timeout_seconds": 0.05}, "send_timeout_seconds must be >= 0.1"),
+        ({"send_timeout_seconds": 600.0}, "send_timeout_seconds must be <= 300"),
     ],
 )
 def test_construction_rejects_invalid_args(kwargs, msg_fragment):
@@ -539,6 +540,20 @@ def test_bad_scheme_disables_sender(bad_scheme: str):
 def test_empty_host_disables_sender(empty_host_url: str):
     """URLs with no host parse cleanly but are unusable — disable rather than burn the retry budget."""
     sender = WebhookSender(url=empty_host_url)
+    assert not sender.enabled
+    assert sender.safe_url == ""
+
+
+@pytest.mark.parametrize("bad_port_url", ["https://example.com:99999/", "https://x:65536/"])
+def test_invalid_port_disables_sender(bad_port_url: str):
+    """Out-of-range ports raise ValueError when urlparse(...).port is read.
+
+    Regression: previous code only validated scheme+host; port was lazily
+    accessed in _compute_safe_url and crashed lifespan startup with an
+    unhandled ValueError instead of disabling cleanly. (Port 0 is valid
+    per urllib; only > 65535 raises.)
+    """
+    sender = WebhookSender(url=bad_port_url)
     assert not sender.enabled
     assert sender.safe_url == ""
 
