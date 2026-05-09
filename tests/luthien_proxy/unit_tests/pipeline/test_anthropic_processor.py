@@ -2059,3 +2059,306 @@ class TestAnthropicPolicyIOBuffering:
 
         raw_events = accumulated_events if not io._buffer_raw_events else io._raw_backend_events
         assert raw_events is io._raw_backend_events
+
+
+class TestStreamingWebhookGate:
+    """Tests for the streaming webhook fire gate (PR #741 issues #2, R4.1).
+
+    Drives _handle_execution_streaming directly with a mock emissions iterator
+    and asserts whether webhook_sender.fire_and_forget was called and with
+    what success/http_status. Locks in the
+    `stream_completed or caught_exception or not emitted_any` matrix.
+    """
+
+    @staticmethod
+    async def _drain(response: FastAPIStreamingResponse) -> list[bytes]:
+        """Iterate the streaming response body, swallowing GeneratorExit cleanly."""
+        chunks: list[bytes] = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk if isinstance(chunk, bytes) else chunk.encode())
+        return chunks
+
+    @staticmethod
+    def _make_event() -> MessageStreamEvent:
+        """Build a minimal valid MessageStreamEvent for streaming."""
+        return RawContentBlockDeltaEvent(
+            type="content_block_delta",
+            index=0,
+            delta=TextDelta(type="text_delta", text="hi"),
+        )
+
+    @staticmethod
+    def _make_deps():
+        """Return (io, span, ctx, recorder, emitter) mocks for the streaming function."""
+        io = MagicMock()
+        io.request = {"model": "claude-test"}
+        io.ensure_request_recorded = MagicMock()
+        io._buffer_raw_events = False
+        io._raw_backend_events = []
+
+        span = MagicMock()
+        ctx = MagicMock()
+        ctx.session_id = "sess-1"
+        ctx.response_summary = None
+        ctx.record_event = MagicMock()
+        recorder = MagicMock()
+        emitter = MagicMock()
+        return io, span, ctx, recorder, emitter
+
+    @pytest.mark.asyncio
+    async def test_normal_completion_fires_with_success_true(self):
+        """Stream completes normally → webhook fires with success=True, http_status=200."""
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            yield self._make_event()
+
+        io, span, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-1",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        await self._drain(response)
+
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        assert kwargs["success"] is True
+        assert kwargs["http_status"] == 200
+        assert kwargs["is_streaming"] is True
+
+    @pytest.mark.asyncio
+    async def test_mid_stream_exception_fires_with_success_false(self):
+        """Policy raises mid-stream → webhook fires with success=False, http_status=500."""
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            yield self._make_event()
+            raise RuntimeError("policy boom")
+
+        io, span, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-2",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        await self._drain(response)
+
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        assert kwargs["success"] is False
+        assert kwargs["http_status"] == 500
+
+    @pytest.mark.asyncio
+    async def test_empty_stream_fires_with_success_false_500(self):
+        """Policy emits nothing → empty-stream branch fires with success=False, http_status=500."""
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            return
+            yield  # unreachable but makes this an async generator
+
+        io, span, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-3",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        await self._drain(response)
+
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        assert kwargs["success"] is False
+        assert kwargs["http_status"] == 500
+
+    @pytest.mark.asyncio
+    async def test_client_disconnect_after_emission_does_not_fire(self):
+        """Client disconnects after emitting events → webhook is suppressed (no false success).
+
+        Regression for PR #741 issue #2: the previous gate (`final_status == 200`)
+        would fire with success=200 because CancelledError/GeneratorExit bypass
+        the `except Exception` block, leaving final_status at its initial 200.
+        """
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            yield self._make_event()
+            yield self._make_event()
+            yield self._make_event()
+
+        io, span, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-4",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+
+        # Simulate client disconnect by closing the body iterator after one chunk.
+        chunks: list[bytes] = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk if isinstance(chunk, bytes) else chunk.encode())
+            await response.body_iterator.aclose()
+            break
+
+        webhook.fire_and_forget.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_disabled_webhook_no_fire(self):
+        """webhook_sender.enabled=False → fire_and_forget is never called regardless of outcome."""
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            yield self._make_event()
+
+        io, span, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = False
+        webhook.fire_and_forget = MagicMock()
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-5",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        await self._drain(response)
+
+        webhook.fire_and_forget.assert_not_called()
+
+
+class TestNonStreamingWebhookErrorPath:
+    """Non-streaming webhook now fires on error paths too (PR #741 R4.2)."""
+
+    @staticmethod
+    def _make_deps():
+        io = MagicMock()
+        io.request = {"model": "claude-test"}
+        io.first_backend_response = None
+        io.ensure_request_recorded = MagicMock()
+        ctx = MagicMock()
+        ctx.session_id = "sess-1"
+        ctx.record_event = MagicMock()
+        recorder = MagicMock()
+        emitter = MagicMock()
+        return io, ctx, recorder, emitter
+
+    @pytest.mark.asyncio
+    async def test_success_path_fires_with_success_true(self):
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_non_streaming
+
+        response_obj: AnthropicResponse = {
+            "id": "msg_1",  # _is_anthropic_response_emission requires the msg_ prefix
+            "type": "message",
+            "role": "assistant",
+            "content": [],
+            "model": "claude-test",
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": build_usage(input_tokens=10, output_tokens=5),
+        }
+
+        async def emissions():
+            yield response_obj
+
+        io, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        result = await _handle_execution_non_streaming(
+            emissions=emissions(),
+            io=io,
+            emitter=emitter,
+            policy_ctx=ctx,
+            call_id="call-1",
+            request_log_recorder=recorder,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        assert isinstance(result, JSONResponse)
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        assert kwargs["success"] is True
+        assert kwargs["http_status"] == 200
+        assert kwargs["is_streaming"] is False
+        assert kwargs["input_tokens"] == 10
+        assert kwargs["output_tokens"] == 5
+
+    @pytest.mark.asyncio
+    async def test_error_path_fires_with_success_false(self):
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_non_streaming
+
+        async def emissions():
+            raise RuntimeError("policy boom")
+            yield  # unreachable; makes this a generator
+
+        io, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        with pytest.raises(BackendAPIError) as exc:
+            await _handle_execution_non_streaming(
+                emissions=emissions(),
+                io=io,
+                emitter=emitter,
+                policy_ctx=ctx,
+                call_id="call-2",
+                request_log_recorder=recorder,
+                webhook_sender=webhook,
+                request_start_time=0.0,
+            )
+        assert exc.value.status_code == 500
+
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        assert kwargs["success"] is False
+        assert kwargs["http_status"] == 500
+        # Usage is empty on the error path (we never got a response).
+        assert kwargs["input_tokens"] == 0
+        assert kwargs["output_tokens"] == 0
