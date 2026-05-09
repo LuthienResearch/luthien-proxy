@@ -829,7 +829,7 @@ class TestFetchSessionListUserFilter:
         )
         result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
         assert len(result.sessions) == 1
-        assert result.sessions[0].user_id == "alice"
+        assert result.sessions[0].user_ids == ["alice"]
 
     @pytest.mark.asyncio
     async def test_user_id_filter_returns_only_matching(self, sqlite_pool: DatabasePool):
@@ -842,6 +842,75 @@ class TestFetchSessionListUserFilter:
         result = await fetch_session_list(limit=10, db_pool=sqlite_pool, user_id="alice")
         assert [s.session_id for s in result.sessions] == ["s-alice"]
         assert result.total == 1
+
+    @pytest.mark.asyncio
+    async def test_mixed_user_session_surfaces_all_ids(self, sqlite_pool: DatabasePool):
+        """A session reused across users surfaces every distinct user_id, never collapses."""
+        await self._seed_user_session(
+            sqlite_pool, call_id="c-alice", session_id="shared", user_id="alice", created_at="2025-01-15T10:00:00"
+        )
+        await self._seed_user_session(
+            sqlite_pool, call_id="c-bob", session_id="shared", user_id="bob", created_at="2025-01-15T10:01:00"
+        )
+        result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
+        assert len(result.sessions) == 1
+        assert sorted(result.sessions[0].user_ids) == ["alice", "bob"]
+
+    @pytest.mark.asyncio
+    async def test_user_filter_does_not_leak_other_user_preview(self, sqlite_pool: DatabasePool):
+        """preview_message under ?user_id=alice must not surface bob's content from a shared session."""
+        async with sqlite_pool.connection() as conn:
+            # Bob's call lands first in the same session; his preview would otherwise
+            # become the session's preview_message.
+            await conn.execute(
+                """
+                INSERT INTO conversation_calls
+                (call_id, model_name, provider, status, session_id, user_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                "c-bob",
+                "gpt-4",
+                "openai",
+                "completed",
+                "shared",
+                "bob",
+                "2025-01-15T10:00:00",
+            )
+            await conn.execute(
+                """
+                INSERT INTO conversation_events
+                (id, call_id, event_type, payload, session_id, user_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                "e-bob",
+                "c-bob",
+                "transaction.request_recorded",
+                json.dumps(
+                    {
+                        "final_model": "gpt-4-secret",
+                        "final_request": {"messages": [{"role": "user", "content": "BOBS PRIVATE MESSAGE"}]},
+                    }
+                ),
+                "shared",
+                "bob",
+                "2025-01-15T10:00:00",
+            )
+
+        await self._seed_user_session(
+            sqlite_pool,
+            call_id="c-alice",
+            session_id="shared",
+            user_id="alice",
+            created_at="2025-01-15T10:01:00",
+        )
+
+        # Filtered query must not surface bob's content.
+        filtered = await fetch_session_list(limit=10, db_pool=sqlite_pool, user_id="alice")
+        assert [s.session_id for s in filtered.sessions] == ["shared"]
+        summary = filtered.sessions[0]
+        assert summary.user_ids == ["alice"], "filter must scope user_ids to alice only"
+        assert summary.preview_message != "BOBS PRIVATE MESSAGE", "preview_message leaked content from a different user"
+        assert "gpt-4-secret" not in summary.models_used, "models_used leaked a model from a different user's call"
 
     @pytest.mark.asyncio
     async def test_user_id_filter_sql_injection_safe(self, sqlite_pool: DatabasePool):

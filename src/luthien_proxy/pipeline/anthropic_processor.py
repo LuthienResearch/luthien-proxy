@@ -52,7 +52,7 @@ from luthien_proxy.pipeline.policy_context_injection import inject_policy_awaren
 from luthien_proxy.pipeline.session import (
     extract_session_id_from_anthropic_body,
     extract_session_id_from_headers,
-    extract_user_id_from_bearer_token,
+    extract_user_id_from_authorization_header,
     extract_user_id_from_headers,
 )
 from luthien_proxy.pipeline.stream_protocol_validator import validate_anthropic_event_ordering
@@ -508,9 +508,6 @@ async def _process_request(
             path=request.url.path,
         )
 
-        # Log incoming request
-        emitter.record(call_id, "pipeline.client_request", {"payload": body})
-
         # Extract session ID: try metadata.user_id first (API key mode),
         # fall back to x-session-id header (OAuth passthrough mode)
         session_id = extract_session_id_from_anthropic_body(body) or extract_session_id_from_headers(headers)
@@ -519,14 +516,20 @@ async def _process_request(
         # 1. X-Luthien-User-Id header (only when TRUST_USER_ID_HEADER=true)
         # 2. fall back to JWT Bearer token sub claim — signature is not verified;
         #    treat as user-asserted attribution, never as access control.
-        bearer_token = headers.get("authorization", "")
-        if bearer_token.lower().startswith("bearer "):
-            bearer_token = bearer_token[7:]
-        else:
-            bearer_token = ""
+        # NOTE: JWT extraction only fires for OAuth-passthrough clients; clients
+        # using `x-api-key` (the standard Anthropic SDK auth) carry no Bearer
+        # token, so user_id is None unless TRUST_USER_ID_HEADER and the header
+        # are both set.
         user_id = extract_user_id_from_headers(
             headers, trust_header=get_settings().trust_user_id_header
-        ) or extract_user_id_from_bearer_token(bearer_token)
+        ) or extract_user_id_from_authorization_header(headers.get("authorization"))
+
+        # Log incoming request — record AFTER user_id extraction so the very
+        # first event row of every call carries user_id, not NULL. Otherwise
+        # `WHERE user_id = X` queries silently miss the raw client request.
+        emitter.record(
+            call_id, "pipeline.client_request", {"payload": body, "session_id": session_id, "user_id": user_id}
+        )
 
         # Validate required fields
         if "model" not in body:

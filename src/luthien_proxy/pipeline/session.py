@@ -127,12 +127,44 @@ def extract_user_id_from_headers(headers: dict[str, str], *, trust_header: bool)
     return _sanitize_user_id(value)
 
 
+def extract_user_id_from_authorization_header(header_value: str | None) -> str | None:
+    """Extract user identity from a raw ``Authorization`` header value.
+
+    Convenience wrapper that strips the ``Bearer `` scheme and delegates to
+    :func:`extract_user_id_from_bearer_token`. Centralizes the prefix logic so
+    callers don't reimplement it (case-insensitive scheme match, empty token
+    rejection).
+
+    Args:
+        header_value: Raw value of the ``Authorization`` header, or None.
+
+    Returns:
+        The JWT ``sub`` claim string if the header carries a decodable Bearer
+        JWT, None otherwise (including for non-Bearer schemes like Basic).
+    """
+    if not header_value:
+        return None
+    if not header_value.lower().startswith("bearer "):
+        return None
+    stripped = header_value[7:].strip()
+    return extract_user_id_from_bearer_token(stripped) if stripped else None
+
+
 def extract_user_id_from_bearer_token(token: str | None) -> str | None:
     """Extract user identity from the ``sub`` claim of a Bearer JWT token.
 
     USER-ASSERTED, NOT AUTHENTICATED. Decodes the JWT payload without signature
     verification — this is used for identity attribution only, not authentication.
     Never use this value for access control or security decisions.
+
+    The ``exp`` claim is intentionally ignored: rejecting expired JWTs creates
+    attribution gaps without adding any security guarantee (the signature is
+    not checked, so a forged-expiry token would pass anyway).
+
+    NOTE: this path only fires for OAuth-passthrough clients that send
+    ``Authorization: Bearer <jwt>``. Anthropic SDK clients using ``x-api-key``
+    do not carry a Bearer token — for those deployments, only the
+    ``X-Luthien-User-Id`` header path produces a user_id.
 
     Malformed or opaque tokens (e.g. Anthropic API keys) return None gracefully.
 
@@ -176,6 +208,7 @@ __all__ = [
     "USER_ID_HEADER",
     "extract_session_id_from_anthropic_body",
     "extract_session_id_from_headers",
+    "extract_user_id_from_authorization_header",
     "extract_user_id_from_bearer_token",
     "extract_user_id_from_headers",
 ]

@@ -5,6 +5,7 @@ from luthien_proxy.pipeline.session import (
     USER_ID_HEADER,
     extract_session_id_from_anthropic_body,
     extract_session_id_from_headers,
+    extract_user_id_from_authorization_header,
     extract_user_id_from_bearer_token,
     extract_user_id_from_headers,
 )
@@ -324,3 +325,58 @@ class TestExtractUserIdFromBearerToken:
     def test_returns_none_for_sub_of_only_control_chars(self):
         token = self._make_jwt("\x00\x01\x1f\x7f")
         assert extract_user_id_from_bearer_token(token) is None
+
+
+class TestExtractUserIdFromAuthorizationHeader:
+    """Tests for the Authorization-header convenience wrapper."""
+
+    @staticmethod
+    def _make_jwt(sub: str) -> str:
+        import base64
+        import json
+
+        payload_bytes = json.dumps({"sub": sub}).encode()
+        payload = base64.urlsafe_b64encode(payload_bytes).rstrip(b"=").decode()
+        return f"eyJhbGciOiJSUzI1NiJ9.{payload}.fakesig"
+
+    def test_returns_none_for_none_header(self):
+        assert extract_user_id_from_authorization_header(None) is None
+
+    def test_returns_none_for_empty_header(self):
+        assert extract_user_id_from_authorization_header("") is None
+
+    def test_extracts_with_canonical_bearer_prefix(self):
+        assert extract_user_id_from_authorization_header(f"Bearer {self._make_jwt('alice')}") == "alice"
+
+    def test_case_insensitive_scheme_match(self):
+        # RFC 7235 says auth-scheme is case-insensitive.
+        assert extract_user_id_from_authorization_header(f"bearer {self._make_jwt('alice')}") == "alice"
+        assert extract_user_id_from_authorization_header(f"BEARER {self._make_jwt('alice')}") == "alice"
+
+    def test_returns_none_for_basic_auth(self):
+        # Don't try to decode credentials from non-Bearer schemes.
+        assert extract_user_id_from_authorization_header("Basic dXNlcjpwYXNz") is None
+
+    def test_returns_none_for_bearer_with_no_token(self):
+        assert extract_user_id_from_authorization_header("Bearer ") is None
+        assert extract_user_id_from_authorization_header("Bearer    ") is None
+
+    def test_strips_surrounding_whitespace_from_token(self):
+        assert extract_user_id_from_authorization_header(f"Bearer  {self._make_jwt('alice')}  ") == "alice"
+
+    def test_returns_none_for_opaque_anthropic_api_key(self):
+        # `Authorization: Bearer sk-ant-...` is malformed as a JWT — should not raise.
+        assert extract_user_id_from_authorization_header("Bearer sk-ant-api01-abcdef") is None
+
+
+class TestExtractUserIdHeaderEdgeCases:
+    """Edge cases pinned for regressions."""
+
+    def test_whitespace_only_header_returns_none(self):
+        # `_sanitize_user_id` strips whitespace; a header containing only spaces
+        # must reduce to None rather than the empty string.
+        assert extract_user_id_from_headers({USER_ID_HEADER: "   \t  "}, trust_header=True) is None
+
+    def test_header_ignored_when_trust_disabled(self):
+        # Even a valid value is dropped when TRUST_USER_ID_HEADER=false.
+        assert extract_user_id_from_headers({USER_ID_HEADER: "alice"}, trust_header=False) is None

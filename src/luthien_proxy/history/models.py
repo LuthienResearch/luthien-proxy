@@ -77,8 +77,10 @@ class SessionSummary(BaseModel):
     policy_interventions: int
     models_used: list[str]
     preview_message: str | None = None  # Preview of session (last user message, truncated)
-    # user_id is user-asserted (JWT signature not verified) — attribution only, not authentication
-    user_id: str | None = None  # User identity extracted from X-Luthien-User-Id or JWT sub claim
+    # user_ids are user-asserted (JWT signature not verified) — attribution only, not authentication.
+    # All distinct user_ids attributed to calls in this session; multi-element when a session
+    # is reused across users (e.g. shared frontend session_id with separate JWTs).
+    user_ids: list[str] = []  # User identities extracted from X-Luthien-User-Id or JWT sub claim
 
 
 class SessionListResponse(BaseModel):
