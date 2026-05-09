@@ -344,7 +344,7 @@ async def test_fire_and_forget_noop_after_stop():
 async def test_safe_url_strips_userinfo_redacts_path(make_sender):
     """Credentials are stripped, port is preserved, path is fully redacted."""
     sender = make_sender(url="https://user:pass@hooks.example.com:8443/webhook?key=secret")
-    assert sender.safe_url == "https://hooks.example.com:8443/..."
+    assert sender.safe_url == "https://hooks.example.com:8443/<redacted>"
 
 
 @pytest.mark.asyncio
@@ -390,7 +390,7 @@ async def test_safe_url_redacts_single_segment_secret(make_sender):
     sender = make_sender(url="https://hooks.example.com/SECRET_AT_ROOT")
     safe = sender.safe_url
     assert "SECRET_AT_ROOT" not in safe
-    assert safe == "https://hooks.example.com/..."
+    assert safe == "https://hooks.example.com/<redacted>"
 
 
 @pytest.mark.asyncio

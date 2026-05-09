@@ -18,7 +18,7 @@ import logging
 import random
 from datetime import UTC, datetime
 from typing import TypedDict
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import ParseResult, urlparse, urlunparse
 
 import httpx
 
@@ -165,14 +165,17 @@ class WebhookSender:
         if retry_delay_seconds < 0:
             raise ValueError(f"retry_delay_seconds must be >= 0 (got {retry_delay_seconds})")
         self._url = url or None
+        self._parsed_url: ParseResult | None = None
         if self._url:
-            scheme = urlparse(self._url).scheme.lower()
+            self._parsed_url = urlparse(self._url)
+            scheme = self._parsed_url.scheme.lower()
             if scheme not in {"http", "https"}:
                 logger.warning(
                     "WEBHOOK_URL scheme %r is not allowed (only 'http'/'https'). Webhook sender disabled.",
                     scheme,
                 )
                 self._url = None
+                self._parsed_url = None
         self._max_retries = max_retries
         self._retry_delay_seconds = retry_delay_seconds
         self._max_pending_tasks = max_pending_tasks
@@ -219,14 +222,14 @@ class WebhookSender:
         (https://host/SECRET → SECRET preserved). Redacting the whole path is
         the only safe default; operators identify the endpoint by host:port.
         """
-        if not self._url:
+        if not self._parsed_url:
             return ""
-        parsed = urlparse(self._url)
+        parsed = self._parsed_url
         host = parsed.hostname or ""
         if ":" in host:
             host = f"[{host}]"
         netloc = f"{host}:{parsed.port}" if parsed.port else host
-        safe_path = "/..." if parsed.path and parsed.path != "/" else parsed.path
+        safe_path = "/<redacted>" if parsed.path and parsed.path != "/" else parsed.path
         return urlunparse(parsed._replace(netloc=netloc, path=safe_path, query="", fragment=""))
 
     async def _attempt_send(self, payload: ConversationCompletedPayload) -> bool:
@@ -267,6 +270,12 @@ class WebhookSender:
         Args:
             payload: Conversation completion payload to send.
         """
+        # If the client/url invariant is broken, retries can't change that —
+        # log once and bail rather than burning through N retries with the
+        # same error log.
+        if self._client is None or self._url is None:
+            logger.error("Webhook client not initialized — skipping delivery (no retries)")
+            return
         delay = self._retry_delay_seconds
         for attempt in range(1 + self._max_retries):
             try:
