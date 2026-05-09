@@ -1266,6 +1266,11 @@ async def webhook_stats(
     cumulative count of webhooks dropped because the pending-task cap was hit
     (process lifetime — resets on restart). `started_at` is the construction
     timestamp; combine with `dropped_count` to compute a drop rate.
+
+    All counters are **per uvicorn worker**, not gateway-wide. With N workers,
+    polling this endpoint via a load balancer returns one worker's view at
+    random. For a gateway-wide picture, scrape every worker (or aggregate
+    via a metrics backend — Trello c/2GkyAelr tracks the OTel follow-up).
     """
     if webhook_sender is None:
         return WebhookStatsResponse(

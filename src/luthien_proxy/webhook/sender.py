@@ -519,6 +519,11 @@ class WebhookSender:
         if not self.enabled or self._stopped:
             return
 
+        # Invariant: this whole function is sync (no `await`), so the cap
+        # check + create_task + set.add sequence is atomic under a single
+        # event loop. If a future refactor introduces an `await` between
+        # the len() check and the set.add, the cap can be exceeded and
+        # the next sender will see >max_pending_tasks in pending_depth.
         if len(self._pending_tasks) >= self._max_pending_tasks:
             self._dropped_due_to_backpressure += 1
             n = self._dropped_due_to_backpressure
