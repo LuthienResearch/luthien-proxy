@@ -166,6 +166,9 @@ class WebhookSender:
         self._dropped_due_to_backpressure = 0
         self._stopped = False
         self._client = httpx.AsyncClient(timeout=SEND_TIMEOUT_SECONDS) if self._url else None
+        # safe_url is used in every retry/failure log; the URL is immutable
+        # after construction so compute it once instead of urlparse-ing each call.
+        self._safe_url = self._compute_safe_url()
 
     @property
     def enabled(self) -> bool:
@@ -189,7 +192,11 @@ class WebhookSender:
 
     @property
     def safe_url(self) -> str:
-        """URL safe for logging: keeps scheme + host:port, redacts the entire path, query, fragment.
+        """URL safe for logging — cached at construction time."""
+        return self._safe_url
+
+    def _compute_safe_url(self) -> str:
+        """Compute the safe-for-logging URL: scheme + host:port, path/query/fragment redacted.
 
         Any path segment can be a secret (Slack/Discord/GitHub bake them in
         deeper paths; RequestBin/ngrok-style hooks bake them at the root).
