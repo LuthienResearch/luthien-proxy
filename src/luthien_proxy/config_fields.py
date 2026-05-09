@@ -262,7 +262,7 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
     ),
     ConfigFieldMeta(
         "webhook_max_pending_tasks", "WEBHOOK_MAX_PENDING_TASKS", int, 1000,
-        "Maximum number of in-flight webhook delivery tasks. When exceeded, new webhooks are dropped and logged. Prevents unbounded memory growth when the webhook endpoint is slow or down. Note: a single delivery can hold a slot for ~(WEBHOOK_SEND_TIMEOUT_SECONDS × (1+WEBHOOK_MAX_RETRIES)) + (WEBHOOK_MAX_RETRIES × MAX_RETRY_DELAY_SECONDS) — defaults give ~210s.",
+        "Maximum number of in-flight webhook delivery tasks **per uvicorn worker**. With N workers the effective gateway-wide cap is N × this value — divide accordingly when sizing. When exceeded, new webhooks are dropped and logged. A single delivery can hold a slot for ~(WEBHOOK_SEND_TIMEOUT_SECONDS × (1+WEBHOOK_MAX_RETRIES)) + (WEBHOOK_MAX_RETRIES × MAX_RETRY_DELAY_SECONDS) — defaults give ~210s.",
         category="webhook",
     ),
     ConfigFieldMeta(
