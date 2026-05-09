@@ -269,6 +269,10 @@ class WebhookSender:
             )
         if retry_delay_seconds < 0:
             raise ValueError(f"retry_delay_seconds must be >= 0 (got {retry_delay_seconds})")
+        # No upper bound here — actual sleeps are capped at MAX_RETRY_DELAY_SECONDS
+        # in _send_with_retries, so a misconfigured retry_delay_seconds=10000
+        # silently behaves like the cap. Symmetrical with send_timeout's floor/ceiling
+        # would be clearer, but the runtime cap makes it operationally harmless.
         if shutdown_drain_seconds < 0:
             raise ValueError(
                 f"shutdown_drain_seconds must be >= 0 (got {shutdown_drain_seconds}); "
@@ -339,6 +343,12 @@ class WebhookSender:
         self._shutdown_drain_seconds = shutdown_drain_seconds
         self._pending_tasks: set[asyncio.Task[None]] = set()
         self._dropped_due_to_backpressure = 0
+        # Cumulative count of webhooks the retry loop gave up on after exhausting
+        # all attempts. Distinct from _dropped_due_to_backpressure (cap-reached
+        # drop): retry-exhaustion means the receiver was reached but never
+        # acknowledged. Both are "events the receiver never saw"; alerting
+        # consumers should sum them for a true "lost events" count.
+        self._gave_up_after_retries = 0
         self._stopped = False
         # UTC timestamp of construction — exposed for operators computing
         # drop-rates against dropped_count.
@@ -380,8 +390,19 @@ class WebhookSender:
 
     @property
     def dropped_count(self) -> int:
-        """Cumulative count of webhooks dropped due to pending-task cap (process lifetime)."""
+        """Cumulative count of webhooks dropped due to pending-task cap (process lifetime).
+
+        This counts only the cap-reached drop case. Webhooks that were
+        accepted into the pool but exhausted their retries are counted in
+        :pyattr:`gave_up_count` instead. Alerting consumers should sum the
+        two for a true "events the receiver never saw" rate.
+        """
         return self._dropped_due_to_backpressure
+
+    @property
+    def gave_up_count(self) -> int:
+        """Cumulative count of webhooks where _send_with_retries gave up after exhausting attempts."""
+        return self._gave_up_after_retries
 
     @property
     def max_pending_tasks(self) -> int:
@@ -535,6 +556,7 @@ class WebhookSender:
                 await asyncio.sleep(capped)
                 delay = min(delay * 2, MAX_RETRY_DELAY_SECONDS)
 
+        self._gave_up_after_retries += 1
         logger.error(
             "Webhook delivery to %s failed after %d attempts — giving up",
             self.safe_url,

@@ -836,27 +836,33 @@ async def _handle_execution_streaming(
                     # protocol-conformant accounting should also subscribe to
                     # the `streaming.protocol_violation` event from the emitter.
                     if accumulated_events and final_status == 200:
-                        validation = validate_anthropic_event_ordering(accumulated_events)
-                        if not validation.valid:
-                            violation_details = [
-                                {"rule": v.rule, "message": v.message, "event_index": v.event_index}
-                                for v in validation.violations
-                            ]
-                            logger.warning(
-                                "[%s] Streaming protocol violation detected: %s",
-                                call_id,
-                                violation_details,
-                            )
-                            policy_ctx.record_event(
-                                "streaming.protocol_violation",
-                                {
-                                    "summary": "Outbound stream violates Anthropic event ordering",
-                                    "violations": violation_details,
-                                },
-                            )
-                            response_span.set_attribute("streaming.protocol_valid", False)
-                        else:
-                            response_span.set_attribute("streaming.protocol_valid", True)
+                        # Wrap so SDK shape drift / a validator regression
+                        # can't propagate into the cleanup path and skip
+                        # recorder.flush + downstream emitter calls.
+                        try:
+                            validation = validate_anthropic_event_ordering(accumulated_events)
+                            if not validation.valid:
+                                violation_details = [
+                                    {"rule": v.rule, "message": v.message, "event_index": v.event_index}
+                                    for v in validation.violations
+                                ]
+                                logger.warning(
+                                    "[%s] Streaming protocol violation detected: %s",
+                                    call_id,
+                                    violation_details,
+                                )
+                                policy_ctx.record_event(
+                                    "streaming.protocol_violation",
+                                    {
+                                        "summary": "Outbound stream violates Anthropic event ordering",
+                                        "violations": violation_details,
+                                    },
+                                )
+                                response_span.set_attribute("streaming.protocol_valid", False)
+                            else:
+                                response_span.set_attribute("streaming.protocol_valid", True)
+                        except Exception:
+                            logger.exception("[%s] Stream protocol validation raised", call_id)
 
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)

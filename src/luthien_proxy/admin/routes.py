@@ -1249,15 +1249,13 @@ class WebhookStatsResponse(BaseModel):
     safe_url: str
     pending_depth: int
     dropped_count: int
+    # Cumulative count of webhooks that exhausted their retry budget without
+    # the receiver acknowledging. Distinct from `dropped_count` (cap-reached
+    # drop). Both are "events the receiver never saw" — sum them for the
+    # true loss rate.
+    gave_up_count: int
     max_pending_tasks: int
-    # ISO-8601 UTC timestamp the sender was constructed; lets operators
-    # compute drop-rate as `dropped_count / (now - started_at)`. Resets on
-    # process restart. Empty string when no sender is wired.
     started_at: str
-    # Process ID of the worker that answered. Counters are per-worker, so
-    # a load-balanced poll silently returns one worker's view at random;
-    # worker_pid lets operators tell which worker answered (and notice
-    # they're seeing only one of N).
     worker_pid: int
 
 
@@ -1285,6 +1283,7 @@ async def webhook_stats(
             safe_url="",
             pending_depth=0,
             dropped_count=0,
+            gave_up_count=0,
             max_pending_tasks=0,
             started_at="",
             worker_pid=pid,
@@ -1294,6 +1293,7 @@ async def webhook_stats(
         safe_url=webhook_sender.safe_url,
         pending_depth=webhook_sender.pending_depth,
         dropped_count=webhook_sender.dropped_count,
+        gave_up_count=webhook_sender.gave_up_count,
         max_pending_tasks=webhook_sender.max_pending_tasks,
         started_at=webhook_sender.started_at.isoformat(),
         worker_pid=pid,

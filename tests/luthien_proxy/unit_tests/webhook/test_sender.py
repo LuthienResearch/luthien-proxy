@@ -697,7 +697,23 @@ async def test_observability_properties(make_sender):
     sender = make_sender(url="https://example.com/hook", max_pending_tasks=42)
     assert sender.pending_depth == 0
     assert sender.dropped_count == 0
+    assert sender.gave_up_count == 0
     assert sender.max_pending_tasks == 42
+
+
+@pytest.mark.asyncio
+async def test_gave_up_count_increments_on_retry_exhaustion(sender_with_retries):
+    """gave_up_count distinguishes retry-exhaustion from cap-reached drop."""
+
+    async def always_transient_fail(payload):
+        return False, True  # retryable but never succeeds
+
+    with patch.object(sender_with_retries, "_attempt_send", side_effect=always_transient_fail):
+        sender_with_retries.fire_and_forget(**_fire_kwargs())
+        await _drain_pending(sender_with_retries)
+
+    assert sender_with_retries.gave_up_count == 1
+    assert sender_with_retries.dropped_count == 0  # not a cap-reached drop
 
 
 @pytest.mark.asyncio
