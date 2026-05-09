@@ -149,6 +149,15 @@ class WebhookSender:
                 in-flight tasks to finish before cancelling survivors. Set to
                 ``0`` for immediate cancel-only (legacy behavior).
         """
+        if max_pending_tasks < 1:
+            raise ValueError(
+                f"max_pending_tasks must be >= 1 (got {max_pending_tasks}); "
+                "to disable the webhook sender entirely, leave WEBHOOK_URL unset."
+            )
+        if max_retries < 0:
+            raise ValueError(f"max_retries must be >= 0 (got {max_retries})")
+        if retry_delay_seconds < 0:
+            raise ValueError(f"retry_delay_seconds must be >= 0 (got {retry_delay_seconds})")
         self._url = url or None
         if self._url:
             scheme = urlparse(self._url).scheme.lower()

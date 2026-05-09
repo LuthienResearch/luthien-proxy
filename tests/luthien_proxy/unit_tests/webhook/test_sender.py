@@ -282,6 +282,25 @@ def test_sender_disabled_when_no_url():
     assert WebhookSender(url=None).enabled is False
 
 
+@pytest.mark.parametrize(
+    "kwargs, msg_fragment",
+    [
+        ({"max_pending_tasks": 0}, "max_pending_tasks must be >= 1"),
+        ({"max_pending_tasks": -1}, "max_pending_tasks must be >= 1"),
+        ({"max_retries": -1}, "max_retries must be >= 0"),
+        ({"retry_delay_seconds": -0.1}, "retry_delay_seconds must be >= 0"),
+    ],
+)
+def test_construction_rejects_invalid_args(kwargs, msg_fragment):
+    """Invalid construction args raise ValueError so misconfig fails loud, not silent.
+
+    Earlier behavior: max_pending_tasks=0 silently dropped every webhook
+    because the cap-check is `>= max_pending_tasks`. Now caught at construction.
+    """
+    with pytest.raises(ValueError, match=msg_fragment):
+        WebhookSender(url=None, **kwargs)
+
+
 @pytest.mark.asyncio
 async def test_sender_enabled_when_url_set(make_sender):
     assert make_sender(url="https://example.com/hook").enabled is True
