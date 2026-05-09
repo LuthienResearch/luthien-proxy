@@ -252,14 +252,15 @@ class WebhookSender:
             raise ValueError(f"max_retries must be >= 0 (got {max_retries})")
         if max_retries > MAX_RETRIES_CEILING:
             # Math: 1 + max_retries attempts × send_timeout + max_retries × backoff.
+            # Use floats so sub-1s timeouts (e.g. 0.5) don't truncate to 0 in the error.
             attempts = 1 + max_retries
             sleeps = max_retries
+            slot_seconds = attempts * send_timeout_seconds + sleeps * MAX_RETRY_DELAY_SECONDS
             raise ValueError(
                 f"max_retries must be <= {MAX_RETRIES_CEILING} (got {max_retries}); "
                 "high values combine multiplicatively with retry delays + send timeout. "
                 f"At max_retries={max_retries}, a single failed delivery occupies one of "
-                f"max_pending_tasks slots for up to "
-                f"~{attempts * int(send_timeout_seconds) + sleeps * int(MAX_RETRY_DELAY_SECONDS)}s "
+                f"max_pending_tasks slots for up to ~{slot_seconds:.1f}s "
                 f"({attempts} × {send_timeout_seconds}s timeout + {sleeps} × "
                 f"{MAX_RETRY_DELAY_SECONDS:.0f}s backoff). "
                 "A few of these against a sustained-failure receiver will fill the pool."
