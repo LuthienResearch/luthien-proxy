@@ -173,7 +173,7 @@ class TestProcessRequest:
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            anthropic_request, raw_http_request, session_id = await _process_request(
+            anthropic_request, raw_http_request, session_id, _user_id = await _process_request(
                 request=mock_request,
                 call_id="test-call-id",
                 emitter=mock_emitter,
@@ -204,7 +204,7 @@ class TestProcessRequest:
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            _anthropic_request, _raw_http_request, session_id = await _process_request(
+            _anthropic_request, _raw_http_request, session_id, _user_id = await _process_request(
                 request=mock_request,
                 call_id="test-call-id",
                 emitter=mock_emitter,
@@ -226,7 +226,7 @@ class TestProcessRequest:
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            _anthropic_request, _raw_http_request, session_id = await _process_request(
+            _anthropic_request, _raw_http_request, session_id, _user_id = await _process_request(
                 request=mock_request,
                 call_id="test-call-id",
                 emitter=mock_emitter,
@@ -2021,6 +2021,7 @@ class TestAnthropicPolicyIOBuffering:
             emitter=MagicMock(),
             call_id="test-call",
             session_id=None,
+            user_id=None,
             request_log_recorder=MagicMock(),
             is_streaming=is_streaming,
         )

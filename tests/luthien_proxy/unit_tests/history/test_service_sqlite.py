@@ -781,4 +781,83 @@ class TestFetchSessionListSqlite:
         assert result.sessions[0].session_id == "session-flag"
 
 
+class TestFetchSessionListUserFilter:
+    """Test the user_id filter on fetch_session_list."""
+
+    async def _seed_user_session(
+        self, pool: DatabasePool, *, call_id: str, session_id: str, user_id: str | None, created_at: str
+    ) -> None:
+        async with pool.connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO conversation_calls
+                (call_id, model_name, provider, status, session_id, user_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                call_id,
+                "gpt-4",
+                "openai",
+                "completed",
+                session_id,
+                user_id,
+                created_at,
+            )
+            await conn.execute(
+                """
+                INSERT INTO conversation_events
+                (id, call_id, event_type, payload, session_id, user_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                f"event-{call_id}",
+                call_id,
+                "transaction.request_recorded",
+                json.dumps(
+                    {
+                        "final_model": "gpt-4",
+                        "final_request": {"messages": [{"role": "user", "content": "hi"}]},
+                    }
+                ),
+                session_id,
+                user_id,
+                created_at,
+            )
+
+    @pytest.mark.asyncio
+    async def test_user_id_populated_on_summary(self, sqlite_pool: DatabasePool):
+        await self._seed_user_session(
+            sqlite_pool, call_id="c1", session_id="s1", user_id="alice", created_at="2025-01-15T10:00:00"
+        )
+        result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
+        assert len(result.sessions) == 1
+        assert result.sessions[0].user_id == "alice"
+
+    @pytest.mark.asyncio
+    async def test_user_id_filter_returns_only_matching(self, sqlite_pool: DatabasePool):
+        await self._seed_user_session(
+            sqlite_pool, call_id="c1", session_id="s-alice", user_id="alice", created_at="2025-01-15T10:00:00"
+        )
+        await self._seed_user_session(
+            sqlite_pool, call_id="c2", session_id="s-bob", user_id="bob", created_at="2025-01-15T10:01:00"
+        )
+        result = await fetch_session_list(limit=10, db_pool=sqlite_pool, user_id="alice")
+        assert [s.session_id for s in result.sessions] == ["s-alice"]
+        assert result.total == 1
+
+    @pytest.mark.asyncio
+    async def test_user_id_filter_sql_injection_safe(self, sqlite_pool: DatabasePool):
+        """Bobby Tables: a value containing SQL is bound as a parameter, not interpolated."""
+        await self._seed_user_session(
+            sqlite_pool, call_id="c1", session_id="s1", user_id="alice", created_at="2025-01-15T10:00:00"
+        )
+        # If user_id were interpolated this would either error, drop the table,
+        # or return all rows. Bound as a parameter it simply matches nothing.
+        result = await fetch_session_list(
+            limit=10, db_pool=sqlite_pool, user_id="alice'; DROP TABLE conversation_calls;--"
+        )
+        assert result.sessions == []
+        # And the table is still queryable.
+        all_rows = await fetch_session_list(limit=10, db_pool=sqlite_pool)
+        assert len(all_rows.sessions) == 1
+
+
 __all__ = []
