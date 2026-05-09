@@ -665,6 +665,10 @@ def _fire_webhook_for_completion(
         )
     except Exception:
         logger.exception("[%s] Webhook fire failed (suppressed to protect cleanup path)", call_id)
+        # Surface the failure on a counter so operators see it in /api/admin/webhook/stats —
+        # otherwise build-side bugs are silent (no `dropped_count` increment, no receiver
+        # signal because the webhook never went out).
+        webhook_sender.record_payload_build_failure()
 
 
 async def _handle_execution_streaming(
@@ -1062,6 +1066,14 @@ async def _handle_execution_non_streaming(
         final_status = 499
         raise
     except Exception:
+        final_status = 500
+        raise
+    except BaseException:
+        # Other BaseException subclasses (KeyboardInterrupt, SystemExit) would
+        # otherwise fall through with final_status=200 still set, producing the
+        # same contradictory `success=False, http_status=200` pair as
+        # un-handled CancelledError did. 500 is the closest fit since the
+        # request didn't complete. Re-raised so process termination is honored.
         final_status = 500
         raise
     finally:

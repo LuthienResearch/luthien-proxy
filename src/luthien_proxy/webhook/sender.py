@@ -362,6 +362,12 @@ class WebhookSender:
         # Distinct from _gave_up_after_retries (transient failure exhausted)
         # and _dropped_due_to_backpressure (cap-reached).
         self._permanent_failures = 0
+        # Cumulative count of payload-construction failures swallowed in
+        # _fire_webhook_for_completion (e.g. type drift in operator-policy
+        # mutations of the response). Webhook never fires for these — the
+        # receiver-visible loss looks identical to a never-attempted send.
+        # Sets the failure surface to four counters total.
+        self._payload_build_failures = 0
         self._stopped = False
         # UTC timestamp of construction — exposed for operators computing
         # drop-rates against dropped_count.
@@ -426,10 +432,25 @@ class WebhookSender:
         This is the misconfig signal: 401/403/404/410/422 etc. mean the
         receiver URL is wrong or auth is rejected. Distinct from
         :pyattr:`dropped_count` (cap-reached) and :pyattr:`gave_up_count`
-        (transient failure exhausted retries). Sum the three for the true
-        "events the receiver never saw" rate.
+        (transient failure exhausted retries) and
+        :pyattr:`payload_build_failure_count` (build-side bug). Sum the four
+        for the true "events the receiver never saw" rate.
         """
         return self._permanent_failures
+
+    @property
+    def payload_build_failure_count(self) -> int:
+        """Cumulative count of webhooks dropped before reaching the network.
+
+        Increments when payload construction itself raises (type drift
+        from operator-policy mutation, etc.). The receiver never sees
+        anything; this surface is the only signal an operator gets.
+        """
+        return self._payload_build_failures
+
+    def record_payload_build_failure(self) -> None:
+        """Called by pipeline when the webhook fire wrapper catches a build-side error."""
+        self._payload_build_failures += 1
 
     @property
     def max_pending_tasks(self) -> int:

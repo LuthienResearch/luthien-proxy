@@ -1255,6 +1255,10 @@ class WebhookStatsResponse(BaseModel):
     # Sum the three for the true loss rate.
     gave_up_count: int
     permanent_failure_count: int
+    # Cumulative count of webhooks dropped before reaching the network because
+    # payload construction raised (type drift from operator-policy mutation,
+    # etc.). The receiver never sees anything; this counter is the only signal.
+    payload_build_failure_count: int
     max_pending_tasks: int
     started_at: str
     worker_pid: int
@@ -1286,6 +1290,7 @@ async def webhook_stats(
             dropped_count=0,
             gave_up_count=0,
             permanent_failure_count=0,
+            payload_build_failure_count=0,
             max_pending_tasks=0,
             started_at="",
             worker_pid=pid,
@@ -1297,6 +1302,7 @@ async def webhook_stats(
         dropped_count=webhook_sender.dropped_count,
         gave_up_count=webhook_sender.gave_up_count,
         permanent_failure_count=webhook_sender.permanent_failure_count,
+        payload_build_failure_count=webhook_sender.payload_build_failure_count,
         max_pending_tasks=webhook_sender.max_pending_tasks,
         started_at=webhook_sender.started_at.isoformat(),
         worker_pid=pid,
