@@ -200,6 +200,12 @@ class WebhookSender:
                 )
                 self._url = None
                 self._parsed_url = None
+            elif not self._parsed_url.hostname:
+                # `https://` parses cleanly but is unusable — every POST would
+                # fail with a network error and burn the retry budget per request.
+                logger.warning("WEBHOOK_URL has no host (got %r). Webhook sender disabled.", url)
+                self._url = None
+                self._parsed_url = None
         self._max_retries = max_retries
         self._retry_delay_seconds = retry_delay_seconds
         self._max_pending_tasks = max_pending_tasks

@@ -362,6 +362,14 @@ def test_bad_scheme_disables_sender(bad_scheme: str):
     assert sender.safe_url == ""
 
 
+@pytest.mark.parametrize("empty_host_url", ["https://", "http:///path", "https:///"])
+def test_empty_host_disables_sender(empty_host_url: str):
+    """URLs with no host parse cleanly but are unusable — disable rather than burn the retry budget."""
+    sender = WebhookSender(url=empty_host_url)
+    assert not sender.enabled
+    assert sender.safe_url == ""
+
+
 @pytest.mark.asyncio
 async def test_fire_and_forget_noop_when_disabled():
     sender = WebhookSender(url=None)
@@ -476,7 +484,7 @@ async def test_fire_and_forget_drops_when_backpressure_cap_reached(make_sender):
     async def _blocking_send(payload):
         send_started.set()
         await block_release.wait()
-        return True
+        return True, False
 
     with patch.object(sender, "_attempt_send", side_effect=_blocking_send):
         for i in range(2):
@@ -514,7 +522,7 @@ async def test_fire_and_forget_smoke_many_tasks():
     sender = WebhookSender(url="https://example.com/hook")
 
     async def fast_send(payload):
-        return True
+        return True, False
 
     with patch.object(sender, "_attempt_send", side_effect=fast_send):
         for _ in range(20):
@@ -574,7 +582,7 @@ async def test_stop_drains_completing_tasks_within_timeout():
     async def quick_send(payload):
         await asyncio.sleep(0.05)
         completed.set()
-        return True
+        return True, False
 
     with patch.object(sender, "_attempt_send", side_effect=quick_send):
         sender.fire_and_forget(**_fire_kwargs())
@@ -592,7 +600,7 @@ async def test_stop_cancels_tasks_exceeding_drain_timeout():
 
     async def blocking_send(payload):
         await block_release.wait()
-        return True
+        return True, False
 
     with patch.object(sender, "_attempt_send", side_effect=blocking_send):
         sender.fire_and_forget(**_fire_kwargs())
@@ -612,7 +620,7 @@ async def test_stop_immediate_cancel_when_drain_zero():
 
     async def blocking_send(payload):
         await block_release.wait()
-        return True
+        return True, False
 
     with patch.object(sender, "_attempt_send", side_effect=blocking_send):
         sender.fire_and_forget(**_fire_kwargs())

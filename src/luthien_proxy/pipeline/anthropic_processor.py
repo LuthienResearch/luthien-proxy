@@ -684,6 +684,7 @@ async def _handle_execution_streaming(
             chunk_count = 0
             emitted_any = False
             stream_completed = False
+            cancelled = False
             final_status = 200
             accumulated_events: list[MessageStreamEvent] = []
             with tracer.start_as_current_span("process_response") as response_span:
@@ -706,6 +707,14 @@ async def _handle_execution_streaming(
                             chunk_count += 1
                             yield _format_sse_event(cast_emitted)
                     stream_completed = True
+                except asyncio.CancelledError:
+                    # CancelledError is BaseException; without this branch
+                    # cancelled-before-emit would mis-classify as empty-stream
+                    # and report success=False, http_status=500. 499 = Client
+                    # Closed Request (matches the non-streaming behavior).
+                    cancelled = True
+                    final_status = 499
+                    raise
                 except Exception as e:
                     caught_exception = True
                     # Headers may already be sent, so emit an in-stream error event.
@@ -722,7 +731,10 @@ async def _handle_execution_streaming(
                     error_event = _build_error_event(e, call_id)
                     yield _format_sse_event(error_event)
                 finally:
-                    is_empty_stream = not emitted_any and not caught_exception
+                    # Cancellation is distinct from "policy emitted nothing": the
+                    # except CancelledError above already set final_status=499 and
+                    # we should not yield an error event to a client that's gone.
+                    is_empty_stream = not emitted_any and not caught_exception and not cancelled
                     if is_empty_stream:
                         io.ensure_request_recorded()
                         logger.warning(
@@ -772,13 +784,14 @@ async def _handle_execution_streaming(
                     reconstructed = _reconstruct_response_from_stream_events(accumulated_events)
 
                     # Fire webhook FIRST so subsequent recorder/emitter calls
-                    # raising can't skip it (R6.1). The non-streaming finally
-                    # has the same property by being wrapped in its own helper;
-                    # streaming now matches.
+                    # raising can't skip it. The non-streaming finally has the
+                    # same property by being wrapped in its own helper.
                     #
-                    # Gate: skip on bare client-disconnect (no caught exception,
-                    # no completion, no empty-stream branch) to avoid reporting
-                    # a false success — see PR #741 issue #2.
+                    # Gate: skip on bare client-disconnect AFTER some events
+                    # were emitted (no completion flag, no exception, no
+                    # empty-stream branch), to avoid reporting a false success
+                    # for a partial delivery. Cancelled-before-emit hits
+                    # `not emitted_any` and fires with success=False, http_status=499.
                     if stream_completed or caught_exception or not emitted_any:
                         _duration_ms = (
                             int((time.monotonic() - request_start_time) * 1000) if request_start_time is not None else 0

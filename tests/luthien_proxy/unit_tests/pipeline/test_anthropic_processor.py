@@ -2244,6 +2244,44 @@ class TestStreamingWebhookGate:
         webhook.fire_and_forget.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_cancelled_before_emission_fires_with_499(self):
+        """CancelledError before any emission → success=False, http_status=499 (not 500).
+
+        Regression: previously misclassified as empty-stream and reported 500
+        with a yielded error event to a client that had likely disconnected.
+        """
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            raise asyncio.CancelledError()
+            yield  # unreachable
+
+        io, span, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-cancel-stream",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        with pytest.raises(asyncio.CancelledError):
+            async for _ in response.body_iterator:
+                pass
+
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        assert kwargs["success"] is False
+        assert kwargs["http_status"] == 499
+
+    @pytest.mark.asyncio
     async def test_disabled_webhook_no_fire(self):
         """webhook_sender.enabled=False → fire_and_forget is never called regardless of outcome."""
         from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
