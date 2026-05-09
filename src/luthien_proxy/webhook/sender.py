@@ -217,11 +217,12 @@ class WebhookSender:
             True on success (2xx response), False on any failure.
         """
         try:
-            # self._url is str when enabled (checked by caller); TypedDict value is str | None
-            if self._client is None:
+            # self._client and self._url are paired: both None when disabled,
+            # both set when enabled. Use if-guards (not assert) so behavior
+            # matches under `python -O`, where asserts are stripped.
+            if self._client is None or self._url is None:
                 logger.error("Webhook client not initialized — skipping delivery")
                 return False
-            assert self._url is not None  # guaranteed by __init__ scheme validation
             response = await self._client.post(self._url, json=dict(payload))
             if response.status_code >= 400:
                 logger.warning(

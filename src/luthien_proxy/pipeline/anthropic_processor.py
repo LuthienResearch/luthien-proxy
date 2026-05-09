@@ -771,11 +771,11 @@ async def _handle_execution_streaming(
                         and webhook_sender.enabled
                         and (stream_completed or caught_exception or not emitted_any)
                     ):
-                        _usage = (reconstructed or {}).get("usage", {}) if reconstructed else {}
+                        _usage = (reconstructed or {}).get("usage", {})
                         _model = (reconstructed.get("model") if reconstructed else None) or io.request.get(
                             "model", "unknown"
                         )
-                        _duration_ms = int((time.monotonic() - request_start_time) * 1000) if request_start_time else 0
+                        _duration_ms = int((time.monotonic() - request_start_time) * 1000) if request_start_time is not None else 0
                         webhook_sender.fire_and_forget(
                             session_id=policy_ctx.session_id,
                             transaction_id=call_id,
@@ -786,6 +786,9 @@ async def _handle_execution_streaming(
                             cache_read_input_tokens=_usage.get("cache_read_input_tokens", 0),
                             duration_ms=_duration_ms,
                             is_streaming=True,
+                            # Both checks are load-bearing: stream_completed=True with
+                            # emitted_any=False hits the empty-stream branch above
+                            # which sets final_status=500. Don't simplify either away.
                             success=stream_completed and final_status == 200,
                             http_status=final_status,
                         )
@@ -898,7 +901,7 @@ async def _handle_execution_non_streaming(
         # equivalent here because there's no in-band error event to send.
         if webhook_sender and webhook_sender.enabled:
             _ns_usage = final_response.get("usage") or {}
-            _duration_ms = int((time.monotonic() - request_start_time) * 1000) if request_start_time else 0
+            _duration_ms = int((time.monotonic() - request_start_time) * 1000) if request_start_time is not None else 0
             webhook_sender.fire_and_forget(
                 session_id=policy_ctx.session_id,
                 transaction_id=call_id,

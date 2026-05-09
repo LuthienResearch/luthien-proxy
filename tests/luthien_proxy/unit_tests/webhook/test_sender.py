@@ -397,20 +397,22 @@ def test_observability_properties():
 
 
 @pytest.mark.asyncio
-async def test_set_add_callback_ordering_no_race():
-    """Task is in _pending_tasks before discard callback can fire (regression for issue #9)."""
+async def test_fire_and_forget_smoke_many_tasks():
+    """Smoke test: many rapid fire_and_forget calls don't crash (e.g. KeyError from discard).
+
+    This isn't a true race test — `ensure_future(...)` and `_pending_tasks.add(task)`
+    are both synchronous, so the loop never gets a chance to run between them. But
+    if a future refactor introduces a yield point between them, this would catch
+    the resulting KeyError on discard.
+    """
     sender = WebhookSender(url="https://example.com/hook")
 
-    # Use an _attempt_send that returns synchronously — the task may complete
-    # very quickly. The set.add must happen before the discard callback.
     async def fast_send(payload):
         return True
 
     with patch.object(sender, "_attempt_send", side_effect=fast_send):
         for _ in range(20):
             sender.fire_and_forget(**_fire_kwargs())
-        # Briefly let things run; this would crash with KeyError if discard
-        # ran before add.
         await asyncio.sleep(0.1)
     await sender.stop()
 
