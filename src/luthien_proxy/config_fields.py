@@ -247,7 +247,7 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
     # ── webhook ───────────────────────────────────────────────────────────
     ConfigFieldMeta(
         "webhook_url", "WEBHOOK_URL", str, "",
-        "Endpoint URL to POST conversation completion events to (leave empty to disable). At-most-once delivery: failures after retries are dropped, shutdown drains then cancels, process crashes lose in-flight events. Not suitable for systems that require at-least-once / durable delivery.",
+        "Endpoint URL to POST conversation completion events to (leave empty to disable). At-most-once delivery: failures after retries are dropped, shutdown drains then cancels, process crashes lose in-flight events. Not suitable for systems that require at-least-once / durable delivery. **Treated as operator-trusted** — the value is not subjected to SSRF protection (private IPs and localhost are reachable), so only set this from a trusted config source.",
         sensitive=True, category="webhook",
     ),
     ConfigFieldMeta(

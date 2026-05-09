@@ -31,6 +31,11 @@ def _log_task_exception(task: asyncio.Task[None]) -> None:
         logger.error("Webhook send task raised an unexpected exception: %r", exc)
 
 
+# 4xx codes that ARE worth retrying — receiver-side transient signals.
+# 408 Request Timeout, 425 Too Early, 429 Too Many Requests.
+_RETRYABLE_4XX = frozenset({408, 425, 429})
+
+
 SEND_TIMEOUT_SECONDS = 10
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY_SECONDS = 1.0
@@ -80,8 +85,11 @@ def build_payload(
     Args:
         session_id: Session identifier (from metadata.user_id or x-session-id header).
         transaction_id: Unique transaction/call ID for this request.
-        model: Model name used for the conversation.
-        input_tokens: Number of input tokens consumed.
+        model: Model name used for the conversation. Falls back to the literal
+            string ``"unknown"`` if the upstream response had no model field
+            and the request didn't either — consumers indexing on model should
+            treat ``"unknown"`` as a sentinel rather than a real model.
+        input_tokens: Number of input tokens consumed (excludes cache tokens).
         output_tokens: Number of output tokens generated.
         duration_ms: Total request duration in milliseconds. Note: streaming
             duration is measured at the generator's finally and so includes
@@ -101,6 +109,10 @@ def build_payload(
     Returns:
         Typed payload dict ready for JSON serialisation.
     """
+    # total_tokens deliberately excludes cache tokens. Anthropic bills cache
+    # writes at 1.25x and cache reads at 0.1x, so summing them naively would
+    # mislead spend dashboards. Consumers computing total spend should weight
+    # cache_creation_input_tokens and cache_read_input_tokens themselves.
     return ConversationCompletedPayload(
         session_id=session_id,
         transaction_id=transaction_id,
@@ -232,14 +244,16 @@ class WebhookSender:
         safe_path = "/<redacted>" if parsed.path and parsed.path != "/" else parsed.path
         return urlunparse(parsed._replace(netloc=netloc, path=safe_path, query="", fragment=""))
 
-    async def _attempt_send(self, payload: ConversationCompletedPayload) -> bool:
+    async def _attempt_send(self, payload: ConversationCompletedPayload) -> tuple[bool, bool]:
         """Attempt a single POST delivery.
 
         Args:
             payload: Conversation completion payload to send.
 
         Returns:
-            True on success (2xx response), False on any failure.
+            (success, retryable). success=True iff 2xx. retryable=False signals
+            the retry loop to bail (4xx client errors except 408/425/429 — these
+            won't succeed on retry, so burning the budget just spams the log).
         """
         try:
             # self._client and self._url are paired: both None when disabled,
@@ -247,19 +261,25 @@ class WebhookSender:
             # matches under `python -O`, where asserts are stripped.
             if self._client is None or self._url is None:
                 logger.error("Webhook client not initialized — skipping delivery")
-                return False
+                return False, False
             response = await self._client.post(self._url, json=dict(payload))
-            if response.status_code >= 400:
-                logger.warning(
-                    "Webhook delivery failed: HTTP %d from %s",
-                    response.status_code,
-                    self.safe_url,
-                )
-                return False
-            return True
+            status = response.status_code
+            if status < 400:
+                return True, False  # success; retryable irrelevant
+            # 4xx: permanent unless explicitly transient (408/425/429).
+            # 5xx: always retry.
+            retryable = status >= 500 or status in _RETRYABLE_4XX
+            logger.warning(
+                "Webhook delivery failed: HTTP %d from %s%s",
+                status,
+                self.safe_url,
+                "" if retryable else " (permanent — not retrying)",
+            )
+            return False, retryable
         except (httpx.HTTPError, TimeoutError, OSError):
+            # Network errors are transient — retry.
             logger.warning("Webhook delivery error to %s", self.safe_url, exc_info=True)
-            return False
+            return False, True
 
     async def _send_with_retries(self, payload: ConversationCompletedPayload) -> None:
         """Deliver payload with exponential-backoff retries.
@@ -278,8 +298,9 @@ class WebhookSender:
             return
         delay = self._retry_delay_seconds
         for attempt in range(1 + self._max_retries):
+            retryable = True
             try:
-                success = await self._attempt_send(payload)
+                success, retryable = await self._attempt_send(payload)
             except Exception:
                 logger.error(
                     "Unexpected error in webhook delivery (attempt %d/%d) to %s",
@@ -289,10 +310,21 @@ class WebhookSender:
                     exc_info=True,
                 )
                 success = False
+                # Unhandled exception is unlikely to be transient; treat as
+                # permanent so misconfigured policies don't burn the retry budget.
+                retryable = False
 
             if success:
                 if attempt > 0:
                     logger.info("Webhook delivered successfully on attempt %d to %s", attempt + 1, self.safe_url)
+                return
+
+            if not retryable:
+                logger.error(
+                    "Webhook delivery to %s gave a permanent failure on attempt %d — not retrying",
+                    self.safe_url,
+                    attempt + 1,
+                )
                 return
 
             if attempt < self._max_retries:

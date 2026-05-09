@@ -924,6 +924,11 @@ async def _handle_execution_non_streaming(
         # Fire the webhook regardless of success/failure so consumers see
         # streaming AND non-streaming failures symmetrically (R4.2). Usage
         # data is empty on the error path; consumers should filter on success.
+        #
+        # Ordering note: on the success path the request_log_recorder has
+        # already been flushed inside the try block above; on the error path
+        # the gateway-level handler in main.py handles recorder cleanup. The
+        # webhook fire is independent of recorder state.
         if webhook_sender and webhook_sender.enabled:
             _ns_usage = (final_response.get("usage") if final_response else None) or {}
             _model = (final_response.get("model") if final_response else None) or io.request.get("model", "unknown")

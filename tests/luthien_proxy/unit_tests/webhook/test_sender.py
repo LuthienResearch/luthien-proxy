@@ -179,40 +179,68 @@ async def make_sender():
 # ── _attempt_send tests ───────────────────────────────────────────────────────
 
 
+async def _drain_pending(sender: WebhookSender) -> None:
+    """Wait deterministically for all in-flight delivery tasks to complete."""
+    while sender._pending_tasks:
+        await asyncio.gather(*list(sender._pending_tasks), return_exceptions=True)
+
+
 @pytest.mark.asyncio
 async def test_send_success(sender):
-    """Successful delivery returns True and makes one POST."""
+    """Successful delivery returns (True, _) and makes one POST."""
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_client = AsyncMock()
     mock_client.post = AsyncMock(return_value=mock_response)
     sender._client = mock_client
 
-    result = await sender._attempt_send(_payload())
-    assert result is True
+    success, _retryable = await sender._attempt_send(_payload())
+    assert success is True
     mock_client.post.assert_called_once()
 
 
+@pytest.mark.parametrize(
+    "status, retryable_expected",
+    [
+        (500, True),  # 5xx: transient
+        (502, True),
+        (503, True),
+        (408, True),  # 4xx exceptions: transient
+        (425, True),
+        (429, True),
+        (400, False),  # 4xx default: permanent
+        (401, False),
+        (403, False),
+        (404, False),
+        (410, False),
+        (415, False),
+        (422, False),
+    ],
+)
 @pytest.mark.asyncio
-async def test_send_http_error_returns_false(sender):
-    """4xx/5xx response returns False (will be retried)."""
+async def test_send_classifies_retryability_per_status(sender, status: int, retryable_expected: bool):
+    """4xx is permanent except 408/425/429; 5xx is always retryable (R5.1)."""
     mock_response = MagicMock()
-    mock_response.status_code = 503
+    mock_response.status_code = status
     mock_client = AsyncMock()
     mock_client.post = AsyncMock(return_value=mock_response)
     sender._client = mock_client
 
-    assert await sender._attempt_send(_payload()) is False
+    success, retryable = await sender._attempt_send(_payload())
+    assert success is False
+    assert retryable is retryable_expected
 
 
 @pytest.mark.asyncio
-async def test_send_network_error_returns_false(sender):
-    """Network errors return False (will be retried)."""
+async def test_send_network_error_is_retryable(sender):
+    """Network errors return (False, True) — transient, will be retried."""
     mock_client = AsyncMock()
     mock_client.post = AsyncMock(side_effect=httpx.ConnectError("connection refused"))
     sender._client = mock_client
 
-    assert await sender._attempt_send(_payload()) is False
+    success, retryable = await sender._attempt_send(_payload())
+    assert success is False
+    assert retryable is True
 
 
 # ── fire_and_forget tests ─────────────────────────────────────────────────────
@@ -222,42 +250,60 @@ async def test_send_network_error_returns_false(sender):
 async def test_fire_and_forget_success(sender):
     """fire_and_forget dispatches a background task that succeeds."""
     with patch.object(sender, "_attempt_send", new_callable=AsyncMock) as mock_send:
-        mock_send.return_value = True
+        mock_send.return_value = (True, False)
         sender.fire_and_forget(**_fire_kwargs())
-        await asyncio.sleep(0.05)
+        await _drain_pending(sender)
         mock_send.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_fire_and_forget_retries_on_failure(sender_with_retries):
-    """fire_and_forget retries up to max_retries on failure."""
+async def test_fire_and_forget_retries_on_transient_failure(sender_with_retries):
+    """fire_and_forget retries up to max_retries on transient (retryable) failures."""
     call_count = 0
 
     async def fail_twice_then_succeed(payload):
         nonlocal call_count
         call_count += 1
-        return call_count >= 3
+        if call_count >= 3:
+            return True, False
+        return False, True  # retryable failure
 
     with patch.object(sender_with_retries, "_attempt_send", side_effect=fail_twice_then_succeed):
         sender_with_retries.fire_and_forget(**_fire_kwargs())
-        await asyncio.sleep(0.5)
+        await _drain_pending(sender_with_retries)
         assert call_count == 3
 
 
 @pytest.mark.asyncio
 async def test_fire_and_forget_gives_up_after_max_retries(sender_with_retries):
-    """fire_and_forget stops after max_retries exhausted."""
+    """fire_and_forget stops after max_retries exhausted on transient failures."""
     call_count = 0
 
-    async def always_fail(payload):
+    async def always_transient_fail(payload):
         nonlocal call_count
         call_count += 1
-        return False
+        return False, True  # retryable but never succeeds
 
-    with patch.object(sender_with_retries, "_attempt_send", side_effect=always_fail):
+    with patch.object(sender_with_retries, "_attempt_send", side_effect=always_transient_fail):
         sender_with_retries.fire_and_forget(**_fire_kwargs())
-        await asyncio.sleep(0.5)
+        await _drain_pending(sender_with_retries)
         assert call_count == 4  # 1 initial + 3 retries
+
+
+@pytest.mark.asyncio
+async def test_fire_and_forget_bails_on_permanent_failure(sender_with_retries):
+    """Permanent (non-retryable) failures bail immediately — no retries (R5.1)."""
+    call_count = 0
+
+    async def always_permanent_fail(payload):
+        nonlocal call_count
+        call_count += 1
+        return False, False  # permanent failure
+
+    with patch.object(sender_with_retries, "_attempt_send", side_effect=always_permanent_fail):
+        sender_with_retries.fire_and_forget(**_fire_kwargs())
+        await _drain_pending(sender_with_retries)
+        assert call_count == 1  # no retries
 
 
 @pytest.mark.asyncio
@@ -270,8 +316,7 @@ async def test_fire_and_forget_no_crash_on_exception():
 
     with patch.object(s, "_attempt_send", side_effect=raise_exception):
         s.fire_and_forget(**_fire_kwargs())
-        # Wait long enough for all retries (3 attempts × 1ms) to finish.
-        await asyncio.sleep(0.2)
+        await _drain_pending(s)
     await s.stop()
 
 
