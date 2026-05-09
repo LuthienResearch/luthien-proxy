@@ -309,7 +309,6 @@ class WebhookSender:
             return
         delay = self._retry_delay_seconds
         for attempt in range(1 + self._max_retries):
-            retryable = True
             try:
                 success, retryable = await self._attempt_send(payload)
             except Exception:

@@ -447,6 +447,17 @@ async def test_safe_url_brackets_ipv6(make_sender):
     assert ":8080" in safe
 
 
+@pytest.mark.asyncio
+async def test_safe_url_ipv6_with_path_secret_redacted(make_sender):
+    """IPv6 host + path secret: brackets preserved, path redacted, query stripped."""
+    sender = make_sender(url="http://[2001:db8::1]:9000/secret-token?key=abc#frag")
+    safe = sender.safe_url
+    assert safe == "http://[2001:db8::1]:9000/<redacted>"
+    assert "secret-token" not in safe
+    assert "abc" not in safe
+    assert "frag" not in safe
+
+
 def test_safe_url_empty_when_no_url():
     assert WebhookSender(url=None).safe_url == ""
 
