@@ -2362,3 +2362,113 @@ class TestNonStreamingWebhookErrorPath:
         # Usage is empty on the error path (we never got a response).
         assert kwargs["input_tokens"] == 0
         assert kwargs["output_tokens"] == 0
+
+
+class TestWebhookFireIsolation:
+    """Webhook fire isolated from later cleanup raising (PR #741 R6.1)."""
+
+    @pytest.mark.asyncio
+    async def test_streaming_webhook_fires_even_if_recorder_flush_raises(self):
+        """If recorder.flush() raises mid-cleanup, the webhook has already fired.
+
+        Regression for R6.1: previously the webhook fire sat after
+        request_log_recorder.flush(). flush() raising would silently skip the
+        webhook. Now webhook fires before recorder calls.
+        """
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            yield RawContentBlockDeltaEvent(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta(type="text_delta", text="hi"),
+            )
+
+        io = MagicMock()
+        io.request = {"model": "claude-test"}
+        io.ensure_request_recorded = MagicMock()
+        io._buffer_raw_events = False
+        io._raw_backend_events = []
+
+        span = MagicMock()
+        ctx = MagicMock()
+        ctx.session_id = "sess-1"
+        ctx.response_summary = None
+        ctx.record_event = MagicMock()
+        recorder = MagicMock()
+        # recorder.flush runs AFTER webhook fire; it blowing up shouldn't
+        # affect the already-dispatched webhook.
+        recorder.flush = MagicMock(side_effect=RuntimeError("recorder torn down"))
+        emitter = MagicMock()
+
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-iso-1",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        with pytest.raises(RuntimeError, match="recorder torn down"):
+            async for _ in response.body_iterator:
+                pass
+
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        assert kwargs["success"] is True
+        assert kwargs["http_status"] == 200
+
+    @pytest.mark.asyncio
+    async def test_webhook_fire_failure_does_not_break_cleanup(self):
+        """If webhook.fire_and_forget itself raises, cleanup still completes."""
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            yield RawContentBlockDeltaEvent(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta(type="text_delta", text="hi"),
+            )
+
+        io = MagicMock()
+        io.request = {"model": "claude-test"}
+        io.ensure_request_recorded = MagicMock()
+        io._buffer_raw_events = False
+        io._raw_backend_events = []
+        span = MagicMock()
+        ctx = MagicMock()
+        ctx.session_id = "sess-1"
+        ctx.response_summary = None
+        ctx.record_event = MagicMock()
+        recorder = MagicMock()
+        emitter = MagicMock()
+
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock(side_effect=RuntimeError("webhook send blew up"))
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-iso-2",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        # Should drain cleanly — _fire_webhook_for_completion suppresses
+        # exceptions internally so the rest of the finally still runs.
+        async for _ in response.body_iterator:
+            pass
+
+        webhook.fire_and_forget.assert_called_once()
+        recorder.flush.assert_called()  # cleanup completed despite webhook failure

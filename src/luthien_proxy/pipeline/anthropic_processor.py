@@ -618,6 +618,50 @@ async def _execute_anthropic_policy(
     )
 
 
+def _fire_webhook_for_completion(
+    *,
+    webhook_sender: WebhookSender | None,
+    policy_ctx: PolicyContext,
+    call_id: str,
+    request_model_field: str | None,
+    response: AnthropicResponse | None,
+    duration_ms: int,
+    is_streaming: bool,
+    success: bool,
+    http_status: int,
+) -> None:
+    """Fire the conversation-completion webhook with defensive fallbacks.
+
+    Centralises the payload construction and the try/except so the call sites
+    in streaming/non-streaming finally blocks don't duplicate logic and any
+    fire-time error doesn't propagate into the surrounding cleanup.
+
+    Defensive ``or`` fallbacks (instead of ``dict.get(k, default)``) so an
+    explicit ``None`` value in the source dict still gets defaulted (real
+    Anthropic responses always have these, but harmless to harden).
+    """
+    if webhook_sender is None or not webhook_sender.enabled:
+        return
+    try:
+        usage = (response.get("usage") if response else None) or {}
+        model = (response.get("model") if response else None) or request_model_field or "unknown"
+        webhook_sender.fire_and_forget(
+            session_id=policy_ctx.session_id,
+            transaction_id=call_id,
+            model=model,
+            input_tokens=usage.get("input_tokens") or 0,
+            output_tokens=usage.get("output_tokens") or 0,
+            cache_creation_input_tokens=usage.get("cache_creation_input_tokens") or 0,
+            cache_read_input_tokens=usage.get("cache_read_input_tokens") or 0,
+            duration_ms=duration_ms,
+            is_streaming=is_streaming,
+            success=success,
+            http_status=http_status,
+        )
+    except Exception:
+        logger.exception("[%s] Webhook fire failed (suppressed to protect cleanup path)", call_id)
+
+
 async def _handle_execution_streaming(
     emissions: AsyncIterator[AnthropicPolicyEmission],
     io: _AnthropicPolicyIO,
@@ -725,6 +769,34 @@ async def _handle_execution_streaming(
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
                     reconstructed = _reconstruct_response_from_stream_events(accumulated_events)
+
+                    # Fire webhook FIRST so subsequent recorder/emitter calls
+                    # raising can't skip it (R6.1). The non-streaming finally
+                    # has the same property by being wrapped in its own helper;
+                    # streaming now matches.
+                    #
+                    # Gate: skip on bare client-disconnect (no caught exception,
+                    # no completion, no empty-stream branch) to avoid reporting
+                    # a false success — see PR #741 issue #2.
+                    if stream_completed or caught_exception or not emitted_any:
+                        _duration_ms = (
+                            int((time.monotonic() - request_start_time) * 1000) if request_start_time is not None else 0
+                        )
+                        _fire_webhook_for_completion(
+                            webhook_sender=webhook_sender,
+                            policy_ctx=policy_ctx,
+                            call_id=call_id,
+                            request_model_field=io.request.get("model"),
+                            response=reconstructed,
+                            duration_ms=_duration_ms,
+                            is_streaming=True,
+                            # Both checks load-bearing: stream_completed=True with
+                            # emitted_any=False hits the empty-stream branch above
+                            # which sets final_status=500.
+                            success=stream_completed and final_status == 200,
+                            http_status=final_status,
+                        )
+
                     if reconstructed is not None:
                         # Use raw backend events for original response if buffered,
                         # otherwise fall back to accumulated (post-policy) events.
@@ -757,38 +829,6 @@ async def _handle_execution_streaming(
                                 input_tokens=usage.get("input_tokens", 0),
                                 output_tokens=usage.get("output_tokens", 0),
                             )
-                    # Fire webhook only when we know the final state of the response
-                    # to the client. Skipping on bare client-disconnect (no
-                    # caught exception, no completion, no empty-stream branch)
-                    # avoids reporting a false success — see PR #741 issue #2.
-                    if (
-                        webhook_sender
-                        and webhook_sender.enabled
-                        and (stream_completed or caught_exception or not emitted_any)
-                    ):
-                        _usage = (reconstructed or {}).get("usage", {})
-                        _model = (reconstructed.get("model") if reconstructed else None) or io.request.get(
-                            "model", "unknown"
-                        )
-                        _duration_ms = (
-                            int((time.monotonic() - request_start_time) * 1000) if request_start_time is not None else 0
-                        )
-                        webhook_sender.fire_and_forget(
-                            session_id=policy_ctx.session_id,
-                            transaction_id=call_id,
-                            model=_model,
-                            input_tokens=_usage.get("input_tokens", 0),
-                            output_tokens=_usage.get("output_tokens", 0),
-                            cache_creation_input_tokens=_usage.get("cache_creation_input_tokens", 0),
-                            cache_read_input_tokens=_usage.get("cache_read_input_tokens", 0),
-                            duration_ms=_duration_ms,
-                            is_streaming=True,
-                            # Both checks are load-bearing: stream_completed=True with
-                            # emitted_any=False hits the empty-stream branch above
-                            # which sets final_status=500. Don't simplify either away.
-                            success=stream_completed and final_status == 200,
-                            http_status=final_status,
-                        )
 
                     # Empty-stream error event yields LAST so any failure here
                     # (BrokenResourceError on a closed writer, GeneratorExit on
@@ -929,23 +969,18 @@ async def _handle_execution_non_streaming(
         # already been flushed inside the try block above; on the error path
         # the gateway-level handler in main.py handles recorder cleanup. The
         # webhook fire is independent of recorder state.
-        if webhook_sender and webhook_sender.enabled:
-            _ns_usage = (final_response.get("usage") if final_response else None) or {}
-            _model = (final_response.get("model") if final_response else None) or io.request.get("model", "unknown")
-            _duration_ms = int((time.monotonic() - request_start_time) * 1000) if request_start_time is not None else 0
-            webhook_sender.fire_and_forget(
-                session_id=policy_ctx.session_id,
-                transaction_id=call_id,
-                model=_model,
-                input_tokens=_ns_usage.get("input_tokens", 0),
-                output_tokens=_ns_usage.get("output_tokens", 0),
-                cache_creation_input_tokens=_ns_usage.get("cache_creation_input_tokens", 0),
-                cache_read_input_tokens=_ns_usage.get("cache_read_input_tokens", 0),
-                duration_ms=_duration_ms,
-                is_streaming=False,
-                success=final_status == 200 and final_response is not None,
-                http_status=final_status,
-            )
+        _duration_ms = int((time.monotonic() - request_start_time) * 1000) if request_start_time is not None else 0
+        _fire_webhook_for_completion(
+            webhook_sender=webhook_sender,
+            policy_ctx=policy_ctx,
+            call_id=call_id,
+            request_model_field=io.request.get("model"),
+            response=final_response,
+            duration_ms=_duration_ms,
+            is_streaming=False,
+            success=final_status == 200 and final_response is not None,
+            http_status=final_status,
+        )
 
 
 def _format_sse_event(event: MessageStreamEvent | _StreamErrorEvent) -> str:
