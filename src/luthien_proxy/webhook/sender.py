@@ -22,8 +22,6 @@ from urllib.parse import ParseResult, urlparse, urlunparse
 
 import httpx
 
-from luthien_proxy.version import PROXY_DISPLAY_VERSION
-
 logger = logging.getLogger(__name__)
 
 
@@ -291,6 +289,13 @@ class WebhookSender:
                 f"(got {send_timeout_seconds}); combined with max_retries this defeats the "
                 "point of max_pending_tasks (a single delivery would hold a slot for hours)."
             )
+        # _url and _parsed_url are intentionally immutable after __init__.
+        # _safe_url is cached from _parsed_url (line 343) and the port
+        # validation below also runs once. If you ever support hot-reload
+        # of WEBHOOK_URL (currently restart-required by config_fields design),
+        # the new sender must invalidate _safe_url, re-run port validation,
+        # and probably reconstruct the httpx.AsyncClient since its
+        # User-Agent and pool size are also frozen at construction.
         self._url = url or None
         self._parsed_url: ParseResult | None = None
         if self._url:
@@ -350,7 +355,10 @@ class WebhookSender:
         self._client = (
             httpx.AsyncClient(
                 timeout=send_timeout_seconds,
-                headers={"User-Agent": f"luthien-proxy-webhook/{PROXY_DISPLAY_VERSION}"},
+                # UA is intentionally schema-version, not gateway version: receivers
+                # logging the UA shouldn't be able to fingerprint deploy SHA. The
+                # payload's `schema_version` already serves the contract-version need.
+                headers={"User-Agent": f"luthien-proxy-webhook/{WEBHOOK_PAYLOAD_SCHEMA_VERSION}"},
                 limits=httpx.Limits(max_connections=pool_size),
             )
             if self._url
@@ -606,7 +614,12 @@ class WebhookSender:
         # create_task + set.add are synchronous, so the task can't complete
         # before it's tracked. set.discard() (vs set.remove()) is also safe
         # if the discard callback runs after a manual prune.
-        task = asyncio.create_task(self._send_with_retries(payload))
+        # Named so `asyncio.all_tasks()` during shutdown debugging shows
+        # which transaction each in-flight task corresponds to.
+        task = asyncio.create_task(
+            self._send_with_retries(payload),
+            name=f"webhook-{payload['transaction_id'][:8]}",
+        )
         self._pending_tasks.add(task)
         task.add_done_callback(self._pending_tasks.discard)
         task.add_done_callback(_log_task_exception)
