@@ -12,4 +12,5 @@ encryption). Closes #561.
     `RETENTION_S3_KMS_KEY_ID` — required encryption settings
   - `RETENTION_ARCHIVE_BATCH_SIZE` — cursor-paginated batch size
   - Background `ConversationPurger` runs once at startup then every 24 h
-  - Adds composite index migration `015_add_retention_index.sql`
+  - Existing `idx_conversation_calls_created` (from migration 003) already
+    serves the purge predicate — no new index introduced
