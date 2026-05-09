@@ -68,6 +68,16 @@ MAX_RETRY_DELAY_SECONDS = 60.0
 
 
 class _UsageCounts(TypedDict):
+    """Token usage from Anthropic's response.
+
+    NOTE: ``total_tokens`` = ``input_tokens + output_tokens`` only — cache
+    tokens are intentionally excluded because Anthropic bills cache writes
+    at 1.25× and reads at 0.1×. Naive summation would mislead spend
+    dashboards. Receivers building cost reports should weight
+    ``cache_creation_input_tokens`` and ``cache_read_input_tokens``
+    separately per their billing model.
+    """
+
     input_tokens: int
     output_tokens: int
     total_tokens: int
@@ -375,7 +385,8 @@ class WebhookSender:
             if self._client is None or self._url is None:
                 logger.error("Webhook client not initialized — skipping delivery")
                 return False, False
-            response = await self._client.post(self._url, json=dict(payload))
+            # TypedDict IS a dict at runtime; the cast was cosmetic.
+            response = await self._client.post(self._url, json=payload)
             status = response.status_code
             if 200 <= status < 300:
                 return True, False  # success; retryable irrelevant
