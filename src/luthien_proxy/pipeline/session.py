@@ -89,6 +89,7 @@ def extract_session_id_from_headers(headers: dict[str, str]) -> str | None:
 
 
 _USER_ID_MAX_LENGTH = 256
+_BEARER_PREFIX = "Bearer "
 
 
 def _sanitize_user_id(value: str) -> str | None:
@@ -152,7 +153,6 @@ def extract_user_id_from_authorization_header(header_value: str | None) -> str |
         The JWT ``sub`` claim string if the header carries a decodable Bearer
         JWT, None otherwise (including for non-Bearer schemes like Basic).
     """
-    _BEARER_PREFIX = "Bearer "
     if not header_value:
         return None
     if not header_value.lower().startswith(_BEARER_PREFIX.lower()):
@@ -206,7 +206,10 @@ def extract_user_id_from_bearer_token(token: str | None) -> str | None:
         standard_b64 = payload_b64.encode("ascii").translate(bytes.maketrans(b"-_", b"+/"))
         payload_bytes = base64.b64decode(standard_b64, validate=True)
         payload = json.loads(payload_bytes)
-    except (ValueError, binascii.Error, json.JSONDecodeError, UnicodeDecodeError):
+    # UnicodeDecodeError and json.JSONDecodeError are both ValueError subclasses;
+    # the explicit `binascii.Error` is the only non-ValueError-derived case worth
+    # naming.
+    except (ValueError, binascii.Error):
         return None
 
     if not isinstance(payload, dict):
