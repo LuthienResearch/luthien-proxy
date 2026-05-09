@@ -797,6 +797,16 @@ async def _handle_execution_streaming(
                     # for a partial delivery. Cancelled-before-emit hits
                     # `not emitted_any` and fires with success=False, http_status=499.
                     if stream_completed or caught_exception or not emitted_any:
+                        # Belt for the load-bearing-comment below: if both
+                        # `stream_completed` and `not emitted_any` are true,
+                        # `final_status` MUST already be 500 from the
+                        # empty-stream branch — otherwise the success-calc
+                        # would silently report success=True for a 0-event
+                        # stream. Fail loud during dev/test if invariant
+                        # breaks; production-safe (assert is no-op under -O).
+                        assert not (stream_completed and not emitted_any and final_status == 200), (
+                            "invariant violated: empty-stream-after-completion did not set final_status=500"
+                        )
                         _duration_ms = int((time.monotonic() - request_start_time) * 1000)
                         _fire_webhook_for_completion(
                             webhook_sender=webhook_sender,

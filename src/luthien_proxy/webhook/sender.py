@@ -109,6 +109,11 @@ class ConversationCompletedPayload(TypedDict):
         billing model (1.25x writes, 0.1x reads).
       * `model` may be the literal string `"unknown"` if neither response nor
         request carried a model field. Treat as a sentinel.
+      * `transaction_id` is unique per request and stable across retries from
+        the gateway side: the gateway never re-fires for the same transaction
+        on its own. If the receiver returns 5xx and the gateway retries, the
+        receiver will see two POSTs with the same `transaction_id` — use it
+        as an idempotency key on the receiver side to dedupe.
     """
 
     schema_version: int
