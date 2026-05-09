@@ -1886,6 +1886,7 @@ class TestWebhookStatsRoute:
         assert result.pending_depth == 0
         assert result.dropped_count == 0
         assert result.gave_up_count == 0
+        assert result.permanent_failure_count == 0
         assert result.max_pending_tasks == 0
         assert result.started_at == ""
         assert result.worker_pid == os.getpid()
@@ -1903,6 +1904,7 @@ class TestWebhookStatsRoute:
         sender.pending_depth = 7
         sender.dropped_count = 42
         sender.gave_up_count = 5
+        sender.permanent_failure_count = 3
         sender.max_pending_tasks = 1000
         sender.started_at = started
 
@@ -1912,6 +1914,7 @@ class TestWebhookStatsRoute:
         assert result.pending_depth == 7
         assert result.dropped_count == 42
         assert result.gave_up_count == 5
+        assert result.permanent_failure_count == 3
         assert result.max_pending_tasks == 1000
         assert result.started_at == started.isoformat()
         assert result.worker_pid > 0

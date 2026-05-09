@@ -1251,9 +1251,10 @@ class WebhookStatsResponse(BaseModel):
     dropped_count: int
     # Cumulative count of webhooks that exhausted their retry budget without
     # the receiver acknowledging. Distinct from `dropped_count` (cap-reached
-    # drop). Both are "events the receiver never saw" — sum them for the
-    # true loss rate.
+    # drop) and `permanent_failure_count` (4xx misconfig — receiver rejected).
+    # Sum the three for the true loss rate.
     gave_up_count: int
+    permanent_failure_count: int
     max_pending_tasks: int
     started_at: str
     worker_pid: int
@@ -1284,6 +1285,7 @@ async def webhook_stats(
             pending_depth=0,
             dropped_count=0,
             gave_up_count=0,
+            permanent_failure_count=0,
             max_pending_tasks=0,
             started_at="",
             worker_pid=pid,
@@ -1294,6 +1296,7 @@ async def webhook_stats(
         pending_depth=webhook_sender.pending_depth,
         dropped_count=webhook_sender.dropped_count,
         gave_up_count=webhook_sender.gave_up_count,
+        permanent_failure_count=webhook_sender.permanent_failure_count,
         max_pending_tasks=webhook_sender.max_pending_tasks,
         started_at=webhook_sender.started_at.isoformat(),
         worker_pid=pid,

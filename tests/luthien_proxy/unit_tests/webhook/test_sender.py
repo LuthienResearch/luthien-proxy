@@ -714,6 +714,23 @@ async def test_gave_up_count_increments_on_retry_exhaustion(sender_with_retries)
 
     assert sender_with_retries.gave_up_count == 1
     assert sender_with_retries.dropped_count == 0  # not a cap-reached drop
+    assert sender_with_retries.permanent_failure_count == 0  # transient, not permanent
+
+
+@pytest.mark.asyncio
+async def test_permanent_failure_count_increments_on_non_retryable(sender):
+    """permanent_failure_count distinguishes 4xx misconfig from transient or cap-reached."""
+
+    async def permanent_fail(payload):
+        return False, False  # non-retryable (e.g. 401/404)
+
+    with patch.object(sender, "_attempt_send", side_effect=permanent_fail):
+        sender.fire_and_forget(**_fire_kwargs())
+        await _drain_pending(sender)
+
+    assert sender.permanent_failure_count == 1
+    assert sender.gave_up_count == 0
+    assert sender.dropped_count == 0
 
 
 @pytest.mark.asyncio

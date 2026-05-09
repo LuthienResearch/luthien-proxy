@@ -349,6 +349,11 @@ class WebhookSender:
         # acknowledged. Both are "events the receiver never saw"; alerting
         # consumers should sum them for a true "lost events" count.
         self._gave_up_after_retries = 0
+        # Cumulative count of webhooks rejected by permanent failure (4xx outside
+        # the retryable set, or unexpected exception treated as permanent).
+        # Distinct from _gave_up_after_retries (transient failure exhausted)
+        # and _dropped_due_to_backpressure (cap-reached).
+        self._permanent_failures = 0
         self._stopped = False
         # UTC timestamp of construction — exposed for operators computing
         # drop-rates against dropped_count.
@@ -394,8 +399,10 @@ class WebhookSender:
 
         This counts only the cap-reached drop case. Webhooks that were
         accepted into the pool but exhausted their retries are counted in
-        :pyattr:`gave_up_count` instead. Alerting consumers should sum the
-        two for a true "events the receiver never saw" rate.
+        :pyattr:`gave_up_count`; webhooks rejected by permanent failure
+        (4xx misconfig) are in :pyattr:`permanent_failure_count`. Alerting
+        consumers should sum the three for the true "events the receiver
+        never saw" rate.
         """
         return self._dropped_due_to_backpressure
 
@@ -403,6 +410,18 @@ class WebhookSender:
     def gave_up_count(self) -> int:
         """Cumulative count of webhooks where _send_with_retries gave up after exhausting attempts."""
         return self._gave_up_after_retries
+
+    @property
+    def permanent_failure_count(self) -> int:
+        """Cumulative count of webhooks rejected by permanent failure (non-retryable 4xx, etc.).
+
+        This is the misconfig signal: 401/403/404/410/422 etc. mean the
+        receiver URL is wrong or auth is rejected. Distinct from
+        :pyattr:`dropped_count` (cap-reached) and :pyattr:`gave_up_count`
+        (transient failure exhausted retries). Sum the three for the true
+        "events the receiver never saw" rate.
+        """
+        return self._permanent_failures
 
     @property
     def max_pending_tasks(self) -> int:
@@ -427,6 +446,12 @@ class WebhookSender:
         Preserving "the first path segment" was unsafe for the root case
         (https://host/SECRET → SECRET preserved). Redacting the whole path is
         the only safe default; operators identify the endpoint by host:port.
+
+        Note: ``parsed.port`` is read below and raises ValueError for ports
+        outside 0-65535. The init guard above (search for "invalid port")
+        validates this and disables the sender, so we only get here with a
+        well-formed port. If init validation is ever relaxed, this method
+        needs its own try/except.
         """
         if not self._parsed_url:
             return ""
@@ -527,6 +552,7 @@ class WebhookSender:
                 return
 
             if not retryable:
+                self._permanent_failures += 1
                 # Skip the second ERROR if we already logged the unexpected
                 # exception above — prevents double-logging the same failure.
                 if not had_unexpected_exception:
