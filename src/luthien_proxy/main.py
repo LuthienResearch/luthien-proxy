@@ -348,6 +348,14 @@ def create_app(
         yield
 
         # Shutdown
+        # Webhook sender goes first: stop() drains in-flight tasks within the
+        # configured window, then cancels survivors and aclose()s the httpx
+        # client. After this returns, _stopped=True silently no-ops any
+        # in-flight request that reaches fire_and_forget — this is the
+        # at-most-once semantics we documented. If you reorder this so
+        # webhook.stop() runs after anthropic_client_cache.close_all() or
+        # before request handling has fully drained, fire_and_forget calls
+        # could land against an already-closed httpx client.
         await _webhook_sender.stop()
         if _telemetry_sender is not None:
             await _telemetry_sender.stop()

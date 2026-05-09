@@ -6,6 +6,7 @@ import copy
 import hashlib
 import json
 import logging
+import os
 import uuid
 from typing import Any, cast
 
@@ -1253,6 +1254,11 @@ class WebhookStatsResponse(BaseModel):
     # compute drop-rate as `dropped_count / (now - started_at)`. Resets on
     # process restart. Empty string when no sender is wired.
     started_at: str
+    # Process ID of the worker that answered. Counters are per-worker, so
+    # a load-balanced poll silently returns one worker's view at random;
+    # worker_pid lets operators tell which worker answered (and notice
+    # they're seeing only one of N).
+    worker_pid: int
 
 
 @router.get("/webhook/stats", response_model=WebhookStatsResponse)
@@ -1272,6 +1278,7 @@ async def webhook_stats(
     random. For a gateway-wide picture, scrape every worker (or aggregate
     via a metrics backend — Trello c/2GkyAelr tracks the OTel follow-up).
     """
+    pid = os.getpid()
     if webhook_sender is None:
         return WebhookStatsResponse(
             enabled=False,
@@ -1280,6 +1287,7 @@ async def webhook_stats(
             dropped_count=0,
             max_pending_tasks=0,
             started_at="",
+            worker_pid=pid,
         )
     return WebhookStatsResponse(
         enabled=webhook_sender.enabled,
@@ -1288,6 +1296,7 @@ async def webhook_stats(
         dropped_count=webhook_sender.dropped_count,
         max_pending_tasks=webhook_sender.max_pending_tasks,
         started_at=webhook_sender.started_at.isoformat(),
+        worker_pid=pid,
     )
 
 

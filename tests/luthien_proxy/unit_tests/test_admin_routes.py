@@ -1876,6 +1876,8 @@ class TestWebhookStatsRoute:
 
     @pytest.mark.asyncio
     async def test_returns_disabled_shape_when_sender_missing(self):
+        import os
+
         from luthien_proxy.admin.routes import webhook_stats
 
         result = await webhook_stats(_=AUTH_TOKEN, webhook_sender=None)
@@ -1885,6 +1887,7 @@ class TestWebhookStatsRoute:
         assert result.dropped_count == 0
         assert result.max_pending_tasks == 0
         assert result.started_at == ""
+        assert result.worker_pid == os.getpid()
 
     @pytest.mark.asyncio
     async def test_returns_sender_counters(self):
@@ -1908,3 +1911,4 @@ class TestWebhookStatsRoute:
         assert result.dropped_count == 42
         assert result.max_pending_tasks == 1000
         assert result.started_at == started.isoformat()
+        assert result.worker_pid > 0
