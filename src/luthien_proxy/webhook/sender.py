@@ -52,7 +52,7 @@ _RETRYABLE_4XX = frozenset({408, 425, 429})
 WEBHOOK_PAYLOAD_SCHEMA_VERSION = 1
 
 
-SEND_TIMEOUT_SECONDS = 10
+DEFAULT_SEND_TIMEOUT_SECONDS = 10.0
 DEFAULT_MAX_RETRIES = 3
 MAX_RETRIES_CEILING = 20
 DEFAULT_RETRY_DELAY_SECONDS = 1.0
@@ -195,6 +195,7 @@ class WebhookSender:
         retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
         max_pending_tasks: int = DEFAULT_MAX_PENDING_TASKS,
         shutdown_drain_seconds: float = DEFAULT_SHUTDOWN_DRAIN_SECONDS,
+        send_timeout_seconds: float = DEFAULT_SEND_TIMEOUT_SECONDS,
     ) -> None:
         """Initialize the webhook sender.
 
@@ -208,6 +209,9 @@ class WebhookSender:
             shutdown_drain_seconds: On ``stop()``, wait up to this long for
                 in-flight tasks to finish before cancelling survivors. Set to
                 ``0`` for immediate cancel-only (legacy behavior).
+            send_timeout_seconds: Per-attempt HTTP timeout. Receivers doing
+                synchronous downstream work (e.g. write-to-DB before ack) may
+                need larger values than the default 10s.
         """
         if max_pending_tasks < 1:
             raise ValueError(
@@ -226,7 +230,7 @@ class WebhookSender:
                 f"max_retries must be <= {MAX_RETRIES_CEILING} (got {max_retries}); "
                 "high values combine multiplicatively with retry delays + send timeout — "
                 f"e.g. max_retries=20 against a slow receiver can hold a slot for >20 minutes "
-                f"(20 × {SEND_TIMEOUT_SECONDS}s timeout + 19 × {MAX_RETRY_DELAY_SECONDS:.0f}s backoff)."
+                f"(20 × {send_timeout_seconds}s timeout + 19 × {MAX_RETRY_DELAY_SECONDS:.0f}s backoff)."
             )
         if retry_delay_seconds < 0:
             raise ValueError(f"retry_delay_seconds must be >= 0 (got {retry_delay_seconds})")
@@ -235,6 +239,8 @@ class WebhookSender:
                 f"shutdown_drain_seconds must be >= 0 (got {shutdown_drain_seconds}); "
                 "use 0 for immediate-cancel-only on stop()."
             )
+        if send_timeout_seconds <= 0:
+            raise ValueError(f"send_timeout_seconds must be > 0 (got {send_timeout_seconds})")
         self._url = url or None
         self._parsed_url: ParseResult | None = None
         if self._url:
@@ -271,7 +277,7 @@ class WebhookSender:
         # under sustained backpressure with the 1000-task cap.
         self._client = (
             httpx.AsyncClient(
-                timeout=SEND_TIMEOUT_SECONDS,
+                timeout=send_timeout_seconds,
                 headers={"User-Agent": f"luthien-proxy-webhook/{PROXY_DISPLAY_VERSION}"},
                 limits=httpx.Limits(max_connections=max_pending_tasks),
             )
@@ -395,6 +401,7 @@ class WebhookSender:
             return
         delay = self._retry_delay_seconds
         for attempt in range(1 + self._max_retries):
+            had_unexpected_exception = False
             try:
                 success, retryable = await self._attempt_send(payload)
             except Exception:
@@ -409,6 +416,7 @@ class WebhookSender:
                 # Unhandled exception is unlikely to be transient; treat as
                 # permanent so misconfigured policies don't burn the retry budget.
                 retryable = False
+                had_unexpected_exception = True
 
             if success:
                 if attempt > 0:
@@ -416,11 +424,14 @@ class WebhookSender:
                 return
 
             if not retryable:
-                logger.error(
-                    "Webhook delivery to %s gave a permanent failure on attempt %d — not retrying",
-                    self.safe_url,
-                    attempt + 1,
-                )
+                # Skip the second ERROR if we already logged the unexpected
+                # exception above — prevents double-logging the same failure.
+                if not had_unexpected_exception:
+                    logger.error(
+                        "Webhook delivery to %s gave a permanent failure on attempt %d — not retrying",
+                        self.safe_url,
+                        attempt + 1,
+                    )
                 return
 
             if attempt < self._max_retries:

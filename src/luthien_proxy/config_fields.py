@@ -262,7 +262,12 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
     ),
     ConfigFieldMeta(
         "webhook_max_pending_tasks", "WEBHOOK_MAX_PENDING_TASKS", int, 1000,
-        "Maximum number of in-flight webhook delivery tasks. When exceeded, new webhooks are dropped and logged. Prevents unbounded memory growth when the webhook endpoint is slow or down. Note: a single delivery can hold a slot for up to ~210s with default settings (10s send timeout × 4 attempts + 3 jittered backoff sleeps capped at 60s each), so a slow receiver under steady traffic can fill the pool over a few minutes.",
+        "Maximum number of in-flight webhook delivery tasks. When exceeded, new webhooks are dropped and logged. Prevents unbounded memory growth when the webhook endpoint is slow or down. Note: a single delivery can hold a slot for ~(WEBHOOK_SEND_TIMEOUT_SECONDS × (1+WEBHOOK_MAX_RETRIES)) + (WEBHOOK_MAX_RETRIES × MAX_RETRY_DELAY_SECONDS) — defaults give ~210s.",
+        category="webhook",
+    ),
+    ConfigFieldMeta(
+        "webhook_send_timeout_seconds", "WEBHOOK_SEND_TIMEOUT_SECONDS", float, 10.0,
+        "Per-attempt HTTP timeout for webhook deliveries. Receivers that do synchronous downstream work before acknowledging (e.g. write to BigQuery before returning 200) may need a higher value than the 10s default.",
         category="webhook",
     ),
     ConfigFieldMeta(

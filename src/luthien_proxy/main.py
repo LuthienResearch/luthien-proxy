@@ -315,6 +315,7 @@ def create_app(
             retry_delay_seconds=settings.webhook_retry_delay_seconds,
             max_pending_tasks=settings.webhook_max_pending_tasks,
             shutdown_drain_seconds=settings.webhook_shutdown_drain_seconds,
+            send_timeout_seconds=settings.webhook_send_timeout_seconds,
         )
         if _webhook_sender.enabled:
             logger.info("Webhook event export enabled (url=%s)", _webhook_sender.safe_url)
