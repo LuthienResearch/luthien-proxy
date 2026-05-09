@@ -160,6 +160,43 @@ def test_build_payload_includes_schema_version():
 
 
 @pytest.mark.asyncio
+async def test_async_client_does_not_follow_redirects():
+    """Default httpx behavior (follow_redirects=False) is load-bearing.
+
+    The 3xx → permanent-failure classification in _attempt_send relies on
+    httpx surfacing 3xx responses to us instead of following them. A future
+    refactor that flips this default would silently change retry behavior.
+    """
+    import httpx
+
+    # Real client (mocked-class tests don't observe defaults).
+    sender = WebhookSender(url="https://example.com/hook")
+    try:
+        assert isinstance(sender._client, httpx.AsyncClient)
+        # httpx default; assert it explicitly to catch refactor regressions.
+        assert sender._client.follow_redirects is False
+    finally:
+        await sender.stop()
+
+
+def test_payload_timestamp_is_utc_iso8601():
+    """timestamp ends with +00:00 (UTC), not naive — guards against stray datetime.now()."""
+    payload = build_payload(
+        session_id="s",
+        transaction_id="t",
+        model="m",
+        input_tokens=0,
+        output_tokens=0,
+        duration_ms=0,
+        is_streaming=False,
+        success=True,
+        http_status=200,
+    )
+    ts = payload["timestamp"]
+    assert ts.endswith("+00:00"), f"timestamp should be UTC-suffixed, got: {ts!r}"
+
+
+@pytest.mark.asyncio
 async def test_async_client_constructed_with_user_agent():
     """httpx.AsyncClient gets a luthien-prefixed UA at construction."""
     with patch("luthien_proxy.webhook.sender.httpx.AsyncClient") as mock_client_cls:

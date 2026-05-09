@@ -846,8 +846,14 @@ async def _handle_execution_streaming(
                         # usage. This means the diff viewer will show identical original
                         # and final responses for streaming requests. Non-streaming
                         # requests still capture true pre-policy vs post-policy diffs.
-                        raw_events = accumulated_events if not io._buffer_raw_events else io._raw_backend_events
-                        raw_reconstructed = _reconstruct_response_from_stream_events(raw_events)
+                        #
+                        # When raw events are NOT buffered, raw_events IS accumulated_events,
+                        # so we reuse the already-computed `reconstructed` instead of
+                        # re-running the reconstruction pass (CPU win on long streams).
+                        if not io._buffer_raw_events:
+                            raw_reconstructed = reconstructed
+                        else:
+                            raw_reconstructed = _reconstruct_response_from_stream_events(io._raw_backend_events)
                         emitter.record(
                             call_id,
                             "transaction.streaming_response_recorded",
