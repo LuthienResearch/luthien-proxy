@@ -340,6 +340,14 @@ class S3ConversationArchiver:
         seconds-to-minutes S3 PUT, so a slow upload doesn't pin a pool
         slot the gateway needs for serving requests.
 
+        The ``last_call_id`` cursor is not strictly required for
+        correctness in the normal flow — the purger DELETEs each batch
+        before the next ``fetch_batch`` call, so an offsetless query
+        would also surface the next batch. The cursor is defensive
+        against (a) a DELETE that did not actually delete (concurrent
+        purger / replica) and (b) keeping the no-archive path
+        symmetrical, where the same caveat applies.
+
         Cursor pagination assumption: rows aren't backdated. The query
         ``WHERE created_at < $cutoff AND call_id > $last`` would skip a
         row if a backdated insert with a smaller call_id arrived between

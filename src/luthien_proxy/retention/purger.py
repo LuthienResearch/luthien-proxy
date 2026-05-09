@@ -311,11 +311,13 @@ class ConversationPurger:
     async def _run_loop(self) -> None:
         """Periodic purge loop. Runs until cancelled.
 
-        ``purge_once`` swallows its own exceptions and returns 0, so this
-        loop should never see one. The defensive try/except here is a
-        belt-and-suspenders guard: a future bug that lets an exception
-        escape ``purge_once`` would otherwise kill the daily task with no
-        recovery short of a gateway restart.
+        Both this loop and ``purge_once`` catch ``Exception`` — that is
+        deliberate, not a redundancy bug. ``purge_once`` swallows so its
+        ``int`` return contract holds for direct callers (tests, manual
+        triggers). The loop swallows so the daily task survives a future
+        regression that lets an exception escape ``purge_once``. In
+        steady state only the inner layer ever fires, so logs aren't
+        duplicated.
         """
         await asyncio.sleep(self._initial_delay_seconds)
         while True:
