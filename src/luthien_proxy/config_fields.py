@@ -247,7 +247,10 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
     # ── retention ─────────────────────────────────────────────────────────
     ConfigFieldMeta(
         "conversation_retention_days", "CONVERSATION_RETENTION_DAYS", int, None,
-        "Delete conversation_calls older than this many days (None = disabled)",
+        "Delete conversation_calls older than this many days. "
+        "Unset (None), 0, or any non-positive value disables the purger entirely. "
+        "There is no 'purge everything immediately' shortcut — set a small positive "
+        "value (e.g. 1) and wait for the scheduled run if you want fast cleanup.",
         category="retention",
     ),
     ConfigFieldMeta(
