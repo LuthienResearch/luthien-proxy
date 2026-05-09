@@ -22,6 +22,8 @@ from urllib.parse import ParseResult, urlparse, urlunparse
 
 import httpx
 
+from luthien_proxy.version import PROXY_DISPLAY_VERSION
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,6 +44,12 @@ def _log_task_exception(task: asyncio.Task[None]) -> None:
 # 4xx codes that ARE worth retrying — receiver-side transient signals.
 # 408 Request Timeout, 425 Too Early, 429 Too Many Requests.
 _RETRYABLE_4XX = frozenset({408, 425, 429})
+
+
+# Bump when the payload schema changes in a way that requires receiver code
+# changes (renames, removed fields, semantic changes). Additive fields don't
+# require a bump — receivers should ignore unknown fields.
+WEBHOOK_PAYLOAD_SCHEMA_VERSION = 1
 
 
 SEND_TIMEOUT_SECONDS = 10
@@ -65,6 +73,11 @@ class _UsageCounts(TypedDict):
 class ConversationCompletedPayload(TypedDict):
     """Payload sent to the webhook endpoint on conversation completion.
 
+    The `schema_version` field is the contract version. Bumps signal a
+    breaking change (rename, removed field, semantic shift); additive fields
+    don't bump. Receivers should ignore unknown fields and version-gate any
+    field they treat as load-bearing.
+
     Notes for receivers:
       * `success=True` means the gateway built and dispatched a response, not
         that the client received it. Webhook fires from finally blocks before
@@ -78,6 +91,7 @@ class ConversationCompletedPayload(TypedDict):
         request carried a model field. Treat as a sentinel.
     """
 
+    schema_version: int
     session_id: str | None
     transaction_id: str
     model: str
@@ -140,6 +154,7 @@ def build_payload(
     # mislead spend dashboards. Consumers computing total spend should weight
     # cache_creation_input_tokens and cache_read_input_tokens themselves.
     return ConversationCompletedPayload(
+        schema_version=WEBHOOK_PAYLOAD_SCHEMA_VERSION,
         session_id=session_id,
         transaction_id=transaction_id,
         model=model,
@@ -248,7 +263,21 @@ class WebhookSender:
         # UTC timestamp of construction — exposed for operators computing
         # drop-rates against dropped_count.
         self._started_at = datetime.now(UTC)
-        self._client = httpx.AsyncClient(timeout=SEND_TIMEOUT_SECONDS) if self._url else None
+        # User-Agent: lets receivers identify Luthien webhooks vs other sources
+        # (default httpx UA is `python-httpx/<version>` which is anonymous).
+        # Connection pool: aligned with max_pending_tasks so the in-flight task
+        # cap also bounds httpx-side concurrency — without this the pool's
+        # default max_connections=100 would queue ~900 tasks at await client.post()
+        # under sustained backpressure with the 1000-task cap.
+        self._client = (
+            httpx.AsyncClient(
+                timeout=SEND_TIMEOUT_SECONDS,
+                headers={"User-Agent": f"luthien-proxy-webhook/{PROXY_DISPLAY_VERSION}"},
+                limits=httpx.Limits(max_connections=max_pending_tasks),
+            )
+            if self._url
+            else None
+        )
         # safe_url is used in every retry/failure log; the URL is immutable
         # after construction so compute it once instead of urlparse-ing each call.
         self._safe_url = self._compute_safe_url()

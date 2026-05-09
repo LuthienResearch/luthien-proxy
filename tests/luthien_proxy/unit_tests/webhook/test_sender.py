@@ -140,6 +140,43 @@ def test_build_payload_failure():
     assert payload["http_status"] == 503
 
 
+def test_build_payload_includes_schema_version():
+    """Payload carries an explicit schema_version so receivers can version-gate."""
+    from luthien_proxy.webhook.sender import WEBHOOK_PAYLOAD_SCHEMA_VERSION
+
+    payload = build_payload(
+        session_id="s",
+        transaction_id="t",
+        model="m",
+        input_tokens=0,
+        output_tokens=0,
+        duration_ms=0,
+        is_streaming=False,
+        success=True,
+        http_status=200,
+    )
+    assert payload["schema_version"] == WEBHOOK_PAYLOAD_SCHEMA_VERSION
+    assert payload["schema_version"] == 1  # current version
+
+
+@pytest.mark.asyncio
+async def test_async_client_constructed_with_user_agent_and_limits():
+    """httpx.AsyncClient gets a luthien-prefixed UA and pool sized to max_pending_tasks."""
+    with patch("luthien_proxy.webhook.sender.httpx.AsyncClient") as mock_client_cls:
+        mock_instance = AsyncMock()
+        mock_instance.aclose = AsyncMock()
+        mock_client_cls.return_value = mock_instance
+
+        sender = WebhookSender(url="https://example.com/hook", max_pending_tasks=42)
+        await sender.stop()
+
+        mock_client_cls.assert_called_once()
+        kwargs = mock_client_cls.call_args.kwargs
+        assert "luthien-proxy-webhook/" in kwargs["headers"]["User-Agent"]
+        # httpx.Limits(max_connections=42) — assert the cap aligns
+        assert kwargs["limits"].max_connections == 42
+
+
 # ── WebhookSender fixtures ────────────────────────────────────────────────────
 
 
