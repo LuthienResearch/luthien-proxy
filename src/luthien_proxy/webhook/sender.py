@@ -26,7 +26,13 @@ logger = logging.getLogger(__name__)
 
 
 def _log_task_exception(task: asyncio.Task[None]) -> None:
-    """Log exceptions from fire-and-forget tasks to prevent silent failures."""
+    """Last-resort safety net for fire-and-forget tasks.
+
+    `_send_with_retries` already catches `Exception` per attempt; this only
+    fires for true bugs that escape that try/except (e.g. a `BaseException`
+    subclass other than `CancelledError`, or a defect in the retry loop
+    itself). Don't use this as the primary failure-handling path.
+    """
     if not task.cancelled() and (exc := task.exception()):
         logger.error("Webhook send task raised an unexpected exception: %r", exc)
 
@@ -176,6 +182,11 @@ class WebhookSender:
             raise ValueError(f"max_retries must be >= 0 (got {max_retries})")
         if retry_delay_seconds < 0:
             raise ValueError(f"retry_delay_seconds must be >= 0 (got {retry_delay_seconds})")
+        if shutdown_drain_seconds < 0:
+            raise ValueError(
+                f"shutdown_drain_seconds must be >= 0 (got {shutdown_drain_seconds}); "
+                "use 0 for immediate-cancel-only on stop()."
+            )
         self._url = url or None
         self._parsed_url: ParseResult | None = None
         if self._url:
@@ -410,8 +421,9 @@ class WebhookSender:
             cache_creation_input_tokens=cache_creation_input_tokens,
             cache_read_input_tokens=cache_read_input_tokens,
         )
-        # Insert a placeholder before scheduling so the discard callback can never
-        # fire before the task is in the set, regardless of asyncio scheduling.
+        # ensure_future + set.add are synchronous, so the task can't complete
+        # before it's tracked. set.discard() (vs set.remove()) is also safe
+        # if the discard callback runs after a manual prune.
         task = asyncio.ensure_future(self._send_with_retries(payload))
         self._pending_tasks.add(task)
         task.add_done_callback(self._pending_tasks.discard)

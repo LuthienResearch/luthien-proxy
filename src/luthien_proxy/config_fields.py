@@ -262,7 +262,7 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
     ),
     ConfigFieldMeta(
         "webhook_max_pending_tasks", "WEBHOOK_MAX_PENDING_TASKS", int, 1000,
-        "Maximum number of in-flight webhook delivery tasks. When exceeded, new webhooks are dropped and logged. Prevents unbounded memory growth when the webhook endpoint is slow or down.",
+        "Maximum number of in-flight webhook delivery tasks. When exceeded, new webhooks are dropped and logged. Prevents unbounded memory growth when the webhook endpoint is slow or down. Note: a single delivery can hold a slot for up to ~210s with default settings (10s send timeout × 4 attempts + 3 jittered backoff sleeps capped at 60s each), so a slow receiver under steady traffic can fill the pool over a few minutes.",
         category="webhook",
     ),
     ConfigFieldMeta(

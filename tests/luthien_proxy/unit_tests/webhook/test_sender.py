@@ -219,7 +219,7 @@ async def test_send_success(sender):
 )
 @pytest.mark.asyncio
 async def test_send_classifies_retryability_per_status(sender, status: int, retryable_expected: bool):
-    """4xx is permanent except 408/425/429; 5xx is always retryable (R5.1)."""
+    """4xx is permanent except 408/425/429; 5xx is always retryable."""
     mock_response = MagicMock()
     mock_response.status_code = status
     mock_client = AsyncMock()
@@ -292,7 +292,7 @@ async def test_fire_and_forget_gives_up_after_max_retries(sender_with_retries):
 
 @pytest.mark.asyncio
 async def test_fire_and_forget_bails_on_permanent_failure(sender_with_retries):
-    """Permanent (non-retryable) failures bail immediately — no retries (R5.1)."""
+    """Permanent (non-retryable) failures bail immediately — no retries."""
     call_count = 0
 
     async def always_permanent_fail(payload):
@@ -429,7 +429,7 @@ async def test_safe_url_redacts_multi_segment_path(make_sender):
 async def test_safe_url_redacts_single_segment_secret(make_sender):
     """Single-segment path secrets (RequestBin/ngrok/custom hooks) are redacted.
 
-    Regression for PR #741 issue #4: previous logic preserved the first path
+    Regression: previous logic preserved the first path
     segment, so https://x/SECRET leaked SECRET intact.
     """
     sender = make_sender(url="https://hooks.example.com/SECRET_AT_ROOT")

@@ -2062,7 +2062,7 @@ class TestAnthropicPolicyIOBuffering:
 
 
 class TestStreamingWebhookGate:
-    """Tests for the streaming webhook fire gate (PR #741 issues #2, R4.1).
+    """Tests for the streaming webhook fire gate (streaming completion gate).
 
     Drives _handle_execution_streaming directly with a mock emissions iterator
     and asserts whether webhook_sender.fire_and_forget was called and with
@@ -2205,7 +2205,7 @@ class TestStreamingWebhookGate:
     async def test_client_disconnect_after_emission_does_not_fire(self):
         """Client disconnects after emitting events → webhook is suppressed (no false success).
 
-        Regression for PR #741 issue #2: the previous gate (`final_status == 200`)
+        Regression for the bug class: the previous gate (`final_status == 200`)
         would fire with success=200 because CancelledError/GeneratorExit bypass
         the `except Exception` block, leaving final_status at its initial 200.
         """
@@ -2272,7 +2272,7 @@ class TestStreamingWebhookGate:
 
 
 class TestNonStreamingWebhookErrorPath:
-    """Non-streaming webhook now fires on error paths too (PR #741 R4.2)."""
+    """Non-streaming webhook now fires on error paths too (symmetric with streaming)."""
 
     @staticmethod
     def _make_deps():
@@ -2365,13 +2365,13 @@ class TestNonStreamingWebhookErrorPath:
 
 
 class TestWebhookFireIsolation:
-    """Webhook fire isolated from later cleanup raising (PR #741 R6.1)."""
+    """Webhook fire isolated from later cleanup raising."""
 
     @pytest.mark.asyncio
     async def test_streaming_webhook_fires_even_if_recorder_flush_raises(self):
         """If recorder.flush() raises mid-cleanup, the webhook has already fired.
 
-        Regression for R6.1: previously the webhook fire sat after
+        Regression: previously the webhook fire sat after
         request_log_recorder.flush(). flush() raising would silently skip the
         webhook. Now webhook fires before recorder calls.
         """
