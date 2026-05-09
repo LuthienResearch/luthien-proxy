@@ -516,6 +516,14 @@ async def _process_request(
         # 1. X-Luthien-User-Id header (only when TRUST_USER_ID_HEADER=true)
         # 2. fall back to JWT Bearer token sub claim — signature is not verified;
         #    treat as user-asserted attribution, never as access control.
+        #
+        # PRECEDENCE (load-bearing): the trusted header wins over the JWT sub
+        # when both are present. Operators who set TRUST_USER_ID_HEADER=true
+        # have made an explicit decision to trust their proxy's attribution;
+        # the JWT sub is implicit and unauthenticated, so it's the weaker
+        # source. Don't reorder this `... or ...` chain without changing the
+        # threat model.
+        #
         # NOTE: JWT extraction only fires for OAuth-passthrough clients; clients
         # using `x-api-key` (the standard Anthropic SDK auth) carry no Bearer
         # token, so user_id is None unless TRUST_USER_ID_HEADER and the header
@@ -524,9 +532,12 @@ async def _process_request(
             headers, trust_header=get_settings().trust_user_id_header
         ) or extract_user_id_from_authorization_header(headers.get("authorization"))
 
-        # Log incoming request — record AFTER user_id extraction so the very
-        # first event row of every call carries user_id, not NULL. Otherwise
-        # `WHERE user_id = X` queries silently miss the raw client request.
+        # LOAD-BEARING ORDERING: this record() must come AFTER user_id
+        # extraction. Otherwise the first event row of every call has
+        # user_id = NULL and `WHERE user_id = X` queries silently miss the
+        # raw client_request payload — which is the most security-relevant
+        # event in the trail. Do not reorder without re-evaluating the
+        # column-population semantics.
         emitter.record(
             call_id, "pipeline.client_request", {"payload": body, "session_id": session_id, "user_id": user_id}
         )
