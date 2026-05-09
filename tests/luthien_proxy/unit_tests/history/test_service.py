@@ -988,13 +988,13 @@ class TestFetchSessionList:
                 "policy_interventions": 1,
                 "models": ["gpt-4", "claude-3"],
                 "request_payload": {"final_request": {"messages": [{"role": "user", "content": "Hello world"}]}},
-                "user_ids": [],
             },
         ]
 
         mock_conn = AsyncMock()
         mock_conn.fetchval.return_value = 1  # Total count
-        mock_conn.fetch.return_value = mock_rows
+        # First fetch() = main session aggregation; second = user_ids lookup.
+        mock_conn.fetch.side_effect = [mock_rows, []]
 
         mock_pool = MagicMock()
         mock_pool.is_sqlite = False
@@ -1026,13 +1026,12 @@ class TestFetchSessionList:
                 "policy_interventions": 0,
                 "models": ["gpt-4"],
                 "request_payload": None,  # Test with no first message
-                "user_ids": [],
             },
         ]
 
         mock_conn = AsyncMock()
         mock_conn.fetchval.return_value = 100  # Total count
-        mock_conn.fetch.return_value = mock_rows
+        mock_conn.fetch.side_effect = [mock_rows, []]
 
         mock_pool = MagicMock()
         mock_pool.is_sqlite = False

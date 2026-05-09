@@ -9,7 +9,7 @@ Defines Pydantic models for:
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class MessageType(str, Enum):
@@ -80,7 +80,7 @@ class SessionSummary(BaseModel):
     # user_ids are user-asserted (JWT signature not verified) — attribution only, not authentication.
     # All distinct user_ids attributed to calls in this session; multi-element when a session
     # is reused across users (e.g. shared frontend session_id with separate JWTs).
-    user_ids: list[str] = []  # User identities extracted from X-Luthien-User-Id or JWT sub claim
+    user_ids: list[str] = Field(default_factory=list)  # X-Luthien-User-Id or JWT sub claim
 
 
 class SessionListResponse(BaseModel):

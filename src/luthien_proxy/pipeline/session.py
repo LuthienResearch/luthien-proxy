@@ -189,7 +189,11 @@ def extract_user_id_from_bearer_token(token: str | None) -> str | None:
     try:
         # Add padding back — JWT base64url strips trailing '='
         payload_b64 += "=" * ((-len(payload_b64)) % 4)
-        payload_bytes = base64.urlsafe_b64decode(payload_b64)
+        # Translate base64url alphabet to standard so we can use validate=True.
+        # validate=True surfaces malformed tokens early instead of silently
+        # discarding non-base64 chars and feeding garbage to json.loads.
+        standard_b64 = payload_b64.encode("ascii").translate(bytes.maketrans(b"-_", b"+/"))
+        payload_bytes = base64.b64decode(standard_b64, validate=True)
         payload = json.loads(payload_bytes)
     except (ValueError, binascii.Error, json.JSONDecodeError, UnicodeDecodeError):
         return None
