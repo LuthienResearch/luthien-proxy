@@ -349,8 +349,13 @@ async def test_fire_and_forget_bails_on_permanent_failure(sender_with_retries):
 
 
 @pytest.mark.asyncio
-async def test_fire_and_forget_no_crash_on_exception(make_sender):
-    """fire_and_forget does not propagate exceptions to caller; task completes within retries."""
+async def test_fire_and_forget_inner_exception_caught_by_retry_loop(make_sender):
+    """Exception from _attempt_send is swallowed by the retry loop's except Exception.
+
+    This exercises the inner safety net, not _log_task_exception. The done
+    callback path is exercised separately by
+    test_log_task_exception_logs_uncaught_retry_loop_failure.
+    """
     s = make_sender(url="https://example.com/webhook", max_retries=2, retry_delay_seconds=0.001)
 
     async def raise_exception(payload):
@@ -359,6 +364,33 @@ async def test_fire_and_forget_no_crash_on_exception(make_sender):
     with patch.object(s, "_attempt_send", side_effect=raise_exception):
         s.fire_and_forget(**_fire_kwargs())
         await _drain_pending(s)
+
+
+@pytest.mark.asyncio
+async def test_log_task_exception_logs_uncaught_retry_loop_failure(make_sender, caplog):
+    """The done-callback safety net logs exceptions that escape _send_with_retries.
+
+    Patches _send_with_retries directly to raise — this bypasses the retry
+    loop's own except Exception, which is the only situation in which
+    _log_task_exception fires (e.g. a future bug in the retry-loop scaffolding,
+    or a non-CancelledError BaseException subclass).
+    """
+    import logging
+
+    s = make_sender(url="https://example.com/webhook")
+
+    async def raise_inside_retry_loop(payload):
+        raise RuntimeError("simulated retry-loop scaffolding bug")
+
+    with (
+        caplog.at_level(logging.ERROR, logger="luthien_proxy.webhook.sender"),
+        patch.object(s, "_send_with_retries", side_effect=raise_inside_retry_loop),
+    ):
+        s.fire_and_forget(**_fire_kwargs())
+        await _drain_pending(s)
+
+    error_lines = [r.message for r in caplog.records if "unexpected exception" in r.message.lower()]
+    assert error_lines, f"_log_task_exception should have logged; got: {[r.message for r in caplog.records]}"
 
 
 # ── Disabled / scheme rejection ──────────────────────────────────────────────

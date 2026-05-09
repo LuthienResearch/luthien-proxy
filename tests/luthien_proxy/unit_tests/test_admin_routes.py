@@ -1884,17 +1884,22 @@ class TestWebhookStatsRoute:
         assert result.pending_depth == 0
         assert result.dropped_count == 0
         assert result.max_pending_tasks == 0
+        assert result.started_at == ""
 
     @pytest.mark.asyncio
     async def test_returns_sender_counters(self):
+        from datetime import UTC, datetime
+
         from luthien_proxy.admin.routes import webhook_stats
 
+        started = datetime(2026, 5, 9, 11, 0, 0, tzinfo=UTC)
         sender = MagicMock()
         sender.enabled = True
         sender.safe_url = "https://hooks.example.com/..."
         sender.pending_depth = 7
         sender.dropped_count = 42
         sender.max_pending_tasks = 1000
+        sender.started_at = started
 
         result = await webhook_stats(_=AUTH_TOKEN, webhook_sender=sender)
         assert result.enabled is True
@@ -1902,3 +1907,4 @@ class TestWebhookStatsRoute:
         assert result.pending_depth == 7
         assert result.dropped_count == 42
         assert result.max_pending_tasks == 1000
+        assert result.started_at == started.isoformat()

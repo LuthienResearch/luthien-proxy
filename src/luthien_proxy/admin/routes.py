@@ -1249,6 +1249,10 @@ class WebhookStatsResponse(BaseModel):
     pending_depth: int
     dropped_count: int
     max_pending_tasks: int
+    # ISO-8601 UTC timestamp the sender was constructed; lets operators
+    # compute drop-rate as `dropped_count / (now - started_at)`. Resets on
+    # process restart. Empty string when no sender is wired.
+    started_at: str
 
 
 @router.get("/webhook/stats", response_model=WebhookStatsResponse)
@@ -1260,7 +1264,8 @@ async def webhook_stats(
 
     `pending_depth` is current in-flight tasks; `dropped_count` is the
     cumulative count of webhooks dropped because the pending-task cap was hit
-    (process lifetime — resets on restart).
+    (process lifetime — resets on restart). `started_at` is the construction
+    timestamp; combine with `dropped_count` to compute a drop rate.
     """
     if webhook_sender is None:
         return WebhookStatsResponse(
@@ -1269,6 +1274,7 @@ async def webhook_stats(
             pending_depth=0,
             dropped_count=0,
             max_pending_tasks=0,
+            started_at="",
         )
     return WebhookStatsResponse(
         enabled=webhook_sender.enabled,
@@ -1276,6 +1282,7 @@ async def webhook_stats(
         pending_depth=webhook_sender.pending_depth,
         dropped_count=webhook_sender.dropped_count,
         max_pending_tasks=webhook_sender.max_pending_tasks,
+        started_at=webhook_sender.started_at.isoformat(),
     )
 
 

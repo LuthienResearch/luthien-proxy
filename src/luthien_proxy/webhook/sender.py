@@ -236,6 +236,9 @@ class WebhookSender:
         self._pending_tasks: set[asyncio.Task[None]] = set()
         self._dropped_due_to_backpressure = 0
         self._stopped = False
+        # UTC timestamp of construction — exposed for operators computing
+        # drop-rates against dropped_count.
+        self._started_at = datetime.now(UTC)
         self._client = httpx.AsyncClient(timeout=SEND_TIMEOUT_SECONDS) if self._url else None
         # safe_url is used in every retry/failure log; the URL is immutable
         # after construction so compute it once instead of urlparse-ing each call.
@@ -260,6 +263,11 @@ class WebhookSender:
     def max_pending_tasks(self) -> int:
         """Configured cap on in-flight delivery tasks."""
         return self._max_pending_tasks
+
+    @property
+    def started_at(self) -> datetime:
+        """UTC timestamp the sender was constructed (process restart resets this)."""
+        return self._started_at
 
     @property
     def safe_url(self) -> str:
