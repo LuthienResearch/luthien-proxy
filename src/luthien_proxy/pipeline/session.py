@@ -152,11 +152,12 @@ def extract_user_id_from_authorization_header(header_value: str | None) -> str |
         The JWT ``sub`` claim string if the header carries a decodable Bearer
         JWT, None otherwise (including for non-Bearer schemes like Basic).
     """
+    _BEARER_PREFIX = "Bearer "
     if not header_value:
         return None
-    if not header_value.lower().startswith("bearer "):
+    if not header_value.lower().startswith(_BEARER_PREFIX.lower()):
         return None
-    stripped = header_value[7:].strip()
+    stripped = header_value[len(_BEARER_PREFIX) :].strip()
     return extract_user_id_from_bearer_token(stripped) if stripped else None
 
 

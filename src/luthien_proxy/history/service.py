@@ -629,13 +629,16 @@ async def _fetch_session_list_sqlite(
         # lookups to that user's call_ids — without this, preview_message and
         # models_used can leak content from other users' calls that happen to
         # share the session_id.
+        # NOTE: this clause is *separate from* the `user_call_filter` used in
+        # the main aggregation above — different placeholder slot ($N differs
+        # because session_ids are also bound here). Don't fold into one.
         if user_id is not None:
-            user_call_filter = (
+            user_call_filter_lookups = (
                 f"AND ce.call_id IN (SELECT call_id FROM conversation_calls WHERE user_id = ${len(session_ids) + 1})"
             )
             extra_args: list[Any] = [user_id]
         else:
-            user_call_filter = ""
+            user_call_filter_lookups = ""
             extra_args = []
 
         # One query for all models on this page
@@ -646,7 +649,7 @@ async def _fetch_session_list_sqlite(
             WHERE ce.session_id IN ({placeholders})
             AND ce.event_type = 'transaction.request_recorded'
             AND json_extract(ce.payload, '$.final_model') IS NOT NULL
-            {user_call_filter}
+            {user_call_filter_lookups}
             """,
             *session_ids,
             *extra_args,
@@ -663,7 +666,7 @@ async def _fetch_session_list_sqlite(
                 CAST(json_extract(ce.payload, '$.final_request.max_tokens') AS INTEGER),
                 2
             ) > 1
-            {user_call_filter}
+            {user_call_filter_lookups}
             ORDER BY ce.session_id, ce.created_at ASC
             """,
             *session_ids,
