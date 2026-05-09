@@ -119,9 +119,12 @@ def build_payload(
             same measurement; consumers comparing latency across is_streaming
             should account for that.
         is_streaming: Whether the response was streamed.
-        success: True iff the conversation completed cleanly and the client
-            received the full response. False on errors and on streaming
-            client-disconnect mid-flight.
+        success: True iff the gateway built and dispatched the full response
+            (not necessarily that the client received it — the webhook fires
+            from a finally block before bytes leave the gateway). False on
+            errors, empty streams, and cancelled-before-emit. Streaming
+            client-disconnect mid-flight suppresses the webhook entirely
+            rather than firing with success=False.
         http_status: Final HTTP status the gateway returned (or would have
             returned, for streamed responses where headers were already sent).
         cache_creation_input_tokens: Anthropic prompt-cache write tokens.
@@ -429,7 +432,9 @@ class WebhookSender:
             output_tokens: Output token count.
             duration_ms: Request duration in milliseconds.
             is_streaming: Whether the response was streamed.
-            success: True iff the conversation completed cleanly.
+            success: True iff the gateway built and dispatched the full
+                response. See `ConversationCompletedPayload` for full
+                semantics (success ≠ client received).
             http_status: Final HTTP status returned to the client.
             cache_creation_input_tokens: Anthropic prompt-cache write tokens.
             cache_read_input_tokens: Anthropic prompt-cache read tokens.
