@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -84,16 +84,8 @@ async def _count(pool: db_module.DatabasePool, table: str) -> int:
         return int(result) if result is not None else 0
 
 
-@pytest.fixture
-def patch_settings_aes256():
-    return patch(
-        "luthien_proxy.retention.archiver.get_settings",
-        return_value=MagicMock(retention_s3_encryption="AES256", retention_s3_kms_key_id=""),
-    )
-
-
 @pytest.mark.asyncio
-async def test_purge_with_archiver_against_real_sqlite(sqlite_pool, patch_settings_aes256):
+async def test_purge_with_archiver_against_real_sqlite(sqlite_pool):
     """End-to-end: real SQLite, real migrations, real INSERTs, mock S3.
 
     Verifies:
@@ -122,8 +114,7 @@ async def test_purge_with_archiver_against_real_sqlite(sqlite_pool, patch_settin
     archiver = S3ConversationArchiver(bucket="b", s3_client=s3_client, batch_size=10)
     purger = ConversationPurger(db_pool=sqlite_pool, retention_days=30, archiver=archiver)
 
-    with patch_settings_aes256:
-        deleted = await purger.purge_once()
+    deleted = await purger.purge_once()
 
     assert deleted == 2  # only the two old calls
     assert await _count(sqlite_pool, "conversation_calls") == 1
@@ -168,8 +159,8 @@ async def test_purge_without_archiver_against_real_sqlite(sqlite_pool):
 
 
 @pytest.mark.asyncio
-async def test_purge_archive_failure_leaves_data_intact(sqlite_pool, patch_settings_aes256):
-    """If S3 upload fails, no rows are deleted."""
+async def test_purge_archive_failure_leaves_data_intact(sqlite_pool):
+    """If the first S3 upload fails, no rows are deleted."""
     await _insert_call(
         sqlite_pool,
         call_id="old-1",
@@ -181,15 +172,39 @@ async def test_purge_archive_failure_leaves_data_intact(sqlite_pool, patch_setti
     archiver = S3ConversationArchiver(bucket="b", s3_client=s3_client)
     purger = ConversationPurger(db_pool=sqlite_pool, retention_days=30, archiver=archiver)
 
-    with patch_settings_aes256:
-        deleted = await purger.purge_once()
+    deleted = await purger.purge_once()
 
     assert deleted == 0
     assert await _count(sqlite_pool, "conversation_calls") == 1
 
 
 @pytest.mark.asyncio
-async def test_purge_with_archiver_no_old_rows_uploads_nothing(sqlite_pool, patch_settings_aes256):
+async def test_purge_partial_run_archives_and_deletes_first_batch_only(sqlite_pool):
+    """First batch uploads + deletes; second batch's upload fails. Surviving rows
+    remain so the next run can retry. This is the failure mode that motivated
+    the per-batch architecture."""
+    now = datetime.now(UTC)
+    for i in range(3):
+        await _insert_call(
+            sqlite_pool, call_id=f"old-{i}", created_at=now - timedelta(days=40 + i)
+        )
+
+    s3_client = MagicMock()
+    s3_client.put_object = MagicMock(side_effect=[None, RuntimeError("S3 flapped")])
+    archiver = S3ConversationArchiver(bucket="b", s3_client=s3_client, batch_size=2)
+    purger = ConversationPurger(db_pool=sqlite_pool, retention_days=30, archiver=archiver)
+
+    deleted = await purger.purge_once()
+
+    # Batch 0 (2 calls) durably archived + deleted; batch 1 archive failed
+    # before delete -> the third old call survives for next run.
+    assert deleted == 2
+    assert await _count(sqlite_pool, "conversation_calls") == 1
+    assert s3_client.put_object.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_purge_with_archiver_no_old_rows_uploads_nothing(sqlite_pool):
     """Empty archive window must not upload an empty file or DELETE anything."""
     await _insert_call(
         sqlite_pool,
@@ -202,8 +217,7 @@ async def test_purge_with_archiver_no_old_rows_uploads_nothing(sqlite_pool, patc
     archiver = S3ConversationArchiver(bucket="b", s3_client=s3_client)
     purger = ConversationPurger(db_pool=sqlite_pool, retention_days=30, archiver=archiver)
 
-    with patch_settings_aes256:
-        deleted = await purger.purge_once()
+    deleted = await purger.purge_once()
 
     assert deleted == 0
     assert await _count(sqlite_pool, "conversation_calls") == 1

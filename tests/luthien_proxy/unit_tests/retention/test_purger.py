@@ -1,18 +1,18 @@
 """Unit tests for ConversationPurger.
 
 Covers:
-- purge_once with archiver: archives outside transaction, then deletes only
-  archived call_ids inside a short transaction.
-- purge_once without archiver: deletes by cutoff in one transaction (postgres
-  CTE form / sqlite count-then-delete form).
-- Archive failure -> no DELETE, no count.
-- Empty cutoff window -> no DELETE.
-- Lifecycle: start/stop/start/stop, exception logging.
+- Archive-then-delete-per-batch loop with the archiver providing one batch
+  at a time. Memory and DB transactions stay bounded to one batch.
+- Purger advances the cursor with the last archived call_id of each batch.
+- A failed archive batch leaves earlier batches durably archived+deleted.
+- A failed DELETE leaves S3 archived but the rows still in the DB (next
+  run will re-archive — duplicates in S3, no data loss).
+- No-archive path: delete-by-cutoff in one transaction.
+- Lifecycle: start/stop, idempotent start, restart-after-stop, exception logging.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
@@ -46,74 +46,137 @@ def _make_pool(*, is_sqlite: bool = False, conn: AsyncMock | None = None) -> tup
     return pool, conn
 
 
+def _make_archiver(*, batches: list[tuple[list[str], bool]]) -> MagicMock:
+    """Build a mock archiver whose archive_one_batch returns the given (ids, has_more) tuples in order.
+
+    `archive_one_batch` is called repeatedly; each call returns the next tuple.
+    The mock's `new_run_id` returns a deterministic value for assertions.
+    """
+    archiver = MagicMock()
+    archiver.new_run_id = MagicMock(return_value="testrun1")
+    archiver.archive_one_batch = AsyncMock(side_effect=batches)
+    return archiver
+
+
+# ── archive-then-delete loop semantics ────────────────────────────────────
+
+
 @pytest.mark.asyncio
-async def test_purge_with_archiver_archives_then_deletes_only_archived_ids():
+async def test_archive_then_delete_per_batch_loops_until_no_more():
     pool, conn = _make_pool()
-    archiver = AsyncMock()
-    archiver.archive_calls = AsyncMock(return_value=["call-001", "call-002", "call-003"])
+    archiver = _make_archiver(
+        batches=[
+            (["c1", "c2"], True),  # full batch -> keep going
+            (["c3"], False),  # partial batch -> stop
+        ]
+    )
 
     purger = ConversationPurger(db_pool=pool, retention_days=30, archiver=archiver)
     count = await purger.purge_once()
 
     assert count == 3
-    archiver.archive_calls.assert_called_once()
-    # DELETE used the explicit id list, not a cutoff predicate
+    assert archiver.archive_one_batch.call_count == 2
+    # Cursor advances to last archived id of previous batch.
+    second_call_kwargs = archiver.archive_one_batch.call_args_list[1].kwargs
+    assert second_call_kwargs["last_call_id"] == "c2"
+    assert second_call_kwargs["batch_index"] == 1
+
+
+@pytest.mark.asyncio
+async def test_archive_then_delete_stops_when_first_batch_empty():
+    pool, conn = _make_pool()
+    archiver = _make_archiver(batches=[([], False)])
+
+    purger = ConversationPurger(db_pool=pool, retention_days=30, archiver=archiver)
+    count = await purger.purge_once()
+
+    assert count == 0
+    archiver.archive_one_batch.assert_called_once()
+    # No DELETE issued because there were no archived ids.
+    conn.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_archive_failure_mid_run_preserves_earlier_batches():
+    """First batch archives+deletes successfully; second batch fails to archive."""
+    pool, conn = _make_pool()
+    archiver = MagicMock()
+    archiver.new_run_id = MagicMock(return_value="testrun1")
+    archiver.archive_one_batch = AsyncMock(
+        side_effect=[
+            (["c1", "c2"], True),  # batch 0 ok
+            RuntimeError("S3 down"),  # batch 1 fails
+        ]
+    )
+
+    purger = ConversationPurger(db_pool=pool, retention_days=30, archiver=archiver)
+    count = await purger.purge_once()
+
+    # Batch 0's DELETE happened; batch 1 was never reached.
+    assert count == 2
+    assert conn.execute.call_count == 1
+    assert archiver.archive_one_batch.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_delete_failure_mid_run_stops_loop_archive_kept():
+    """Archive succeeds; the DELETE for that batch fails; loop stops."""
+    pool, conn = _make_pool()
+
+    # Make the first DELETE fail.
+    delete_call_count = {"n": 0}
+
+    async def failing_execute(*args, **kwargs):
+        delete_call_count["n"] += 1
+        if delete_call_count["n"] == 1:
+            raise RuntimeError("DELETE failed")
+        return None
+
+    conn.execute = AsyncMock(side_effect=failing_execute)
+    archiver = _make_archiver(batches=[(["c1"], True), (["c2"], False)])
+
+    purger = ConversationPurger(db_pool=pool, retention_days=30, archiver=archiver)
+    count = await purger.purge_once()
+
+    assert count == 0
+    # Loop stopped after first DELETE failure — second batch never archived.
+    assert archiver.archive_one_batch.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_uses_id_list_not_cutoff_predicate():
+    pool, conn = _make_pool()
+    archiver = _make_archiver(batches=[(["c1", "c2", "c3"], False)])
+
+    purger = ConversationPurger(db_pool=pool, retention_days=30, archiver=archiver)
+    await purger.purge_once()
+
     delete_sql = conn.execute.call_args.args[0]
     assert "DELETE FROM conversation_calls WHERE call_id IN" in delete_sql
     assert "created_at" not in delete_sql
 
 
 @pytest.mark.asyncio
-async def test_archiver_called_outside_transaction():
-    """Archive must run before the DELETE transaction is opened."""
+async def test_delete_chunks_large_batches():
+    """A single archived batch larger than _DELETE_CHUNK_SIZE issues multiple DELETEs."""
+    from luthien_proxy.retention.purger import _DELETE_CHUNK_SIZE
+
     pool, conn = _make_pool()
-
-    archive_seen_transaction_calls: list[int] = []
-
-    async def fake_archive(*, db_conn, cutoff):
-        archive_seen_transaction_calls.append(conn.transaction.call_count)
-        return ["call-001"]
-
-    archiver = MagicMock()
-    archiver.archive_calls = fake_archive
-
-    purger = ConversationPurger(db_pool=pool, retention_days=30, archiver=archiver)
-    await purger.purge_once()
-
-    assert archive_seen_transaction_calls == [0]
-    # By the end, exactly one DELETE transaction was opened.
-    assert conn.transaction.call_count == 1
-
-
-@pytest.mark.asyncio
-async def test_archive_failure_skips_delete():
-    pool, conn = _make_pool()
-    archiver = AsyncMock()
-    archiver.archive_calls = AsyncMock(side_effect=Exception("S3 down"))
+    big_batch = [f"call-{i:04d}" for i in range(_DELETE_CHUNK_SIZE + 50)]
+    archiver = _make_archiver(batches=[(big_batch, False)])
 
     purger = ConversationPurger(db_pool=pool, retention_days=30, archiver=archiver)
     count = await purger.purge_once()
 
-    assert count == 0
-    conn.execute.assert_not_called()
-    conn.transaction.assert_not_called()
+    assert count == _DELETE_CHUNK_SIZE + 50
+    assert conn.execute.call_count == 2  # ceil(550/500)
+
+
+# ── no-archiver path ──────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_archive_returns_no_ids_skips_delete():
-    pool, conn = _make_pool()
-    archiver = AsyncMock()
-    archiver.archive_calls = AsyncMock(return_value=[])
-
-    purger = ConversationPurger(db_pool=pool, retention_days=30, archiver=archiver)
-    count = await purger.purge_once()
-
-    assert count == 0
-    conn.execute.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_purge_without_archiver_postgres_uses_cte():
+async def test_no_archiver_postgres_uses_cte():
     pool, conn = _make_pool(is_sqlite=False)
     conn.fetchval = AsyncMock(return_value=7)
 
@@ -121,47 +184,26 @@ async def test_purge_without_archiver_postgres_uses_cte():
     count = await purger.purge_once()
 
     assert count == 7
-    fetch_sql = conn.fetchval.call_args.args[0]
-    assert "WITH deleted" in fetch_sql
-    assert "RETURNING call_id" in fetch_sql
+    sql = conn.fetchval.call_args.args[0]
+    assert "WITH deleted" in sql
+    assert "RETURNING call_id" in sql
 
 
 @pytest.mark.asyncio
-async def test_purge_without_archiver_sqlite_uses_count_then_delete():
+async def test_no_archiver_sqlite_uses_count_then_delete():
     pool, conn = _make_pool(is_sqlite=True)
     conn.fetchval = AsyncMock(return_value=5)
-    conn.execute = AsyncMock(return_value=None)
 
     purger = ConversationPurger(db_pool=pool, retention_days=30)
     count = await purger.purge_once()
 
     assert count == 5
-    count_sql = conn.fetchval.call_args.args[0]
-    delete_sql = conn.execute.call_args.args[0]
-    assert "COUNT(*)" in count_sql
-    assert "DELETE" in delete_sql
-    assert "WITH" not in delete_sql
+    assert "COUNT(*)" in conn.fetchval.call_args.args[0]
+    assert "DELETE" in conn.execute.call_args.args[0]
 
 
 @pytest.mark.asyncio
-async def test_purge_chunks_large_id_lists():
-    """A list larger than _DELETE_CHUNK_SIZE is split across multiple DELETE statements."""
-    from luthien_proxy.retention.purger import _DELETE_CHUNK_SIZE
-
-    pool, conn = _make_pool()
-    ids = [f"call-{i:04d}" for i in range(_DELETE_CHUNK_SIZE + 50)]
-    archiver = AsyncMock()
-    archiver.archive_calls = AsyncMock(return_value=ids)
-
-    purger = ConversationPurger(db_pool=pool, retention_days=30, archiver=archiver)
-    count = await purger.purge_once()
-
-    assert count == _DELETE_CHUNK_SIZE + 50
-    assert conn.execute.call_count == 2  # ceil(550 / 500)
-
-
-@pytest.mark.asyncio
-async def test_purge_handles_db_error():
+async def test_no_archiver_db_error_returns_zero():
     pool, conn = _make_pool()
     conn.fetchval = AsyncMock(side_effect=RuntimeError("DB lost"))
 
@@ -169,6 +211,9 @@ async def test_purge_handles_db_error():
     count = await purger.purge_once()
 
     assert count == 0
+
+
+# ── lifecycle ─────────────────────────────────────────────────────────────
 
 
 def test_cutoff_calculation():
@@ -182,7 +227,7 @@ def test_cutoff_calculation():
 
 @pytest.mark.asyncio
 async def test_start_stop_lifecycle():
-    pool, conn = _make_pool()
+    pool, _ = _make_pool()
     purger = ConversationPurger(
         db_pool=pool, retention_days=30, initial_delay_seconds=0, interval_seconds=9999
     )
@@ -196,20 +241,20 @@ async def test_start_stop_lifecycle():
 
 @pytest.mark.asyncio
 async def test_start_is_idempotent():
-    pool, conn = _make_pool()
+    pool, _ = _make_pool()
     purger = ConversationPurger(
         db_pool=pool, retention_days=30, initial_delay_seconds=0, interval_seconds=9999
     )
     purger.start()
     first_task = purger._task
-    purger.start()  # should not replace
+    purger.start()
     assert purger._task is first_task
     await purger.stop()
 
 
 @pytest.mark.asyncio
 async def test_stop_then_start_creates_new_task():
-    pool, conn = _make_pool()
+    pool, _ = _make_pool()
     purger = ConversationPurger(
         db_pool=pool, retention_days=30, initial_delay_seconds=0, interval_seconds=9999
     )
@@ -230,7 +275,7 @@ async def test_stop_idempotent_when_never_started():
 
 
 @pytest.mark.asyncio
-async def test_loop_exception_is_logged(caplog):
+async def test_loop_exception_logged(caplog):
     pool, _ = _make_pool()
     purger = ConversationPurger(
         db_pool=pool, retention_days=30, initial_delay_seconds=0, interval_seconds=9999
@@ -243,11 +288,12 @@ async def test_loop_exception_is_logged(caplog):
 
     with caplog.at_level(logging.ERROR):
         purger.start()
-        await asyncio.sleep(0.05)
+        # Wait for the failing task to actually finish — done-callback fires synchronously after.
+        assert purger._task is not None
+        try:
+            await purger._task
+        except RuntimeError:
+            pass
 
-    try:
-        await purger.stop()
-    except RuntimeError:
-        pass
-
+    purger._task = None  # Drain so stop() short-circuits.
     assert any("Purger background task raised an unexpected exception" in r.message for r in caplog.records)

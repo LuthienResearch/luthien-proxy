@@ -319,12 +319,22 @@ def create_app(
                     bucket=_s3_bucket,
                     prefix=_s3_prefix,
                     batch_size=settings.retention_archive_batch_size,
+                    encryption_mode=settings.retention_s3_encryption,
+                    kms_key_id=settings.retention_s3_kms_key_id,
                 )
                 logger.info(
-                    "Conversation archival enabled: s3://%s/%s",
+                    "Conversation archival enabled: s3://%s/%s (encryption=%s)",
                     _s3_bucket,
                     _s3_prefix,
+                    settings.retention_s3_encryption,
                 )
+                if settings.retention_s3_encryption == "bucket-default":
+                    logger.warning(
+                        "RETENTION_S3_ENCRYPTION=bucket-default — archives rely on the bucket's "
+                        "default encryption policy. Verify s3://%s has a default encryption "
+                        "configuration; otherwise objects will be written unencrypted.",
+                        _s3_bucket,
+                    )
             _purger = ConversationPurger(db_pool=db_pool, retention_days=_retention_days, archiver=_archiver)
             _purger.start()
         else:

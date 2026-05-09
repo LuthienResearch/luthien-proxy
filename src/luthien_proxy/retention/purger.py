@@ -1,15 +1,20 @@
 """Background task that purges old conversation data from the database.
 
 Runs on a configurable interval (default: daily). When an archiver is
-configured, conversations are uploaded to S3 *outside* any DB transaction,
-then a short transaction deletes the call_ids that were successfully archived.
+configured, the purger drives an archive-then-delete-per-batch loop:
+
+    1. fetch a batch of calls older than cutoff (outside any DB transaction)
+    2. upload the batch to S3 (also outside any DB transaction)
+    3. open a short transaction; DELETE WHERE call_id IN (this batch)
+    4. advance the cursor; loop
+
+This keeps memory bounded to one batch even on a million-row first-run
+backfill, and decouples S3 latency from DB lock duration. If a batch's
+upload fails, earlier batches are already archived and deleted, and the
+unarchived rows remain for the next run to retry.
+
 Cascading FK deletes handle conversation_events, policy_events, and
 conversation_judge_decisions.
-
-Decoupling the S3 upload from the DELETE transaction is deliberate: a slow or
-failing S3 endpoint must never hold a write lock against the gateway's hot
-tables. If the upload succeeds and the DELETE fails, a subsequent run will
-re-archive the same rows (duplicate data in S3, no data loss).
 
 Follows the same start/stop pattern as TelemetrySender.
 """
@@ -50,8 +55,9 @@ class ConversationPurger:
         db_pool: Database connection pool.
         retention_days: Delete rows older than this many days.
         archiver: Optional S3 archiver. When provided, calls are archived
-            (outside any DB transaction) before deletion. If archival fails,
-            deletion is skipped.
+            (outside any DB transaction) before deletion, one batch at a
+            time. If a batch's upload fails, deletion is skipped for that
+            batch (and the rest of the run is aborted).
         initial_delay_seconds: Seconds to wait after start() before first run.
         interval_seconds: Seconds between subsequent runs.
     """
@@ -126,16 +132,78 @@ class ConversationPurger:
                 )
                 return deleted if isinstance(deleted, int) else 0
 
+    async def _archive_and_delete_per_batch(self, cutoff: datetime) -> int:
+        """Archive one batch, delete it, advance cursor; loop until done.
+
+        Memory and DB transaction footprint stay bounded to one batch, so
+        a first-run backfill of millions of rows does not OOM the gateway
+        or hold a long transaction.
+        """
+        assert self._archiver is not None
+        archiver = self._archiver
+        run_id = archiver.new_run_id()
+        last_call_id: str | None = None
+        batch_index = 0
+        total_deleted = 0
+
+        while True:
+            try:
+                async with self._db_pool.connection() as conn:
+                    archived_ids, has_more = await archiver.archive_one_batch(
+                        db_conn=conn,
+                        cutoff=cutoff,
+                        last_call_id=last_call_id,
+                        run_id=run_id,
+                        batch_index=batch_index,
+                    )
+            except Exception:
+                logger.exception(
+                    "Archive failed on batch %d (run=%s); stopping. %d batches archived+deleted earlier in this run.",
+                    batch_index,
+                    run_id,
+                    batch_index,
+                )
+                return total_deleted
+
+            if not archived_ids:
+                break
+
+            try:
+                total_deleted += await self._delete_by_call_ids(archived_ids)
+            except Exception:
+                logger.exception(
+                    "DELETE failed for archived batch %d (run=%s); stopping. "
+                    "S3 has the archive; DB still has the rows. Next run will re-archive.",
+                    batch_index,
+                    run_id,
+                )
+                return total_deleted
+
+            # Advance the cursor regardless of whether the batch was full —
+            # if it wasn't, the next iteration will return zero rows and exit.
+            last_call_id = archived_ids[-1]
+            batch_index += 1
+            if not has_more:
+                break
+
+        if total_deleted > 0:
+            logger.info(
+                "Archive run %s complete: %d records across %d batch(es)",
+                run_id,
+                total_deleted,
+                batch_index,
+            )
+        return total_deleted
+
     async def purge_once(self) -> int:
         """Run a single purge cycle.
 
-        With an archiver: upload first (outside transaction), then DELETE only
-        the archived call_ids. Without an archiver: DELETE everything older
-        than cutoff in one transaction.
+        With an archiver: drive an archive-then-delete-per-batch loop.
+        Without: DELETE everything older than cutoff in one transaction.
 
         Returns:
-            Number of conversation_calls rows deleted (0 on error or nothing
-            to delete).
+            Number of conversation_calls rows deleted (0 on error or
+            nothing to delete).
         """
         cutoff = self._cutoff_datetime()
         logger.info(
@@ -146,9 +214,7 @@ class ConversationPurger:
 
         try:
             if self._archiver is not None:
-                async with self._db_pool.connection() as conn:
-                    archived_ids = await self._archiver.archive_calls(db_conn=conn, cutoff=cutoff)
-                count = await self._delete_by_call_ids(archived_ids)
+                count = await self._archive_and_delete_per_batch(cutoff)
             else:
                 count = await self._delete_by_cutoff(cutoff)
         except Exception:

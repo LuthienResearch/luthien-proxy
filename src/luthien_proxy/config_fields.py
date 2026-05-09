@@ -261,8 +261,12 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         category="retention",
     ),
     ConfigFieldMeta(
-        "retention_archive_batch_size", "RETENTION_ARCHIVE_BATCH_SIZE", int, 1000,
-        "Rows fetched per cursor-based batch when archiving conversation_calls (larger = fewer queries, more memory)",
+        "retention_archive_batch_size", "RETENTION_ARCHIVE_BATCH_SIZE", int, 100,
+        "Calls processed per archive-then-delete batch. Each call's events, "
+        "policy_events, and judge_decisions are fetched together — judge "
+        "decisions in particular hold large JSONB blobs (judge_prompt, "
+        "stream_chunks), so 100 keeps a single batch under typical memory "
+        "limits even with rich payloads",
         category="retention",
     ),
     ConfigFieldMeta(

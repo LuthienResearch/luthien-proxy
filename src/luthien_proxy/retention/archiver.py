@@ -10,13 +10,12 @@ This makes the archive useful as a technical reference: the actual
 request/response payloads, policy decisions, and judge verdicts live in the
 child tables, not on `conversation_calls` itself.
 
-Archival runs *outside* the purger's DB transaction. The purger uploads first,
-then opens a short transaction to delete only the call_ids that were
-successfully archived. If S3 is slow or unavailable, the DB is not held
-hostage; if the upload succeeds and the delete fails, a subsequent run will
-re-archive the same rows (duplicate data in S3, no data loss).
+The archiver only handles a single batch's worth of work per call. The
+purger drives the per-batch archive-then-delete loop so memory and DB
+work are bounded to one batch — even on a first-run backfill of millions
+of rows.
 
-boto3 is an optional dependency — imported lazily. If ARCHIVE_S3_BUCKET is
+boto3 is an optional dependency — imported lazily. If `ARCHIVE_S3_BUCKET` is
 unset, this module is never instantiated and boto3 is never imported.
 """
 
@@ -30,11 +29,9 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
 
-from luthien_proxy.settings import get_settings
-
 logger = logging.getLogger(__name__)
 
-_VALID_ENCRYPTION_MODES: frozenset[str] = frozenset({"AES256", "aws:kms", "bucket-default"})
+VALID_ENCRYPTION_MODES: frozenset[str] = frozenset({"AES256", "aws:kms", "bucket-default"})
 
 # Explicit column lists keep the archive shape stable across schema changes.
 # `user_id` is intentionally absent — `conversation_calls` has no such column
@@ -48,6 +45,8 @@ _CALL_COLUMNS = (
     "completed_at",
     "session_id",
 )
+# `sequence` was dropped from conversation_events in migration 004; events
+# are ordered by created_at now.
 _EVENT_COLUMNS = (
     "id",
     "call_id",
@@ -88,7 +87,15 @@ _JUDGE_COLUMNS = (
 
 
 def _serialize_value(v: Any) -> Any:
-    """Convert non-JSON-serializable values to JSON-safe equivalents."""
+    """Convert non-JSON-serializable values to JSON-safe equivalents.
+
+    JSONB columns arrive as TEXT on SQLite (and sometimes asyncpg). For
+    values that look like JSON objects/arrays, attempt to re-parse so the
+    archive contains structured JSON. A future schema change that adds a
+    plain TEXT column whose first non-whitespace char is `{` or `[` would
+    get round-tripped through json.loads — currently no such column exists,
+    but worth knowing.
+    """
     if isinstance(v, datetime):
         return v.isoformat()
     if isinstance(v, uuid.UUID):
@@ -96,8 +103,6 @@ def _serialize_value(v: Any) -> Any:
     if isinstance(v, (bytes, bytearray)):
         return v.decode("utf-8", errors="replace")
     if isinstance(v, str):
-        # JSONB columns arrive as strings on SQLite (and sometimes asyncpg).
-        # Re-parse so the archive contains structured JSON, not a quoted blob.
         stripped = v.lstrip()
         if stripped.startswith(("{", "[")):
             try:
@@ -117,14 +122,27 @@ def _select_clause(columns: Iterable[str]) -> str:
 
 
 class S3ConversationArchiver:
-    """Archives full conversation records to S3 as JSONL before purge.
+    """Archives conversation records to S3 as JSONL.
+
+    Encryption settings are resolved once at construction so misconfigured
+    deployments fail fast at startup rather than after a full DB scan.
 
     Args:
         bucket: S3 bucket name.
-        prefix: Key prefix (default: "luthien-archive/").
-        batch_size: Calls fetched per cursor-based batch (default: 1000).
-        s3_client: Optional pre-built boto3 S3 client (for testing). If None,
-            a client is created lazily using boto3.client("s3").
+        prefix: Key prefix.
+        batch_size: Calls fetched per batch (purger drives the loop).
+        encryption_mode: One of `AES256`, `aws:kms`, or `bucket-default`.
+            `bucket-default` omits the SSE header so bucket policy applies —
+            use this when bucket policy mandates a mode that conflicts with
+            `AES256`.
+        kms_key_id: Required when encryption_mode is `aws:kms`. An empty
+            value would silently fall back to the AWS-managed default key,
+            so we reject it instead.
+        s3_client: Optional pre-built boto3 S3 client (for testing). If
+            None, a client is created lazily using `boto3.client("s3")`.
+
+    Raises:
+        ValueError: If encryption settings are invalid.
     """
 
     def __init__(
@@ -132,13 +150,28 @@ class S3ConversationArchiver:
         *,
         bucket: str,
         prefix: str = "luthien-archive/",
-        batch_size: int = 1000,
+        batch_size: int = 100,
+        encryption_mode: str = "AES256",
+        kms_key_id: str = "",
         s3_client: Any = None,
     ) -> None:
-        """Initialize archiver with S3 bucket, key prefix, batch size, and optional pre-built client."""
+        """Initialize archiver. Validates encryption settings up-front."""
+        if encryption_mode not in VALID_ENCRYPTION_MODES:
+            raise ValueError(
+                f"encryption_mode={encryption_mode!r} is not valid. "
+                f"Must be one of: {sorted(VALID_ENCRYPTION_MODES)}"
+            )
+        if encryption_mode == "aws:kms" and not kms_key_id:
+            raise ValueError(
+                "encryption_mode='aws:kms' requires kms_key_id to be set. "
+                "Leaving it unset silently falls back to the AWS-managed default key, "
+                "which is weaker than an explicitly configured customer-managed KMS key."
+            )
         self.bucket = bucket
         self.prefix = prefix
         self.batch_size = batch_size
+        self._encryption_mode = encryption_mode
+        self._kms_key_id = kms_key_id
         self._s3_client = s3_client
 
     def _get_s3_client(self) -> Any:
@@ -165,6 +198,21 @@ class S3ConversationArchiver:
         date_str = cutoff.strftime("%Y-%m-%d")
         ts_str = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         return f"{self.prefix}{date_str}/{ts_str}-{run_id}-{batch_index:04d}.jsonl"
+
+    def _build_put_kwargs(self, key: str, body: bytes) -> dict[str, Any]:
+        """Build kwargs for `s3.put_object`, honouring the configured encryption mode."""
+        kwargs: dict[str, Any] = {
+            "Bucket": self.bucket,
+            "Key": key,
+            "Body": body,
+            "ContentType": "application/x-ndjson",
+        }
+        if self._encryption_mode == "bucket-default":
+            return kwargs
+        kwargs["ServerSideEncryption"] = self._encryption_mode
+        if self._encryption_mode == "aws:kms":
+            kwargs["SSEKMSKeyId"] = self._kms_key_id
+        return kwargs
 
     async def _fetch_call_batch(
         self,
@@ -215,41 +263,7 @@ class S3ConversationArchiver:
             grouped[row["call_id"]].append(_row_to_dict(row, columns))
         return grouped
 
-    def _build_put_kwargs(self, key: str, body: bytes) -> dict[str, Any]:
-        """Build S3 put_object kwargs, validating encryption settings up-front.
-
-        Returns a dict ready to splat into ``s3.put_object``. Raises if the
-        configured encryption mode is unknown or aws:kms without a key id.
-        """
-        settings = get_settings()
-        mode = settings.retention_s3_encryption
-        if mode not in _VALID_ENCRYPTION_MODES:
-            raise ValueError(
-                f"RETENTION_S3_ENCRYPTION={mode!r} is not valid. "
-                f"Must be one of: {sorted(_VALID_ENCRYPTION_MODES)}"
-            )
-        kwargs: dict[str, Any] = {
-            "Bucket": self.bucket,
-            "Key": key,
-            "Body": body,
-            "ContentType": "application/x-ndjson",
-        }
-        if mode == "bucket-default":
-            return kwargs
-        kwargs["ServerSideEncryption"] = mode
-        if mode == "aws:kms":
-            if not settings.retention_s3_kms_key_id:
-                raise ValueError(
-                    "RETENTION_S3_ENCRYPTION=aws:kms requires RETENTION_S3_KMS_KEY_ID to be set. "
-                    "Leaving it unset silently falls back to the AWS-managed default key, "
-                    "which is weaker than an explicitly configured customer-managed KMS key."
-                )
-            kwargs["SSEKMSKeyId"] = settings.retention_s3_kms_key_id
-        return kwargs
-
-    async def _build_batch_records(
-        self, db_conn: Any, call_rows: list[Any]
-    ) -> list[str]:
+    async def _build_batch_records(self, db_conn: Any, call_rows: list[Any]) -> list[str]:
         """Build per-call JSONL lines for one batch of call rows."""
         call_ids = [row["call_id"] for row in call_rows]
         events = await self._fetch_children(db_conn, "conversation_events", _EVENT_COLUMNS, call_ids)
@@ -271,96 +285,49 @@ class S3ConversationArchiver:
             lines.append(json.dumps(record))
         return lines
 
-    async def archive_calls(self, *, db_conn: Any, cutoff: datetime) -> list[str]:
-        """Archive full conversation records older than cutoff.
-
-        Each output JSONL line is a self-contained record:
-
-            {"call": {...}, "events": [...], "policy_events": [...], "judge_decisions": [...]}
-
-        Each batch (`batch_size` calls + their descendants) is uploaded as its
-        own S3 object, so peak memory is bounded to one batch — not the entire
-        archive — and a partially-failing run still gets the earlier batches
-        durably stored. Object keys share a per-run uuid so all batches from
-        one purge cycle list together under the date prefix.
-
-        Args:
-            db_conn: An active DB connection (ConnectionProtocol). The caller
-                is responsible for *not* wrapping this in a transaction — the
-                archive can take seconds-to-minutes against a slow S3 endpoint.
-            cutoff: Calls with `created_at < cutoff` will be archived.
+    async def archive_one_batch(
+        self,
+        *,
+        db_conn: Any,
+        cutoff: datetime,
+        last_call_id: str | None,
+        run_id: str,
+        batch_index: int,
+    ) -> tuple[list[str], bool]:
+        """Archive one batch of calls (+ descendants) to S3.
 
         Returns:
-            The list of call_ids that were successfully written to S3. May be
-            shorter than the number of calls eligible for purge if a later
-            batch failed; the caller should delete only the returned ids so
-            unarchived rows survive for the next run to retry.
+            (archived_call_ids, has_more) — `has_more` is True when this
+            batch was full, hinting that another batch may exist. The
+            caller should keep iterating until `has_more` is False or
+            archived_call_ids is empty.
 
         Raises:
-            ValueError: If encryption settings are invalid (raised before any
-                upload attempt). Other S3 errors are caught per-batch; if no
-                batch succeeds the function returns an empty list rather than
-                raising, so the purger can defer deletion until next run.
+            Exception: If the S3 upload fails. The caller should not
+                delete this batch's call_ids and should stop the run.
         """
-        # Validate encryption config before doing any work — no point fetching
-        # batches if the upload will reject every one of them.
-        self._build_put_kwargs(key="probe", body=b"")
+        call_rows = await self._fetch_call_batch(db_conn, cutoff, last_call_id)
+        if not call_rows:
+            return [], False
 
-        s3 = self._get_s3_client()
-        run_id = uuid.uuid4().hex[:8]
-        archived_ids: list[str] = []
-        last_call_id: str | None = None
-        batch_index = 0
-        total_archived = 0
+        lines = await self._build_batch_records(db_conn, call_rows)
+        body = "\n".join(lines).encode("utf-8")
+        key = self._build_s3_key(cutoff, run_id, batch_index)
+        put_kwargs = self._build_put_kwargs(key=key, body=body)
 
-        while True:
-            call_rows = await self._fetch_call_batch(db_conn, cutoff, last_call_id)
-            if not call_rows:
-                break
+        await asyncio.to_thread(self._get_s3_client().put_object, **put_kwargs)
+        logger.info(
+            "Archived batch %d (%d records) to s3://%s/%s",
+            batch_index,
+            len(call_rows),
+            self.bucket,
+            key,
+        )
 
-            lines = await self._build_batch_records(db_conn, call_rows)
-            body = "\n".join(lines).encode("utf-8")
-            key = self._build_s3_key(cutoff, run_id, batch_index)
-            put_kwargs = self._build_put_kwargs(key=key, body=body)
+        archived_ids = [row["call_id"] for row in call_rows]
+        return archived_ids, len(call_rows) >= self.batch_size
 
-            try:
-                await asyncio.to_thread(s3.put_object, **put_kwargs)
-            except Exception:
-                logger.exception(
-                    "S3 upload failed on batch %d (key=%s) — stopping archive run; "
-                    "%d earlier batches persisted",
-                    batch_index,
-                    key,
-                    batch_index,
-                )
-                # Stop the run. archived_ids holds only the call_ids whose
-                # batches were durably uploaded. Subsequent runs will pick up
-                # from where this one stopped (the cutoff predicate will still
-                # match the unarchived rows) and re-emit them under a new
-                # run_id, so no row is silently lost.
-                break
-
-            archived_ids.extend(row["call_id"] for row in call_rows)
-            total_archived += len(call_rows)
-            logger.info(
-                "Archived batch %d (%d records) to s3://%s/%s",
-                batch_index,
-                len(call_rows),
-                self.bucket,
-                key,
-            )
-            batch_index += 1
-            last_call_id = call_rows[-1]["call_id"]
-            if len(call_rows) < self.batch_size:
-                break
-
-        if total_archived == 0:
-            logger.debug("No conversation_calls to archive before %s", cutoff.isoformat())
-        else:
-            logger.info(
-                "Archive run %s complete: %d records across %d batch(es)",
-                run_id,
-                total_archived,
-                batch_index,
-            )
-        return archived_ids
+    @staticmethod
+    def new_run_id() -> str:
+        """Return a fresh run id used to group all batches from one purge."""
+        return uuid.uuid4().hex[:8]
