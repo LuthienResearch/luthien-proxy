@@ -315,6 +315,8 @@ async def test_send_success(sender):
         (302, False),
         (304, False),
         (307, False),
+        (600, False),  # 6xx+: hypothetical, treated as permanent
+        (999, False),
     ],
 )
 @pytest.mark.asyncio

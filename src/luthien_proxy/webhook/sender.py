@@ -445,7 +445,8 @@ class WebhookSender:
             # the same URL won't help — operator needs to update WEBHOOK_URL).
             # 4xx: permanent unless explicitly transient (408/425/429).
             # 5xx: always retry.
-            retryable = status >= 500 or status in _RETRYABLE_4XX
+            # 5xx range only — hypothetical 6xx+ would be permanent.
+            retryable = (500 <= status < 600) or status in _RETRYABLE_4XX
             # Per-attempt failures (retryable AND permanent) log at DEBUG;
             # the retry loop logs the user-visible outcome at WARN/ERROR.
             # Permanent failures bail after the first attempt, so the loop's
