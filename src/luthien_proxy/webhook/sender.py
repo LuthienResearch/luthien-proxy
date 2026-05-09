@@ -36,6 +36,7 @@ DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY_SECONDS = 1.0
 DEFAULT_MAX_PENDING_TASKS = 1000
 DEFAULT_SHUTDOWN_DRAIN_SECONDS = 5.0
+MAX_RETRY_DELAY_SECONDS = 60.0
 
 
 class _UsageCounts(TypedDict):
@@ -248,7 +249,7 @@ class WebhookSender:
                 )
                 return False
             return True
-        except (httpx.HTTPError, asyncio.TimeoutError, OSError):
+        except (httpx.HTTPError, TimeoutError, OSError):
             logger.warning("Webhook delivery error to %s", self.safe_url, exc_info=True)
             return False
 
@@ -261,36 +262,37 @@ class WebhookSender:
         Args:
             payload: Conversation completion payload to send.
         """
-        _MAX_DELAY_SECONDS = 60.0
         delay = self._retry_delay_seconds
         for attempt in range(1 + self._max_retries):
             try:
                 success = await self._attempt_send(payload)
             except Exception:
                 logger.error(
-                    "Unexpected error in webhook delivery (attempt %d/%d)",
+                    "Unexpected error in webhook delivery (attempt %d/%d) to %s",
                     attempt + 1,
                     1 + self._max_retries,
+                    self.safe_url,
                     exc_info=True,
                 )
                 success = False
 
             if success:
                 if attempt > 0:
-                    logger.info("Webhook delivered successfully on attempt %d", attempt + 1)
+                    logger.info("Webhook delivered successfully on attempt %d to %s", attempt + 1, self.safe_url)
                 return
 
             if attempt < self._max_retries:
                 jittered = delay * (0.5 + random.random())  # ±50% jitter
-                capped = min(jittered, _MAX_DELAY_SECONDS)
+                capped = min(jittered, MAX_RETRY_DELAY_SECONDS)
                 logger.debug(
-                    "Webhook delivery attempt %d/%d failed, retrying in %.1fs",
+                    "Webhook delivery attempt %d/%d to %s failed, retrying in %.1fs",
                     attempt + 1,
                     1 + self._max_retries,
+                    self.safe_url,
                     capped,
                 )
                 await asyncio.sleep(capped)
-                delay = min(delay * 2, _MAX_DELAY_SECONDS)
+                delay = min(delay * 2, MAX_RETRY_DELAY_SECONDS)
 
         logger.error(
             "Webhook delivery to %s failed after %d attempts — giving up",
