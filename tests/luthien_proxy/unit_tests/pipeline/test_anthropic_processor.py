@@ -2284,6 +2284,44 @@ class TestStreamingWebhookGate:
         assert kwargs["output_tokens"] == 0
 
     @pytest.mark.asyncio
+    async def test_cancelled_after_emission_does_not_fire(self):
+        """CancelledError raised after emitting events suppresses the webhook.
+
+        Symmetric to the existing GeneratorExit-via-aclose disconnect test —
+        both BaseException subclasses bypass `except Exception`, leave
+        emitted_any=True / stream_completed=False / caught_exception=False,
+        and the gate evaluates to False. Locks in that the cancelled flag
+        doesn't accidentally re-enable a fire on this path.
+        """
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            yield self._make_event()
+            raise asyncio.CancelledError()
+
+        io, span, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-cancel-after-emit",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        with pytest.raises(asyncio.CancelledError):
+            async for _ in response.body_iterator:
+                pass
+
+        webhook.fire_and_forget.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_cancelled_before_emission_fires_with_499(self):
         """CancelledError before any emission → success=False, http_status=499 (not 500).
 
