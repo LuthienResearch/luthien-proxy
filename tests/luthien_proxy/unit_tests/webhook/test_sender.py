@@ -456,12 +456,22 @@ async def test_fire_and_forget_inner_exception_caught_by_retry_loop(make_sender)
     """
     s = make_sender(url="https://example.com/webhook", max_retries=2, retry_delay_seconds=0.001)
 
+    call_count = 0
+
     async def raise_exception(payload):
+        nonlocal call_count
+        call_count += 1
         raise RuntimeError("unexpected error")
 
     with patch.object(s, "_attempt_send", side_effect=raise_exception):
         s.fire_and_forget(**_fire_kwargs())
         await _drain_pending(s)
+
+    # Unexpected exceptions are treated as PERMANENT (no retries) — see
+    # _send_with_retries handling. This locks the contract in against a
+    # future refactor that flips it back to retryable.
+    assert call_count == 1
+    assert s.permanent_failure_count == 1
 
 
 @pytest.mark.asyncio
@@ -560,12 +570,12 @@ def test_invalid_port_disables_sender(bad_port_url: str):
     assert sender.safe_url == ""
 
 
-@pytest.mark.asyncio
-async def test_fire_and_forget_noop_when_disabled():
+def test_fire_and_forget_noop_when_disabled():
     sender = WebhookSender(url=None)
     with patch.object(sender, "_attempt_send", new_callable=AsyncMock) as mock_send:
+        # fire_and_forget short-circuits before create_task on disabled
+        # senders — no task ever exists to await, so no sleep needed.
         sender.fire_and_forget(**_fire_kwargs())
-        await asyncio.sleep(0.05)
         mock_send.assert_not_called()
 
 
@@ -575,8 +585,8 @@ async def test_fire_and_forget_noop_after_stop(make_sender):
     sender = make_sender(url="https://example.com/hook")
     await sender.stop()
     with patch.object(sender, "_attempt_send", new_callable=AsyncMock) as mock_send:
+        # _stopped guard short-circuits before create_task — no task exists.
         sender.fire_and_forget(**_fire_kwargs())
-        await asyncio.sleep(0.05)
         mock_send.assert_not_called()
 
 

@@ -2616,9 +2616,13 @@ class TestWebhookFireIsolation:
             webhook_sender=webhook,
             request_start_time=0.0,
         )
-        with pytest.raises(RuntimeError, match="recorder torn down"):
-            async for _ in response.body_iterator:
-                pass
+        # Recorder.flush() raise is now wrapped (R44.9 — symmetry with the
+        # non-streaming wrap-and-swallow), so it doesn't propagate to the
+        # body iterator. The original assertion was that the webhook fires
+        # despite the failure; that property is preserved (and tightened
+        # since the response generator no longer crashes either).
+        async for _ in response.body_iterator:
+            pass
 
         webhook.fire_and_forget.assert_called_once()
         kwargs = webhook.fire_and_forget.call_args.kwargs

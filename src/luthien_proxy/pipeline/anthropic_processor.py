@@ -911,9 +911,17 @@ async def _handle_execution_streaming(
                                 "session_id": policy_ctx.session_id,
                             },
                         )
-                    request_log_recorder.record_inbound_response(status=final_status)
-                    request_log_recorder.record_outbound_response(status=final_status)
-                    request_log_recorder.flush()
+                    # Wrap-and-swallow for symmetry with the non-streaming
+                    # path (R29.1). The webhook fires before this block, so
+                    # webhook payload coherence isn't at stake here — but a
+                    # recorder failure shouldn't crash the response generator
+                    # mid-cleanup either.
+                    try:
+                        request_log_recorder.record_inbound_response(status=final_status)
+                        request_log_recorder.record_outbound_response(status=final_status)
+                        request_log_recorder.flush()
+                    except Exception:
+                        logger.exception("[%s] streaming recorder flush failed (non-fatal)", call_id)
                     if usage_collector and final_status == 200:
                         usage_collector.record_completed(is_streaming=True)
                         if reconstructed is not None and "usage" in reconstructed:

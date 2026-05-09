@@ -41,7 +41,10 @@ def _log_task_exception(task: asyncio.Task[None]) -> None:
     would break the walrus on the right of the ``and``.
     """
     if not task.cancelled() and (exc := task.exception()):
-        logger.error("Webhook send task raised an unexpected exception: %r", exc)
+        # exc_info=exc gives the full traceback — for the cases this
+        # callback exists for (retry-loop scaffolding bugs, BaseException
+        # subclasses) the traceback is the most useful debugging signal.
+        logger.error("Webhook send task raised an unexpected exception: %r", exc, exc_info=exc)
 
 
 # 4xx codes that ARE worth retrying — receiver-side transient signals.
