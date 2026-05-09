@@ -114,37 +114,56 @@ class ConversationPurger:
                     deleted += len(chunk)
         return deleted
 
-    async def _delete_by_cutoff(self, cutoff: datetime) -> int:
-        """Delete all rows older than cutoff (no archive). Returns count.
+    async def _fetch_call_ids_batch(
+        self,
+        conn: object,
+        cutoff: datetime,
+        last_call_id: str | None,
+        batch_size: int,
+    ) -> list[str]:
+        """Fetch one batch of call_ids matching the cutoff, paginated by call_id."""
+        if last_call_id is None:
+            rows = await conn.fetch(  # type: ignore[attr-defined]
+                "SELECT call_id FROM conversation_calls"
+                " WHERE created_at < $1 ORDER BY call_id LIMIT $2",
+                cutoff,
+                batch_size,
+            )
+        else:
+            rows = await conn.fetch(  # type: ignore[attr-defined]
+                "SELECT call_id FROM conversation_calls"
+                " WHERE created_at < $1 AND call_id > $2 ORDER BY call_id LIMIT $3",
+                cutoff,
+                last_call_id,
+                batch_size,
+            )
+        return [row["call_id"] for row in rows]
 
-        Used only when no archiver is configured. Postgres uses a CTE with
-        DELETE ... RETURNING for an exact count; SQLite (which lacks the CTE
-        form) does count-then-delete inside a single transaction.
+    async def _delete_by_cutoff(self, cutoff: datetime) -> int:
+        """Delete rows older than cutoff (no archive) in bounded batches.
+
+        Mirrors the archiver path's per-batch bound on memory and lock
+        duration: no single transaction holds DELETE locks across the
+        entire backlog. A first-run cleanup of millions of rows runs as
+        many small transactions, each touching at most _DELETE_CHUNK_SIZE
+        rows from conversation_calls plus the cascading child rows.
+
+        Works uniformly on Postgres and SQLite — no dialect branch.
         """
-        async with self._db_pool.connection() as conn:
-            async with conn.transaction():
-                if self._db_pool.is_sqlite:
-                    count_before = await conn.fetchval(
-                        "SELECT COUNT(*) FROM conversation_calls WHERE created_at < $1",
-                        cutoff,
-                    )
-                    await conn.execute(
-                        "DELETE FROM conversation_calls WHERE created_at < $1",
-                        cutoff,
-                    )
-                    return count_before if isinstance(count_before, int) else 0
-                deleted = await conn.fetchval(
-                    """
-                    WITH deleted AS (
-                        DELETE FROM conversation_calls
-                        WHERE created_at < $1
-                        RETURNING call_id
-                    )
-                    SELECT COUNT(*) FROM deleted
-                    """,
-                    cutoff,
+        total = 0
+        last_call_id: str | None = None
+        while True:
+            async with self._db_pool.connection() as conn:
+                call_ids = await self._fetch_call_ids_batch(
+                    conn, cutoff, last_call_id, _DELETE_CHUNK_SIZE
                 )
-                return deleted if isinstance(deleted, int) else 0
+            if not call_ids:
+                break
+            total += await self._delete_by_call_ids(call_ids)
+            last_call_id = call_ids[-1]
+            if len(call_ids) < _DELETE_CHUNK_SIZE:
+                break
+        return total
 
     async def _archive_and_delete_per_batch(self, cutoff: datetime) -> int:
         """Archive one batch, delete it, advance cursor; loop until done.

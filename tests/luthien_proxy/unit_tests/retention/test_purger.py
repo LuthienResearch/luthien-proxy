@@ -262,36 +262,47 @@ async def test_delete_chunks_large_batches():
 
 
 @pytest.mark.asyncio
-async def test_no_archiver_postgres_uses_cte():
-    pool, conn = _make_pool(is_sqlite=False)
-    conn.fetchval = AsyncMock(return_value=7)
+async def test_no_archiver_loops_in_bounded_batches():
+    """No-archiver path mirrors the archiver path's per-batch bound.
+
+    A first-run cleanup of millions of rows must not be one big DELETE.
+    """
+    pool, conn = _make_pool()
+    # Two pages of fetched call_ids, then empty.
+    fetch_responses = [
+        [{"call_id": f"c{i}"} for i in range(500)],  # full page → keep going
+        [{"call_id": "c500"}, {"call_id": "c501"}],  # partial page → stop
+    ]
+    conn.fetch = AsyncMock(side_effect=fetch_responses)
 
     purger = ConversationPurger(db_pool=pool, retention_days=30)
     count = await purger.purge_once()
 
-    assert count == 7
-    sql = conn.fetchval.call_args.args[0]
-    assert "WITH deleted" in sql
-    assert "RETURNING call_id" in sql
+    assert count == 502
+    # Two SELECTs (one per page), and DELETEs in chunks (502 / 500 = 2 chunks).
+    assert conn.fetch.call_count == 2
+    assert conn.execute.call_count == 2
+    # Cursor advances using last call_id of previous page.
+    second_fetch_args = conn.fetch.call_args_list[1].args
+    assert second_fetch_args[2] == "c499"
 
 
 @pytest.mark.asyncio
-async def test_no_archiver_sqlite_uses_count_then_delete():
-    pool, conn = _make_pool(is_sqlite=True)
-    conn.fetchval = AsyncMock(return_value=5)
+async def test_no_archiver_empty_window_no_delete():
+    pool, conn = _make_pool()
+    conn.fetch = AsyncMock(return_value=[])
 
     purger = ConversationPurger(db_pool=pool, retention_days=30)
     count = await purger.purge_once()
 
-    assert count == 5
-    assert "COUNT(*)" in conn.fetchval.call_args.args[0]
-    assert "DELETE" in conn.execute.call_args.args[0]
+    assert count == 0
+    conn.execute.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_no_archiver_db_error_returns_zero():
     pool, conn = _make_pool()
-    conn.fetchval = AsyncMock(side_effect=RuntimeError("DB lost"))
+    conn.fetch = AsyncMock(side_effect=RuntimeError("DB lost"))
 
     purger = ConversationPurger(db_pool=pool, retention_days=30)
     count = await purger.purge_once()
