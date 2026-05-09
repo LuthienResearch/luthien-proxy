@@ -116,11 +116,24 @@ def test_valid_encryption_modes_constant():
     assert VALID_ENCRYPTION_MODES == frozenset({"AES256", "aws:kms", "bucket-default"})
 
 
-# ── archive_one_batch happy paths ─────────────────────────────────────────
+async def _fetch_and_upload(archiver, *, conn, cutoff, last_call_id=None, run_id="run0001", batch_index=0):
+    """Drive fetch_batch then upload_batch. Helper for tests that previously
+    used the combined archive_one_batch API."""
+    body, archived_ids, has_more = await archiver.fetch_batch(
+        db_conn=conn, cutoff=cutoff, last_call_id=last_call_id
+    )
+    if archived_ids:
+        await archiver.upload_batch(
+            body=body, cutoff=cutoff, run_id=run_id, batch_index=batch_index, record_count=len(archived_ids)
+        )
+    return archived_ids, has_more
+
+
+# ── fetch_batch + upload_batch happy paths ────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_archive_one_batch_uploads_jsonl_with_full_records(mock_s3_client, cutoff):
+async def test_fetch_and_upload_emits_jsonl_with_full_records(mock_s3_client, cutoff):
     calls = [_make_call("call-001"), _make_call("call-002")]
     events = {
         "call-001": [_make_event("call-001", 1, {"prompt": "hi"})],
@@ -129,14 +142,14 @@ async def test_archive_one_batch_uploads_jsonl_with_full_records(mock_s3_client,
     conn = _make_conn_for_one_batch(calls=calls, events_by_call=events)
 
     archiver = S3ConversationArchiver(bucket="b", batch_size=10, s3_client=mock_s3_client)
-    archived_ids, has_more = await archiver.archive_one_batch(
-        db_conn=conn, cutoff=cutoff, last_call_id=None, run_id="run0001", batch_index=0
-    )
+    archived_ids, has_more = await _fetch_and_upload(archiver, conn=conn, cutoff=cutoff)
 
     assert archived_ids == ["call-001", "call-002"]
     assert has_more is False  # 2 < batch_size 10
     mock_s3_client.put_object.assert_called_once()
     body = mock_s3_client.put_object.call_args.kwargs["Body"]
+    # Body must end with a trailing newline (NDJSON convention).
+    assert body.endswith(b"\n")
     lines = [json.loads(line) for line in body.decode().splitlines() if line]
     assert len(lines) == 2
     assert lines[0]["call"]["call_id"] == "call-001"
@@ -146,46 +159,42 @@ async def test_archive_one_batch_uploads_jsonl_with_full_records(mock_s3_client,
 
 
 @pytest.mark.asyncio
-async def test_archive_one_batch_full_signals_has_more(mock_s3_client, cutoff):
+async def test_fetch_batch_full_signals_has_more(mock_s3_client, cutoff):
     """When the batch is full, has_more=True so the purger keeps looping."""
     calls = [_make_call(f"call-{i:03d}") for i in range(3)]
     conn = _make_conn_for_one_batch(calls=calls, events_by_call={c["call_id"]: [] for c in calls})
 
     archiver = S3ConversationArchiver(bucket="b", batch_size=3, s3_client=mock_s3_client)
-    archived_ids, has_more = await archiver.archive_one_batch(
-        db_conn=conn, cutoff=cutoff, last_call_id=None, run_id="run0001", batch_index=0
-    )
+    _, archived_ids, has_more = await archiver.fetch_batch(db_conn=conn, cutoff=cutoff, last_call_id=None)
 
     assert archived_ids == ["call-000", "call-001", "call-002"]
     assert has_more is True
 
 
 @pytest.mark.asyncio
-async def test_archive_one_batch_no_rows_short_circuits(mock_s3_client, cutoff):
+async def test_fetch_batch_no_rows_short_circuits(mock_s3_client, cutoff):
     conn = AsyncMock()
     conn.fetch = AsyncMock(return_value=[])
 
     archiver = S3ConversationArchiver(bucket="b", s3_client=mock_s3_client)
-    archived_ids, has_more = await archiver.archive_one_batch(
-        db_conn=conn, cutoff=cutoff, last_call_id=None, run_id="run0001", batch_index=0
+    body, archived_ids, has_more = await archiver.fetch_batch(
+        db_conn=conn, cutoff=cutoff, last_call_id=None
     )
 
+    assert body == b""
     assert archived_ids == []
     assert has_more is False
-    mock_s3_client.put_object.assert_not_called()
     # Only the call fetch happened; no child fetches.
     assert conn.fetch.call_count == 1
 
 
 @pytest.mark.asyncio
-async def test_archive_one_batch_uses_cursor_when_last_call_id_set(mock_s3_client, cutoff):
+async def test_fetch_batch_uses_cursor_when_last_call_id_set(mock_s3_client, cutoff):
     calls = [_make_call("call-005")]
     conn = _make_conn_for_one_batch(calls=calls, events_by_call={"call-005": []})
 
     archiver = S3ConversationArchiver(bucket="b", s3_client=mock_s3_client)
-    await archiver.archive_one_batch(
-        db_conn=conn, cutoff=cutoff, last_call_id="call-004", run_id="r", batch_index=1
-    )
+    await archiver.fetch_batch(db_conn=conn, cutoff=cutoff, last_call_id="call-004")
 
     first_fetch_args = conn.fetch.call_args_list[0].args
     # SQL contains the cursor predicate
@@ -195,15 +204,26 @@ async def test_archive_one_batch_uses_cursor_when_last_call_id_set(mock_s3_clien
 
 
 @pytest.mark.asyncio
-async def test_archive_one_batch_propagates_s3_error(mock_s3_client, cutoff):
-    conn = _make_conn_for_one_batch(calls=[_make_call("call-001")], events_by_call={"call-001": []})
+async def test_upload_batch_propagates_s3_error(mock_s3_client, cutoff):
+    """upload_batch surfaces S3 errors; the purger handles 'stop the run'."""
     mock_s3_client.put_object = MagicMock(side_effect=RuntimeError("S3 down"))
-
     archiver = S3ConversationArchiver(bucket="b", s3_client=mock_s3_client)
     with pytest.raises(RuntimeError, match="S3 down"):
-        await archiver.archive_one_batch(
-            db_conn=conn, cutoff=cutoff, last_call_id=None, run_id="r", batch_index=0
+        await archiver.upload_batch(
+            body=b'{"call":{}}\n', cutoff=cutoff, run_id="r", batch_index=0, record_count=1
         )
+
+
+@pytest.mark.asyncio
+async def test_fetch_batch_does_not_touch_s3(mock_s3_client, cutoff):
+    """fetch_batch must be DB-only so the purger can release the conn before S3 PUT."""
+    calls = [_make_call("c1")]
+    conn = _make_conn_for_one_batch(calls=calls, events_by_call={"c1": []})
+
+    archiver = S3ConversationArchiver(bucket="b", s3_client=mock_s3_client)
+    await archiver.fetch_batch(db_conn=conn, cutoff=cutoff, last_call_id=None)
+
+    mock_s3_client.put_object.assert_not_called()
 
 
 # ── encryption modes on the put_object kwargs ─────────────────────────────
@@ -213,9 +233,7 @@ async def test_archive_one_batch_propagates_s3_error(mock_s3_client, cutoff):
 async def test_aes256_mode_includes_sse_header(mock_s3_client, cutoff):
     conn = _make_conn_for_one_batch(calls=[_make_call("c1")], events_by_call={"c1": []})
     archiver = S3ConversationArchiver(bucket="b", encryption_mode="AES256", s3_client=mock_s3_client)
-    await archiver.archive_one_batch(
-        db_conn=conn, cutoff=cutoff, last_call_id=None, run_id="r", batch_index=0
-    )
+    await _fetch_and_upload(archiver, conn=conn, cutoff=cutoff, run_id="r")
     kwargs = mock_s3_client.put_object.call_args.kwargs
     assert kwargs["ServerSideEncryption"] == "AES256"
     assert "SSEKMSKeyId" not in kwargs
@@ -230,9 +248,7 @@ async def test_kms_mode_includes_kms_key_id(mock_s3_client, cutoff):
         kms_key_id="arn:aws:kms:us-east-1:0:key/x",
         s3_client=mock_s3_client,
     )
-    await archiver.archive_one_batch(
-        db_conn=conn, cutoff=cutoff, last_call_id=None, run_id="r", batch_index=0
-    )
+    await _fetch_and_upload(archiver, conn=conn, cutoff=cutoff, run_id="r")
     kwargs = mock_s3_client.put_object.call_args.kwargs
     assert kwargs["ServerSideEncryption"] == "aws:kms"
     assert kwargs["SSEKMSKeyId"] == "arn:aws:kms:us-east-1:0:key/x"
@@ -242,9 +258,7 @@ async def test_kms_mode_includes_kms_key_id(mock_s3_client, cutoff):
 async def test_bucket_default_omits_sse_headers(mock_s3_client, cutoff):
     conn = _make_conn_for_one_batch(calls=[_make_call("c1")], events_by_call={"c1": []})
     archiver = S3ConversationArchiver(bucket="b", encryption_mode="bucket-default", s3_client=mock_s3_client)
-    await archiver.archive_one_batch(
-        db_conn=conn, cutoff=cutoff, last_call_id=None, run_id="r", batch_index=0
-    )
+    await _fetch_and_upload(archiver, conn=conn, cutoff=cutoff, run_id="r")
     kwargs = mock_s3_client.put_object.call_args.kwargs
     assert "ServerSideEncryption" not in kwargs
     assert "SSEKMSKeyId" not in kwargs
@@ -297,6 +311,17 @@ def test_prefix_with_trailing_slash_unchanged():
     assert archiver.prefix == "foo/bar/"
 
 
+def test_batch_size_too_large_rejected():
+    """Operator setting batch_size above SQLite's parameter cap is rejected up-front."""
+    with pytest.raises(ValueError, match="SQLITE_MAX_VARIABLE_NUMBER"):
+        S3ConversationArchiver(bucket="b", batch_size=1000)
+
+
+def test_batch_size_zero_rejected():
+    with pytest.raises(ValueError, match="out of range"):
+        S3ConversationArchiver(bucket="b", batch_size=0)
+
+
 def test_new_run_id_is_short_hex():
     rid = S3ConversationArchiver.new_run_id()
     assert len(rid) == 8
@@ -315,9 +340,7 @@ async def test_jsonb_string_reparsed_into_structure(mock_s3_client, cutoff):
     conn = _make_conn_for_one_batch(calls=[_make_call("c1")], events_by_call={"c1": [event]})
 
     archiver = S3ConversationArchiver(bucket="b", s3_client=mock_s3_client)
-    await archiver.archive_one_batch(
-        db_conn=conn, cutoff=cutoff, last_call_id=None, run_id="r", batch_index=0
-    )
+    await _fetch_and_upload(archiver, conn=conn, cutoff=cutoff, run_id="r")
     body = mock_s3_client.put_object.call_args.kwargs["Body"]
     record = json.loads(body.decode().splitlines()[0])
     assert record["events"][0]["payload"] == {"role": "user", "content": "hi"}

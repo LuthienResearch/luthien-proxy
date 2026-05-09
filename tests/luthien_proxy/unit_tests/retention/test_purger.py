@@ -46,15 +46,32 @@ def _make_pool(*, is_sqlite: bool = False, conn: AsyncMock | None = None) -> tup
     return pool, conn
 
 
-def _make_archiver(*, batches: list[tuple[list[str], bool]]) -> MagicMock:
-    """Build a mock archiver whose archive_one_batch returns the given (ids, has_more) tuples in order.
+def _make_archiver(
+    *,
+    batches: list[tuple[list[str], bool]],
+    upload_side_effect: object | None = None,
+) -> MagicMock:
+    """Build a mock archiver whose split fetch_batch + upload_batch produce the given batches.
 
-    `archive_one_batch` is called repeatedly; each call returns the next tuple.
-    The mock's `new_run_id` returns a deterministic value for assertions.
+    Each batch is a tuple ``(call_ids, has_more)``. fetch_batch returns
+    ``(body, call_ids, has_more)`` derived from the tuple; upload_batch is a
+    plain AsyncMock the caller can attach a side_effect to via
+    ``upload_side_effect`` (a single exception, or a list of values to
+    return / raise per call).
+
+    new_run_id returns a deterministic value for assertions.
     """
     archiver = MagicMock()
     archiver.new_run_id = MagicMock(return_value="testrun1")
-    archiver.archive_one_batch = AsyncMock(side_effect=batches)
+    archiver.fetch_batch = AsyncMock(
+        side_effect=[(b"<jsonl>", call_ids, has_more) for call_ids, has_more in batches]
+    )
+    if upload_side_effect is None:
+        archiver.upload_batch = AsyncMock(return_value=None)
+    elif isinstance(upload_side_effect, list):
+        archiver.upload_batch = AsyncMock(side_effect=upload_side_effect)
+    else:
+        archiver.upload_batch = AsyncMock(side_effect=upload_side_effect)
     return archiver
 
 
@@ -75,11 +92,13 @@ async def test_archive_then_delete_per_batch_loops_until_no_more():
     count = await purger.purge_once()
 
     assert count == 3
-    assert archiver.archive_one_batch.call_count == 2
+    assert archiver.fetch_batch.call_count == 2
+    assert archiver.upload_batch.call_count == 2
     # Cursor advances to last archived id of previous batch.
-    second_call_kwargs = archiver.archive_one_batch.call_args_list[1].kwargs
-    assert second_call_kwargs["last_call_id"] == "c2"
-    assert second_call_kwargs["batch_index"] == 1
+    second_fetch_kwargs = archiver.fetch_batch.call_args_list[1].kwargs
+    assert second_fetch_kwargs["last_call_id"] == "c2"
+    second_upload_kwargs = archiver.upload_batch.call_args_list[1].kwargs
+    assert second_upload_kwargs["batch_index"] == 1
 
 
 @pytest.mark.asyncio
@@ -91,31 +110,47 @@ async def test_archive_then_delete_stops_when_first_batch_empty():
     count = await purger.purge_once()
 
     assert count == 0
-    archiver.archive_one_batch.assert_called_once()
+    archiver.fetch_batch.assert_called_once()
+    archiver.upload_batch.assert_not_called()
     # No DELETE issued because there were no archived ids.
     conn.execute.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_archive_failure_mid_run_preserves_earlier_batches():
-    """First batch archives+deletes successfully; second batch fails to archive."""
+async def test_upload_failure_mid_run_preserves_earlier_batches():
+    """First batch archives+deletes successfully; second batch's S3 upload fails."""
     pool, conn = _make_pool()
-    archiver = MagicMock()
-    archiver.new_run_id = MagicMock(return_value="testrun1")
-    archiver.archive_one_batch = AsyncMock(
-        side_effect=[
-            (["c1", "c2"], True),  # batch 0 ok
-            RuntimeError("S3 down"),  # batch 1 fails
-        ]
+    archiver = _make_archiver(
+        batches=[(["c1", "c2"], True), (["c3"], False)],
+        upload_side_effect=[None, RuntimeError("S3 down")],
     )
 
     purger = ConversationPurger(db_pool=pool, retention_days=30, archiver=archiver)
     count = await purger.purge_once()
 
-    # Batch 0's DELETE happened; batch 1 was never reached.
+    # Batch 0's DELETE happened; batch 1 was fetched but failed to upload, so no DELETE.
     assert count == 2
     assert conn.execute.call_count == 1
-    assert archiver.archive_one_batch.call_count == 2
+    assert archiver.fetch_batch.call_count == 2
+    assert archiver.upload_batch.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_fetch_failure_mid_run_preserves_earlier_batches():
+    """First batch archives+deletes successfully; second batch fails to fetch from DB."""
+    pool, conn = _make_pool()
+    archiver = MagicMock()
+    archiver.new_run_id = MagicMock(return_value="testrun1")
+    archiver.fetch_batch = AsyncMock(
+        side_effect=[(b"<jsonl>", ["c1", "c2"], True), RuntimeError("DB error")]
+    )
+    archiver.upload_batch = AsyncMock(return_value=None)
+
+    purger = ConversationPurger(db_pool=pool, retention_days=30, archiver=archiver)
+    count = await purger.purge_once()
+
+    assert count == 2
+    assert conn.execute.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -139,8 +174,59 @@ async def test_delete_failure_mid_run_stops_loop_archive_kept():
     count = await purger.purge_once()
 
     assert count == 0
-    # Loop stopped after first DELETE failure — second batch never archived.
-    assert archiver.archive_one_batch.call_count == 1
+    # Loop stopped after first DELETE failure — second batch never fetched.
+    assert archiver.fetch_batch.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_db_connection_released_before_s3_upload():
+    """Connection from phase-1 fetch must be released before phase-2 S3 upload starts.
+
+    This is the regression guard for the medium-severity finding from review
+    round 5 (#1): holding a pool slot across the S3 PUT pressures the pool
+    when the gateway has unrelated traffic.
+    """
+    pool = MagicMock()
+    pool.is_sqlite = False
+    conn = _make_conn()
+
+    enter_count = {"n": 0}
+    exit_count = {"n": 0}
+    s3_upload_count = {"n": 0}
+
+    async def aenter(*_args, **_kwargs):
+        enter_count["n"] += 1
+        return conn
+
+    async def aexit(*_args, **_kwargs):
+        exit_count["n"] += 1
+        return False
+
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(side_effect=aenter)
+    cm.__aexit__ = AsyncMock(side_effect=aexit)
+    pool.connection = MagicMock(return_value=cm)
+
+    async def upload_records_state(*args, **kwargs):
+        # When upload is invoked, the only connection scope from phase-1
+        # must already have exited (1 enter + 1 exit), and phase-3 has not
+        # started yet (no second enter).
+        s3_upload_count["n"] += 1
+        assert enter_count["n"] == 1, "phase-1 conn must be entered before upload"
+        assert exit_count["n"] == 1, "phase-1 conn must be released before S3 upload"
+        return None
+
+    archiver = _make_archiver(batches=[(["c1"], False)])
+    archiver.upload_batch = AsyncMock(side_effect=upload_records_state)
+
+    purger = ConversationPurger(db_pool=pool, retention_days=30, archiver=archiver)
+    count = await purger.purge_once()
+
+    assert count == 1
+    assert s3_upload_count["n"] == 1
+    # Two connection scopes total: phase-1 fetch + phase-3 DELETE.
+    assert enter_count["n"] == 2
+    assert exit_count["n"] == 2
 
 
 @pytest.mark.asyncio

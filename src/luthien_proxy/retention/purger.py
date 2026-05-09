@@ -50,8 +50,9 @@ DEFAULT_INTERVAL_SECONDS = 86_400
 # Wait 60 s after startup before first purge to avoid startup contention
 DEFAULT_INITIAL_DELAY_SECONDS = 60
 # Max ids per DELETE statement. SQLite caps parameters at ~999 by default;
-# Postgres has no practical limit but bounded statements are easier on the
-# planner and keep individual transactions short.
+# Postgres has no practical limit. All chunks for one batch run inside a
+# single transaction — chunking is for parameter-count safety, not for
+# transaction sizing.
 _DELETE_CHUNK_SIZE = 500
 
 
@@ -148,9 +149,17 @@ class ConversationPurger:
     async def _archive_and_delete_per_batch(self, cutoff: datetime) -> int:
         """Archive one batch, delete it, advance cursor; loop until done.
 
-        Memory and DB transaction footprint stay bounded to one batch, so
-        a first-run backfill of millions of rows does not OOM the gateway
-        or hold a long transaction.
+        Each iteration follows three phases with the DB connection only
+        held for phases 1 and 3:
+
+          1. fetch the batch + child rows from the DB; release the conn
+          2. PUT the JSONL to S3 (no DB held — S3 latency doesn't pin a
+             pool slot)
+          3. acquire a fresh conn for the short DELETE transaction
+
+        Memory and per-statement DB load stay bounded to one batch, so a
+        first-run backfill of millions of rows doesn't OOM the gateway or
+        hold long transactions.
         """
         assert self._archiver is not None
         archiver = self._archiver
@@ -160,18 +169,17 @@ class ConversationPurger:
         total_deleted = 0
 
         while True:
+            # Phase 1: fetch + serialize. Connection released at end of `with`.
             try:
                 async with self._db_pool.connection() as conn:
-                    archived_ids, has_more = await archiver.archive_one_batch(
+                    body, archived_ids, has_more = await archiver.fetch_batch(
                         db_conn=conn,
                         cutoff=cutoff,
                         last_call_id=last_call_id,
-                        run_id=run_id,
-                        batch_index=batch_index,
                     )
             except Exception:
                 logger.exception(
-                    "Archive failed on batch %d (run=%s); stopping. %d batch(es) succeeded earlier in this run.",
+                    "Fetch failed on batch %d (run=%s); stopping. %d batch(es) succeeded earlier in this run.",
                     batch_index,
                     run_id,
                     batch_index,
@@ -181,6 +189,25 @@ class ConversationPurger:
             if not archived_ids:
                 break
 
+            # Phase 2: S3 upload, no DB held.
+            try:
+                await archiver.upload_batch(
+                    body=body,
+                    cutoff=cutoff,
+                    run_id=run_id,
+                    batch_index=batch_index,
+                    record_count=len(archived_ids),
+                )
+            except Exception:
+                logger.exception(
+                    "Archive upload failed on batch %d (run=%s); stopping. %d batch(es) succeeded earlier in this run.",
+                    batch_index,
+                    run_id,
+                    batch_index,
+                )
+                return total_deleted
+
+            # Phase 3: DELETE in a short transaction with a fresh conn.
             try:
                 total_deleted += await self._delete_by_call_ids(archived_ids)
             except Exception:

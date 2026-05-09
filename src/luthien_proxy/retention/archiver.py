@@ -145,6 +145,12 @@ class S3ConversationArchiver:
         ValueError: If encryption settings are invalid.
     """
 
+    # SQLite's default SQLITE_MAX_VARIABLE_NUMBER is 999. _fetch_children
+    # binds one positional placeholder per call_id in an IN clause, so the
+    # batch size must stay strictly below that to leave headroom for any
+    # additional placeholders added in future query forms.
+    _MAX_BATCH_SIZE = 900
+
     def __init__(
         self,
         *,
@@ -155,7 +161,7 @@ class S3ConversationArchiver:
         kms_key_id: str = "",
         s3_client: Any = None,
     ) -> None:
-        """Initialize archiver. Validates encryption settings up-front."""
+        """Initialize archiver. Validates encryption + sizing up-front."""
         if encryption_mode not in VALID_ENCRYPTION_MODES:
             raise ValueError(
                 f"encryption_mode={encryption_mode!r} is not valid. "
@@ -166,6 +172,12 @@ class S3ConversationArchiver:
                 "encryption_mode='aws:kms' requires kms_key_id to be set. "
                 "Leaving it unset silently falls back to the AWS-managed default key, "
                 "which is weaker than an explicitly configured customer-managed KMS key."
+            )
+        if batch_size < 1 or batch_size > self._MAX_BATCH_SIZE:
+            raise ValueError(
+                f"batch_size={batch_size} out of range. Must be in [1, {self._MAX_BATCH_SIZE}]. "
+                "Upper bound is set by SQLite's SQLITE_MAX_VARIABLE_NUMBER (default 999); "
+                "the IN clause for child-table fetches binds one placeholder per call_id."
             )
         # Normalize prefix: a non-empty prefix without a trailing slash
         # silently produces keys like "fooDATE/..." instead of "foo/DATE/...".
@@ -298,47 +310,69 @@ class S3ConversationArchiver:
             lines.append(json.dumps(record))
         return lines
 
-    async def archive_one_batch(
+    async def fetch_batch(
         self,
         *,
         db_conn: Any,
         cutoff: datetime,
         last_call_id: str | None,
-        run_id: str,
-        batch_index: int,
-    ) -> tuple[list[str], bool]:
-        """Archive one batch of calls (+ descendants) to S3.
+    ) -> tuple[bytes, list[str], bool]:
+        """Fetch one batch of calls + descendants and serialize to JSONL.
+
+        DB-only; does not touch S3. Splitting fetch from upload lets the
+        purger release the connection back to the pool *before* the
+        seconds-to-minutes S3 PUT, so a slow upload doesn't pin a pool
+        slot the gateway needs for serving requests.
+
+        Cursor pagination assumption: rows aren't backdated. The query
+        ``WHERE created_at < $cutoff AND call_id > $last`` would skip a
+        row if a backdated insert with a smaller call_id arrived between
+        batches. The codebase has no backdated-insert path; the next
+        run's cutoff predicate would still pick it up.
 
         Returns:
-            (archived_call_ids, has_more) — `has_more` is True when this
-            batch was full, hinting that another batch may exist. The
-            caller should keep iterating until `has_more` is False or
-            archived_call_ids is empty.
-
-        Raises:
-            Exception: If the S3 upload fails. The caller should not
-                delete this batch's call_ids and should stop the run.
+            (jsonl_body, archived_call_ids, has_more). Empty list +
+            ``has_more=False`` when no more rows match the cutoff.
         """
         call_rows = await self._fetch_call_batch(db_conn, cutoff, last_call_id)
         if not call_rows:
-            return [], False
-
+            return b"", [], False
         lines = await self._build_batch_records(db_conn, call_rows)
-        body = "\n".join(lines).encode("utf-8")
+        # Trailing newline so every line — including the last — ends in \n.
+        # Athena/Glue/Spark NDJSON loaders are stricter than json-per-line
+        # parsers about this.
+        body = ("\n".join(lines) + "\n").encode("utf-8")
+        archived_ids = [row["call_id"] for row in call_rows]
+        return body, archived_ids, len(call_rows) >= self.batch_size
+
+    async def upload_batch(
+        self,
+        *,
+        body: bytes,
+        cutoff: datetime,
+        run_id: str,
+        batch_index: int,
+        record_count: int,
+    ) -> None:
+        """Upload one batch of JSONL to S3.
+
+        S3-only; does not touch the DB. The caller passes ``record_count``
+        purely so the success log can include it.
+
+        Raises:
+            Exception: If the S3 upload fails. The caller should skip the
+                DELETE for this batch and stop the run.
+        """
         key = self._build_s3_key(cutoff, run_id, batch_index)
         put_kwargs = self._build_put_kwargs(key=key, body=body)
-
         await asyncio.to_thread(self._get_s3_client().put_object, **put_kwargs)
         logger.info(
             "Archived batch %d (%d records) to s3://%s/%s",
             batch_index,
-            len(call_rows),
+            record_count,
             self.bucket,
             key,
         )
-
-        archived_ids = [row["call_id"] for row in call_rows]
-        return archived_ids, len(call_rows) >= self.batch_size
 
     @staticmethod
     def new_run_id() -> str:
