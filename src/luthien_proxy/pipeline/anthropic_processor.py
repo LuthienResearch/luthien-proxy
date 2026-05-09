@@ -574,10 +574,10 @@ async def _execute_anthropic_policy(
     is_streaming: bool,
     root_span: Span,
     request_log_recorder: RequestLogRecorder,
+    request_start_time: float,
     extra_headers: dict[str, str] | None = None,
     usage_collector: UsageCollector | None = None,
     webhook_sender: WebhookSender | None = None,
-    request_start_time: float | None = None,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Execute an Anthropic policy using the hook-based runtime."""
     io = _AnthropicPolicyIO(
@@ -671,9 +671,9 @@ async def _handle_execution_streaming(
     policy_ctx: PolicyContext,
     request_log_recorder: RequestLogRecorder,
     emitter: EventEmitterProtocol,
+    request_start_time: float,
     usage_collector: UsageCollector | None = None,
     webhook_sender: WebhookSender | None = None,
-    request_start_time: float | None = None,
 ) -> FastAPIStreamingResponse:
     """Handle streaming response flow for execution-oriented policies."""
     parent_context = get_current()
@@ -801,9 +801,7 @@ async def _handle_execution_streaming(
                     # for a partial delivery. Cancelled-before-emit hits
                     # `not emitted_any` and fires with success=False, http_status=499.
                     if stream_completed or caught_exception or not emitted_any:
-                        _duration_ms = (
-                            int((time.monotonic() - request_start_time) * 1000) if request_start_time is not None else 0
-                        )
+                        _duration_ms = int((time.monotonic() - request_start_time) * 1000)
                         _fire_webhook_for_completion(
                             webhook_sender=webhook_sender,
                             policy_ctx=policy_ctx,
@@ -884,9 +882,9 @@ async def _handle_execution_non_streaming(
     policy_ctx: PolicyContext,
     call_id: str,
     request_log_recorder: RequestLogRecorder,
+    request_start_time: float,
     usage_collector: UsageCollector | None = None,
     webhook_sender: WebhookSender | None = None,
-    request_start_time: float | None = None,
 ) -> JSONResponse:
     """Handle non-streaming response flow for execution-oriented policies."""
     final_response: AnthropicResponse | None = None
@@ -994,10 +992,13 @@ async def _handle_execution_non_streaming(
         # data is empty on the error path; consumers should filter on success.
         #
         # Ordering note: on the success path the request_log_recorder has
-        # already been flushed inside the try block above; on the error path
-        # the gateway-level handler in main.py handles recorder cleanup. The
-        # webhook fire is independent of recorder state.
-        _duration_ms = int((time.monotonic() - request_start_time) * 1000) if request_start_time is not None else 0
+        # already been flushed inside the try block above. On the error path
+        # the recorder is NOT flushed (preexisting non-streaming behavior —
+        # request log rows for failed non-streaming requests are silently
+        # dropped). The webhook fire is independent of recorder state either
+        # way; consumers wanting failed-request audit trails should use the
+        # webhook itself rather than the request log table.
+        _duration_ms = int((time.monotonic() - request_start_time) * 1000)
         _fire_webhook_for_completion(
             webhook_sender=webhook_sender,
             policy_ctx=policy_ctx,

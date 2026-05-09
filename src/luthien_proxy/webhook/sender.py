@@ -302,8 +302,11 @@ class WebhookSender:
                 return False, False
             response = await self._client.post(self._url, json=dict(payload))
             status = response.status_code
-            if status < 400:
+            if 200 <= status < 300:
                 return True, False  # success; retryable irrelevant
+            # 3xx: httpx doesn't follow redirects by default; if one reaches
+            # us it's a misconfigured receiver. Treat as permanent (retrying
+            # the same URL won't help — operator needs to update WEBHOOK_URL).
             # 4xx: permanent unless explicitly transient (408/425/429).
             # 5xx: always retry.
             retryable = status >= 500 or status in _RETRYABLE_4XX

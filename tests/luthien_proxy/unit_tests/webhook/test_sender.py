@@ -215,6 +215,10 @@ async def test_send_success(sender):
         (410, False),
         (415, False),
         (422, False),
+        (301, False),  # 3xx: httpx doesn't follow redirects → permanent
+        (302, False),
+        (304, False),
+        (307, False),
     ],
 )
 @pytest.mark.asyncio
@@ -291,7 +295,7 @@ async def test_fire_and_forget_gives_up_after_max_retries(sender_with_retries):
 
 
 @pytest.mark.asyncio
-async def test_retry_sleep_never_exceeds_max_delay():
+async def test_retry_sleep_never_exceeds_max_delay(make_sender):
     """Jitter never lets the per-retry sleep exceed MAX_RETRY_DELAY_SECONDS.
 
     Regression: previous `delay * (0.5 + random())` produced [0.5x, 1.5x],
@@ -300,7 +304,7 @@ async def test_retry_sleep_never_exceeds_max_delay():
     """
     from luthien_proxy.webhook.sender import MAX_RETRY_DELAY_SECONDS
 
-    sender = WebhookSender(
+    sender = make_sender(
         url="https://example.com/hook",
         max_retries=10,
         retry_delay_seconds=120.0,  # well above MAX_RETRY_DELAY_SECONDS
@@ -322,7 +326,6 @@ async def test_retry_sleep_never_exceeds_max_delay():
         sender.fire_and_forget(**_fire_kwargs())
         await _drain_pending(sender)
 
-    await sender.stop()
     # Bounded: every recorded sleep must be in [0, MAX_RETRY_DELAY_SECONDS].
     assert sleeps_observed, "expected the retry loop to call asyncio.sleep at least once"
     for s in sleeps_observed:
@@ -346,9 +349,9 @@ async def test_fire_and_forget_bails_on_permanent_failure(sender_with_retries):
 
 
 @pytest.mark.asyncio
-async def test_fire_and_forget_no_crash_on_exception():
+async def test_fire_and_forget_no_crash_on_exception(make_sender):
     """fire_and_forget does not propagate exceptions to caller; task completes within retries."""
-    s = WebhookSender(url="https://example.com/webhook", max_retries=2, retry_delay_seconds=0.001)
+    s = make_sender(url="https://example.com/webhook", max_retries=2, retry_delay_seconds=0.001)
 
     async def raise_exception(payload):
         raise RuntimeError("unexpected error")
@@ -356,7 +359,6 @@ async def test_fire_and_forget_no_crash_on_exception():
     with patch.object(s, "_attempt_send", side_effect=raise_exception):
         s.fire_and_forget(**_fire_kwargs())
         await _drain_pending(s)
-    await s.stop()
 
 
 # ── Disabled / scheme rejection ──────────────────────────────────────────────
@@ -420,9 +422,9 @@ async def test_fire_and_forget_noop_when_disabled():
 
 
 @pytest.mark.asyncio
-async def test_fire_and_forget_noop_after_stop():
+async def test_fire_and_forget_noop_after_stop(make_sender):
     """Once stop() has been called, fire_and_forget does not schedule new tasks."""
-    sender = WebhookSender(url="https://example.com/hook")
+    sender = make_sender(url="https://example.com/hook")
     await sender.stop()
     with patch.object(sender, "_attempt_send", new_callable=AsyncMock) as mock_send:
         sender.fire_and_forget(**_fire_kwargs())
@@ -551,7 +553,7 @@ async def test_observability_properties(make_sender):
 
 
 @pytest.mark.asyncio
-async def test_fire_and_forget_smoke_many_tasks():
+async def test_fire_and_forget_smoke_many_tasks(make_sender):
     """Smoke test: many rapid fire_and_forget calls don't crash (e.g. KeyError from discard).
 
     This isn't a true race test — `ensure_future(...)` and `_pending_tasks.add(task)`
@@ -559,7 +561,7 @@ async def test_fire_and_forget_smoke_many_tasks():
     if a future refactor introduces a yield point between them, this would catch
     the resulting KeyError on discard.
     """
-    sender = WebhookSender(url="https://example.com/hook")
+    sender = make_sender(url="https://example.com/hook")
 
     async def fast_send(payload):
         return True, False
@@ -568,7 +570,6 @@ async def test_fire_and_forget_smoke_many_tasks():
         for _ in range(20):
             sender.fire_and_forget(**_fire_kwargs())
         await asyncio.sleep(0.1)
-    await sender.stop()
 
 
 # ── Backpressure log cadence ──────────────────────────────────────────────────
@@ -613,9 +614,9 @@ async def test_backpressure_log_decade_thresholds(make_sender, caplog):
 
 
 @pytest.mark.asyncio
-async def test_stop_drains_completing_tasks_within_timeout():
+async def test_stop_drains_completing_tasks_within_timeout(make_sender):
     """stop() waits for in-flight tasks that finish within the drain window."""
-    sender = WebhookSender(url="https://example.com/hook", shutdown_drain_seconds=2.0)
+    sender = make_sender(url="https://example.com/hook", shutdown_drain_seconds=2.0)
 
     completed = asyncio.Event()
 
@@ -632,9 +633,9 @@ async def test_stop_drains_completing_tasks_within_timeout():
 
 
 @pytest.mark.asyncio
-async def test_stop_cancels_tasks_exceeding_drain_timeout():
+async def test_stop_cancels_tasks_exceeding_drain_timeout(make_sender):
     """stop() cancels in-flight tasks that don't finish within the drain window."""
-    sender = WebhookSender(url="https://example.com/hook", shutdown_drain_seconds=0.05)
+    sender = make_sender(url="https://example.com/hook", shutdown_drain_seconds=0.05)
 
     block_release = asyncio.Event()
 
@@ -653,9 +654,9 @@ async def test_stop_cancels_tasks_exceeding_drain_timeout():
 
 
 @pytest.mark.asyncio
-async def test_stop_immediate_cancel_when_drain_zero():
+async def test_stop_immediate_cancel_when_drain_zero(make_sender):
     """shutdown_drain_seconds=0 reverts to immediate cancellation (legacy behavior)."""
-    sender = WebhookSender(url="https://example.com/hook", shutdown_drain_seconds=0.0)
+    sender = make_sender(url="https://example.com/hook", shutdown_drain_seconds=0.0)
     block_release = asyncio.Event()
 
     async def blocking_send(payload):
@@ -671,8 +672,8 @@ async def test_stop_immediate_cancel_when_drain_zero():
 
 
 @pytest.mark.asyncio
-async def test_stop_is_noop_when_no_pending_tasks():
-    sender = WebhookSender(url="https://example.com/hook")
+async def test_stop_is_noop_when_no_pending_tasks(make_sender):
+    sender = make_sender(url="https://example.com/hook")
     await sender.stop()
     assert sender.pending_depth == 0
 

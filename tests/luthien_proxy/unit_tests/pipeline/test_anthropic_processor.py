@@ -2073,7 +2073,7 @@ class TestStreamingWebhookGate:
 
     @staticmethod
     async def _drain(response: FastAPIStreamingResponse) -> list[bytes]:
-        """Iterate the streaming response body, swallowing GeneratorExit cleanly."""
+        """Iterate the streaming response body to completion and collect chunks."""
         chunks: list[bytes] = []
         async for chunk in response.body_iterator:
             chunks.append(chunk if isinstance(chunk, bytes) else chunk.encode())
