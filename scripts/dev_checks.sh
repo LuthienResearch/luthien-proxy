@@ -13,16 +13,17 @@ echo "== Shellcheck (shell scripts) =="
 if command -v shellcheck &>/dev/null; then
     SCRIPT_DIR="$REPO_ROOT/scripts"
     shellcheck_failed=0
-    pushd "$SCRIPT_DIR" > /dev/null
-    for script in *.sh; do
-        if [[ -f "$script" ]]; then
-            echo "  Checking $script..."
-            if ! shellcheck --shell=bash -x "$script"; then
-                shellcheck_failed=1
-            fi
+    # Recurse into subdirs (e.g. scripts/nightly/) so nested scripts are linted.
+    # `-print0` + `read -d ''` handles paths with spaces safely.
+    while IFS= read -r -d '' script; do
+        rel="${script#"${SCRIPT_DIR}"/}"
+        echo "  Checking ${rel}..."
+        # `-P SCRIPTDIR` lets shellcheck resolve relative `# shellcheck
+        # source=...` directives against the script's own directory.
+        if ! shellcheck --shell=bash -x -P SCRIPTDIR "$script"; then
+            shellcheck_failed=1
         fi
-    done
-    popd > /dev/null
+    done < <(find "$SCRIPT_DIR" -type f -name '*.sh' -print0)
     if [[ "$shellcheck_failed" -ne 0 ]]; then
         echo "Shellcheck found issues. Please fix them before proceeding."
         exit 1

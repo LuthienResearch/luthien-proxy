@@ -147,6 +147,48 @@ def test_pill_escapes_status():
     assert 'class="pill"' in out
 
 
+def test_render_index_escapes_malicious_check_names(tmp_path):
+    """Check names from results.json flow into title="..." attributes —
+    confirm injected HTML is escaped.
+    """
+    _write_run(
+        tmp_path,
+        "2026-05-09-080000",
+        checks={
+            '"><script>alert(1)</script>': {
+                "status": "pass",
+                "log": "x.log",
+                "duration_s": 1,
+                "exit_code": 0,
+            }
+        },
+    )
+    runs = dashboard.load_runs(tmp_path)
+    html_out = dashboard.render_index(runs)
+    assert "<script>" not in html_out
+    assert "&lt;script&gt;" in html_out
+
+
+def test_render_run_escapes_malicious_check_names(tmp_path):
+    run = _write_run(
+        tmp_path,
+        "2026-05-09-080000",
+        checks={
+            "<img src=x onerror=alert(1)>": {
+                "status": "pass",
+                "log": "x.log",
+                "duration_s": 1,
+                "exit_code": 0,
+            }
+        },
+    )
+    (run / "x.log").write_text("ok")
+    runs = dashboard.load_runs(tmp_path)
+    html_out = dashboard.render_run(runs[0])
+    assert "<img src=x" not in html_out
+    assert "&lt;img" in html_out
+
+
 def test_fmt_dt_handles_missing_and_invalid():
     assert dashboard.fmt_dt(None) == "—"
     assert dashboard.fmt_dt("not-a-date") == "not-a-date"

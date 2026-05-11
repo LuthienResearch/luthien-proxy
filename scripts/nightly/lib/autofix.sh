@@ -122,13 +122,18 @@ EOF
     # but never `git add`'d them).
     if [[ -n "$(git status --porcelain)" ]]; then
         git add -A
-        git -c user.email=nightly-autofix@luthien -c user.name="nightly-autofix" \
+        git -c user.email=nightly-autofix@users.noreply.github.com \
+            -c user.name="nightly-autofix" \
             commit -m "autofix: capture uncommitted changes from session"
     fi
 
     # Forbidden-paths gate: refuse to push diffs that touch sensitive
     # areas. The prompt asks Claude to avoid these, but the prompt is
     # advisory — this is the enforcement.
+    #
+    # The pattern intentionally blocks `.env.example` and similar
+    # templates: those are codegen output (see scripts/generate_env_example.py)
+    # and autofix should regenerate via dev_checks.sh, not edit by hand.
     local forbidden_hits
     forbidden_hits="$(git diff --name-only "origin/${NIGHTLY_REPO_BRANCH}"...HEAD \
         | grep -E '^(migrations/|scripts/nightly/|.*\.env$|.*\.env\..*)' || true)"

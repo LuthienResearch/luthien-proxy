@@ -82,9 +82,15 @@ PY
 teardown() {
     log "teardown"
     # Best-effort: tear down any docker compose stack the e2e tier brought up.
+    # `-v --remove-orphans` is destructive, which is OK because the compose
+    # project name comes from `basename "$NIGHTLY_REPO_DIR"` (= "repo"). It
+    # won't collide with a dev checkout's stack unless that dev clone is
+    # also literally named `repo`.
     if [[ -f "${NIGHTLY_REPO_DIR}/docker-compose.yaml" ]] && command -v docker >/dev/null 2>&1; then
         ( cd "${NIGHTLY_REPO_DIR}" && docker compose down -v --remove-orphans ) >/dev/null 2>&1 || true
     fi
+    # Release the concurrency lock if we acquired one.
+    [[ -n "${NIGHTLY_LOCK:-}" ]] && rmdir "${NIGHTLY_LOCK}" 2>/dev/null || true
 }
 
 rotate_scheduler_logs() {
@@ -156,6 +162,19 @@ main() {
     trap teardown EXIT
     check_prereqs
     mkdir -p "${NIGHTLY_RUNS_DIR}" "${NIGHTLY_PUBLIC_DIR}"
+
+    # Concurrency guard: refuse to start if another nightly run is in flight.
+    # Two simultaneous runs would race on `git fetch && reset --hard && clean`
+    # inside NIGHTLY_REPO_DIR. Lock via `mkdir` (atomic on POSIX); cleaned up
+    # in `teardown`.
+    local lock="${NIGHTLY_STATE_DIR}/.lock"
+    if ! mkdir "${lock}" 2>/dev/null; then
+        log "another nightly run holds ${lock} — exiting"
+        exit 4
+    fi
+    NIGHTLY_LOCK="${lock}"
+    export NIGHTLY_LOCK
+
     rotate_scheduler_logs
     nightly_start_run
     log "run ${NIGHTLY_RUN_ID} → ${NIGHTLY_RUN_DIR}"
@@ -188,7 +207,9 @@ main() {
 # state-dir clone are preserved between invocations so you can iterate.
 if [[ "${1:-}" == "--once" ]]; then
     check_prereqs
-    nightly_start_run
+    # Tag the run ID with `-once` so the dashboard can distinguish a
+    # debug run (single check, no autofix) from a real scheduled run.
+    nightly_start_run once
     ensure_repo 1   # preserve=1 — don't reset the clone
     run_one_check "${2:?usage: nightly.sh --once <check>}"
     nightly_finish_run

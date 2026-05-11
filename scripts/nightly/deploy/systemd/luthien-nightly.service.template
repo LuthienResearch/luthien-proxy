@@ -11,7 +11,13 @@ Environment=PATH=__PATH__
 ExecStart=/bin/bash -lc '__NIGHTLY_SH__'
 StandardOutput=append:__LOG_DIR__/nightly.out.log
 StandardError=append:__LOG_DIR__/nightly.err.log
-TimeoutStartSec=4h
+# Worst case: dev_checks (30m) + 3 e2e tiers (1h each) + doc_drift (15m)
+# + autofix (30m) ≈ 4h15m. Headroom for slow CI.
+TimeoutStartSec=6h
 
 [Install]
-WantedBy=multi-user.target
+# User units use `default.target`; the system equivalent (`multi-user.target`)
+# is silently ignored by `systemctl --user enable`. The timer is what
+# activates this, so the [Install] symlink is mostly redundant, but keeping
+# it correct avoids confusion if someone enables the service directly.
+WantedBy=default.target

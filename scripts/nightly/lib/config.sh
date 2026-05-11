@@ -42,8 +42,10 @@ export NIGHTLY_DIR
 
 # Load user overrides ---------------------------------------------------
 if [[ -f "${NIGHTLY_DIR}/nightly.env" ]]; then
-    # shellcheck disable=SC1091
-    set -a; source "${NIGHTLY_DIR}/nightly.env"; set +a
+    set -a
+    # shellcheck source=/dev/null
+    source "${NIGHTLY_DIR}/nightly.env"
+    set +a
 fi
 
 # Derived paths ---------------------------------------------------------
@@ -101,11 +103,16 @@ PY
 
 # Initialize a new run directory and results.json. Sets NIGHTLY_RUN_ID and
 # NIGHTLY_RUN_DIR.
+# Args:
+#   $1: optional suffix (e.g. "once") to tag debug runs so the dashboard
+#       can distinguish them from real scheduled runs.
 nightly_start_run() {
+    local suffix="${1:-}"
     # Second-resolution ID avoids collisions when two runs land in the
     # same minute (manual run during scheduled fire, retry-on-failure,
     # `--once` invocations).
     NIGHTLY_RUN_ID="$(date +%Y-%m-%d-%H%M%S)"
+    [[ -n "${suffix}" ]] && NIGHTLY_RUN_ID="${NIGHTLY_RUN_ID}-${suffix}"
     NIGHTLY_RUN_DIR="${NIGHTLY_RUNS_DIR}/${NIGHTLY_RUN_ID}"
     export NIGHTLY_RUN_ID NIGHTLY_RUN_DIR
     mkdir -p "${NIGHTLY_RUN_DIR}"
