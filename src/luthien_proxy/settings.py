@@ -92,6 +92,14 @@ class Settings(_SettingsBase):
     usage_telemetry: bool | None = None
     telemetry_endpoint: str = "https://telemetry.luthien.cc/v1/events"
 
+    # ── webhook ─────────────────────────────────────────────────────
+    webhook_url: str = ""
+    webhook_max_retries: int = 3
+    webhook_retry_delay_seconds: float = 1.0
+    webhook_max_pending_tasks: int = 1000
+    webhook_send_timeout_seconds: float = 10.0
+    webhook_shutdown_drain_seconds: float = 5.0
+
     # ── sentry ──────────────────────────────────────────────────────
     sentry_enabled: bool = False
     sentry_dsn: str = ""

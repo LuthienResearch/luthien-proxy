@@ -21,6 +21,7 @@ from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.rate_limit import TokenBucketRateLimiter
 from luthien_proxy.usage_telemetry.collector import UsageCollector
 from luthien_proxy.utils import db
+from luthien_proxy.webhook.sender import WebhookSender
 
 
 @dataclass
@@ -47,6 +48,7 @@ class Dependencies:
     config_registry: ConfigRegistry | None = field(default=None)
     rate_limiter: TokenBucketRateLimiter | None = field(default=None)
     last_credential_info: dict[str, Any] = field(default_factory=dict)
+    webhook_sender: WebhookSender | None = field(default=None)
 
     def get_anthropic_policy(self) -> AnthropicExecutionInterface:
         """Get the current Anthropic policy.
@@ -206,6 +208,11 @@ def get_rate_limiter(request: Request) -> TokenBucketRateLimiter | None:
     return get_dependencies(request).rate_limiter
 
 
+def get_webhook_sender(request: Request) -> WebhookSender | None:
+    """Get webhook sender from dependencies."""
+    return get_dependencies(request).webhook_sender
+
+
 async def require_config_registry(
     config_registry: ConfigRegistry | None = Depends(get_config_registry),
 ) -> ConfigRegistry:
@@ -258,4 +265,5 @@ __all__ = [
     "get_config_registry",
     "require_config_registry",
     "get_rate_limiter",
+    "get_webhook_sender",
 ]

@@ -68,6 +68,7 @@ from luthien_proxy.utils.credential_cache import (
 from luthien_proxy.utils.migration_check import check_migrations
 from luthien_proxy.utils.url import sanitize_url_for_logging
 from luthien_proxy.version import PROXY_DISPLAY_VERSION
+from luthien_proxy.webhook.sender import WebhookSender
 
 # Configure OpenTelemetry tracing and logging EARLY (before app creation)
 # This ensures the tracer provider is set up before any spans are created
@@ -306,6 +307,22 @@ def create_app(
         else:
             logger.info("Rate limiting disabled (RATE_LIMIT_RPM=0)")
 
+        # Initialize webhook sender
+        _webhook_url = settings.webhook_url or None
+        _webhook_sender = WebhookSender(
+            url=_webhook_url,
+            max_retries=settings.webhook_max_retries,
+            retry_delay_seconds=settings.webhook_retry_delay_seconds,
+            max_pending_tasks=settings.webhook_max_pending_tasks,
+            shutdown_drain_seconds=settings.webhook_shutdown_drain_seconds,
+            send_timeout_seconds=settings.webhook_send_timeout_seconds,
+        )
+        if _webhook_sender.enabled:
+            logger.info("Webhook event export enabled (url=%s)", _webhook_sender.safe_url)
+        else:
+            logger.info("Webhook event export disabled (set WEBHOOK_URL to enable)")
+
+        # Create Dependencies container with all services
         _dependencies = Dependencies(
             db_pool=db_pool,
             redis_client=redis_client,
@@ -321,6 +338,7 @@ def create_app(
             usage_collector=_usage_collector,
             config_registry=_config_registry,
             rate_limiter=_rate_limiter,
+            webhook_sender=_webhook_sender,
         )
 
         # Store dependencies container in app state
@@ -330,6 +348,15 @@ def create_app(
         yield
 
         # Shutdown
+        # Webhook sender goes first: stop() drains in-flight tasks within the
+        # configured window, then cancels survivors and aclose()s the httpx
+        # client. After this returns, _stopped=True silently no-ops any
+        # in-flight request that reaches fire_and_forget — this is the
+        # at-most-once semantics we documented. If you reorder this so
+        # webhook.stop() runs after anthropic_client_cache.close_all() or
+        # before request handling has fully drained, fire_and_forget calls
+        # could land against an already-closed httpx client.
+        await _webhook_sender.stop()
         if _telemetry_sender is not None:
             await _telemetry_sender.stop()
         await _inference_provider_registry.close()

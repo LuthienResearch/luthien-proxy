@@ -1869,3 +1869,55 @@ class TestInferenceProviderRoutes:
         with pytest.raises(HTTPException) as exc:
             await delete_inference_provider(name="p", _=AUTH_TOKEN, registry=mock_registry)
         assert exc.value.status_code == 503
+
+
+class TestWebhookStatsRoute:
+    """Test /api/admin/webhook/stats route handler."""
+
+    @pytest.mark.asyncio
+    async def test_returns_disabled_shape_when_sender_missing(self):
+        import os
+
+        from luthien_proxy.admin.routes import webhook_stats
+
+        result = await webhook_stats(_=AUTH_TOKEN, webhook_sender=None)
+        assert result.enabled is False
+        assert result.safe_url == ""
+        assert result.pending_depth == 0
+        assert result.dropped_count == 0
+        assert result.gave_up_count == 0
+        assert result.permanent_failure_count == 0
+        assert result.payload_build_failure_count == 0
+        assert result.max_pending_tasks == 0
+        assert result.started_at == ""
+        assert result.worker_pid == os.getpid()
+
+    @pytest.mark.asyncio
+    async def test_returns_sender_counters(self):
+        from datetime import UTC, datetime
+
+        from luthien_proxy.admin.routes import webhook_stats
+
+        started = datetime(2026, 5, 9, 11, 0, 0, tzinfo=UTC)
+        sender = MagicMock()
+        sender.enabled = True
+        sender.safe_url = "https://hooks.example.com/..."
+        sender.pending_depth = 7
+        sender.dropped_count = 42
+        sender.gave_up_count = 5
+        sender.permanent_failure_count = 3
+        sender.payload_build_failure_count = 2
+        sender.max_pending_tasks = 1000
+        sender.started_at = started
+
+        result = await webhook_stats(_=AUTH_TOKEN, webhook_sender=sender)
+        assert result.enabled is True
+        assert result.safe_url == "https://hooks.example.com/..."
+        assert result.pending_depth == 7
+        assert result.dropped_count == 42
+        assert result.gave_up_count == 5
+        assert result.permanent_failure_count == 3
+        assert result.payload_build_failure_count == 2
+        assert result.max_pending_tasks == 1000
+        assert result.started_at == started.isoformat()
+        assert result.worker_pid > 0

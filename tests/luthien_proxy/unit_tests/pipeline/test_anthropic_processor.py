@@ -1,5 +1,6 @@
 """Unit tests for the Anthropic-native pipeline processor module."""
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -2059,3 +2060,619 @@ class TestAnthropicPolicyIOBuffering:
 
         raw_events = accumulated_events if not io._buffer_raw_events else io._raw_backend_events
         assert raw_events is io._raw_backend_events
+
+
+class TestStreamingWebhookGate:
+    """Tests for the streaming webhook fire gate (streaming completion gate).
+
+    Drives _handle_execution_streaming directly with a mock emissions iterator
+    and asserts whether webhook_sender.fire_and_forget was called and with
+    what success/http_status. Locks in the
+    `stream_completed or caught_exception or not emitted_any` matrix.
+    """
+
+    @staticmethod
+    async def _drain(response: FastAPIStreamingResponse) -> list[bytes]:
+        """Iterate the streaming response body to completion and collect chunks."""
+        chunks: list[bytes] = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk if isinstance(chunk, bytes) else chunk.encode())
+        return chunks
+
+    @staticmethod
+    def _make_event() -> MessageStreamEvent:
+        """Build a minimal valid MessageStreamEvent for streaming."""
+        return RawContentBlockDeltaEvent(
+            type="content_block_delta",
+            index=0,
+            delta=TextDelta(type="text_delta", text="hi"),
+        )
+
+    @staticmethod
+    def _make_deps():
+        """Return (io, span, ctx, recorder, emitter) mocks for the streaming function."""
+        io = MagicMock()
+        io.request = {"model": "claude-test"}
+        io.ensure_request_recorded = MagicMock()
+        io._buffer_raw_events = False
+        io._raw_backend_events = []
+
+        span = MagicMock()
+        ctx = MagicMock()
+        ctx.session_id = "sess-1"
+        ctx.response_summary = None
+        ctx.record_event = MagicMock()
+        recorder = MagicMock()
+        emitter = MagicMock()
+        return io, span, ctx, recorder, emitter
+
+    @pytest.mark.asyncio
+    async def test_normal_completion_fires_with_success_true(self):
+        """Stream completes normally → webhook fires with success=True, http_status=200."""
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            yield self._make_event()
+
+        io, span, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-1",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        await self._drain(response)
+
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        assert kwargs["success"] is True
+        assert kwargs["http_status"] == 200
+        assert kwargs["is_streaming"] is True
+
+    @pytest.mark.asyncio
+    async def test_mid_stream_exception_fires_with_success_false(self):
+        """Policy raises mid-stream → webhook fires with success=False, http_status=500."""
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            yield self._make_event()
+            raise RuntimeError("policy boom")
+
+        io, span, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-2",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        await self._drain(response)
+
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        assert kwargs["success"] is False
+        assert kwargs["http_status"] == 500
+
+    @pytest.mark.asyncio
+    async def test_empty_stream_fires_with_success_false_500(self):
+        """Policy emits nothing → empty-stream branch fires with success=False, http_status=500."""
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            return
+            yield  # unreachable but makes this an async generator
+
+        io, span, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-3",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        await self._drain(response)
+
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        assert kwargs["success"] is False
+        assert kwargs["http_status"] == 500
+
+    @pytest.mark.asyncio
+    async def test_client_disconnect_after_emission_does_not_fire(self):
+        """Client disconnects after emitting events → webhook is suppressed (no false success).
+
+        Regression for the bug class: the previous gate (`final_status == 200`)
+        would fire with success=200 because CancelledError/GeneratorExit bypass
+        the `except Exception` block, leaving final_status at its initial 200.
+        """
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            yield self._make_event()
+            yield self._make_event()
+            yield self._make_event()
+
+        io, span, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-4",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+
+        # Simulate client disconnect by closing the body iterator after one chunk.
+        chunks: list[bytes] = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk if isinstance(chunk, bytes) else chunk.encode())
+            await response.body_iterator.aclose()
+            break
+
+        webhook.fire_and_forget.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_mid_stream_exception_with_no_events_fires_with_request_model_fallback(self):
+        """Exception before any emission → reconstructed is None → model falls back to request.
+
+        Locks in the model fallback chain in _fire_webhook_for_completion when
+        accumulated_events is empty (no reconstruction possible).
+        """
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            raise RuntimeError("policy boom before any emit")
+            yield  # unreachable
+
+        io, span, ctx, recorder, emitter = self._make_deps()
+        io.request = {"model": "claude-from-request"}
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-empty-exc",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        await self._drain(response)
+
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        assert kwargs["success"] is False
+        assert kwargs["http_status"] == 500
+        assert kwargs["model"] == "claude-from-request"  # fell back to request.model
+        assert kwargs["input_tokens"] == 0
+        assert kwargs["output_tokens"] == 0
+
+    @pytest.mark.asyncio
+    async def test_cancelled_after_emission_does_not_fire(self):
+        """CancelledError raised after emitting events suppresses the webhook.
+
+        Symmetric to the existing GeneratorExit-via-aclose disconnect test —
+        both BaseException subclasses bypass `except Exception`, leave
+        emitted_any=True / stream_completed=False / caught_exception=False,
+        and the gate evaluates to False. Locks in that the cancelled flag
+        doesn't accidentally re-enable a fire on this path.
+        """
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            yield self._make_event()
+            raise asyncio.CancelledError()
+
+        io, span, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-cancel-after-emit",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        with pytest.raises(asyncio.CancelledError):
+            async for _ in response.body_iterator:
+                pass
+
+        webhook.fire_and_forget.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cancelled_before_emission_fires_with_499(self):
+        """CancelledError before any emission → success=False, http_status=499 (not 500).
+
+        Regression: previously misclassified as empty-stream and reported 500
+        with a yielded error event to a client that had likely disconnected.
+        """
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            raise asyncio.CancelledError()
+            yield  # unreachable
+
+        io, span, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-cancel-stream",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        with pytest.raises(asyncio.CancelledError):
+            async for _ in response.body_iterator:
+                pass
+
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        assert kwargs["success"] is False
+        assert kwargs["http_status"] == 499
+
+    @pytest.mark.asyncio
+    async def test_disabled_webhook_no_fire(self):
+        """webhook_sender.enabled=False → fire_and_forget is never called regardless of outcome."""
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            yield self._make_event()
+
+        io, span, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = False
+        webhook.fire_and_forget = MagicMock()
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-5",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        await self._drain(response)
+
+        webhook.fire_and_forget.assert_not_called()
+
+
+class TestNonStreamingWebhookErrorPath:
+    """Non-streaming webhook now fires on error paths too (symmetric with streaming)."""
+
+    @staticmethod
+    def _make_deps():
+        io = MagicMock()
+        io.request = {"model": "claude-test"}
+        io.first_backend_response = None
+        io.ensure_request_recorded = MagicMock()
+        ctx = MagicMock()
+        ctx.session_id = "sess-1"
+        ctx.record_event = MagicMock()
+        recorder = MagicMock()
+        emitter = MagicMock()
+        return io, ctx, recorder, emitter
+
+    @pytest.mark.asyncio
+    async def test_success_path_fires_with_success_true(self):
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_non_streaming
+
+        response_obj: AnthropicResponse = {
+            "id": "msg_1",  # _is_anthropic_response_emission requires the msg_ prefix
+            "type": "message",
+            "role": "assistant",
+            "content": [],
+            "model": "claude-test",
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": build_usage(input_tokens=10, output_tokens=5),
+        }
+
+        async def emissions():
+            yield response_obj
+
+        io, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        result = await _handle_execution_non_streaming(
+            emissions=emissions(),
+            io=io,
+            emitter=emitter,
+            policy_ctx=ctx,
+            call_id="call-1",
+            request_log_recorder=recorder,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        assert isinstance(result, JSONResponse)
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        assert kwargs["success"] is True
+        assert kwargs["http_status"] == 200
+        assert kwargs["is_streaming"] is False
+        assert kwargs["input_tokens"] == 10
+        assert kwargs["output_tokens"] == 5
+
+    @pytest.mark.asyncio
+    async def test_recorder_flush_failure_does_not_flip_success_to_false(self):
+        """Regression: a recorder.flush() failure on the success path used to
+        propagate to except Exception → final_status=500 → webhook reported
+        success=False, http_status=500 for what was actually a successful
+        response. The wrap-and-swallow now isolates the failure."""
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_non_streaming
+
+        response_obj: AnthropicResponse = {
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "content": [],
+            "model": "claude-test",
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": build_usage(input_tokens=3, output_tokens=2),
+        }
+
+        async def emissions():
+            yield response_obj
+
+        io, ctx, recorder, emitter = self._make_deps()
+        recorder.flush = MagicMock(side_effect=RuntimeError("recorder torn down"))
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        result = await _handle_execution_non_streaming(
+            emissions=emissions(),
+            io=io,
+            emitter=emitter,
+            policy_ctx=ctx,
+            call_id="call-flush-failed",
+            request_log_recorder=recorder,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        assert isinstance(result, JSONResponse)
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        # Webhook should still report success=True/200 — the flush failure is
+        # an audit-side problem, not a response-success problem.
+        assert kwargs["success"] is True
+        assert kwargs["http_status"] == 200
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_fires_with_499_not_contradictory_200(self):
+        """CancelledError yields http_status=499, not 200/success=False contradiction.
+
+        Regression: CancelledError is BaseException, bypasses except Exception.
+        Previously left final_status at its initializer (200) while final_response
+        stayed None, producing success=False, http_status=200 — a contradictory
+        pair for downstream consumers indexing on either field.
+        """
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_non_streaming
+
+        async def emissions():
+            raise asyncio.CancelledError()
+            yield  # unreachable
+
+        io, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        with pytest.raises(asyncio.CancelledError):
+            await _handle_execution_non_streaming(
+                emissions=emissions(),
+                io=io,
+                emitter=emitter,
+                policy_ctx=ctx,
+                call_id="call-cancel",
+                request_log_recorder=recorder,
+                webhook_sender=webhook,
+                request_start_time=0.0,
+            )
+
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        assert kwargs["success"] is False
+        assert kwargs["http_status"] == 499
+
+    @pytest.mark.asyncio
+    async def test_error_path_fires_with_success_false(self):
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_non_streaming
+
+        async def emissions():
+            raise RuntimeError("policy boom")
+            yield  # unreachable; makes this a generator
+
+        io, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        with pytest.raises(BackendAPIError) as exc:
+            await _handle_execution_non_streaming(
+                emissions=emissions(),
+                io=io,
+                emitter=emitter,
+                policy_ctx=ctx,
+                call_id="call-2",
+                request_log_recorder=recorder,
+                webhook_sender=webhook,
+                request_start_time=0.0,
+            )
+        assert exc.value.status_code == 500
+
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        assert kwargs["success"] is False
+        assert kwargs["http_status"] == 500
+        # Usage is empty on the error path (we never got a response).
+        assert kwargs["input_tokens"] == 0
+        assert kwargs["output_tokens"] == 0
+
+
+class TestWebhookFireIsolation:
+    """Webhook fire isolated from later cleanup raising."""
+
+    @pytest.mark.asyncio
+    async def test_streaming_webhook_fires_even_if_recorder_flush_raises(self):
+        """If recorder.flush() raises mid-cleanup, the webhook has already fired.
+
+        Regression: previously the webhook fire sat after
+        request_log_recorder.flush(). flush() raising would silently skip the
+        webhook. Now webhook fires before recorder calls.
+        """
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            yield RawContentBlockDeltaEvent(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta(type="text_delta", text="hi"),
+            )
+
+        io = MagicMock()
+        io.request = {"model": "claude-test"}
+        io.ensure_request_recorded = MagicMock()
+        io._buffer_raw_events = False
+        io._raw_backend_events = []
+
+        span = MagicMock()
+        ctx = MagicMock()
+        ctx.session_id = "sess-1"
+        ctx.response_summary = None
+        ctx.record_event = MagicMock()
+        recorder = MagicMock()
+        # recorder.flush runs AFTER webhook fire; it blowing up shouldn't
+        # affect the already-dispatched webhook.
+        recorder.flush = MagicMock(side_effect=RuntimeError("recorder torn down"))
+        emitter = MagicMock()
+
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-iso-1",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        # Recorder.flush() raise is now wrapped (R44.9 — symmetry with the
+        # non-streaming wrap-and-swallow), so it doesn't propagate to the
+        # body iterator. The original assertion was that the webhook fires
+        # despite the failure; that property is preserved (and tightened
+        # since the response generator no longer crashes either).
+        async for _ in response.body_iterator:
+            pass
+
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        assert kwargs["success"] is True
+        assert kwargs["http_status"] == 200
+
+    @pytest.mark.asyncio
+    async def test_webhook_fire_failure_does_not_break_cleanup(self):
+        """If webhook.fire_and_forget itself raises, cleanup still completes."""
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            yield RawContentBlockDeltaEvent(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta(type="text_delta", text="hi"),
+            )
+
+        io = MagicMock()
+        io.request = {"model": "claude-test"}
+        io.ensure_request_recorded = MagicMock()
+        io._buffer_raw_events = False
+        io._raw_backend_events = []
+        span = MagicMock()
+        ctx = MagicMock()
+        ctx.session_id = "sess-1"
+        ctx.response_summary = None
+        ctx.record_event = MagicMock()
+        recorder = MagicMock()
+        emitter = MagicMock()
+
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock(side_effect=RuntimeError("webhook send blew up"))
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-iso-2",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        # Should drain cleanly — _fire_webhook_for_completion suppresses
+        # exceptions internally so the rest of the finally still runs.
+        async for _ in response.body_iterator:
+            pass
+
+        webhook.fire_and_forget.assert_called_once()
+        recorder.flush.assert_called()  # cleanup completed despite webhook failure

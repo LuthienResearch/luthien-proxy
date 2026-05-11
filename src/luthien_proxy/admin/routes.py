@@ -6,6 +6,7 @@ import copy
 import hashlib
 import json
 import logging
+import os
 import uuid
 from typing import Any, cast
 
@@ -25,6 +26,7 @@ from luthien_proxy.dependencies import (
     get_dependencies,
     get_emitter,
     get_policy_manager,
+    get_webhook_sender,
     require_config_registry,
     require_credential_manager,
     require_inference_provider_registry,
@@ -52,6 +54,7 @@ from luthien_proxy.types import RawHttpRequest
 from luthien_proxy.usage_telemetry.config import resolve_telemetry_config
 from luthien_proxy.utils import db
 from luthien_proxy.utils import policy_cache as policy_cache_utils
+from luthien_proxy.webhook.sender import WebhookSender
 
 logger = logging.getLogger(__name__)
 
@@ -1237,6 +1240,73 @@ async def delete_config_value(
         "value": "***" if meta.sensitive else new_resolved.value,
         "source": new_resolved.source.value,
     }
+
+
+class WebhookStatsResponse(BaseModel):
+    """Webhook delivery stats for operator dashboards / alerting."""
+
+    enabled: bool
+    safe_url: str
+    pending_depth: int
+    dropped_count: int
+    # Cumulative count of webhooks that exhausted their retry budget without
+    # the receiver acknowledging. Distinct from `dropped_count` (cap-reached
+    # drop) and `permanent_failure_count` (4xx misconfig — receiver rejected).
+    # Sum the three for the true loss rate.
+    gave_up_count: int
+    permanent_failure_count: int
+    # Cumulative count of webhooks dropped before reaching the network because
+    # payload construction raised (type drift from operator-policy mutation,
+    # etc.). The receiver never sees anything; this counter is the only signal.
+    payload_build_failure_count: int
+    max_pending_tasks: int
+    started_at: str
+    worker_pid: int
+
+
+@router.get("/webhook/stats", response_model=WebhookStatsResponse)
+async def webhook_stats(
+    _: str = Depends(verify_admin_token),
+    webhook_sender: WebhookSender | None = Depends(get_webhook_sender),
+):
+    """Return webhook backpressure / delivery stats.
+
+    `pending_depth` is current in-flight tasks; `dropped_count` is the
+    cumulative count of webhooks dropped because the pending-task cap was hit
+    (process lifetime — resets on restart). `started_at` is the construction
+    timestamp; combine with `dropped_count` to compute a drop rate.
+
+    All counters are **per uvicorn worker**, not gateway-wide. With N workers,
+    polling this endpoint via a load balancer returns one worker's view at
+    random. For a gateway-wide picture, scrape every worker (or aggregate
+    via a metrics backend — Trello c/2GkyAelr tracks the OTel follow-up).
+    """
+    pid = os.getpid()
+    if webhook_sender is None:
+        return WebhookStatsResponse(
+            enabled=False,
+            safe_url="",
+            pending_depth=0,
+            dropped_count=0,
+            gave_up_count=0,
+            permanent_failure_count=0,
+            payload_build_failure_count=0,
+            max_pending_tasks=0,
+            started_at="",
+            worker_pid=pid,
+        )
+    return WebhookStatsResponse(
+        enabled=webhook_sender.enabled,
+        safe_url=webhook_sender.safe_url,
+        pending_depth=webhook_sender.pending_depth,
+        dropped_count=webhook_sender.dropped_count,
+        gave_up_count=webhook_sender.gave_up_count,
+        permanent_failure_count=webhook_sender.permanent_failure_count,
+        payload_build_failure_count=webhook_sender.payload_build_failure_count,
+        max_pending_tasks=webhook_sender.max_pending_tasks,
+        started_at=webhook_sender.started_at.isoformat(),
+        worker_pid=pid,
+    )
 
 
 __all__ = ["router"]
