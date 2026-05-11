@@ -20,7 +20,7 @@ import httpx
 import pytest
 from dotenv import load_dotenv
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response as _text_response
-from tests.luthien_proxy.e2e_tests.mock_anthropic.server import DEFAULT_MOCK_PORT, MockAnthropicServer
+from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
 # === Repository Root Finding ===
 
@@ -103,11 +103,14 @@ def mock_anthropic():
     Shared across all e2e test files. Use ``mock_anthropic.enqueue(response)``
     before each test to control what the mock returns.
 
-    Port is configurable via MOCK_ANTHROPIC_PORT env var (default: 18888).
-    For Docker-based tests, the gateway must be configured with
-    ANTHROPIC_BASE_URL pointing at this port.
+    Port behavior: an unused port is auto-allocated by default so multiple
+    test runs (e.g. parallel CI shards, nightly job alongside dev stack)
+    don't collide. Override with the MOCK_ANTHROPIC_PORT env var when a
+    fixed port is needed (e.g. Docker tests where the gateway's
+    ANTHROPIC_BASE_URL is wired up out of band).
     """
-    port = int(os.getenv("MOCK_ANTHROPIC_PORT", str(DEFAULT_MOCK_PORT)))
+    port_env = os.getenv("MOCK_ANTHROPIC_PORT")
+    port = int(port_env) if port_env else 0
     server = MockAnthropicServer(port=port)
     server.start()
     yield server
