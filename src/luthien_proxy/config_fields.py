@@ -249,6 +249,45 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         category="telemetry",
     ),
 
+    # ── webhook ───────────────────────────────────────────────────────────
+    # NOTE: webhook_url is intentionally NOT db_settable=True (defaults to False).
+    # sensitive=True only affects how the value is masked in logs/dashboards,
+    # not whether it can be set via PUT /api/admin/config. Restart-required
+    # is intentional: WebhookSender isn't reconstructible mid-process, and
+    # admin-token compromise → arbitrary URL exfil would be a nasty escalation.
+    # If you flip this to db_settable=True, also wire a hot-reload hook on
+    # the sender and revisit the SSRF Trello card (https://trello.com/c/sBefPP2C).
+    ConfigFieldMeta(
+        "webhook_url", "WEBHOOK_URL", str, "",
+        "Endpoint URL to POST conversation completion events to (leave empty to disable). At-most-once delivery: failures after retries are dropped, shutdown drains then cancels, process crashes lose in-flight events. Not suitable for systems that require at-least-once / durable delivery. **Treated as operator-trusted** — the value is not subjected to SSRF protection (private IPs and localhost are reachable), so only set this from a trusted config source. **If you ever wire this to user-controllable input, add SSRF protection FIRST.** **Privacy**: payloads include session_id (which may be a stable user identifier) — treat the receiver as a PII sink, same posture as conversation logs.",
+        sensitive=True, category="webhook",
+    ),
+    ConfigFieldMeta(
+        "webhook_max_retries", "WEBHOOK_MAX_RETRIES", int, 3,
+        "Number of retry attempts for failed webhook deliveries",
+        category="webhook",
+    ),
+    ConfigFieldMeta(
+        "webhook_retry_delay_seconds", "WEBHOOK_RETRY_DELAY_SECONDS", float, 1.0,
+        "Base delay in seconds between webhook retry attempts (doubles each retry)",
+        category="webhook",
+    ),
+    ConfigFieldMeta(
+        "webhook_max_pending_tasks", "WEBHOOK_MAX_PENDING_TASKS", int, 1000,
+        "Maximum number of in-flight webhook delivery tasks **per uvicorn worker**. With N workers the effective gateway-wide cap is N × this value — divide accordingly when sizing. When exceeded, new webhooks are dropped and logged. A single delivery can hold a slot for ~(WEBHOOK_SEND_TIMEOUT_SECONDS × (1+WEBHOOK_MAX_RETRIES)) + (WEBHOOK_MAX_RETRIES × MAX_RETRY_DELAY_SECONDS) — defaults give ~210s.",
+        category="webhook",
+    ),
+    ConfigFieldMeta(
+        "webhook_send_timeout_seconds", "WEBHOOK_SEND_TIMEOUT_SECONDS", float, 10.0,
+        "Per-attempt HTTP timeout for webhook deliveries. Receivers that do synchronous downstream work before acknowledging (e.g. write to BigQuery before returning 200) may need a higher value than the 10s default.",
+        category="webhook",
+    ),
+    ConfigFieldMeta(
+        "webhook_shutdown_drain_seconds", "WEBHOOK_SHUTDOWN_DRAIN_SECONDS", float, 5.0,
+        "On gateway shutdown, wait up to this many seconds for in-flight webhook deliveries to finish before cancelling them. Set to 0 for immediate cancel.",
+        category="webhook",
+    ),
+
     # ── sentry ────────────────────────────────────────────────────────────
     ConfigFieldMeta(
         "sentry_enabled", "SENTRY_ENABLED", bool, False,
@@ -288,6 +327,7 @@ CONFIG_CATEGORIES: tuple[str, ...] = (
     "security",
     "observability",
     "telemetry",
+    "webhook",
     "sentry",
 )
 

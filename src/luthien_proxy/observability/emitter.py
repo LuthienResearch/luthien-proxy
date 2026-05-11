@@ -257,18 +257,20 @@ class EventEmitter:
                     user_id,
                 )
 
-                # Insert event with session_id and user_id, ordering by created_at
+                # Insert event row. user_id is intentionally NOT stored on
+                # conversation_events — it lives on conversation_calls (which
+                # query paths join through). Denormalizing onto every event
+                # row paid a write cost for zero readers.
                 await conn.execute(
                     """
-                    INSERT INTO conversation_events (call_id, event_type, payload, created_at, session_id, user_id)
-                    VALUES ($1, $2, $3, $4, $5, $6)
+                    INSERT INTO conversation_events (call_id, event_type, payload, created_at, session_id)
+                    VALUES ($1, $2, $3, $4, $5)
                     """,
                     transaction_id,
                     event_type,
                     json.dumps(data),
                     timestamp,
                     session_id,
-                    user_id,
                 )
 
             logger.debug(f"Wrote event to db: {event_type} (transaction_id={transaction_id})")

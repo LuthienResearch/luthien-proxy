@@ -19,9 +19,11 @@ The pipeline creates a structured span hierarchy for observability:
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import logging
+import time
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Literal, TypedDict, TypeGuard, cast
@@ -72,6 +74,7 @@ from luthien_proxy.usage_telemetry.collector import UsageCollector
 from luthien_proxy.utils import db
 from luthien_proxy.utils import policy_cache as policy_cache_utils
 from luthien_proxy.utils.constants import MAX_REQUEST_PAYLOAD_BYTES
+from luthien_proxy.webhook.sender import WebhookSender
 
 
 class _ErrorDetail(TypedDict):
@@ -336,6 +339,7 @@ async def process_anthropic_request(
     usage_collector: UsageCollector | None = None,
     user_credential: Credential | None = None,
     credential_manager: CredentialManager | None = None,
+    webhook_sender: WebhookSender | None = None,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Process an Anthropic API request through the native pipeline.
 
@@ -351,6 +355,7 @@ async def process_anthropic_request(
         usage_collector: Optional usage telemetry collector for counting requests
         user_credential: The credential extracted from the incoming request
         credential_manager: Shared credential manager for auth provider resolution
+        webhook_sender: Optional webhook sender for conversation completion events
 
     Returns:
         StreamingResponse or JSONResponse depending on stream parameter
@@ -363,6 +368,7 @@ async def process_anthropic_request(
         raise TypeError(f"Policy must implement AnthropicExecutionInterface, got {type(policy).__name__}.")
 
     call_id = str(uuid.uuid4())
+    request_start_time = time.monotonic()
     request_log_recorder = create_recorder(db_pool, call_id, enable_request_logging)
 
     if usage_collector:
@@ -456,6 +462,8 @@ async def process_anthropic_request(
             request_log_recorder=request_log_recorder,
             extra_headers=forwarded_headers,
             usage_collector=usage_collector,
+            webhook_sender=webhook_sender,
+            request_start_time=request_start_time,
         )
 
         # Propagate policy summaries if set
@@ -605,8 +613,10 @@ async def _execute_anthropic_policy(
     is_streaming: bool,
     root_span: Span,
     request_log_recorder: RequestLogRecorder,
+    request_start_time: float,
     extra_headers: dict[str, str] | None = None,
     usage_collector: UsageCollector | None = None,
+    webhook_sender: WebhookSender | None = None,
 ) -> FastAPIStreamingResponse | JSONResponse:
     """Execute an Anthropic policy using the hook-based runtime."""
     io = _AnthropicPolicyIO(
@@ -632,6 +642,8 @@ async def _execute_anthropic_policy(
             request_log_recorder=request_log_recorder,
             emitter=emitter,
             usage_collector=usage_collector,
+            webhook_sender=webhook_sender,
+            request_start_time=request_start_time,
         )
 
     return await _handle_execution_non_streaming(
@@ -642,7 +654,61 @@ async def _execute_anthropic_policy(
         call_id=call_id,
         request_log_recorder=request_log_recorder,
         usage_collector=usage_collector,
+        webhook_sender=webhook_sender,
+        request_start_time=request_start_time,
     )
+
+
+def _fire_webhook_for_completion(
+    *,
+    webhook_sender: WebhookSender | None,
+    policy_ctx: PolicyContext,
+    call_id: str,
+    request_model_field: str | None,
+    response: AnthropicResponse | None,
+    duration_ms: int,
+    is_streaming: bool,
+    success: bool,
+    http_status: int,
+) -> None:
+    """Fire the conversation-completion webhook with defensive fallbacks.
+
+    Centralises the payload construction and the try/except so the call sites
+    in streaming/non-streaming finally blocks don't duplicate logic and any
+    fire-time error doesn't propagate into the surrounding cleanup.
+
+    Defensive ``or`` fallbacks (instead of ``dict.get(k, default)``) so an
+    explicit ``None`` value in the source dict still gets defaulted (real
+    Anthropic responses always have these, but harmless to harden).
+    """
+    if webhook_sender is None or not webhook_sender.enabled:
+        return
+    try:
+        usage = (response.get("usage") if response else None) or {}
+        model = (response.get("model") if response else None) or request_model_field or "unknown"
+        # `dict.get(k) or 0` (vs `dict.get(k, 0)`) defends against an explicit
+        # None value in the dict — operator policies can mutate the response
+        # and dict.get with a default returns None when the key exists at None.
+        # `0 or 0 == 0` so this is correct for valid zero token counts too.
+        webhook_sender.fire_and_forget(
+            session_id=policy_ctx.session_id,
+            transaction_id=call_id,
+            model=model,
+            input_tokens=usage.get("input_tokens") or 0,
+            output_tokens=usage.get("output_tokens") or 0,
+            cache_creation_input_tokens=usage.get("cache_creation_input_tokens") or 0,
+            cache_read_input_tokens=usage.get("cache_read_input_tokens") or 0,
+            duration_ms=duration_ms,
+            is_streaming=is_streaming,
+            success=success,
+            http_status=http_status,
+        )
+    except Exception:
+        logger.exception("[%s] Webhook fire failed (suppressed to protect cleanup path)", call_id)
+        # Surface the failure on a counter so operators see it in /api/admin/webhook/stats —
+        # otherwise build-side bugs are silent (no `dropped_count` increment, no receiver
+        # signal because the webhook never went out).
+        webhook_sender.record_payload_build_failure()
 
 
 async def _handle_execution_streaming(
@@ -653,7 +719,9 @@ async def _handle_execution_streaming(
     policy_ctx: PolicyContext,
     request_log_recorder: RequestLogRecorder,
     emitter: EventEmitterProtocol,
+    request_start_time: float,
     usage_collector: UsageCollector | None = None,
+    webhook_sender: WebhookSender | None = None,
 ) -> FastAPIStreamingResponse:
     """Handle streaming response flow for execution-oriented policies."""
     parent_context = get_current()
@@ -663,6 +731,8 @@ async def _handle_execution_streaming(
         with restore_context(parent_context):
             chunk_count = 0
             emitted_any = False
+            stream_completed = False
+            cancelled = False
             final_status = 200
             accumulated_events: list[MessageStreamEvent] = []
             with tracer.start_as_current_span("process_response") as response_span:
@@ -684,6 +754,28 @@ async def _handle_execution_streaming(
                             accumulated_events.append(cast_emitted)
                             chunk_count += 1
                             yield _format_sse_event(cast_emitted)
+                    stream_completed = True
+                except asyncio.CancelledError:
+                    # CancelledError is BaseException; without this branch
+                    # cancelled-before-emit would mis-classify as empty-stream
+                    # and report success=False, http_status=500. 499 = Client
+                    # Closed Request (matches the non-streaming behavior).
+                    #
+                    # GeneratorExit (also BaseException) is intentionally NOT
+                    # caught here. FastAPI raises it on client disconnect via
+                    # generator.aclose(); catching it here would either re-yield
+                    # to a closed writer or violate the GeneratorExit contract.
+                    # The bare-disconnect path falls through to the gate with
+                    # cancelled=False (and emitted_any=True after first event)
+                    # which correctly suppresses the webhook (no false success).
+                    #
+                    # The `cancelled` flag set here is read in the finally
+                    # block's `is_empty_stream` calculation below — without
+                    # it we'd yield an empty-stream error event into a stream
+                    # whose client is gone.
+                    cancelled = True
+                    final_status = 499
+                    raise
                 except Exception as e:
                     caught_exception = True
                     # Headers may already be sent, so emit an in-stream error event.
@@ -700,7 +792,21 @@ async def _handle_execution_streaming(
                     error_event = _build_error_event(e, call_id)
                     yield _format_sse_event(error_event)
                 finally:
-                    if not emitted_any and not caught_exception:
+                    # Cancellation is distinct from "policy emitted nothing": the
+                    # except CancelledError above already set final_status=499 and
+                    # we should not yield an error event to a client that's gone.
+                    #
+                    # Edge case: GeneratorExit raised by FastAPI before the policy
+                    # emits any event flows through here too — emitted_any=False,
+                    # caught_exception=False, cancelled=False (GeneratorExit is
+                    # BaseException but isn't intercepted) → routes through the
+                    # empty-stream branch with success=False, http_status=500.
+                    # Conflates "client disconnected pre-emission" with "policy
+                    # emitted nothing." Both are server-side empty deliveries
+                    # from the receiver's POV, so 500 is defensible — flagged
+                    # for clarity, not a code change.
+                    is_empty_stream = not emitted_any and not caught_exception and not cancelled
+                    if is_empty_stream:
                         io.ensure_request_recorded()
                         logger.warning(
                             "[%s] Execution policy emitted zero streaming events; yielding error event",
@@ -711,58 +817,129 @@ async def _handle_execution_streaming(
                             {"summary": "Execution policy emitted zero streaming events"},
                         )
                         final_status = 500
-                        # Yield an Anthropic-compatible error event so the client
-                        # gets a clear signal instead of a silent empty HTTP 200.
-                        empty_stream_error = _StreamErrorEvent(
-                            type="error",
-                            error=_ErrorDetail(
-                                type="api_error",
-                                message="Request blocked: policy evaluation unavailable. Contact your administrator.",
-                            ),
-                        )
-                        yield _format_sse_event(empty_stream_error)
+                        # Yield happens at the END of finally below — if it fails
+                        # (closed writer, client disconnected during empty-stream
+                        # case), all the cleanup above still runs, including the
+                        # webhook fire and recorder flush.
                     response_span.set_attribute("streaming.chunk_count", chunk_count)
+
+                    # Reconstruct first (in-process pure-Python iteration over
+                    # already-accumulated events; rare but possible to raise on
+                    # SDK shape drift). Wrap so failure → reconstructed=None
+                    # and the webhook still fires below.
+                    try:
+                        reconstructed = _reconstruct_response_from_stream_events(accumulated_events)
+                    except Exception:
+                        logger.exception("[%s] Stream reconstruction failed", call_id)
+                        reconstructed = None
+
+                    # Fire webhook BEFORE protocol validation, recorder, emitter,
+                    # and usage_collector calls — any of those raising can't
+                    # then skip the webhook. Non-streaming finally has the same
+                    # property by being wrapped in its own helper.
+                    #
+                    # Audit-trail consequence: the webhook is strictly more
+                    # reliable than the request_log row for failed/streaming
+                    # requests. A request whose recorder.flush() raised will
+                    # still have produced a webhook event; consumers building
+                    # audit trails should rely on the webhook as the durable
+                    # signal, not the request log table.
+                    #
+                    # Gate: skip on bare client-disconnect AFTER some events
+                    # were emitted (no completion flag, no exception, no
+                    # empty-stream branch), to avoid reporting a false success
+                    # for a partial delivery. Cancelled-before-emit hits
+                    # `not emitted_any` and fires with success=False, http_status=499.
+                    if stream_completed or caught_exception or not emitted_any:
+                        # Belt for the load-bearing-comment below: if both
+                        # `stream_completed` and `not emitted_any` are true,
+                        # `final_status` MUST already be 500 from the
+                        # empty-stream branch — otherwise the success-calc
+                        # would silently report success=True for a 0-event
+                        # stream. Use an explicit if+log instead of assert
+                        # so the safety survives `python -O` (which strips
+                        # asserts). Coerce to 500 on the failure path so the
+                        # webhook still fires with coherent payload.
+                        if stream_completed and not emitted_any and final_status == 200:
+                            logger.error(
+                                "[%s] invariant violated: empty-stream-after-completion did not set "
+                                "final_status=500. Forcing 500 to keep webhook payload coherent.",
+                                call_id,
+                            )
+                            final_status = 500
+                        _duration_ms = int((time.monotonic() - request_start_time) * 1000)
+                        _fire_webhook_for_completion(
+                            webhook_sender=webhook_sender,
+                            policy_ctx=policy_ctx,
+                            call_id=call_id,
+                            request_model_field=io.request.get("model"),
+                            response=reconstructed,
+                            duration_ms=_duration_ms,
+                            is_streaming=True,
+                            # Both checks load-bearing: stream_completed=True with
+                            # emitted_any=False hits the empty-stream branch above
+                            # which sets final_status=500.
+                            success=stream_completed and final_status == 200,
+                            http_status=final_status,
+                        )
 
                     # Validate streaming protocol compliance (log-and-warn).
                     # Only validate complete streams — partial/error streams will
                     # always fail completeness checks (missing message_stop, etc.)
                     # and produce noisy false positives.
+                    #
+                    # Validation is **advisory**: a malformed stream that was still
+                    # delivered to the client keeps `success=True, http_status=200`
+                    # in the webhook payload. The bytes did get sent; the
+                    # protocol issue is for operator/policy debugging, not
+                    # delivery accounting. Consumers wanting strict
+                    # protocol-conformant accounting should also subscribe to
+                    # the `streaming.protocol_violation` event from the emitter.
                     if accumulated_events and final_status == 200:
-                        validation = validate_anthropic_event_ordering(accumulated_events)
-                        if not validation.valid:
-                            violation_details = [
-                                {"rule": v.rule, "message": v.message, "event_index": v.event_index}
-                                for v in validation.violations
-                            ]
-                            logger.warning(
-                                "[%s] Streaming protocol violation detected: %s",
-                                call_id,
-                                violation_details,
-                            )
-                            policy_ctx.record_event(
-                                "streaming.protocol_violation",
-                                {
-                                    "summary": "Outbound stream violates Anthropic event ordering",
-                                    "violations": violation_details,
-                                },
-                            )
-                            response_span.set_attribute("streaming.protocol_valid", False)
-                        else:
-                            response_span.set_attribute("streaming.protocol_valid", True)
+                        # Wrap so SDK shape drift / a validator regression
+                        # can't propagate into the cleanup path and skip
+                        # recorder.flush + downstream emitter calls.
+                        try:
+                            validation = validate_anthropic_event_ordering(accumulated_events)
+                            if not validation.valid:
+                                violation_details = [
+                                    {"rule": v.rule, "message": v.message, "event_index": v.event_index}
+                                    for v in validation.violations
+                                ]
+                                logger.warning(
+                                    "[%s] Streaming protocol violation detected: %s",
+                                    call_id,
+                                    violation_details,
+                                )
+                                policy_ctx.record_event(
+                                    "streaming.protocol_violation",
+                                    {
+                                        "summary": "Outbound stream violates Anthropic event ordering",
+                                        "violations": violation_details,
+                                    },
+                                )
+                                response_span.set_attribute("streaming.protocol_valid", False)
+                            else:
+                                response_span.set_attribute("streaming.protocol_valid", True)
+                        except Exception:
+                            logger.exception("[%s] Stream protocol validation raised", call_id)
 
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
-                    reconstructed = _reconstruct_response_from_stream_events(accumulated_events)
+
                     if reconstructed is not None:
                         # Use raw backend events for original response if buffered,
-                        # otherwise fall back to accumulated (post-policy) events.
                         # Trade-off: for streaming requests, raw events are NOT buffered
-                        # separately (_buffer_raw_events=False) to avoid doubling memory
-                        # usage. This means the diff viewer will show identical original
-                        # and final responses for streaming requests. Non-streaming
-                        # requests still capture true pre-policy vs post-policy diffs.
-                        raw_events = accumulated_events if not io._buffer_raw_events else io._raw_backend_events
-                        raw_reconstructed = _reconstruct_response_from_stream_events(raw_events)
+                        # separately (_AnthropicPolicyIO sets _buffer_raw_events=not is_streaming).
+                        # This means the diff viewer will show identical original and final
+                        # responses for streaming requests. Non-streaming requests buffer
+                        # raw events separately and capture true pre-policy vs post-policy
+                        # diffs (handled by _handle_execution_non_streaming, not here).
+                        #
+                        # Since this branch is streaming-only, raw_events IS accumulated_events
+                        # and we reuse `reconstructed` directly. The previous conditional
+                        # for the buffered-raw-events case was dead code in this codepath.
+                        raw_reconstructed = reconstructed
                         emitter.record(
                             call_id,
                             "transaction.streaming_response_recorded",
@@ -775,9 +952,17 @@ async def _handle_execution_streaming(
                                 "user_id": policy_ctx.user_id,
                             },
                         )
-                    request_log_recorder.record_inbound_response(status=final_status)
-                    request_log_recorder.record_outbound_response(status=final_status)
-                    request_log_recorder.flush()
+                    # Wrap-and-swallow for symmetry with the non-streaming
+                    # path (R29.1). The webhook fires before this block, so
+                    # webhook payload coherence isn't at stake here — but a
+                    # recorder failure shouldn't crash the response generator
+                    # mid-cleanup either.
+                    try:
+                        request_log_recorder.record_inbound_response(status=final_status)
+                        request_log_recorder.record_outbound_response(status=final_status)
+                        request_log_recorder.flush()
+                    except Exception:
+                        logger.exception("[%s] streaming recorder flush failed (non-fatal)", call_id)
                     if usage_collector and final_status == 200:
                         usage_collector.record_completed(is_streaming=True)
                         if reconstructed is not None and "usage" in reconstructed:
@@ -786,6 +971,20 @@ async def _handle_execution_streaming(
                                 input_tokens=usage.get("input_tokens", 0),
                                 output_tokens=usage.get("output_tokens", 0),
                             )
+
+                    # Empty-stream error event yields LAST so any failure here
+                    # (BrokenResourceError on a closed writer, GeneratorExit on
+                    # client disconnect mid-cleanup) doesn't skip the cleanup
+                    # above. See review #3 R3.3.
+                    if is_empty_stream:
+                        empty_stream_error = _StreamErrorEvent(
+                            type="error",
+                            error=_ErrorDetail(
+                                type="api_error",
+                                message="Request blocked: policy evaluation unavailable. Contact your administrator.",
+                            ),
+                        )
+                        yield _format_sse_event(empty_stream_error)
 
     return FastAPIStreamingResponse(
         streaming_with_spans(),
@@ -805,92 +1004,155 @@ async def _handle_execution_non_streaming(
     policy_ctx: PolicyContext,
     call_id: str,
     request_log_recorder: RequestLogRecorder,
+    request_start_time: float,
     usage_collector: UsageCollector | None = None,
+    webhook_sender: WebhookSender | None = None,
 ) -> JSONResponse:
     """Handle non-streaming response flow for execution-oriented policies."""
     final_response: AnthropicResponse | None = None
     response_count = 0
+    final_status = 200
 
-    with tracer.start_as_current_span("process_response") as span:
-        span.set_attribute("luthien.phase", "process_response")
-        try:
-            with tracer.start_as_current_span("policy_execute"):
-                async for emitted in emissions:
-                    if not _is_anthropic_response_emission(emitted):
-                        raise TypeError(
-                            "Non-streaming Anthropic execution policies must emit a response object, "
-                            "not streaming events."
-                        )
-                    final_response = emitted
-                    response_count += 1
-        except Exception as e:
-            _handle_anthropic_error(e, call_id)
-            # _handle_anthropic_error only raises for Anthropic SDK errors; for
-            # anything else (policy logic errors, etc.) convert to a safe 500
-            # so internal details are not exposed to the client.
-            logger.error("[%s] Unexpected error in non-streaming policy execution: %s", call_id, e)
-            raise BackendAPIError(
-                status_code=500,
-                message=client_error_detail(str(e), "An internal error occurred while processing the request."),
-                error_type="api_error",
-                client_format=ClientFormat.ANTHROPIC,
-            ) from e
+    try:
+        with tracer.start_as_current_span("process_response") as span:
+            span.set_attribute("luthien.phase", "process_response")
+            try:
+                with tracer.start_as_current_span("policy_execute"):
+                    async for emitted in emissions:
+                        if not _is_anthropic_response_emission(emitted):
+                            raise TypeError(
+                                "Non-streaming Anthropic execution policies must emit a response object, "
+                                "not streaming events."
+                            )
+                        final_response = emitted
+                        response_count += 1
+            except Exception as e:
+                _handle_anthropic_error(e, call_id)
+                # _handle_anthropic_error only raises for Anthropic SDK errors; for
+                # anything else (policy logic errors, etc.) convert to a safe 500
+                # so internal details are not exposed to the client.
+                logger.error("[%s] Unexpected error in non-streaming policy execution: %s", call_id, e)
+                raise BackendAPIError(
+                    status_code=500,
+                    message=client_error_detail(str(e), "An internal error occurred while processing the request."),
+                    error_type="api_error",
+                    client_format=ClientFormat.ANTHROPIC,
+                ) from e
 
-    io.ensure_request_recorded()
+        io.ensure_request_recorded()
 
-    if final_response is None:
-        raise RuntimeError(
-            "Anthropic execution policy did not emit a non-streaming response. "
-            "Emit exactly one response object in non-streaming mode."
-        )
+        if final_response is None:
+            raise RuntimeError(
+                "Anthropic execution policy did not emit a non-streaming response. "
+                "Emit exactly one response object in non-streaming mode."
+            )
 
-    if response_count > 1:
-        logger.warning("[%s] Execution policy emitted %d non-streaming responses; using last", call_id, response_count)
-        policy_ctx.record_event(
-            "policy.execution.multiple_non_streaming_responses",
-            {"count": response_count, "summary": "Using last emitted response"},
-        )
+        if response_count > 1:
+            logger.warning(
+                "[%s] Execution policy emitted %d non-streaming responses; using last", call_id, response_count
+            )
+            policy_ctx.record_event(
+                "policy.execution.multiple_non_streaming_responses",
+                {"count": response_count, "summary": "Using last emitted response"},
+            )
 
-    original_response_payload: dict | None = None
-    if io.first_backend_response is not None:
-        original_response_payload = dict(io.first_backend_response)
-
-    emitter.record(
-        call_id,
-        "transaction.non_streaming_response_recorded",
-        {
-            "original_response": original_response_payload,
-            "final_response": dict(final_response),
-            "session_id": policy_ctx.session_id,
-            "user_id": policy_ctx.user_id,
-        },
-    )
-
-    with tracer.start_as_current_span("send_to_client") as span:
-        span.set_attribute("luthien.phase", "send_to_client")
-        final_response_payload = dict(final_response)
+        original_response_payload: dict | None = None
+        if io.first_backend_response is not None:
+            original_response_payload = dict(io.first_backend_response)
 
         emitter.record(
             call_id,
-            "pipeline.client_response",
-            {"payload": final_response_payload, "session_id": policy_ctx.session_id, "user_id": policy_ctx.user_id},
+            "transaction.non_streaming_response_recorded",
+            {
+                "original_response": original_response_payload,
+                "final_response": dict(final_response),
+                "session_id": policy_ctx.session_id,
+                "user_id": policy_ctx.user_id,
+            },
         )
-        request_log_recorder.record_outbound_response(body=final_response_payload, status=200)
-        request_log_recorder.record_inbound_response(status=200, body=final_response_payload)
-        request_log_recorder.flush()
 
-        if usage_collector:
-            usage_collector.record_completed(is_streaming=False)
-            usage = final_response.get("usage")
-            if usage:
-                usage_collector.record_tokens(
-                    input_tokens=usage.get("input_tokens", 0),
-                    output_tokens=usage.get("output_tokens", 0),
-                )
+        with tracer.start_as_current_span("send_to_client") as span:
+            span.set_attribute("luthien.phase", "send_to_client")
+            final_response_payload = dict(final_response)
 
-        return JSONResponse(
-            content=final_response_payload,
-            headers={"X-Call-ID": call_id},
+            emitter.record(
+                call_id,
+                "pipeline.client_response",
+                {
+                    "payload": final_response_payload,
+                    "session_id": policy_ctx.session_id,
+                    "user_id": policy_ctx.user_id,
+                },
+            )
+            # Wrap recorder calls so a flush failure on the success path
+            # doesn't flip control to `except Exception` → set final_status=500
+            # → fire webhook with success=False, http_status=500 for what was
+            # actually a successful response. The streaming path achieves the
+            # same isolation by firing the webhook BEFORE recorder.flush();
+            # non-streaming inverts the order, so we wrap-and-swallow instead.
+            try:
+                request_log_recorder.record_outbound_response(body=final_response_payload, status=200)
+                request_log_recorder.record_inbound_response(status=200, body=final_response_payload)
+                request_log_recorder.flush()
+            except Exception:
+                logger.exception("[%s] non-streaming recorder flush failed (response was successful)", call_id)
+
+            if usage_collector:
+                usage_collector.record_completed(is_streaming=False)
+                usage = final_response.get("usage")
+                if usage:
+                    usage_collector.record_tokens(
+                        input_tokens=usage.get("input_tokens", 0),
+                        output_tokens=usage.get("output_tokens", 0),
+                    )
+
+            return JSONResponse(
+                content=final_response_payload,
+                headers={"X-Call-ID": call_id},
+            )
+    except BackendAPIError as e:
+        final_status = e.status_code
+        raise
+    except asyncio.CancelledError:
+        # CancelledError is a BaseException; without this branch the webhook
+        # would fire with success=False, http_status=200 (the initializer) — a
+        # contradictory pair. 499 = Client Closed Request (nginx convention).
+        final_status = 499
+        raise
+    except Exception:
+        final_status = 500
+        raise
+    except BaseException:
+        # Other BaseException subclasses (KeyboardInterrupt, SystemExit) would
+        # otherwise fall through with final_status=200 still set, producing the
+        # same contradictory `success=False, http_status=200` pair as
+        # un-handled CancelledError did. 500 is the closest fit since the
+        # request didn't complete. Re-raised so process termination is honored.
+        final_status = 500
+        raise
+    finally:
+        # Fire the webhook regardless of success/failure so consumers see
+        # streaming AND non-streaming failures symmetrically (R4.2). Usage
+        # data is empty on the error path; consumers should filter on success.
+        #
+        # Ordering note: on the success path the request_log_recorder has
+        # already been flushed inside the try block above. On the error path
+        # the recorder is NOT flushed (preexisting non-streaming behavior —
+        # request log rows for failed non-streaming requests are silently
+        # dropped). The webhook fire is independent of recorder state either
+        # way; consumers wanting failed-request audit trails should use the
+        # webhook itself rather than the request log table.
+        _duration_ms = int((time.monotonic() - request_start_time) * 1000)
+        _fire_webhook_for_completion(
+            webhook_sender=webhook_sender,
+            policy_ctx=policy_ctx,
+            call_id=call_id,
+            request_model_field=io.request.get("model"),
+            response=final_response,
+            duration_ms=_duration_ms,
+            is_streaming=False,
+            success=final_status == 200 and final_response is not None,
+            http_status=final_status,
         )
 
 

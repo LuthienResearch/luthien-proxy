@@ -805,8 +805,8 @@ class TestFetchSessionListUserFilter:
             await conn.execute(
                 """
                 INSERT INTO conversation_events
-                (id, call_id, event_type, payload, session_id, user_id, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (id, call_id, event_type, payload, session_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 f"event-{call_id}",
                 call_id,
@@ -818,7 +818,6 @@ class TestFetchSessionListUserFilter:
                     }
                 ),
                 session_id,
-                user_id,
                 created_at,
             )
 
@@ -879,8 +878,8 @@ class TestFetchSessionListUserFilter:
             await conn.execute(
                 """
                 INSERT INTO conversation_events
-                (id, call_id, event_type, payload, session_id, user_id, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (id, call_id, event_type, payload, session_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 "e-bob",
                 "c-bob",
@@ -892,7 +891,6 @@ class TestFetchSessionListUserFilter:
                     }
                 ),
                 "shared",
-                "bob",
                 "2025-01-15T10:00:00",
             )
 
