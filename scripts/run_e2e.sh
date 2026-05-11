@@ -351,17 +351,8 @@ run_real() {
         info "ANTHROPIC_API_KEY not set — judge-policy tests will self-skip; the rest still run."
     fi
 
-    # Ensure gateway-side prerequisites are satisfied so settings-gated tests
-    # don't auto-skip. These are substituted into docker-compose.yaml and
-    # passed to the gateway container.
-    #
-    # DOGFOOD_MODE is intentionally not enabled here: turning it on globally
-    # auto-composes every set_policy() call into a MultiSerialPolicy chain,
-    # which breaks the strict-equality assertions in test_policy_management.
-    # Tests that need DogfoodSafetyPolicy active set it explicitly via
-    # policy_context (see test_policy_composition.py). The lone test that
-    # validates the auto-composition behavior itself (test_dogfood_composes_*)
-    # remains skip-gated on DOGFOOD_MODE.
+    # Turn on request logging so test_request_logging.py has the gateway-side
+    # feature active. Substituted into docker-compose.yaml via ${VAR} expansion.
     export ENABLE_REQUEST_LOGGING=true
 
     if ! check_docker; then
