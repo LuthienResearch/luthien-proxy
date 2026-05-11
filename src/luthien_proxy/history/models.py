@@ -9,7 +9,7 @@ Defines Pydantic models for:
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class MessageType(str, Enum):
@@ -77,6 +77,12 @@ class SessionSummary(BaseModel):
     policy_interventions: int
     models_used: list[str]
     preview_message: str | None = None  # Preview of session (last user message, truncated)
+    # user_ids are user-asserted (JWT signature not verified) — attribution only, not authentication.
+    # Distinct user_ids attributed to calls in this session:
+    #   - empty list: no call carried a user_id (TRUST_USER_ID_HEADER off and no JWT) — common default.
+    #   - one element: standard case.
+    #   - multi-element: session reused across users (e.g. shared frontend session_id, rotating JWTs).
+    user_ids: list[str] = Field(default_factory=list)  # X-Luthien-User-Id or JWT sub claim
 
 
 class SessionListResponse(BaseModel):

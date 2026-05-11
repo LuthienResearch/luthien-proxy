@@ -45,6 +45,7 @@ class Settings(_SettingsBase):
     gateway_port: int = DEFAULT_GATEWAY_PORT
     log_level: str = "info"
     verbose_client_errors: bool = False
+    trust_user_id_header: bool = False
 
     # ── auth ────────────────────────────────────────────────────────
     client_api_key: str | None = None
@@ -99,6 +100,14 @@ class Settings(_SettingsBase):
     retention_archive_batch_size: int = 100
     retention_s3_encryption: str = "AES256"
     retention_s3_kms_key_id: str = ""
+
+    # ── webhook ─────────────────────────────────────────────────────
+    webhook_url: str = ""
+    webhook_max_retries: int = 3
+    webhook_retry_delay_seconds: float = 1.0
+    webhook_max_pending_tasks: int = 1000
+    webhook_send_timeout_seconds: float = 10.0
+    webhook_shutdown_drain_seconds: float = 5.0
 
     # ── sentry ──────────────────────────────────────────────────────
     sentry_enabled: bool = False
