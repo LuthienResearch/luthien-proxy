@@ -72,7 +72,8 @@ _run_autofix() {
     # Set the repo-level git identity so commits made by the headless
     # `claude` session below get attributed to the bot, not whoever's
     # global git config the scheduler user inherits. The orchestrator's
-    # own commits (further below) use the same identity via `-c`.
+    # fallback commit (further below) inherits the same identity, so
+    # we don't need to also pass `-c user.email=...` to that `git commit`.
     git config user.email nightly-autofix@users.noreply.github.com
     git config user.name "nightly-autofix"
 
@@ -130,15 +131,16 @@ EOF
     if [[ -z "$(git status --porcelain)" ]] && \
        git diff --quiet "origin/${MAINT_REPO_BRANCH}" -- .; then
         echo "autofix produced no diff"
-        return 1
+        # Distinct sentinel: rc=65 means "no diff", not just "something
+        # in this subshell exited 1". Avoids miscategorizing a git/curl
+        # failure under `set -e` as "no diff" in the status mapping.
+        return 65
     fi
     # Commit anything the session forgot to commit (e.g. created files
     # but never `git add`'d them).
     if [[ -n "$(git status --porcelain)" ]]; then
         git add -A
-        git -c user.email=maint-autofix@users.noreply.github.com \
-            -c user.name="maint-autofix" \
-            commit -m "autofix: capture uncommitted changes from session"
+        git commit -m "autofix: capture uncommitted changes from session"
     fi
 
     # Forbidden-paths gate: refuse to push diffs that touch sensitive
@@ -238,7 +240,7 @@ PY
     local status
     case "${rc}" in
         0) status="opened_pr" ;;
-        1) status="no_diff" ;;
+        65) status="no_diff" ;;
         2) status="forbidden_paths" ;;
         64) status="skip" ;;
         124) status="timeout" ;;

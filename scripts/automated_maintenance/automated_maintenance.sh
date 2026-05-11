@@ -93,17 +93,22 @@ PY
 
 teardown() {
     log "teardown"
-    # Best-effort: tear down any docker compose stack the e2e tier brought up.
-    # `-v --remove-orphans` is destructive — only run it if MAINT_REPO_DIR
-    # is genuinely inside MAINT_STATE_DIR. Otherwise a misconfigured env
-    # pointing the clone at a real dev checkout would nuke that dev stack's
-    # volumes. The compose project name defaults to `basename
-    # "$MAINT_REPO_DIR"` so we'd otherwise hit any project sharing that
-    # basename.
-    if [[ "${MAINT_REPO_DIR}" == "${MAINT_STATE_DIR}/"* ]] && \
-       [[ -f "${MAINT_REPO_DIR}/docker-compose.yaml" ]] && \
-       command -v docker >/dev/null 2>&1; then
-        ( cd "${MAINT_REPO_DIR}" && docker compose down -v --remove-orphans ) >/dev/null 2>&1 || true
+    # In `--once` (debug) mode we leave the docker stack alone — the
+    # whole point is to iterate without losing state between runs.
+    # MAINT_ONCE is set in the --once branch below.
+    if [[ "${MAINT_ONCE:-0}" != "1" ]]; then
+        # Best-effort: tear down any docker compose stack the e2e tier
+        # brought up. `-v --remove-orphans` is destructive — only run it
+        # if MAINT_REPO_DIR is genuinely inside MAINT_STATE_DIR.
+        # Otherwise a misconfigured env pointing the clone at a real
+        # dev checkout would nuke that dev stack's volumes. The compose
+        # project name defaults to `basename "$MAINT_REPO_DIR"` so we'd
+        # otherwise hit any project sharing that basename.
+        if [[ "${MAINT_REPO_DIR}" == "${MAINT_STATE_DIR}/"* ]] && \
+           [[ -f "${MAINT_REPO_DIR}/docker-compose.yaml" ]] && \
+           command -v docker >/dev/null 2>&1; then
+            ( cd "${MAINT_REPO_DIR}" && docker compose down -v --remove-orphans ) >/dev/null 2>&1 || true
+        fi
     fi
     # Release the concurrency lock if we acquired one.
     if [[ -n "${MAINT_LOCK:-}" ]]; then
@@ -242,6 +247,8 @@ main() {
 # Acquires the same lock as `main()` so it can't race with a scheduled
 # run (the scheduled run would `reset --hard` the clone mid-iteration).
 if [[ "${1:-}" == "--once" ]]; then
+    MAINT_ONCE=1
+    export MAINT_ONCE
     trap teardown EXIT
     check_prereqs
     mkdir -p "${MAINT_RUNS_DIR}" "${MAINT_PUBLIC_DIR}"

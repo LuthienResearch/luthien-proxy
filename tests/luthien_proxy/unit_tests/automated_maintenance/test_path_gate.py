@@ -36,6 +36,12 @@ _spec.loader.exec_module(path_gate)
         "tests/fixtures/foo.env",
         "src/sample.env",
         "config/prod.env",
+        # `.env.bak` (sed -i.bak output) — bare and prefixed forms.
+        ".env.bak",
+        ".env.backup",
+        "foo.env.bak",
+        "config/secrets.env.bak",
+        "config/secrets.env.backup",
         # Migrations at any depth.
         "migrations/001_init.sql",
         "migrations/postgres/042_users.sql",

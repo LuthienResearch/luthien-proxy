@@ -13,7 +13,8 @@ piece; everything else is plain bash + python3.
 On each scheduled run, the job:
 
 1. Pulls the latest `main` into a dedicated state-dir clone.
-2. Runs `scripts/dev_checks.sh` (lint + unit tests + type check).
+2. Runs `scripts/dev_checks.sh` (dependency sync + shellcheck + ruff
+   format/lint + pyright + unit tests + radon complexity report).
 3. Runs the configured e2e tiers — `MAINT_CHECKS` default is
    `dev_checks,e2e_sqlite,e2e_mock,doc_drift` (no `e2e_real`, since
    that one needs `ANTHROPIC_API_KEY` and costs money on every run).
@@ -157,6 +158,25 @@ list. Highlights:
 Available checks: `dev_checks`, `e2e_sqlite`, `e2e_mock`, `e2e_real`, `doc_drift`.
 
 ## Operating
+
+### Where the runner lives
+
+`deploy/install.sh` points the scheduler unit at the
+`automated_maintenance.sh` path it was invoked from — typically your dev
+checkout. The scheduler then runs *that file* every night. The state-dir
+clone isolates the **target** of the checks (we clone-and-reset it on
+every run), but the **runner** is still your dev checkout.
+
+What this means in practice:
+
+- Edits to `scripts/automated_maintenance/**` in your dev checkout take
+  effect on the next scheduled fire. Good for iteration, but be aware.
+- `git checkout other-branch` in the dev checkout silently changes what
+  the scheduled job runs. If you want stable runner behavior, copy
+  `scripts/automated_maintenance/` to `~/.luthien/runner/` and rerun
+  `deploy/install.sh` with `MAINT_SH=~/.luthien/runner/automated_maintenance.sh`
+  (not currently supported out of the box; manual edit of the rendered
+  unit file works).
 
 ### Run a single check (debugging)
 

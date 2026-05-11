@@ -34,11 +34,14 @@ import sys
 # no leading `/`). Each pattern is tested with `re.search`, so wrap with
 # `^...$` if you mean exact match.
 _FORBIDDEN_PATTERNS: tuple[re.Pattern[str], ...] = (
-    # Any `.env*` file (`.env`, `.envrc`, `.env.local`, `foo.env`, etc.).
-    # Matches: bare `.env`, `.env.<anything>`, `.envrc`, or `<name>.env`
-    # at any directory depth.
+    # Any `.env*` artefact: bare `.env`, `.envrc`, any `.env.<suffix>`
+    # (including `.env.local`, `.env.example`, `.env.bak`), and any
+    # filename ending in `.env` or containing `.env.` anywhere
+    # (`foo.env`, `foo.env.bak`, `config/secrets.env.backup`, etc.).
+    # The `.env.bak` variant is the conventional `sed -i.bak` output,
+    # which an autofix session could otherwise smuggle past the gate.
     re.compile(r"(^|/)\.env($|\.|rc$)"),
-    re.compile(r"(^|/)[^/]+\.env$"),
+    re.compile(r"(^|/)[^/]+\.env($|\.)"),
     # Migrations: any file under a top-level or nested `migrations/` dir.
     re.compile(r"(^|/)migrations/"),
     # The pipeline itself.
