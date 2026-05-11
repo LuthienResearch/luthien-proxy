@@ -63,7 +63,14 @@ export MAINT_RUN_RETENTION MAINT_WEBHOOK_URL
 # Helpers ---------------------------------------------------------------
 
 # Cross-platform timeout: macOS lacks `timeout` by default; gtimeout via
-# coreutils provides it. Fall through to no-timeout if neither is present.
+# coreutils provides it. A scheduled job MUST have a timeout — otherwise
+# a hung check could hold the lock and block every subsequent fire.
+# `check_prereqs` in automated_maintenance.sh calls maint_have_timeout
+# at startup so a misconfigured install fails loudly, not silently wedged.
+maint_have_timeout() {
+    command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1
+}
+
 maint_timeout() {
     local secs="$1"; shift
     if [[ "${secs}" -eq 0 ]]; then
@@ -75,8 +82,8 @@ maint_timeout() {
     elif command -v gtimeout >/dev/null 2>&1; then
         gtimeout "${secs}" "$@"
     else
-        echo "[maint] WARN: no timeout binary; running without limit" >&2
-        "$@"
+        echo "[maint] FATAL: no timeout binary (expected one of: timeout, gtimeout)" >&2
+        exit 2
     fi
 }
 

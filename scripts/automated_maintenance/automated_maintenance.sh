@@ -32,6 +32,14 @@ check_prereqs() {
         log "FATAL: missing required binaries: ${missing[*]}"
         exit 2
     fi
+    # Fail loudly at startup, not mid-run: a scheduled job without a
+    # working `timeout` would silently run unbounded and risk wedging
+    # the lock indefinitely.
+    if ! maint_have_timeout; then
+        log "FATAL: no timeout binary on PATH (need one of: timeout, gtimeout)"
+        log "       macOS: brew install coreutils  |  Linux: usually preinstalled"
+        exit 2
+    fi
 }
 
 #
@@ -76,6 +84,24 @@ ensure_repo() {
             while IFS= read -r br; do
                 [[ -n "${br}" ]] && git -C "${MAINT_REPO_DIR}" branch -D "${br}" >/dev/null
             done <<< "${stale_branches}"
+        fi
+        # Delete remote autofix branches whose PRs are closed or merged.
+        # We never delete branches with open PRs (the operator may still
+        # be reviewing them). Requires `gh` to be authenticated; silent
+        # no-op otherwise so a missing `gh` doesn't break ensure_repo.
+        if command -v gh >/dev/null 2>&1; then
+            local closed_branches
+            closed_branches="$(gh pr list \
+                --state closed \
+                --search "head:${AUTOFIX_BRANCH_PREFIX}/" \
+                --json headRefName \
+                --jq '.[].headRefName' 2>/dev/null || true)"
+            if [[ -n "${closed_branches}" ]]; then
+                while IFS= read -r br; do
+                    [[ -n "${br}" ]] && \
+                        git -C "${MAINT_REPO_DIR}" push origin --delete "${br}" >/dev/null 2>&1 || true
+                done <<< "${closed_branches}"
+            fi
         fi
     fi
     # Record the SHA we're testing.

@@ -263,9 +263,21 @@ def main() -> None:
     prune(runs_dir, args.retention)
     runs = load_runs(runs_dir)
 
+    # Render index + per-run pages.
     (public_dir / "index.html").write_text(render_index(runs))
+    public_runs_dir = public_dir / "runs"
+    kept_pages: set[str] = set()
     for r in runs:
-        (public_dir / "runs" / f"{r.get('run_id', 'unknown')}.html").write_text(render_run(r))
+        page_name = f"{r.get('run_id', 'unknown')}.html"
+        kept_pages.add(page_name)
+        (public_runs_dir / page_name).write_text(render_run(r))
+
+    # Sweep orphan per-run pages whose source run dirs were pruned. The
+    # `runs_dir` prune step doesn't reach into `public_dir/runs/`, so
+    # without this, every page ever rendered piles up here forever.
+    for page in public_runs_dir.iterdir():
+        if page.is_file() and page.suffix == ".html" and page.name not in kept_pages:
+            page.unlink()
 
 
 if __name__ == "__main__":

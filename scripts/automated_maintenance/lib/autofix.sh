@@ -201,10 +201,18 @@ See \`autofix_summary.md\` and \`autofix_session.log\` in
 *Posted by automated autofix*
 EOF
 )"
-    local pr_url
+    # If `gh pr create` fails (rate limit, auth, transient error), the
+    # branch we just pushed has no PR pointing at it. Clean up the
+    # remote ref so we don't accumulate orphans.
+    local pr_url pr_rc=0
     pr_url="$(gh pr create --draft --base "${MAINT_REPO_BRANCH}" \
         --title "maint-fix: ${MAINT_RUN_ID}" \
-        --body "${pr_body}")"
+        --body "${pr_body}")" || pr_rc=$?
+    if [[ ${pr_rc} -ne 0 ]]; then
+        echo "gh pr create failed (rc=${pr_rc}) — deleting orphan remote branch"
+        git push origin --delete "${branch}" >/dev/null 2>&1 || true
+        return "${pr_rc}"
+    fi
     echo "${pr_url}" > "${MAINT_RUN_DIR}/autofix_pr_url.txt"
     echo "opened: ${pr_url}"
     return 0

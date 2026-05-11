@@ -200,6 +200,41 @@ def test_fmt_dt_handles_missing_and_invalid():
 
 
 @pytest.mark.timeout(5)
+def test_main_prunes_orphan_per_run_pages(tmp_path, monkeypatch):
+    """`prune` removes old run dirs from disk; `main` must also delete
+    the corresponding `public_dir/runs/<id>.html` files so they don't
+    accumulate forever.
+    """
+    runs_dir = tmp_path / "runs"
+    public_dir = tmp_path / "public"
+    (public_dir / "runs").mkdir(parents=True)
+    # Seed an orphan page that has no backing run dir.
+    orphan = public_dir / "runs" / "2024-01-01-080000.html"
+    orphan.write_text("<html>old</html>")
+    # And a current run.
+    run = _write_run(runs_dir, "2026-05-09-080000")
+    (run / "x.log").write_text("ok")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "dashboard.py",
+            "--runs-dir",
+            str(runs_dir),
+            "--public-dir",
+            str(public_dir),
+            "--retention",
+            "10",
+        ],
+    )
+    dashboard.main()
+
+    assert not orphan.exists(), "orphan per-run page should be swept"
+    assert (public_dir / "runs" / "2026-05-09-080000.html").exists()
+
+
+@pytest.mark.timeout(5)
 def test_main_writes_index_and_per_run_pages(tmp_path, monkeypatch):
     runs_dir = tmp_path / "runs"
     public_dir = tmp_path / "public"
