@@ -45,6 +45,8 @@ from luthien_proxy.pipeline.upstream_headers import validate_upstream_headers_at
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.rate_limit import TokenBucketRateLimiter
 from luthien_proxy.request_log import router as request_log_router
+from luthien_proxy.retention.archiver import S3ConversationArchiver
+from luthien_proxy.retention.purger import ConversationPurger
 from luthien_proxy.session import login_page_router
 from luthien_proxy.session import router as session_router
 from luthien_proxy.settings import Settings, clear_settings_cache, get_settings
@@ -307,6 +309,44 @@ def create_app(
         else:
             logger.info("Rate limiting disabled (RATE_LIMIT_RPM=0)")
 
+        _purger: ConversationPurger | None = None
+        _retention_days = settings.conversation_retention_days
+        if _retention_days is not None and _retention_days > 0:
+            _s3_bucket = settings.archive_s3_bucket
+            _archiver: S3ConversationArchiver | None = None
+            if _s3_bucket:
+                _s3_prefix = settings.archive_s3_prefix
+                _archiver = S3ConversationArchiver(
+                    bucket=_s3_bucket,
+                    prefix=_s3_prefix,
+                    batch_size=settings.retention_archive_batch_size,
+                    encryption_mode=settings.retention_s3_encryption,
+                    kms_key_id=settings.retention_s3_kms_key_id,
+                )
+                logger.info(
+                    "Conversation archival enabled: s3://%s/%s (encryption=%s)",
+                    _s3_bucket,
+                    _s3_prefix,
+                    settings.retention_s3_encryption,
+                )
+                if settings.retention_s3_encryption == "bucket-default":
+                    logger.warning(
+                        "RETENTION_S3_ENCRYPTION=bucket-default — archives rely on the bucket's "
+                        "default encryption policy. Verify s3://%s has a default encryption "
+                        "configuration; otherwise objects will be written unencrypted.",
+                        _s3_bucket,
+                    )
+            _purger = ConversationPurger(db_pool=db_pool, retention_days=_retention_days, archiver=_archiver)
+            _purger.start()
+        else:
+            if settings.archive_s3_bucket:
+                logger.warning(
+                    "ARCHIVE_S3_BUCKET=%s is set but CONVERSATION_RETENTION_DAYS is not — "
+                    "no archival will run. Set CONVERSATION_RETENTION_DAYS to enable.",
+                    settings.archive_s3_bucket,
+                )
+            logger.info("Conversation retention disabled (CONVERSATION_RETENTION_DAYS not set)")
+
         # Initialize webhook sender
         _webhook_url = settings.webhook_url or None
         _webhook_sender = WebhookSender(
@@ -357,6 +397,8 @@ def create_app(
         # before request handling has fully drained, fire_and_forget calls
         # could land against an already-closed httpx client.
         await _webhook_sender.stop()
+        if _purger is not None:
+            await _purger.stop()
         if _telemetry_sender is not None:
             await _telemetry_sender.stop()
         await _inference_provider_registry.close()

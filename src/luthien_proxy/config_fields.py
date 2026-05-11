@@ -249,6 +249,49 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         category="telemetry",
     ),
 
+    # ── retention ─────────────────────────────────────────────────────────
+    ConfigFieldMeta(
+        "conversation_retention_days", "CONVERSATION_RETENTION_DAYS", int, None,
+        "Delete conversation_calls older than this many days. "
+        "Unset (None), 0, or any non-positive value disables the purger entirely. "
+        "There is no 'purge everything immediately' shortcut — set a small positive "
+        "value (e.g. 1) and wait for the scheduled run if you want fast cleanup.",
+        category="retention",
+    ),
+    ConfigFieldMeta(
+        "archive_s3_bucket", "ARCHIVE_S3_BUCKET", str, None,
+        "S3 bucket for archiving conversations before purge (None = no archival)",
+        category="retention",
+    ),
+    ConfigFieldMeta(
+        "archive_s3_prefix", "ARCHIVE_S3_PREFIX", str, "luthien-archive/",
+        "S3 key prefix for archived conversation JSONL files",
+        category="retention",
+    ),
+    ConfigFieldMeta(
+        "retention_archive_batch_size", "RETENTION_ARCHIVE_BATCH_SIZE", int, 100,
+        "Calls processed per archive-then-delete batch (only used when "
+        "ARCHIVE_S3_BUCKET is set; the no-archive path uses an internal "
+        "DELETE-chunk size). Each call's events, policy_events, and "
+        "judge_decisions are fetched together — judge decisions in "
+        "particular hold large JSONB blobs (judge_prompt, stream_chunks), "
+        "so 100 keeps a single batch under typical memory limits even with "
+        "rich payloads",
+        category="retention",
+    ),
+    ConfigFieldMeta(
+        "retention_s3_encryption", "RETENTION_S3_ENCRYPTION", str, "AES256",
+        "S3 server-side encryption: AES256, aws:kms, or 'bucket-default' to omit "
+        "the SSE header and let bucket policy apply (use this if your bucket "
+        "policy mandates a specific encryption mode that conflicts with AES256)",
+        category="retention",
+    ),
+    ConfigFieldMeta(
+        "retention_s3_kms_key_id", "RETENTION_S3_KMS_KEY_ID", str, "",
+        "KMS key ID for aws:kms encryption (required when RETENTION_S3_ENCRYPTION=aws:kms)",
+        category="retention",
+    ),
+
     # ── webhook ───────────────────────────────────────────────────────────
     # NOTE: webhook_url is intentionally NOT db_settable=True (defaults to False).
     # sensitive=True only affects how the value is masked in logs/dashboards,
@@ -327,6 +370,7 @@ CONFIG_CATEGORIES: tuple[str, ...] = (
     "security",
     "observability",
     "telemetry",
+    "retention",
     "webhook",
     "sentry",
 )

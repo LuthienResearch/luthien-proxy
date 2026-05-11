@@ -93,6 +93,14 @@ class Settings(_SettingsBase):
     usage_telemetry: bool | None = None
     telemetry_endpoint: str = "https://telemetry.luthien.cc/v1/events"
 
+    # ── retention ───────────────────────────────────────────────────
+    conversation_retention_days: int | None = None
+    archive_s3_bucket: str | None = None
+    archive_s3_prefix: str = "luthien-archive/"
+    retention_archive_batch_size: int = 100
+    retention_s3_encryption: str = "AES256"
+    retention_s3_kms_key_id: str = ""
+
     # ── webhook ─────────────────────────────────────────────────────
     webhook_url: str = ""
     webhook_max_retries: int = 3
