@@ -1,25 +1,24 @@
 """E2E tests for Anthropic passthrough authentication.
 
-Tests the passthrough authentication feature in three modes:
+Covers two passthrough paths:
 
 1. **x-anthropic-api-key header** (works in any auth_mode):
-   Client passes their Anthropic key via x-anthropic-api-key header while
-   authenticating to the proxy with CLIENT_API_KEY via Authorization header.
+   Client authenticates to the proxy with CLIENT_API_KEY via Authorization,
+   and forwards an Anthropic API key for upstream calls via x-anthropic-api-key.
 
-2. **Auth mode passthrough** (requires AUTH_MODE=both or AUTH_MODE=passthrough):
-   Client authenticates directly with their Anthropic key as the Bearer token.
-   The proxy validates it via the free count_tokens endpoint and uses it for
-   upstream API calls.
+2. **OAuth passthrough via Claude Code** (requires AUTH_MODE=both or passthrough):
+   Claude Code uses its OAuth credentials as the Bearer token. The proxy
+   validates them and uses them for upstream Anthropic calls.
 
-3. **OAuth passthrough via Claude Code** (requires AUTH_MODE=both):
-   Claude Code uses its OAuth credentials to authenticate through the proxy
-   without ANTHROPIC_API_KEY being set. The proxy validates the OAuth token
-   and uses it for upstream Anthropic calls.
+Direct API-key-as-Bearer tests are deliberately *not* covered here: Anthropic
+only accepts API keys via x-api-key, and Bearer tokens are reserved for OAuth
+credentials whose automated use Anthropic forbids. The OAuth path is therefore
+exercised only via Claude Code, never via raw HTTP calls from this suite.
 
 Prerequisites:
 - Gateway must be running (docker compose up)
 - ANTHROPIC_API_KEY env var for header passthrough tests
-- AUTH_MODE=both for passthrough mode and OAuth tests
+- AUTH_MODE=both (or passthrough) on the gateway for the Claude Code OAuth test
 - Claude CLI installed + logged in via OAuth for Claude Code tests
 """
 
@@ -62,11 +61,17 @@ async def gateway_passthrough_mode(http_client, gateway_healthy, gateway_url, ad
         f"{gateway_url}/api/admin/auth/config",
         headers={"Authorization": f"Bearer {admin_api_key}"},
     )
-    if response.status_code != 200:
-        pytest.skip(f"Could not read auth config from admin API: {response.status_code}")
+    # Surface server-side regressions; only treat genuine auth/availability
+    # responses as skip-worthy prereq misses.
+    if response.status_code >= 500:
+        response.raise_for_status()
+    if response.status_code in (401, 403, 404):
+        pytest.skip(f"Admin auth config not accessible: HTTP {response.status_code}")
+    assert response.status_code == 200, f"Unexpected status reading admin auth config: {response.status_code}"
     mode = response.json().get("auth_mode")
     if mode not in ("both", "passthrough"):
         pytest.skip(f"Gateway auth_mode={mode!r}; passthrough tests require 'both' or 'passthrough'")
+    yield
 
 
 # === x-anthropic-api-key header passthrough (works in any auth_mode) ===
