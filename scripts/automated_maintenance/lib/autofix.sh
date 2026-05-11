@@ -141,14 +141,25 @@ EOF
     local changed_paths
     mapfile -t changed_paths < <(git diff --name-only "origin/${MAINT_REPO_BRANCH}"...HEAD)
     if [[ ${#changed_paths[@]} -gt 0 ]]; then
-        local gate_out
-        gate_out="$(python3 "${MAINT_DIR}/lib/path_gate.py" "${changed_paths[@]}")"
-        local gate_rc=$?
-        if [[ ${gate_rc} -eq 2 ]]; then
-            echo "autofix touched forbidden paths — refusing to push:"
-            while IFS= read -r line; do echo "  ${line}"; done <<< "${gate_out}"
-            return 2
-        fi
+        local gate_out gate_rc=0
+        gate_out="$(python3 "${MAINT_DIR}/lib/path_gate.py" "${changed_paths[@]}")" || gate_rc=$?
+        case "${gate_rc}" in
+            0)
+                ;;  # all paths safe
+            2)
+                echo "autofix touched forbidden paths — refusing to push:"
+                while IFS= read -r line; do echo "  ${line}"; done <<< "${gate_out}"
+                return 2
+                ;;
+            *)
+                # Fail-closed on any unexpected non-zero (python crash,
+                # unicode error, missing helper). We'd rather refuse to
+                # push than push something we couldn't classify.
+                echo "path_gate.py exited unexpectedly (rc=${gate_rc}) — refusing to push:"
+                echo "${gate_out}"
+                return 2
+                ;;
+        esac
     fi
 
     # Push and open a draft PR.

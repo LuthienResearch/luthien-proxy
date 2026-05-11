@@ -164,20 +164,11 @@ run_one_check() {
     esac
 }
 
-main() {
-    trap teardown EXIT
-    check_prereqs
-    mkdir -p "${MAINT_RUNS_DIR}" "${MAINT_PUBLIC_DIR}"
-
-    # Concurrency guard: refuse to start if another maintenance run is in flight.
-    # Two simultaneous runs would race on `git fetch && reset --hard && clean`
-    # inside MAINT_REPO_DIR. Lock via `mkdir` (atomic on POSIX); cleaned up
-    # in `teardown`.
-    #
-    # Stale-lock recovery: write our PID into lock/pid. If acquisition
-    # fails, check whether the recorded PID is still alive. If not, the
-    # previous run was killed (reboot, OOM, SIGKILL) — reclaim the lock
-    # rather than blocking indefinitely.
+# Acquire the concurrency lock. Refuses to start if another maintenance run
+# is in flight; reclaims the lock if the recorded PID is no longer alive
+# (crashed run, reboot, OOM, SIGKILL).
+acquire_lock() {
+    mkdir -p "${MAINT_STATE_DIR}"
     local lock="${MAINT_STATE_DIR}/.lock"
     local pid_file="${lock}/pid"
     if ! mkdir "${lock}" 2>/dev/null; then
@@ -191,9 +182,20 @@ main() {
         rm -rf "${lock}"
         mkdir "${lock}" || { log "FATAL: could not acquire lock"; exit 4; }
     fi
-    echo "$$" > "${pid_file}"
+    # Set MAINT_LOCK *before* writing the pid file so a write failure
+    # (ENOSPC, permissions) still allows teardown to clean up the dir.
     MAINT_LOCK="${lock}"
-    export MAINT_LOCK
+    echo "$$" > "${pid_file}"
+}
+
+main() {
+    trap teardown EXIT
+    check_prereqs
+    mkdir -p "${MAINT_RUNS_DIR}" "${MAINT_PUBLIC_DIR}"
+
+    # Two simultaneous runs would race on `git fetch && reset --hard
+    # && clean` inside MAINT_REPO_DIR; cleaned up in `teardown`.
+    acquire_lock
 
     rotate_scheduler_logs
     maint_start_run
@@ -225,8 +227,13 @@ main() {
 # --once mode: run a single check against the existing clone, skip the
 # autofix/dashboard pipeline. Used for debugging — local edits in the
 # state-dir clone are preserved between invocations so you can iterate.
+# Acquires the same lock as `main()` so it can't race with a scheduled
+# run (the scheduled run would `reset --hard` the clone mid-iteration).
 if [[ "${1:-}" == "--once" ]]; then
+    trap teardown EXIT
     check_prereqs
+    mkdir -p "${MAINT_RUNS_DIR}" "${MAINT_PUBLIC_DIR}"
+    acquire_lock
     # Tag the run ID with `-once` so the dashboard can distinguish a
     # debug run (single check, no autofix) from a real scheduled run.
     maint_start_run once

@@ -14,8 +14,11 @@ On each scheduled run, the job:
 
 1. Pulls the latest `main` into a dedicated state-dir clone.
 2. Runs `scripts/dev_checks.sh` (lint + unit tests + type check).
-3. Runs `scripts/run_e2e.sh sqlite`, `mock`, and (if `ANTHROPIC_API_KEY` is
-   set) `real`.
+3. Runs the configured e2e tiers — `MAINT_CHECKS` default is
+   `dev_checks,e2e_sqlite,e2e_mock,doc_drift` (no `e2e_real`, since
+   that one needs `ANTHROPIC_API_KEY` and costs money on every run).
+   Add `e2e_real` to `MAINT_CHECKS` in `automated_maintenance.env` to
+   include it.
 4. Runs a doc-drift sweep via headless `claude` — finds stale references
    in markdown/config relative to current code.
 5. If anything failed and `AUTOFIX_ENABLED=true`, spawns a headless
@@ -214,6 +217,14 @@ Risks, in order:
 3. **Third-order**: an autofix session that times out leaves a partial
    branch. The next run wipes the state-dir clone and starts fresh, so
    this self-heals.
+
+**On account scope**: `gh pr create` runs as whatever account `gh` is
+logged in as. If you enable autofix on a workstation, autofix PRs will
+be authored by your personal account, and the session can `gh` against
+any repo you can write to (not just luthien-proxy). For shared/CI
+deployments, set this up under a dedicated machine user with a scoped
+GitHub token (`repo` for the luthien-proxy org only), not your personal
+account.
 
 If you don't want any of this, leave `AUTOFIX_ENABLED=false`. The dashboard
 will still show what failed; you fix it manually.

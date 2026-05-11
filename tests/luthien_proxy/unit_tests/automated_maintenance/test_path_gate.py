@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-from pathlib import Path
 
 import pytest
 
-_PATH_GATE_PATH = Path(__file__).resolve().parents[4] / "scripts" / "automated_maintenance" / "lib" / "path_gate.py"
+from tests.luthien_proxy.unit_tests.automated_maintenance.conftest import (
+    AUTOMATED_MAINTENANCE_LIB,
+)
+
+_PATH_GATE_PATH = AUTOMATED_MAINTENANCE_LIB / "path_gate.py"
 _spec = importlib.util.spec_from_file_location("maint_path_gate", _PATH_GATE_PATH)
 assert _spec is not None and _spec.loader is not None
 path_gate = importlib.util.module_from_spec(_spec)

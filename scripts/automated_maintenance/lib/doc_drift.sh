@@ -54,16 +54,18 @@ No drift detected.
 EOF
 )"
 
-    # Headless --print: one-shot, no session saved. Read-only tool surface;
-    # Claude can grep but can't edit, since we forbid Edit/Write.
+    # Headless --print: one-shot, no session saved. Strictly read-only —
+    # no Bash, no Edit/Write/NotebookEdit. The `Grep` tool covers what
+    # the prompt actually asks for; allowing shell would let a
+    # misbehaving session run `curl`, `rm`, or `git push` and still
+    # report "no drift" through the output channel.
     # Prompt is piped via stdin; passing it as a positional arg gets eaten by
     # the variadic --allowedTools flag.
     printf '%s' "${prompt}" | maint_timeout "${MAINT_TIMEOUT_DOC_DRIFT}" \
         claude --print \
             --no-session-persistence \
             --permission-mode bypassPermissions \
-            --disallowedTools "Edit Write NotebookEdit" \
-            --allowedTools "Read Glob Grep Bash" \
+            --allowedTools "Read Glob Grep" \
         > "${MAINT_RUN_DIR}/doc_drift.md"
 
     # Truth signal: absence of finding-headers. The prompt asks for

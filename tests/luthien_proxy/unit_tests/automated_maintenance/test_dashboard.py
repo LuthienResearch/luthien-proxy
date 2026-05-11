@@ -9,8 +9,12 @@ from pathlib import Path
 
 import pytest
 
+from tests.luthien_proxy.unit_tests.automated_maintenance.conftest import (
+    AUTOMATED_MAINTENANCE_LIB,
+)
+
 # The dashboard lives outside the package tree, so import it by file path.
-_DASHBOARD_PATH = Path(__file__).resolve().parents[4] / "scripts" / "automated_maintenance" / "lib" / "dashboard.py"
+_DASHBOARD_PATH = AUTOMATED_MAINTENANCE_LIB / "dashboard.py"
 _spec = importlib.util.spec_from_file_location("maint_dashboard", _DASHBOARD_PATH)
 assert _spec is not None and _spec.loader is not None
 dashboard = importlib.util.module_from_spec(_spec)
