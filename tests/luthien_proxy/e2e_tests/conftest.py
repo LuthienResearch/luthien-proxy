@@ -104,7 +104,7 @@ def mock_anthropic():
     before each test to control what the mock returns.
 
     Port behavior: an unused port is auto-allocated by default so multiple
-    test runs (e.g. parallel CI shards, nightly job alongside dev stack)
+    test runs (e.g. parallel CI shards, maintenance job alongside dev stack)
     don't collide. Override with the MOCK_ANTHROPIC_PORT env var when a
     fixed port is needed (e.g. Docker tests where the gateway's
     ANTHROPIC_BASE_URL is wired up out of band).

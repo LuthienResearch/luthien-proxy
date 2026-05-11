@@ -1,0 +1,25 @@
+[Unit]
+Description=luthien-proxy automated maintenance
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# No `User=`: this is a user-mode unit (installed under ~/.config/systemd/user/),
+# so it already runs as the invoking user. Setting `User=` is at best
+# ignored and at worst emits a warning at unit-load.
+WorkingDirectory=__WORKING_DIR__
+Environment=PATH=__PATH__
+ExecStart=/bin/bash -lc '__MAINT_SH__'
+StandardOutput=append:__LOG_DIR__/maintenance.out.log
+StandardError=append:__LOG_DIR__/maintenance.err.log
+# Worst case: dev_checks (30m) + 3 e2e tiers (1h each) + doc_drift (15m)
+# + autofix (30m) ≈ 4h15m. Headroom for slow CI.
+TimeoutStartSec=6h
+
+[Install]
+# User units use `default.target`; the system equivalent (`multi-user.target`)
+# is silently ignored by `systemctl --user enable`. The timer is what
+# activates this, so the [Install] symlink is mostly redundant, but keeping
+# it correct avoids confusion if someone enables the service directly.
+WantedBy=default.target
