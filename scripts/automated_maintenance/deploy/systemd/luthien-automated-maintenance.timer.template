@@ -1,5 +1,5 @@
 [Unit]
-Description=Nightly run of luthien-proxy maintenance
+Description=Scheduled run of luthien-proxy automated maintenance
 
 [Timer]
 OnCalendar=__ONCALENDAR__

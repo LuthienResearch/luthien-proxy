@@ -2,7 +2,7 @@
 category: Features
 ---
 
-**Nightly maintenance pipeline (`scripts/nightly/`)**: portable scheduled
+**Automated maintenance pipeline (`scripts/automated_maintenance/`)**: portable scheduled
 maintenance for luthien-proxy that runs the check suite, sweeps for doc
 drift, optionally autofixes failures, and publishes a static dashboard.
 
@@ -11,4 +11,4 @@ drift, optionally autofixes failures, and publishes a static dashboard.
   - Headless `claude` integration for doc-drift detection and autonomous
     fix attempts; autofix is opt-in and capped by `AUTOFIX_MAX_BUDGET_USD`.
   - Static HTML dashboard generated per run; point any web server at
-    `$NIGHTLY_PUBLIC_DIR`.
+    `$MAINT_PUBLIC_DIR`.

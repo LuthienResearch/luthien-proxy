@@ -1,4 +1,4 @@
-# Nightly maintenance
+# Automated maintenance
 
 Scheduled, autonomous maintenance for luthien-proxy. Runs the full check
 suite, sweeps for documentation drift, optionally tries to fix what it
@@ -10,7 +10,7 @@ piece; everything else is plain bash + python3.
 
 ## What it runs
 
-By default, every night the job:
+On each scheduled run, the job:
 
 1. Pulls the latest `main` into a dedicated state-dir clone.
 2. Runs `scripts/dev_checks.sh` (lint + unit tests + type check).
@@ -20,7 +20,7 @@ By default, every night the job:
    in markdown/config relative to current code.
 5. If anything failed and `AUTOFIX_ENABLED=true`, spawns a headless
    `claude` session that tries to fix it and opens a draft PR.
-6. Renders/updates a static dashboard at `$NIGHTLY_PUBLIC_DIR/index.html`.
+6. Renders/updates a static dashboard at `$MAINT_PUBLIC_DIR/index.html`.
 7. Tears down any docker compose stack the e2e tier brought up.
 
 A run that finds nothing wrong is silent (apart from the dashboard
@@ -30,9 +30,9 @@ enabled, opens a PR.
 ## Layout
 
 ```
-scripts/nightly/
-├── nightly.sh                     # main entry point
-├── nightly.env.example            # copy → nightly.env
+scripts/automated_maintenance/
+├── automated_maintenance.sh                     # main entry point
+├── automated_maintenance.env.example            # copy → automated_maintenance.env
 ├── lib/
 │   ├── config.sh                  # env loader, defaults
 │   ├── checks.sh                  # dev_checks + e2e tiers
@@ -46,10 +46,10 @@ scripts/nightly/
 ```
 
 State (everything written by the job) lives outside the repo at
-`$NIGHTLY_STATE_DIR` (default `$HOME/.luthien/nightly`):
+`$MAINT_STATE_DIR` (default `$HOME/.luthien/automated_maintenance`):
 
 ```
-$NIGHTLY_STATE_DIR/
+$MAINT_STATE_DIR/
 ├── repo/                          # the clone the job operates on
 ├── runs/<YYYY-MM-DD-HHMM>/        # one dir per run
 │   ├── results.json
@@ -72,18 +72,18 @@ For autofix: `claude` CLI (logged in), `gh` CLI (authenticated).
 ### Setup
 
 ```bash
-cd scripts/nightly
-cp nightly.env.example nightly.env
-$EDITOR nightly.env                 # set repo URL, secrets, autofix flag
+cd scripts/automated_maintenance
+cp automated_maintenance.env.example automated_maintenance.env
+$EDITOR automated_maintenance.env                 # set repo URL, secrets, autofix flag
 ```
 
 Smoke test once before scheduling:
 
 ```bash
-./nightly.sh
+./automated_maintenance.sh
 ```
 
-This will clone the repo to `$NIGHTLY_STATE_DIR/repo`, run all configured
+This will clone the repo to `$MAINT_STATE_DIR/repo`, run all configured
 checks, render the dashboard. First run takes a while (clone + e2e).
 
 ### Schedule
@@ -93,9 +93,9 @@ HOUR=2 MINUTE=30 deploy/install.sh
 ```
 
 - **macOS:** writes a LaunchAgent at
-  `~/Library/LaunchAgents/com.luthien.nightly.plist` and loads it.
+  `~/Library/LaunchAgents/com.luthien.automated_maintenance.plist` and loads it.
 - **Linux:** writes a user systemd unit + timer at
-  `~/.config/systemd/user/luthien-nightly.{service,timer}` and enables it.
+  `~/.config/systemd/user/luthien-automated-maintenance.{service,timer}` and enables it.
   If you're on a server you'll log out from, run
   `sudo loginctl enable-linger $USER` so the timer survives logout.
 
@@ -103,21 +103,21 @@ Verify:
 
 ```bash
 # macOS
-launchctl list | grep com.luthien.nightly
+launchctl list | grep com.luthien.automated_maintenance
 
 # Linux
-systemctl --user list-timers luthien-nightly.timer
+systemctl --user list-timers luthien-automated-maintenance.timer
 ```
 
 ### Serve the dashboard
 
-The job writes static HTML to `$NIGHTLY_PUBLIC_DIR`. Point any web server
+The job writes static HTML to `$MAINT_PUBLIC_DIR`. Point any web server
 at it. Examples:
 
 **Caddy:**
 ```caddyfile
-nightly.example.com {
-    root * /home/user/.luthien/nightly/public
+maintenance.example.com {
+    root * /home/user/.luthien/automated_maintenance/public
     file_server
 }
 ```
@@ -126,30 +126,30 @@ nightly.example.com {
 ```nginx
 server {
     listen 80;
-    server_name nightly.example.com;
-    root /home/user/.luthien/nightly/public;
+    server_name maintenance.example.com;
+    root /home/user/.luthien/automated_maintenance/public;
 }
 ```
 
 **Quick local check:**
 ```bash
-python3 -m http.server -d "$HOME/.luthien/nightly/public" 8080
+python3 -m http.server -d "$HOME/.luthien/automated_maintenance/public" 8080
 ```
 
 ## Configuration
 
-All values live in `nightly.env`. See `nightly.env.example` for the full
+All values live in `automated_maintenance.env`. See `automated_maintenance.env.example` for the full
 list. Highlights:
 
 | Var | Default | Purpose |
 |---|---|---|
-| `NIGHTLY_REPO_URL` | `https://github.com/LuthienResearch/luthien-proxy.git` | Upstream to clone |
-| `NIGHTLY_REPO_BRANCH` | `main` | Branch to track |
-| `NIGHTLY_STATE_DIR` | `$HOME/.luthien/nightly` | Root for state |
-| `NIGHTLY_CHECKS` | `dev_checks,e2e_sqlite,e2e_mock,doc_drift` | Comma-separated checks to run |
-| `NIGHTLY_RUN_RETENTION` | `30` | How many runs to keep on disk + dashboard |
+| `MAINT_REPO_URL` | `https://github.com/LuthienResearch/luthien-proxy.git` | Upstream to clone |
+| `MAINT_REPO_BRANCH` | `main` | Branch to track |
+| `MAINT_STATE_DIR` | `$HOME/.luthien/automated_maintenance` | Root for state |
+| `MAINT_CHECKS` | `dev_checks,e2e_sqlite,e2e_mock,doc_drift` | Comma-separated checks to run |
+| `MAINT_RUN_RETENTION` | `30` | How many runs to keep on disk + dashboard |
 | `AUTOFIX_ENABLED` | `false` | Opt-in autonomous fix attempts |
-| `NIGHTLY_WEBHOOK_URL` | _unset_ | Optional Slack/ntfy/etc. for completion ping |
+| `MAINT_WEBHOOK_URL` | _unset_ | Optional Slack/ntfy/etc. for completion ping |
 
 Available checks: `dev_checks`, `e2e_sqlite`, `e2e_mock`, `e2e_real`, `doc_drift`.
 
@@ -158,32 +158,32 @@ Available checks: `dev_checks`, `e2e_sqlite`, `e2e_mock`, `e2e_real`, `doc_drift
 ### Run a single check (debugging)
 
 ```bash
-./nightly.sh --once doc_drift
+./automated_maintenance.sh --once doc_drift
 ```
 
 ### Inspect a run
 
 ```bash
-ls "$HOME/.luthien/nightly/runs/"
-jq . "$HOME/.luthien/nightly/runs/<id>/results.json"
+ls "$HOME/.luthien/automated_maintenance/runs/"
+jq . "$HOME/.luthien/automated_maintenance/runs/<id>/results.json"
 ```
 
 ### Force re-render the dashboard
 
 ```bash
 python3 lib/dashboard.py \
-    --runs-dir "$HOME/.luthien/nightly/runs" \
-    --public-dir "$HOME/.luthien/nightly/public"
+    --runs-dir "$HOME/.luthien/automated_maintenance/runs" \
+    --public-dir "$HOME/.luthien/automated_maintenance/public"
 ```
 
 ### Disable temporarily
 
 ```bash
 # macOS
-launchctl unload ~/Library/LaunchAgents/com.luthien.nightly.plist
+launchctl unload ~/Library/LaunchAgents/com.luthien.automated_maintenance.plist
 
 # Linux
-systemctl --user disable --now luthien-nightly.timer
+systemctl --user disable --now luthien-automated-maintenance.timer
 ```
 
 ## Autofix safety notes

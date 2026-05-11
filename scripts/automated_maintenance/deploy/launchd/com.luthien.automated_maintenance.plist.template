@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- macOS LaunchAgent for luthien-proxy nightly maintenance.
+<!-- macOS LaunchAgent for luthien-proxy automated maintenance.
      Rendered by deploy/install.sh. Placeholders:
-       __LABEL__         com.luthien.nightly
-       __NIGHTLY_SH__    absolute path to nightly.sh
+       __LABEL__         com.luthien.automated_maintenance
+       __MAINT_SH__    absolute path to automated_maintenance.sh
        __HOUR__          0-23
        __MINUTE__        0-59
        __WORKING_DIR__   absolute path to repo root (for cwd)
@@ -19,7 +19,7 @@
   <array>
     <string>/bin/bash</string>
     <string>-lc</string>
-    <string>__NIGHTLY_SH__</string>
+    <string>__MAINT_SH__</string>
   </array>
   <key>WorkingDirectory</key>
   <string>__WORKING_DIR__</string>
@@ -36,8 +36,8 @@
   <key>RunAtLoad</key>
   <false/>
   <key>StandardOutPath</key>
-  <string>__LOG_DIR__/nightly.out.log</string>
+  <string>__LOG_DIR__/maintenance.out.log</string>
   <key>StandardErrorPath</key>
-  <string>__LOG_DIR__/nightly.err.log</string>
+  <string>__LOG_DIR__/maintenance.err.log</string>
 </dict>
 </plist>

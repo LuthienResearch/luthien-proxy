@@ -1,4 +1,4 @@
-"""Unit tests for the nightly dashboard renderer (`scripts/nightly/lib/dashboard.py`)."""
+"""Unit tests for the maintenance dashboard renderer (`scripts/automated_maintenance/lib/dashboard.py`)."""
 
 from __future__ import annotations
 
@@ -10,11 +10,11 @@ from pathlib import Path
 import pytest
 
 # The dashboard lives outside the package tree, so import it by file path.
-_DASHBOARD_PATH = Path(__file__).resolve().parents[4] / "scripts" / "nightly" / "lib" / "dashboard.py"
-_spec = importlib.util.spec_from_file_location("nightly_dashboard", _DASHBOARD_PATH)
+_DASHBOARD_PATH = Path(__file__).resolve().parents[4] / "scripts" / "automated_maintenance" / "lib" / "dashboard.py"
+_spec = importlib.util.spec_from_file_location("maint_dashboard", _DASHBOARD_PATH)
 assert _spec is not None and _spec.loader is not None
 dashboard = importlib.util.module_from_spec(_spec)
-sys.modules["nightly_dashboard"] = dashboard
+sys.modules["maint_dashboard"] = dashboard
 _spec.loader.exec_module(dashboard)
 
 
@@ -68,7 +68,7 @@ def test_load_runs_on_missing_dir_returns_empty(tmp_path):
 def test_render_index_handles_empty_runs():
     html_out = dashboard.render_index([])
     assert "No runs yet." in html_out
-    assert "luthien-proxy nightly" in html_out
+    assert "luthien-proxy maintenance" in html_out
 
 
 def test_render_index_includes_run_pills_and_links(tmp_path):

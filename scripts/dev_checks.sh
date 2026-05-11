@@ -13,7 +13,7 @@ echo "== Shellcheck (shell scripts) =="
 if command -v shellcheck &>/dev/null; then
     SCRIPT_DIR="$REPO_ROOT/scripts"
     shellcheck_failed=0
-    # Recurse into subdirs (e.g. scripts/nightly/) so nested scripts are linted.
+    # Recurse into subdirs (e.g. scripts/automated_maintenance/) so nested scripts are linted.
     # `-print0` + `read -d ''` handles paths with spaces safely.
     while IFS= read -r -d '' script; do
         rel="${script#"${SCRIPT_DIR}"/}"

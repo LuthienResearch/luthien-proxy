@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render a static HTML dashboard from nightly results.
+"""Render a static HTML dashboard from automated maintenance results.
 
 Reads every results.json under <runs_dir>/<run_id>/ and emits:
   <public_dir>/index.html       — overview, last N runs
@@ -132,10 +132,10 @@ def render_index(runs: list[dict]) -> str:
     return f"""<!doctype html>
 <html><head>
 <meta charset="utf-8">
-<title>luthien-proxy nightly</title>
+<title>luthien-proxy maintenance</title>
 <style>{CSS}</style>
 </head><body>
-<h1>luthien-proxy nightly</h1>
+<h1>luthien-proxy maintenance</h1>
 {last_html}
 <table>
 <thead><tr><th>Run</th><th>Overall</th><th>Checks</th><th>Autofix</th><th>Finished</th></tr></thead>
@@ -195,11 +195,11 @@ def render_run(r: dict) -> str:
     return f"""<!doctype html>
 <html><head>
 <meta charset="utf-8">
-<title>nightly {html.escape(rid)}</title>
+<title>maintenance {html.escape(rid)}</title>
 <style>{CSS}</style>
 </head><body>
 <p><a href="../index.html">← all runs</a></p>
-<h1>nightly {html.escape(rid)} {pill(r.get("overall", "unknown"))}</h1>
+<h1>maintenance {html.escape(rid)} {pill(r.get("overall", "unknown"))}</h1>
 <p class="sub">host {html.escape(r.get("host", "?"))} · started {fmt_dt(r.get("started_at"))}
  · finished {fmt_dt(r.get("finished_at"))}</p>
 {"".join(checks_html)}
