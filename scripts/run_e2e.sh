@@ -239,6 +239,16 @@ if [[ -f "$ENV_FILE" ]]; then
     set +a
 fi
 
+# Ensure the worktree has a .env at its root for the docker tier.
+# docker-compose.yaml uses `env_file: .env` which resolves relative to the
+# compose file's directory (the worktree root), independent of --env-file.
+# Without this, the docker tier silently fails to start the gateway and all
+# real-tier tests skip. Symlink to the main repo's .env when missing.
+if [[ ! -e "$REPO_ROOT/.env" && "$ENV_FILE" != "$REPO_ROOT/.env" && -f "$ENV_FILE" ]]; then
+    info "Linking $REPO_ROOT/.env -> $ENV_FILE (worktree needs .env for docker env_file)"
+    ln -s "$ENV_FILE" "$REPO_ROOT/.env"
+fi
+
 # --- Tier: sqlite ---
 
 run_sqlite() {
@@ -341,6 +351,19 @@ run_real() {
         info "ANTHROPIC_API_KEY not set — judge-policy tests will self-skip; the rest still run."
     fi
 
+    # Ensure gateway-side prerequisites are satisfied so settings-gated tests
+    # don't auto-skip. These are substituted into docker-compose.yaml and
+    # passed to the gateway container.
+    #
+    # DOGFOOD_MODE is intentionally not enabled here: turning it on globally
+    # auto-composes every set_policy() call into a MultiSerialPolicy chain,
+    # which breaks the strict-equality assertions in test_policy_management.
+    # Tests that need DogfoodSafetyPolicy active set it explicitly via
+    # policy_context (see test_policy_composition.py). The lone test that
+    # validates the auto-composition behavior itself (test_dogfood_composes_*)
+    # remains skip-gated on DOGFOOD_MODE.
+    export ENABLE_REQUEST_LOGGING=true
+
     if ! check_docker; then
         echo ""
         fail "╔══════════════════════════════════════════════════════════════╗"
@@ -353,6 +376,10 @@ run_real() {
 
     docker_up docker-compose.yaml
 
+    # The real tier uses the keys from .env (CLIENT_API_KEY/ADMIN_API_KEY).
+    # Clear any E2E_* overrides leaked by an earlier mock tier so the real
+    # gateway's auth is consulted, not the mock gateway's test keys.
+    unset E2E_API_KEY E2E_ADMIN_API_KEY
     export E2E_GATEWAY_URL="http://localhost:${GATEWAY_PORT:-8000}"
 
     info "Running tests..."
