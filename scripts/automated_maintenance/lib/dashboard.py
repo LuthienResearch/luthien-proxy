@@ -75,6 +75,26 @@ def fmt_dt(iso: str | None) -> str:
         return iso
 
 
+_LOG_TAIL_BYTES = 50_000
+
+
+def read_log_tail(path: Path, max_bytes: int = _LOG_TAIL_BYTES) -> str:
+    """Return the last ``max_bytes`` bytes of ``path`` decoded as UTF-8.
+
+    Reads from the end of the file rather than slurping the whole thing
+    into memory. Important for runaway e2e tiers (Docker spew, infinite
+    retry loops) that can leave multi-GB log files — slurp-and-slice
+    would OOM the renderer.
+    """
+    if not path.exists():
+        return ""
+    size = path.stat().st_size
+    with path.open("rb") as f:
+        if size > max_bytes:
+            f.seek(size - max_bytes)
+        return f.read().decode("utf-8", errors="replace")
+
+
 def load_runs(runs_dir: Path) -> list[dict]:
     runs = []
     if not runs_dir.exists():
@@ -153,7 +173,7 @@ def render_run(r: dict) -> str:
         log_path = r["_dir"] / c.get("log", "")
         log_text = ""
         if log_path.exists():
-            log_text = log_path.read_text(errors="replace")[-50_000:]
+            log_text = read_log_tail(log_path)
         report_html = ""
         report_rel = c.get("report")
         if report_rel:
@@ -177,7 +197,7 @@ def render_run(r: dict) -> str:
     af_section = ""
     if autofix:
         af_log = r["_dir"] / "autofix_session.log"
-        af_log_text = af_log.read_text(errors="replace")[-50_000:] if af_log.exists() else ""
+        af_log_text = read_log_tail(af_log)
         af_summary = r["_dir"] / "autofix_summary.md"
         af_summary_text = af_summary.read_text() if af_summary.exists() else ""
         pr = autofix.get("pr_url")
@@ -228,8 +248,11 @@ def main() -> None:
     public_dir.mkdir(parents=True, exist_ok=True)
     (public_dir / "runs").mkdir(exist_ok=True)
 
+    # `prune` already drops directories beyond `retention`, so the
+    # follow-up `load_runs` returns at most that many entries — no
+    # explicit slice needed here.
     prune(runs_dir, args.retention)
-    runs = load_runs(runs_dir)[: args.retention]
+    runs = load_runs(runs_dir)
 
     (public_dir / "index.html").write_text(render_index(runs))
     for r in runs:

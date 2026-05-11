@@ -65,6 +65,18 @@ ensure_repo() {
         git -C "${MAINT_REPO_DIR}" checkout -B "${MAINT_REPO_BRANCH}" "origin/${MAINT_REPO_BRANCH}"
         git -C "${MAINT_REPO_DIR}" reset --hard "origin/${MAINT_REPO_BRANCH}"
         git -C "${MAINT_REPO_DIR}" clean -fdx
+        # Delete local autofix branches from prior runs. They're pushed to
+        # origin and lived only here; without this loop they accumulate
+        # indefinitely (one per failed autofix attempt).
+        local stale_branches
+        stale_branches="$(git -C "${MAINT_REPO_DIR}" for-each-ref \
+            --format='%(refname:short)' \
+            "refs/heads/${AUTOFIX_BRANCH_PREFIX}/" 2>/dev/null || true)"
+        if [[ -n "${stale_branches}" ]]; then
+            while IFS= read -r br; do
+                [[ -n "${br}" ]] && git -C "${MAINT_REPO_DIR}" branch -D "${br}" >/dev/null
+            done <<< "${stale_branches}"
+        fi
     fi
     # Record the SHA we're testing.
     local sha

@@ -69,6 +69,12 @@ _run_autofix() {
     # for `--force-with-lease`.
     local branch="${AUTOFIX_BRANCH_PREFIX}/${MAINT_RUN_ID}"
     git checkout -B "${branch}" "origin/${MAINT_REPO_BRANCH}"
+    # Set the repo-level git identity so commits made by the headless
+    # `claude` session below get attributed to the bot, not whoever's
+    # global git config the scheduler user inherits. The orchestrator's
+    # own commits (further below) use the same identity via `-c`.
+    git config user.email nightly-autofix@users.noreply.github.com
+    git config user.name "nightly-autofix"
 
     local prompt
     prompt="$(cat <<EOF
@@ -138,8 +144,12 @@ EOF
     # Forbidden-paths gate: refuse to push diffs that touch sensitive
     # areas. The prompt asks Claude to avoid these; this is the
     # enforcement. Logic + unit-test matrix in path_gate.py.
-    local changed_paths
-    mapfile -t changed_paths < <(git diff --name-only "origin/${MAINT_REPO_BRANCH}"...HEAD)
+    # Read changed paths into an array. `mapfile` would be cleaner but
+    # macOS ships bash 3.2 which lacks it; this loop is portable.
+    local changed_paths=()
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] && changed_paths+=("${line}")
+    done < <(git diff --name-only "origin/${MAINT_REPO_BRANCH}"...HEAD)
     if [[ ${#changed_paths[@]} -gt 0 ]]; then
         local gate_out gate_rc=0
         gate_out="$(python3 "${MAINT_DIR}/lib/path_gate.py" "${changed_paths[@]}")" || gate_rc=$?

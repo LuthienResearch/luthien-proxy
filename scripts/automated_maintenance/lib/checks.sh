@@ -54,11 +54,14 @@ _run_e2e_mock() {
     maint_timeout "${MAINT_TIMEOUT_E2E}" ./scripts/run_e2e.sh mock --fresh --no-log
 }
 
+# NOTE: do NOT route this via `maint_run_check` — the rc=64 "skip"
+# convention is only translated by the dedicated `maint_run_e2e_real`
+# wrapper below. The generic dispatcher would record rc=64 as a fail.
 _run_e2e_real() {
     cd "${MAINT_REPO_DIR}"
     if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
         echo "ANTHROPIC_API_KEY unset — skipping e2e_real"
-        return 64  # caller maps non-zero, but we want "skip" — handled below
+        return 64
     fi
     maint_timeout "${MAINT_TIMEOUT_E2E}" ./scripts/run_e2e.sh real --fresh --no-log
 }
