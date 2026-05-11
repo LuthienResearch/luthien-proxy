@@ -11,7 +11,6 @@ def test_default_port_is_auto_allocated():
     """Constructing without an explicit port allocates a free OS port."""
     server = MockAnthropicServer()
     assert server.port > 0
-    assert server.port != 18888  # the old fixed default
 
     # Verify the chosen port is actually bindable.
     with socket.socket() as s:
@@ -37,10 +36,30 @@ def test_port_zero_means_auto_allocate():
 
 
 def test_two_servers_get_distinct_ports():
-    """Independent default-constructed servers do not collide."""
+    """Independent default-constructed servers do not collide on a port."""
     a = MockAnthropicServer()
     b = MockAnthropicServer()
     assert a.port != b.port
+
+
+def test_two_started_servers_coexist():
+    """Regression for the original bug: two running mocks on one machine.
+
+    Before auto-allocation, default-port servers fought over 18888 and
+    the second `start()` raised ``OSError: [Errno 48] address already
+    in use`` mid-suite.
+    """
+    a = MockAnthropicServer()
+    b = MockAnthropicServer()
+    a.start()
+    try:
+        b.start()
+        try:
+            assert a.port != b.port
+        finally:
+            b.stop()
+    finally:
+        a.stop()
 
 
 def test_base_url_reflects_chosen_port():

@@ -25,6 +25,7 @@ import asyncio
 import json
 import logging
 import queue
+import socket
 import threading
 import uuid
 
@@ -47,8 +48,6 @@ def _allocate_free_port() -> int:
     """Ask the OS for an unused TCP port. Theoretical race with another
     process between allocation and bind, but acceptable for tests.
     """
-    import socket
-
     with socket.socket() as s:
         s.bind(("", 0))
         return s.getsockname()[1]
