@@ -4,7 +4,21 @@ from __future__ import annotations
 
 import socket
 
+import pytest
+
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
+
+
+@pytest.fixture(autouse=True)
+def _block_network_sockets():
+    """Override the unit-test parent's autouse socket-blocker for this file.
+
+    These tests exercise the e2e mock-server infrastructure itself,
+    which legitimately binds local TCP sockets — there's no way to
+    verify port-handling without one. The blocker stays in place for
+    every other unit test.
+    """
+    yield
 
 
 def test_default_port_is_auto_allocated():
