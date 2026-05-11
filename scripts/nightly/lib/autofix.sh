@@ -71,19 +71,23 @@ directory: ${NIGHTLY_RUN_DIR}).
 Your task:
 1. Read autofix_brief.md and identify root causes.
 2. Make minimal, targeted fixes. Do not refactor.
-3. After each edit, run the relevant check locally to confirm the fix:
-   - dev_checks → ./scripts/dev_checks.sh
-   - e2e_sqlite → ./scripts/run_e2e.sh sqlite --no-log
-   - e2e_mock → ./scripts/run_e2e.sh mock --no-log
-   - doc_drift findings → fix the stale reference, no test needed
+3. After each edit, run the relevant check locally to confirm the fix.
+   Match the nightly's invocation exactly (the orchestrator runs these
+   with --fresh):
+     - dev_checks → ./scripts/dev_checks.sh
+     - e2e_sqlite → ./scripts/run_e2e.sh sqlite --fresh --no-log
+     - e2e_mock  → ./scripts/run_e2e.sh mock --fresh --no-log
+     - doc_drift findings → edit the stale reference, no test needed
 4. Commit each logical fix separately with a clear message.
 5. Stop when you've addressed everything you can. Don't speculate or
    guess if you can't figure something out — leave it for a human.
 
-Constraints:
-- Do not edit migrations, secrets, or .env files.
+Constraints (enforced post-session, not just policy):
+- Do not edit migrations/, *.env*, or scripts/nightly/. The orchestrator
+  refuses to push a diff that touches any of these paths.
 - Do not push or open PRs yourself; the orchestrator does that.
-- Do not run e2e_real (it costs money).
+- Do not run e2e_real (ANTHROPIC_API_KEY is unset in this subshell so
+  it physically can't authenticate).
 
 When done, write a summary to ${NIGHTLY_RUN_DIR}/autofix_summary.md
 listing what you fixed, what you couldn't fix, and why.
@@ -120,6 +124,18 @@ EOF
         git add -A
         git -c user.email=nightly-autofix@luthien -c user.name="nightly-autofix" \
             commit -m "autofix: capture uncommitted changes from session"
+    fi
+
+    # Forbidden-paths gate: refuse to push diffs that touch sensitive
+    # areas. The prompt asks Claude to avoid these, but the prompt is
+    # advisory — this is the enforcement.
+    local forbidden_hits
+    forbidden_hits="$(git diff --name-only "origin/${NIGHTLY_REPO_BRANCH}"...HEAD \
+        | grep -E '^(migrations/|scripts/nightly/|.*\.env$|.*\.env\..*)' || true)"
+    if [[ -n "${forbidden_hits}" ]]; then
+        echo "autofix touched forbidden paths — refusing to push:"
+        while IFS= read -r line; do echo "  ${line}"; done <<< "${forbidden_hits}"
+        return 2
     fi
 
     # Push and open a draft PR.
@@ -186,6 +202,7 @@ print(any(c.get('status') in {'fail','error'} for c in r.get('checks',{}).values
     case "${rc}" in
         0) status="opened_pr" ;;
         1) status="no_diff" ;;
+        2) status="forbidden_paths" ;;
         64) status="skip" ;;
         124) status="timeout" ;;
         *) status="error" ;;

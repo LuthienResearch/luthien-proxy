@@ -66,7 +66,12 @@ EOF
             --allowedTools "Read Glob Grep Bash" \
         > "${NIGHTLY_RUN_DIR}/doc_drift.md"
 
-    if grep -q "^No drift detected\.$" "${NIGHTLY_RUN_DIR}/doc_drift.md"; then
+    # Truth signal: absence of finding-headers. The prompt asks for
+    # "### <doc path>:..." entries per finding; if none exist the
+    # report is clean. This is less brittle than matching the exact
+    # "No drift detected" sentence (whitespace, punctuation, LLM
+    # variance).
+    if ! grep -q "^### " "${NIGHTLY_RUN_DIR}/doc_drift.md"; then
         return 0
     fi
     return 1

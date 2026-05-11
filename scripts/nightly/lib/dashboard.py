@@ -27,6 +27,7 @@ STATUS_COLOR = {
     "opened_pr": "#3182ce",
     "no_diff": "#718096",
     "timeout": "#dd6b20",
+    "forbidden_paths": "#c53030",
 }
 
 CSS = """

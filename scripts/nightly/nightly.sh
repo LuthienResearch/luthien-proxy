@@ -48,6 +48,17 @@ ensure_repo() {
     elif [[ "${preserve}" == "1" ]]; then
         log "preserving local state in ${NIGHTLY_REPO_DIR} (--once)"
     else
+        # Defensive: refuse to reset --hard a checkout whose origin doesn't
+        # match NIGHTLY_REPO_URL. Protects against a sloppy env override
+        # pointing at a real working clone.
+        local actual_url
+        actual_url="$(git -C "${NIGHTLY_REPO_DIR}" remote get-url origin 2>/dev/null || true)"
+        if [[ "${actual_url}" != "${NIGHTLY_REPO_URL}" ]]; then
+            log "FATAL: ${NIGHTLY_REPO_DIR} origin (${actual_url}) does not match"
+            log "       NIGHTLY_REPO_URL (${NIGHTLY_REPO_URL}). Refusing to reset --hard."
+            log "       If this is the intended state-dir clone, delete it and re-run."
+            exit 3
+        fi
         log "updating ${NIGHTLY_REPO_DIR}"
         git -C "${NIGHTLY_REPO_DIR}" fetch --prune origin
         # Reset hard to origin to wipe any stale autofix branch state.
@@ -78,9 +89,16 @@ teardown() {
 
 rotate_scheduler_logs() {
     # The scheduler (launchd/systemd) writes stdout/stderr to fixed paths
-    # in append mode. Without rotation these grow forever. By the time
-    # this function runs, the previous nightly invocation has exited
-    # cleanly and the scheduler has closed the file — safe to mv.
+    # in append mode. Without rotation these grow forever.
+    #
+    # Caveat: rotation happens AT THE START of each nightly run. The
+    # *previous* run has by then exited and the scheduler has closed
+    # its fd, so the mv is safe. But while THIS run is in flight the
+    # scheduler still holds an fd on `nightly.out.log` from before
+    # rotation, so output from the current run continues to land in the
+    # rotated file (e.g. `.1`) rather than a fresh one. The next run
+    # picks up the fresh file. This is fine for size-bound rotation —
+    # we only care that no single file grows unbounded across runs.
     local log_dir="${NIGHTLY_STATE_DIR}/logs"
     local keep="${NIGHTLY_RUN_RETENTION:-30}"
     [[ -d "${log_dir}" ]] || return 0
@@ -92,15 +110,10 @@ rotate_scheduler_logs() {
         if [[ "$(wc -c <"${path}")" -lt 1048576 ]]; then
             continue
         fi
-        # Shift existing rotations: .N → .N+1, dropping the oldest.
+        # Drop the oldest, then shift the rest: .N-1→.N, ..., .1→.2.
+        rm -f "${path}.${keep}"
         for ((i = keep - 1; i >= 1; i--)); do
-            if [[ -f "${path}.${i}" ]]; then
-                if [[ "${i}" -ge "${keep}" ]]; then
-                    rm -f "${path}.${i}"
-                else
-                    mv "${path}.${i}" "${path}.$((i + 1))"
-                fi
-            fi
+            [[ -f "${path}.${i}" ]] && mv "${path}.${i}" "${path}.$((i + 1))"
         done
         mv "${path}" "${path}.1"
     done
