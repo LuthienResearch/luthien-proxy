@@ -35,6 +35,7 @@ export NIGHTLY_DIR
 : "${NIGHTLY_TIMEOUT_DOC_DRIFT:=900}"
 : "${AUTOFIX_ENABLED:=false}"
 : "${AUTOFIX_TIMEOUT:=1800}"
+: "${AUTOFIX_MAX_BUDGET_USD:=5}"
 : "${AUTOFIX_BRANCH_PREFIX:=nightly-fix}"
 : "${NIGHTLY_RUN_RETENTION:=30}"
 : "${NIGHTLY_WEBHOOK_URL:=}"
@@ -81,7 +82,7 @@ nightly_timeout() {
 # Usage: nightly_record_check <name> <status> <log_relpath> [extra_json]
 # status: pass|fail|skip|error
 nightly_record_check() {
-    local name="$1" status="$2" log="$3" extra="${4:-{\}}"
+    local name="$1" status="$2" log="$3" extra="${4:-{}}"
     local results="${NIGHTLY_RUN_DIR}/results.json"
     python3 - "$results" "$name" "$status" "$log" "$extra" <<'PY'
 import json, sys, pathlib
@@ -101,7 +102,10 @@ PY
 # Initialize a new run directory and results.json. Sets NIGHTLY_RUN_ID and
 # NIGHTLY_RUN_DIR.
 nightly_start_run() {
-    NIGHTLY_RUN_ID="$(date +%Y-%m-%d-%H%M)"
+    # Second-resolution ID avoids collisions when two runs land in the
+    # same minute (manual run during scheduled fire, retry-on-failure,
+    # `--once` invocations).
+    NIGHTLY_RUN_ID="$(date +%Y-%m-%d-%H%M%S)"
     NIGHTLY_RUN_DIR="${NIGHTLY_RUNS_DIR}/${NIGHTLY_RUN_ID}"
     export NIGHTLY_RUN_ID NIGHTLY_RUN_DIR
     mkdir -p "${NIGHTLY_RUN_DIR}"

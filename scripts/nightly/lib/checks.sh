@@ -84,12 +84,3 @@ nightly_run_e2e_real() {
         "{\"duration_s\":${duration},\"exit_code\":${rc}}"
     echo "[nightly] <<< e2e_real ${status} (${duration}s, rc=${rc})" >&2
 }
-
-# Dispatcher: for most checks delegate to nightly_run_check; e2e_real has its
-# own wrapper.
-nightly_dispatch_check() {
-    case "$1" in
-        e2e_real) nightly_run_e2e_real ;;
-        *) nightly_run_check "$1" ;;
-    esac
-}

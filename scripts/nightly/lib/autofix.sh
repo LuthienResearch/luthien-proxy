@@ -90,15 +90,21 @@ listing what you fixed, what you couldn't fix, and why.
 EOF
 )"
 
-    # ${AUTOFIX_MAX_BUDGET_USD:-5} caps API spend per attempt.
-    # Prompt via stdin — variadic --allowedTools would otherwise eat it.
-    printf '%s' "${prompt}" | nightly_timeout "${AUTOFIX_TIMEOUT}" \
-        claude --print \
-            --no-session-persistence \
-            --permission-mode bypassPermissions \
-            --max-budget-usd "${AUTOFIX_MAX_BUDGET_USD:-5}" \
-            --allowedTools "Read Edit Write Glob Grep Bash" \
-        > "${NIGHTLY_RUN_DIR}/autofix_session.log" 2>&1 || true
+    # AUTOFIX_MAX_BUDGET_USD caps API spend per attempt. Prompt via stdin
+    # — variadic --allowedTools would otherwise eat it. ANTHROPIC_API_KEY
+    # is unset in this subshell so the session can't hit the real
+    # Anthropic API (e.g. via ./scripts/run_e2e.sh real). The prompt
+    # also asks Claude not to, but the env strip enforces it.
+    (
+        unset ANTHROPIC_API_KEY
+        printf '%s' "${prompt}" | nightly_timeout "${AUTOFIX_TIMEOUT}" \
+            claude --print \
+                --no-session-persistence \
+                --permission-mode bypassPermissions \
+                --max-budget-usd "${AUTOFIX_MAX_BUDGET_USD}" \
+                --allowedTools "Read Edit Write Glob Grep Bash" \
+            > "${NIGHTLY_RUN_DIR}/autofix_session.log" 2>&1
+    ) || true
 
     # Did anything change? Stage everything first so untracked-but-new
     # files don't silently vanish on push. `git diff` alone misses
@@ -118,15 +124,21 @@ EOF
 
     # Push and open a draft PR.
     git push --force-with-lease -u origin "${branch}"
+    # Compute the failed-checks summary via argv (not interpolation) so
+    # state-dir paths with shell metacharacters don't break the python
+    # invocation.
+    local failed_checks
+    failed_checks="$(python3 - "${NIGHTLY_RUN_DIR}/results.json" <<'PY'
+import json, pathlib, sys
+r = json.loads(pathlib.Path(sys.argv[1]).read_text())
+print(", ".join(n for n, c in r["checks"].items() if c["status"] in {"fail", "error"}))
+PY
+)"
     local pr_body
     pr_body="$(cat <<EOF
 Automated fix attempt from nightly run ${NIGHTLY_RUN_ID}.
 
-**Failed checks:** $(python3 -c "
-import json, pathlib
-r = json.loads(pathlib.Path('${NIGHTLY_RUN_DIR}/results.json').read_text())
-print(', '.join(n for n, c in r['checks'].items() if c['status'] in {'fail','error'}))
-")
+**Failed checks:** ${failed_checks}
 
 See \`autofix_summary.md\` and \`autofix_session.log\` in
 \`${NIGHTLY_STATE_DIR}/runs/${NIGHTLY_RUN_ID}/\` for details.

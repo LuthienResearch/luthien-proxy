@@ -76,22 +76,58 @@ teardown() {
     fi
 }
 
+rotate_scheduler_logs() {
+    # The scheduler (launchd/systemd) writes stdout/stderr to fixed paths
+    # in append mode. Without rotation these grow forever. By the time
+    # this function runs, the previous nightly invocation has exited
+    # cleanly and the scheduler has closed the file — safe to mv.
+    local log_dir="${NIGHTLY_STATE_DIR}/logs"
+    local keep="${NIGHTLY_RUN_RETENTION:-30}"
+    [[ -d "${log_dir}" ]] || return 0
+    for base in nightly.out.log nightly.err.log; do
+        local path="${log_dir}/${base}"
+        [[ -f "${path}" ]] || continue
+        # Skip if the file is small (a few KB); rotation is for runs
+        # that produce real volume.
+        if [[ "$(wc -c <"${path}")" -lt 1048576 ]]; then
+            continue
+        fi
+        # Shift existing rotations: .N → .N+1, dropping the oldest.
+        for ((i = keep - 1; i >= 1; i--)); do
+            if [[ -f "${path}.${i}" ]]; then
+                if [[ "${i}" -ge "${keep}" ]]; then
+                    rm -f "${path}.${i}"
+                else
+                    mv "${path}.${i}" "${path}.$((i + 1))"
+                fi
+            fi
+        done
+        mv "${path}" "${path}.1"
+    done
+}
+
 notify() {
     local url="${NIGHTLY_WEBHOOK_URL}"
     [[ -z "${url}" ]] && return 0
-    local overall summary
-    overall="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('overall','?'))" "${NIGHTLY_RUN_DIR}/results.json")"
-    summary="$(python3 -c "
+    local payload
+    # Build the JSON payload in Python so values are properly escaped —
+    # raw shell interpolation would break on any value containing `"`.
+    payload="$(python3 - "${NIGHTLY_RUN_DIR}/results.json" "${NIGHTLY_RUN_ID}" <<'PY'
 import json, sys
-r = json.load(open(sys.argv[1]))
-checks = r.get('checks', {})
-parts = [f\"{n}={c.get('status','?')}\" for n, c in checks.items()]
-af = r.get('autofix') or {}
-if af: parts.append(f\"autofix={af.get('status','?')}\")
-print(' '.join(parts))
-" "${NIGHTLY_RUN_DIR}/results.json")"
+results_path, run_id = sys.argv[1:3]
+r = json.load(open(results_path))
+checks = r.get("checks", {})
+parts = [f"{n}={c.get('status','?')}" for n, c in checks.items()]
+af = r.get("autofix") or {}
+if af:
+    parts.append(f"autofix={af.get('status','?')}")
+summary = " ".join(parts)
+overall = r.get("overall", "?")
+print(json.dumps({"text": f"nightly {run_id} {overall}: {summary}"}))
+PY
+)"
     curl -sfS -X POST -H "Content-Type: application/json" \
-        -d "{\"text\":\"nightly ${NIGHTLY_RUN_ID} ${overall}: ${summary}\"}" \
+        -d "${payload}" \
         "${url}" >/dev/null 2>&1 || log "notify failed"
 }
 
@@ -107,6 +143,7 @@ main() {
     trap teardown EXIT
     check_prereqs
     mkdir -p "${NIGHTLY_RUNS_DIR}" "${NIGHTLY_PUBLIC_DIR}"
+    rotate_scheduler_logs
     nightly_start_run
     log "run ${NIGHTLY_RUN_ID} → ${NIGHTLY_RUN_DIR}"
 

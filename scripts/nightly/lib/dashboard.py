@@ -91,7 +91,7 @@ def load_runs(runs_dir: Path) -> list[dict]:
     return runs
 
 
-def render_index(runs: list[dict], public_dir: Path) -> str:
+def render_index(runs: list[dict]) -> str:
     rows = []
     for r in runs:
         rid = r.get("run_id", "?")
@@ -154,12 +154,12 @@ def render_run(r: dict) -> str:
         if log_path.exists():
             log_text = log_path.read_text(errors="replace")[-50_000:]
         report_html = ""
-        if name == "doc_drift":
-            report = r["_dir"] / "doc_drift.md"
+        report_rel = c.get("report")
+        if report_rel:
+            report = r["_dir"] / report_rel
             if report.exists():
                 report_html = (
-                    "<details open><summary>Drift report</summary>"
-                    f"<pre>{html.escape(report.read_text())}</pre></details>"
+                    f"<details open><summary>Report</summary><pre>{html.escape(report.read_text())}</pre></details>"
                 )
         checks_html.append(
             f"""<section>
@@ -230,7 +230,7 @@ def main() -> None:
     prune(runs_dir, args.retention)
     runs = load_runs(runs_dir)[: args.retention]
 
-    (public_dir / "index.html").write_text(render_index(runs, public_dir))
+    (public_dir / "index.html").write_text(render_index(runs))
     for r in runs:
         (public_dir / "runs" / f"{r.get('run_id', 'unknown')}.html").write_text(render_run(r))
 
