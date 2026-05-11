@@ -3,7 +3,7 @@ category: Features
 pr: 741
 ---
 
-**Webhook event export**: Fire-and-forget POST to `WEBHOOK_URL` on conversation completion (streaming + non-streaming) with session/transaction/model/usage/duration payload, plus `success`, `http_status`, and Anthropic prompt-cache token counts.
+**Webhook event export**: Fire-and-forget POST to `WEBHOOK_URL` on conversation event completion (streaming + non-streaming) with session/transaction/model/usage/duration payload, plus `success`, `http_status`, and Anthropic prompt-cache token counts.
   - Configurable: `WEBHOOK_URL`, `WEBHOOK_MAX_RETRIES`, `WEBHOOK_RETRY_DELAY_SECONDS`, `WEBHOOK_MAX_PENDING_TASKS`, `WEBHOOK_SHUTDOWN_DRAIN_SECONDS`
   - Disabled when `WEBHOOK_URL` is empty
   - **Scope**: fires only on `/v1/messages` conversation completion; not wired into the `/v1/{path:path}` passthrough (count_tokens, models, etc. are not "completions")
