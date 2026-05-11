@@ -90,7 +90,9 @@ teardown() {
         ( cd "${NIGHTLY_REPO_DIR}" && docker compose down -v --remove-orphans ) >/dev/null 2>&1 || true
     fi
     # Release the concurrency lock if we acquired one.
-    [[ -n "${NIGHTLY_LOCK:-}" ]] && rmdir "${NIGHTLY_LOCK}" 2>/dev/null || true
+    if [[ -n "${NIGHTLY_LOCK:-}" ]]; then
+        rmdir "${NIGHTLY_LOCK}" 2>/dev/null || true
+    fi
 }
 
 rotate_scheduler_logs() {
