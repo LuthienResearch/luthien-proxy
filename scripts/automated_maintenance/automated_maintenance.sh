@@ -98,8 +98,9 @@ ensure_repo() {
                 --jq '.[].headRefName' 2>/dev/null || true)"
             if [[ -n "${closed_branches}" ]]; then
                 while IFS= read -r br; do
-                    [[ -n "${br}" ]] && \
+                    if [[ -n "${br}" ]]; then
                         git -C "${MAINT_REPO_DIR}" push origin --delete "${br}" >/dev/null 2>&1 || true
+                    fi
                 done <<< "${closed_branches}"
             fi
         fi
