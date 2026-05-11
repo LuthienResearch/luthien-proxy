@@ -189,16 +189,31 @@ systemctl --user disable --now luthien-nightly.timer
 ## Autofix safety notes
 
 When `AUTOFIX_ENABLED=true`, a failing check spawns a headless `claude`
-session running with `--permission-mode acceptEdits` and broad tool
-access. It can edit files, run scripts, and make commits. It will NOT
-push directly — the orchestrator pushes the resulting branch and opens
-a **draft** PR for human review.
+session with **broad permissions**: `--permission-mode bypassPermissions`
+and `--allowedTools "Read Edit Write Glob Grep Bash"`. The session can:
 
-Risks:
-- Bad fixes get pushed as draft PRs. Your CI still gates them.
-- An autofix session that times out leaves a partial branch. The next
-  run wipes the state-dir clone and starts fresh, so this self-heals.
-- Autofix burns API tokens. The `AUTOFIX_TIMEOUT` setting caps each run.
+- Edit, create, and delete files anywhere the scheduler user can write
+  (in practice: the state-dir clone, plus anything else the user has
+  access to on the host).
+- Run **arbitrary shell commands** as the scheduler user, with network
+  access. The intended use is `git`, `pytest`, `ruff`, etc., but the
+  session is not sandboxed beyond the user's filesystem permissions.
+- Hit external HTTP services and consume API tokens, capped per run by
+  `AUTOFIX_MAX_BUDGET_USD` and `AUTOFIX_TIMEOUT`.
+
+It will NOT push directly — the orchestrator pushes the resulting branch
+and opens a **draft** PR for human review.
+
+Risks, in order:
+
+1. **First-order**: the session itself does something unexpected (deletes
+   files outside the clone, runs `gh` against your other repos, etc.).
+   Schedule autofix only on hosts you'd trust to run unattended `claude`.
+2. **Second-order**: bad fixes get pushed as draft PRs. Your CI still
+   gates them.
+3. **Third-order**: an autofix session that times out leaves a partial
+   branch. The next run wipes the state-dir clone and starts fresh, so
+   this self-heals.
 
 If you don't want any of this, leave `AUTOFIX_ENABLED=false`. The dashboard
 will still show what failed; you fix it manually.

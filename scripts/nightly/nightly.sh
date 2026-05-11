@@ -34,11 +34,19 @@ check_prereqs() {
     fi
 }
 
+#
+# Refresh the state-dir clone. The default behavior wipes local changes
+# so the run starts from a known origin SHA. Pass `preserve=1` to skip
+# the destructive reset — used by --once so developers can iterate on
+# the clone without losing their edits between debug runs.
 ensure_repo() {
+    local preserve="${1:-0}"
     if [[ ! -d "${NIGHTLY_REPO_DIR}/.git" ]]; then
         log "cloning ${NIGHTLY_REPO_URL} → ${NIGHTLY_REPO_DIR}"
         mkdir -p "$(dirname "${NIGHTLY_REPO_DIR}")"
         git clone --branch "${NIGHTLY_REPO_BRANCH}" "${NIGHTLY_REPO_URL}" "${NIGHTLY_REPO_DIR}"
+    elif [[ "${preserve}" == "1" ]]; then
+        log "preserving local state in ${NIGHTLY_REPO_DIR} (--once)"
     else
         log "updating ${NIGHTLY_REPO_DIR}"
         git -C "${NIGHTLY_REPO_DIR}" fetch --prune origin
@@ -96,12 +104,11 @@ run_one_check() {
 }
 
 main() {
+    trap teardown EXIT
     check_prereqs
     mkdir -p "${NIGHTLY_RUNS_DIR}" "${NIGHTLY_PUBLIC_DIR}"
     nightly_start_run
     log "run ${NIGHTLY_RUN_ID} → ${NIGHTLY_RUN_DIR}"
-
-    trap teardown EXIT
 
     ensure_repo
 
@@ -126,12 +133,13 @@ main() {
     log "done"
 }
 
-# --once mode: run a single check against a pre-existing repo, skip the
-# autofix/dashboard pipeline. Useful for debugging.
+# --once mode: run a single check against the existing clone, skip the
+# autofix/dashboard pipeline. Used for debugging — local edits in the
+# state-dir clone are preserved between invocations so you can iterate.
 if [[ "${1:-}" == "--once" ]]; then
     check_prereqs
     nightly_start_run
-    ensure_repo
+    ensure_repo 1   # preserve=1 — don't reset the clone
     run_one_check "${2:?usage: nightly.sh --once <check>}"
     nightly_finish_run
     exit 0

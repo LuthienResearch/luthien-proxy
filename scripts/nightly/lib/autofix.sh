@@ -100,10 +100,20 @@ EOF
             --allowedTools "Read Edit Write Glob Grep Bash" \
         > "${NIGHTLY_RUN_DIR}/autofix_session.log" 2>&1 || true
 
-    # Did anything change?
-    if git diff --quiet "origin/${NIGHTLY_REPO_BRANCH}" -- .; then
+    # Did anything change? Stage everything first so untracked-but-new
+    # files don't silently vanish on push. `git diff` alone misses
+    # untracked files; `git status --porcelain` catches them.
+    if [[ -z "$(git status --porcelain)" ]] && \
+       git diff --quiet "origin/${NIGHTLY_REPO_BRANCH}" -- .; then
         echo "autofix produced no diff"
         return 1
+    fi
+    # Commit anything the session forgot to commit (e.g. created files
+    # but never `git add`'d them).
+    if [[ -n "$(git status --porcelain)" ]]; then
+        git add -A
+        git -c user.email=nightly-autofix@luthien -c user.name="nightly-autofix" \
+            commit -m "autofix: capture uncommitted changes from session"
     fi
 
     # Push and open a draft PR.

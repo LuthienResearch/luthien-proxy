@@ -89,7 +89,7 @@ case "$(uname -s)" in
         ;;
     *)
         echo "Unsupported platform: $(uname -s)" >&2
-        echo "Render the templates manually from $(NIGHTLY_DIR)/deploy/." >&2
+        echo "Render the templates manually from ${NIGHTLY_DIR}/deploy/." >&2
         exit 2
         ;;
 esac
