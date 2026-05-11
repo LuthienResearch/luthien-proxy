@@ -91,7 +91,11 @@ ensure_repo() {
         # no-op otherwise so a missing `gh` doesn't break ensure_repo.
         if command -v gh >/dev/null 2>&1; then
             local closed_branches
+            # Explicit --repo: don't rely on cwd. `gh` defaults to the
+            # current directory's repo but a future caller might invoke
+            # this from elsewhere and silently target the wrong repo.
             closed_branches="$(gh pr list \
+                --repo "$(git -C "${MAINT_REPO_DIR}" remote get-url origin)" \
                 --state closed \
                 --search "head:${AUTOFIX_BRANCH_PREFIX}/" \
                 --json headRefName \
@@ -147,14 +151,16 @@ rotate_scheduler_logs() {
     # The scheduler (launchd/systemd) writes stdout/stderr to fixed paths
     # in append mode. Without rotation these grow forever.
     #
-    # Caveat: rotation happens AT THE START of each maintenance run. The
-    # *previous* run has by then exited and the scheduler has closed
-    # its fd, so the mv is safe. But while THIS run is in flight the
-    # scheduler still holds an fd on `maintenance.out.log` from before
-    # rotation, so output from the current run continues to land in the
-    # rotated file (e.g. `.1`) rather than a fresh one. The next run
-    # picks up the fresh file. This is fine for size-bound rotation —
-    # we only care that no single file grows unbounded across runs.
+    # Caveat: rotation runs at the START of each maintenance run, but
+    # the scheduler may keep an fd open on the original path across
+    # runs (launchd in particular tends to). So when we `mv` the file
+    # mid-run, the current run's output continues landing in the *moved*
+    # file (e.g. `.1`) via the still-open fd, and a fresh file isn't
+    # created until the scheduler closes and reopens — which may not
+    # happen until the unit reloads. This is acceptable for size-bound
+    # rotation: no single file grows unbounded across cycles. For real
+    # log-rotation discipline, point launchd/systemd at logger/rsyslog
+    # or use logrotate with `copytruncate`.
     local log_dir="${MAINT_STATE_DIR}/logs"
     local keep="${MAINT_RUN_RETENTION:-30}"
     [[ -d "${log_dir}" ]] || return 0
@@ -211,23 +217,42 @@ run_one_check() {
 # Acquire the concurrency lock. Refuses to start if another maintenance run
 # is in flight; reclaims the lock if the recorded PID is no longer alive
 # (crashed run, reboot, OOM, SIGKILL).
+#
+# Reclaim race: two processes both seeing the same stale lock cannot both
+# successfully claim it, because the reclaim uses an atomic directory
+# `mv` (rename) as the contention-resolution step. Whoever wins the
+# rename "stashed" the stale dir under a PID-unique suffix; whoever
+# loses sees the lock vanish and falls into the post-reclaim recreate,
+# which fails because the winner already recreated it.
 acquire_lock() {
     mkdir -p "${MAINT_STATE_DIR}"
     local lock="${MAINT_STATE_DIR}/.lock"
     local pid_file="${lock}/pid"
-    if ! mkdir "${lock}" 2>/dev/null; then
-        local stale_pid=""
-        [[ -f "${pid_file}" ]] && stale_pid="$(cat "${pid_file}" 2>/dev/null || true)"
-        if [[ -n "${stale_pid}" ]] && kill -0 "${stale_pid}" 2>/dev/null; then
-            log "another maintenance run holds ${lock} (pid ${stale_pid}) — exiting"
-            exit 4
-        fi
-        log "reclaiming stale lock at ${lock} (pid ${stale_pid:-unknown} not alive)"
-        rm -rf "${lock}"
-        mkdir "${lock}" || { log "FATAL: could not acquire lock"; exit 4; }
+    if mkdir "${lock}" 2>/dev/null; then
+        MAINT_LOCK="${lock}"
+        echo "$$" > "${pid_file}"
+        return 0
     fi
-    # Set MAINT_LOCK *before* writing the pid file so a write failure
-    # (ENOSPC, permissions) still allows teardown to clean up the dir.
+    # Couldn't acquire. Check whether the holder is still alive.
+    local stale_pid=""
+    [[ -f "${pid_file}" ]] && stale_pid="$(cat "${pid_file}" 2>/dev/null || true)"
+    if [[ -n "${stale_pid}" ]] && kill -0 "${stale_pid}" 2>/dev/null; then
+        log "another maintenance run holds ${lock} (pid ${stale_pid}) — exiting"
+        exit 4
+    fi
+    # Holder isn't alive. Race-safe reclaim: atomically rename the stale
+    # lock to a PID-unique stash; whichever process's `mv` succeeds owns
+    # the right to recreate. `mv` on a directory is atomic on the same
+    # filesystem (POSIX rename(2) semantics).
+    local stash="${lock}.stale.$$"
+    if mv "${lock}" "${stash}" 2>/dev/null; then
+        rm -rf "${stash}"
+        log "reclaimed stale lock at ${lock} (pid ${stale_pid:-unknown} not alive)"
+    else
+        log "lost reclaim race for ${lock} — exiting"
+        exit 4
+    fi
+    mkdir "${lock}" || { log "FATAL: could not acquire lock"; exit 4; }
     MAINT_LOCK="${lock}"
     echo "$$" > "${pid_file}"
 }

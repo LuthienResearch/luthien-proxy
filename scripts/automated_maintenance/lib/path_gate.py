@@ -51,8 +51,18 @@ _FORBIDDEN_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 
+def _normalize(path: str) -> str:
+    """Strip a leading `./` so anchored patterns match. `git diff
+    --name-only` doesn't emit `./` prefixes today, but normalising here
+    makes the gate robust if any future caller passes paths through
+    `realpath` or `os.path.relpath` first.
+    """
+    return path[2:] if path.startswith("./") else path
+
+
 def is_forbidden(path: str) -> bool:
     """Return True if ``path`` matches any forbidden pattern."""
+    path = _normalize(path)
     return any(p.search(path) for p in _FORBIDDEN_PATTERNS)
 
 

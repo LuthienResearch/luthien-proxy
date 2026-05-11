@@ -53,6 +53,11 @@ _spec.loader.exec_module(path_gate)
         # The maintenance pipeline's own tests.
         "tests/luthien_proxy/unit_tests/automated_maintenance/test_path_gate.py",
         "tests/luthien_proxy/unit_tests/automated_maintenance/__init__.py",
+        # Leading `./` normalised before pattern match — blocked paths
+        # stay blocked regardless of input form.
+        "./scripts/automated_maintenance/lib/autofix.sh",
+        "./.env.local",
+        "./migrations/001_init.sql",
     ],
 )
 def test_blocks_sensitive_path(path: str) -> None:
@@ -83,6 +88,9 @@ def test_blocks_sensitive_path(path: str) -> None:
         "tests/test_envoyhandler.py",
         # `.envrc` lookalikes that should pass.
         "src/foo_envrc.py",
+        # Paths starting with `./` should still classify correctly
+        # (normalised before pattern match). Safe path.
+        "./src/luthien_proxy/main.py",
         # Codegen helpers.
         "scripts/generate_env_example.py",
         "config/policy_config.yaml",

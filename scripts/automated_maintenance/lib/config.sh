@@ -48,6 +48,16 @@ if [[ -f "${MAINT_DIR}/automated_maintenance.env" ]]; then
     set +a
 fi
 
+# Reject AUTOFIX_BRANCH_PREFIX values that could contain shell or glob
+# metachars — the prefix is interpolated into `git for-each-ref` patterns
+# and `gh pr list --search head:...` queries downstream. The default
+# `maint-fix` is fine; only an operator override could trigger this.
+if [[ ! "${AUTOFIX_BRANCH_PREFIX}" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+    echo "[maint] FATAL: AUTOFIX_BRANCH_PREFIX (${AUTOFIX_BRANCH_PREFIX}) must match" >&2
+    echo "        ^[A-Za-z0-9._/-]+\$ — got something containing shell metachars" >&2
+    exit 2
+fi
+
 # Derived paths ---------------------------------------------------------
 MAINT_REPO_DIR="${MAINT_STATE_DIR}/repo"
 MAINT_RUNS_DIR="${MAINT_STATE_DIR}/runs"
