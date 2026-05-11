@@ -45,9 +45,7 @@ AnyMockResponse = MockResponse | MockErrorResponse | MockToolResponse | MockPara
 
 
 def _allocate_free_port() -> int:
-    """Ask the OS for an unused TCP port. Theoretical race with another
-    process between allocation and bind, but acceptable for tests.
-    """
+    """Ask the OS for an unused TCP port (small TOCTOU window before bind)."""
     with socket.socket() as s:
         s.bind(("", 0))
         return s.getsockname()[1]

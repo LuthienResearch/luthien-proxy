@@ -109,7 +109,8 @@ def mock_anthropic():
     fixed port is needed (e.g. Docker tests where the gateway's
     ANTHROPIC_BASE_URL is wired up out of band).
     """
-    port = int(os.getenv("MOCK_ANTHROPIC_PORT", "0"))
+    port_env = os.getenv("MOCK_ANTHROPIC_PORT")
+    port = int(port_env) if port_env else 0
     server = MockAnthropicServer(port=port)
     server.start()
     yield server
