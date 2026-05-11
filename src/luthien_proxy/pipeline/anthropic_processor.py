@@ -54,6 +54,8 @@ from luthien_proxy.pipeline.policy_context_injection import inject_policy_awaren
 from luthien_proxy.pipeline.session import (
     extract_session_id_from_anthropic_body,
     extract_session_id_from_headers,
+    extract_user_id_from_authorization_header,
+    extract_user_id_from_headers,
 )
 from luthien_proxy.pipeline.stream_protocol_validator import validate_anthropic_event_ordering
 from luthien_proxy.pipeline.upstream_headers import expand_upstream_headers, merge_forwarded_headers
@@ -104,6 +106,7 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         emitter: EventEmitterProtocol,
         call_id: str,
         session_id: str | None,
+        user_id: str | None,
         request_log_recorder: RequestLogRecorder,
         is_streaming: bool,
         extra_headers: dict[str, str] | None = None,
@@ -114,6 +117,7 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         self._emitter = emitter
         self._call_id = call_id
         self._session_id = session_id
+        self._user_id = user_id
         self._request_log_recorder = request_log_recorder
         self._is_streaming = is_streaming
         self._extra_headers = extra_headers
@@ -155,6 +159,7 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
                 "original_request": dict(self._initial_request),
                 "final_request": dict(effective_request),
                 "session_id": self._session_id,
+                "user_id": self._user_id,
             },
         )
         self._request_recorded = True
@@ -167,7 +172,7 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         self._emitter.record(
             self._call_id,
             "pipeline.backend_request",
-            {"payload": request_payload, "session_id": self._session_id},
+            {"payload": request_payload, "session_id": self._session_id, "user_id": self._user_id},
         )
         self._request_log_recorder.record_outbound_request(
             body=request_payload,
@@ -375,7 +380,7 @@ async def process_anthropic_request(
         root_span.set_attribute("luthien.endpoint", "/v1/messages")
 
         # Phase 1: Process incoming request
-        anthropic_request, raw_http_request, session_id = await _process_request(
+        anthropic_request, raw_http_request, session_id, user_id = await _process_request(
             request=request,
             call_id=call_id,
             emitter=emitter,
@@ -390,6 +395,8 @@ async def process_anthropic_request(
         root_span.set_attribute("luthien.stream", is_streaming)
         if session_id:
             root_span.set_attribute("luthien.session_id", session_id)
+        if user_id:
+            root_span.set_attribute("luthien.user_id", user_id)
         if usage_collector:
             usage_collector.record_session(session_id)
 
@@ -434,6 +441,7 @@ async def process_anthropic_request(
             emitter=emitter,
             raw_http_request=raw_http_request,
             session_id=session_id,
+            user_id=user_id,
             user_credential=user_credential,
             credential_manager=credential_manager,
             policy_cache_factory=policy_cache_factory,
@@ -471,7 +479,7 @@ async def _process_request(
     request: Request,
     call_id: str,
     emitter: EventEmitterProtocol,
-) -> tuple[AnthropicRequest, RawHttpRequest, str | None]:
+) -> tuple[AnthropicRequest, RawHttpRequest, str | None, str | None]:
     """Process and validate incoming Anthropic request.
 
     Args:
@@ -480,7 +488,7 @@ async def _process_request(
         emitter: Event emitter
 
     Returns:
-        Tuple of (AnthropicRequest, RawHttpRequest with original data, session_id)
+        Tuple of (AnthropicRequest, RawHttpRequest with original data, session_id, user_id)
 
     Raises:
         HTTPException: On request size exceeded or invalid format
@@ -508,12 +516,39 @@ async def _process_request(
             path=request.url.path,
         )
 
-        # Log incoming request
-        emitter.record(call_id, "pipeline.client_request", {"payload": body})
-
         # Extract session ID: try metadata.user_id first (API key mode),
         # fall back to x-session-id header (OAuth passthrough mode)
         session_id = extract_session_id_from_anthropic_body(body) or extract_session_id_from_headers(headers)
+
+        # Extract user identity (attribution-only, NOT authenticated):
+        # 1. X-Luthien-User-Id header (only when TRUST_USER_ID_HEADER=true)
+        # 2. fall back to JWT Bearer token sub claim — signature is not verified;
+        #    treat as user-asserted attribution, never as access control.
+        #
+        # PRECEDENCE (load-bearing): the trusted header wins over the JWT sub
+        # when both are present. Operators who set TRUST_USER_ID_HEADER=true
+        # have made an explicit decision to trust their proxy's attribution;
+        # the JWT sub is implicit and unauthenticated, so it's the weaker
+        # source. Don't reorder this `... or ...` chain without changing the
+        # threat model.
+        #
+        # NOTE: JWT extraction only fires for OAuth-passthrough clients; clients
+        # using `x-api-key` (the standard Anthropic SDK auth) carry no Bearer
+        # token, so user_id is None unless TRUST_USER_ID_HEADER and the header
+        # are both set.
+        user_id = extract_user_id_from_headers(
+            headers, trust_header=get_settings().trust_user_id_header
+        ) or extract_user_id_from_authorization_header(headers.get("authorization"))
+
+        # LOAD-BEARING ORDERING: this record() must come AFTER user_id
+        # extraction. Otherwise the first event row of every call has
+        # user_id = NULL and `WHERE user_id = X` queries silently miss the
+        # raw client_request payload — which is the most security-relevant
+        # event in the trail. Do not reorder without re-evaluating the
+        # column-population semantics.
+        emitter.record(
+            call_id, "pipeline.client_request", {"payload": body, "session_id": session_id, "user_id": user_id}
+        )
 
         # Validate required fields
         if "model" not in body:
@@ -530,12 +565,16 @@ async def _process_request(
             span.set_attribute("luthien.session_id", session_id)
             logger.debug(f"[{call_id}] Extracted session_id: {session_id}")
 
+        if user_id:
+            span.set_attribute("luthien.user_id", user_id)
+            logger.debug(f"[{call_id}] Extracted user_id: {user_id}")
+
         logger.info(
             f"[{call_id}] /v1/messages (native): model={anthropic_request['model']}, "
             f"stream={anthropic_request.get('stream', False)}"
         )
 
-        return anthropic_request, raw_http_request, session_id
+        return anthropic_request, raw_http_request, session_id, user_id
 
 
 async def _run_policy_hooks(
@@ -586,6 +625,7 @@ async def _execute_anthropic_policy(
         emitter=emitter,
         call_id=call_id,
         session_id=policy_ctx.session_id,
+        user_id=policy_ctx.user_id,
         request_log_recorder=request_log_recorder,
         is_streaming=is_streaming,
         extra_headers=extra_headers,
@@ -909,6 +949,7 @@ async def _handle_execution_streaming(
                                 else dict(reconstructed),
                                 "final_response": dict(reconstructed),
                                 "session_id": policy_ctx.session_id,
+                                "user_id": policy_ctx.user_id,
                             },
                         )
                     # Wrap-and-swallow for symmetry with the non-streaming
@@ -1026,6 +1067,7 @@ async def _handle_execution_non_streaming(
                 "original_response": original_response_payload,
                 "final_response": dict(final_response),
                 "session_id": policy_ctx.session_id,
+                "user_id": policy_ctx.user_id,
             },
         )
 
@@ -1036,7 +1078,11 @@ async def _handle_execution_non_streaming(
             emitter.record(
                 call_id,
                 "pipeline.client_response",
-                {"payload": final_response_payload, "session_id": policy_ctx.session_id},
+                {
+                    "payload": final_response_payload,
+                    "session_id": policy_ctx.session_id,
+                    "user_id": policy_ctx.user_id,
+                },
             )
             # Wrap recorder calls so a flush failure on the success path
             # doesn't flip control to `except Exception` → set final_status=500

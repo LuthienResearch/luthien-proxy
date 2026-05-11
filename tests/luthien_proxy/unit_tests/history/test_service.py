@@ -993,7 +993,8 @@ class TestFetchSessionList:
 
         mock_conn = AsyncMock()
         mock_conn.fetchval.return_value = 1  # Total count
-        mock_conn.fetch.return_value = mock_rows
+        # First fetch() = main session aggregation; second = user_ids lookup.
+        mock_conn.fetch.side_effect = [mock_rows, []]
 
         mock_pool = MagicMock()
         mock_pool.is_sqlite = False
@@ -1010,6 +1011,7 @@ class TestFetchSessionList:
         assert result.sessions[0].policy_interventions == 1
         assert "gpt-4" in result.sessions[0].models_used
         assert result.sessions[0].preview_message == "Hello world"
+        assert result.sessions[0].user_ids == []
 
     @pytest.mark.asyncio
     async def test_fetch_with_offset(self):
@@ -1029,7 +1031,7 @@ class TestFetchSessionList:
 
         mock_conn = AsyncMock()
         mock_conn.fetchval.return_value = 100  # Total count
-        mock_conn.fetch.return_value = mock_rows
+        mock_conn.fetch.side_effect = [mock_rows, []]
 
         mock_pool = MagicMock()
         mock_pool.is_sqlite = False

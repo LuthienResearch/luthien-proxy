@@ -174,7 +174,7 @@ class TestProcessRequest:
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            anthropic_request, raw_http_request, session_id = await _process_request(
+            anthropic_request, raw_http_request, session_id, _user_id = await _process_request(
                 request=mock_request,
                 call_id="test-call-id",
                 emitter=mock_emitter,
@@ -205,7 +205,7 @@ class TestProcessRequest:
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            _anthropic_request, _raw_http_request, session_id = await _process_request(
+            _anthropic_request, _raw_http_request, session_id, _user_id = await _process_request(
                 request=mock_request,
                 call_id="test-call-id",
                 emitter=mock_emitter,
@@ -227,13 +227,71 @@ class TestProcessRequest:
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
-            _anthropic_request, _raw_http_request, session_id = await _process_request(
+            _anthropic_request, _raw_http_request, session_id, _user_id = await _process_request(
                 request=mock_request,
                 call_id="test-call-id",
                 emitter=mock_emitter,
             )
 
         assert session_id == "oauth-session-abc123"
+
+    @staticmethod
+    def _make_jwt(sub: str) -> str:
+        import base64
+        import json
+
+        payload_bytes = json.dumps({"sub": sub}).encode()
+        payload = base64.urlsafe_b64encode(payload_bytes).rstrip(b"=").decode()
+        return f"eyJhbGciOiJSUzI1NiJ9.{payload}.fakesig"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "headers,trust,expected",
+        [
+            # Header-only path: trusted header set, no Bearer.
+            ({"x-luthien-user-id": "alice"}, True, "alice"),
+            # JWT-only path: only the Bearer Authorization is set.
+            ({"authorization": "Bearer JWT_PLACEHOLDER"}, True, "bob"),
+            ({"authorization": "Bearer JWT_PLACEHOLDER"}, False, "bob"),
+            # Both present + header trusted: header WINS (load-bearing precedence).
+            ({"x-luthien-user-id": "alice", "authorization": "Bearer JWT_PLACEHOLDER"}, True, "alice"),
+            # Both present but header NOT trusted: header is ignored, JWT wins.
+            ({"x-luthien-user-id": "alice", "authorization": "Bearer JWT_PLACEHOLDER"}, False, "bob"),
+            # Header trusted but blank, JWT present: header drops to None, JWT wins.
+            ({"x-luthien-user-id": "", "authorization": "Bearer JWT_PLACEHOLDER"}, True, "bob"),
+            # Neither: None.
+            ({}, True, None),
+            ({}, False, None),
+        ],
+    )
+    async def test_user_id_extraction_precedence(self, mock_request, mock_emitter, mock_span, headers, trust, expected):
+        """Header (when trusted) wins over JWT sub. Untrusted header drops to JWT."""
+        if "authorization" in headers and headers["authorization"] == "Bearer JWT_PLACEHOLDER":
+            headers = {**headers, "authorization": f"Bearer {self._make_jwt('bob')}"}
+
+        anthropic_body = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 16,
+        }
+        mock_request.json = AsyncMock(return_value=anthropic_body)
+        mock_request.headers = headers
+
+        with (
+            patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer,
+            patch("luthien_proxy.pipeline.anthropic_processor.get_settings") as mock_get_settings,
+        ):
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+            mock_get_settings.return_value.trust_user_id_header = trust
+
+            _request, _raw, _session, user_id = await _process_request(
+                request=mock_request,
+                call_id="test-call-id",
+                emitter=mock_emitter,
+            )
+
+        assert user_id == expected
 
     @pytest.mark.asyncio
     async def test_request_size_limit_exceeded(self, mock_request, mock_emitter, mock_span):
@@ -2022,6 +2080,7 @@ class TestAnthropicPolicyIOBuffering:
             emitter=MagicMock(),
             call_id="test-call",
             session_id=None,
+            user_id=None,
             request_log_recorder=MagicMock(),
             is_streaming=is_streaming,
         )

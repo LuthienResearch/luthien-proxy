@@ -45,6 +45,7 @@ class Settings(_SettingsBase):
     gateway_port: int = DEFAULT_GATEWAY_PORT
     log_level: str = "info"
     verbose_client_errors: bool = False
+    trust_user_id_header: bool = False
 
     # ── auth ────────────────────────────────────────────────────────
     client_api_key: str | None = None
