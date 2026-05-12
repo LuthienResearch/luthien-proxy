@@ -20,8 +20,8 @@ from tests.luthien_proxy.unit_tests.policies.anthropic_event_builders import mes
 from luthien_proxy.policies.dogfood_safety_policy import (
     DogfoodSafetyConfig,
     DogfoodSafetyPolicy,
-    _BufferedAnthropicToolUse,
 )
+from luthien_proxy.policy_core import ToolCallStreamBuffer
 from luthien_proxy.policy_core.policy_context import PolicyContext
 
 
@@ -411,10 +411,14 @@ class TestStateCleanup:
         policy = _make_policy()
         policy_ctx = _make_context("txn-456")
 
-        policy._anthropic_buffered_tool_uses(policy_ctx)[0] = _BufferedAnthropicToolUse(id="a", name="test")
-        policy._anthropic_buffered_tool_uses(policy_ctx)[1] = _BufferedAnthropicToolUse(id="b", name="test2")
+        # Drive a tool_use through the stream to create the buffer in request state.
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0)), policy_ctx)
+        await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, _tool_delta(0, '{"command":"docker compose down"}')), policy_ctx
+        )
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), policy_ctx)
 
+        # Buffer exists before cleanup, gone after.
+        assert policy_ctx.get_request_state(policy, ToolCallStreamBuffer, lambda: ToolCallStreamBuffer(lambda _: []))  # type: ignore[arg-type,return-value]
         await policy.on_anthropic_streaming_policy_complete(policy_ctx)
-
-        # State should be recreated empty after cleanup.
-        assert policy._anthropic_buffered_tool_uses(policy_ctx) == {}
+        assert policy_ctx.pop_request_state(policy, ToolCallStreamBuffer) is None
