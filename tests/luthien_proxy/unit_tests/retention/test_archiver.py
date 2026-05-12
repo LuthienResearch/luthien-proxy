@@ -103,9 +103,7 @@ def test_archiver_init_rejects_kms_without_key_id():
 
 
 def test_archiver_init_accepts_kms_with_key_id():
-    arch = S3ConversationArchiver(
-        bucket="b", encryption_mode="aws:kms", kms_key_id="arn:aws:kms:us-east-1:0:key/x"
-    )
+    arch = S3ConversationArchiver(bucket="b", encryption_mode="aws:kms", kms_key_id="arn:aws:kms:us-east-1:0:key/x")
     assert arch._encryption_mode == "aws:kms"
 
 
@@ -121,9 +119,7 @@ def test_valid_encryption_modes_constant():
 async def _fetch_and_upload(archiver, *, conn, cutoff, last_call_id=None, run_id="run0001", batch_index=0):
     """Drive fetch_batch then upload_batch. Helper for tests that previously
     used the combined archive_one_batch API."""
-    body, archived_ids, has_more = await archiver.fetch_batch(
-        db_conn=conn, cutoff=cutoff, last_call_id=last_call_id
-    )
+    body, archived_ids, has_more = await archiver.fetch_batch(db_conn=conn, cutoff=cutoff, last_call_id=last_call_id)
     if archived_ids:
         await archiver.upload_batch(
             body=body, cutoff=cutoff, run_id=run_id, batch_index=batch_index, record_count=len(archived_ids)
@@ -179,9 +175,7 @@ async def test_fetch_batch_no_rows_short_circuits(mock_s3_client, cutoff):
     conn.fetch = AsyncMock(return_value=[])
 
     archiver = S3ConversationArchiver(bucket="b", s3_client=mock_s3_client)
-    body, archived_ids, has_more = await archiver.fetch_batch(
-        db_conn=conn, cutoff=cutoff, last_call_id=None
-    )
+    body, archived_ids, has_more = await archiver.fetch_batch(db_conn=conn, cutoff=cutoff, last_call_id=None)
 
     assert body == b""
     assert archived_ids == []
@@ -211,9 +205,7 @@ async def test_upload_batch_propagates_s3_error(mock_s3_client, cutoff):
     mock_s3_client.put_object = MagicMock(side_effect=RuntimeError("S3 down"))
     archiver = S3ConversationArchiver(bucket="b", s3_client=mock_s3_client)
     with pytest.raises(RuntimeError, match="S3 down"):
-        await archiver.upload_batch(
-            body=b'{"call":{}}\n', cutoff=cutoff, run_id="r", batch_index=0, record_count=1
-        )
+        await archiver.upload_batch(body=b'{"call":{}}\n', cutoff=cutoff, run_id="r", batch_index=0, record_count=1)
 
 
 @pytest.mark.asyncio

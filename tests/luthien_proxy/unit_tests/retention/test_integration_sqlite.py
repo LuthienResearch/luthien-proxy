@@ -69,8 +69,7 @@ async def _insert_event(
         # can encode the relative ordering they care about into the id.
         event_id = f"{call_id}-{sequence:04d}"
         await conn.execute(
-            "INSERT INTO conversation_events (id, call_id, event_type, payload)"
-            " VALUES ($1, $2, $3, $4)",
+            "INSERT INTO conversation_events (id, call_id, event_type, payload) VALUES ($1, $2, $3, $4)",
             event_id,
             call_id,
             event_type,
@@ -88,8 +87,7 @@ async def _insert_policy_event(
     pe_id = f"pe-{call_id}-{policy_class}"
     async with pool.connection() as conn:
         await conn.execute(
-            "INSERT INTO policy_events (id, call_id, policy_class, event_type, metadata)"
-            " VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO policy_events (id, call_id, policy_class, event_type, metadata) VALUES ($1, $2, $3, $4, $5)",
             pe_id,
             call_id,
             policy_class,
@@ -234,9 +232,7 @@ async def test_purge_partial_run_archives_and_deletes_first_batch_only(sqlite_po
     the per-batch architecture."""
     now = datetime.now(UTC)
     for i in range(3):
-        await _insert_call(
-            sqlite_pool, call_id=f"old-{i}", created_at=now - timedelta(days=40 + i)
-        )
+        await _insert_call(sqlite_pool, call_id=f"old-{i}", created_at=now - timedelta(days=40 + i))
 
     s3_client = MagicMock()
     s3_client.put_object = MagicMock(side_effect=[None, RuntimeError("S3 flapped")])
