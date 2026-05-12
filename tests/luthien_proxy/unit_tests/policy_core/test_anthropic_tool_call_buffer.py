@@ -558,6 +558,48 @@ class TestUnsupportedBlockType:
         with pytest.raises(ValueError, match="unsupported block type"):
             await buf.process(_message_delta("tool_use"))
 
+    @pytest.mark.asyncio
+    async def test_tool_use_missing_id_or_name_raises_value_error(self):
+        async def bad_transform(_):
+            return [cast(AnthropicContentBlock, {"type": "tool_use", "input": {}})]
+
+        buf = ToolCallStreamBuffer(bad_transform)
+        await buf.process(_tool_start(0, "tu_1", "Bash"))
+        await buf.process(_block_stop(0))
+        with pytest.raises(ValueError, match="missing required 'id' or 'name'"):
+            await buf.process(_message_delta("tool_use"))
+
+
+class TestTransformContractInvocation:
+    @pytest.mark.asyncio
+    async def test_transform_called_once_with_all_tool_calls(self):
+        """The transform is invoked exactly once per response with the full list
+        of buffered tool calls — not once per content_block_stop. This is the
+        stated motivation for the message_delta-timed decision: policies that
+        need cross-tool context see all calls together.
+        """
+        invocations: list[list[BufferedToolCall]] = []
+
+        async def recording_transform(calls):
+            invocations.append(list(calls))
+            return [c.as_content_block() for c in calls]
+
+        buf = ToolCallStreamBuffer(recording_transform)
+        await buf.process(_tool_start(0, "tu_1", "Bash"))
+        await buf.process(_json_delta(0, '{"command":"ls"}'))
+        await buf.process(_block_stop(0))
+        await buf.process(_tool_start(1, "tu_2", "Read"))
+        await buf.process(_json_delta(1, '{"path":"/x"}'))
+        await buf.process(_block_stop(1))
+        await buf.process(_tool_start(2, "tu_3", "Grep"))
+        await buf.process(_json_delta(2, '{"pattern":"foo"}'))
+        await buf.process(_block_stop(2))
+        await buf.process(_message_delta("tool_use"))
+
+        assert len(invocations) == 1
+        assert len(invocations[0]) == 3
+        assert [tc.name for tc in invocations[0]] == ["Bash", "Read", "Grep"]
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

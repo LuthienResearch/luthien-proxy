@@ -110,7 +110,7 @@ class _BufferState:
     upstream_to_buf_pos: dict[int, int] = field(default_factory=dict)
     passthrough_index_map: dict[int, int] = field(default_factory=dict)
     next_output_index: int = 0
-    transform_invoked: bool = False
+    message_delta_seen: bool = False
 
 
 class ToolCallStreamBuffer:
@@ -180,10 +180,10 @@ class ToolCallStreamBuffer:
         return [cast(MessageStreamEvent, rewritten)]
 
     async def _on_message_delta(self, event: RawMessageDeltaEvent) -> list[MessageStreamEvent]:
-        if self._state.transform_invoked:
+        if self._state.message_delta_seen:
             logger.warning("message_delta arrived twice; passing through second occurrence")
             return [cast(MessageStreamEvent, event)]
-        self._state.transform_invoked = True
+        self._state.message_delta_seen = True
 
         if not self._state.buffered:
             return [cast(MessageStreamEvent, event)]
@@ -217,6 +217,11 @@ class ToolCallStreamBuffer:
         if block_type == "text":
             return _events_for_text(index, str(block_dict.get("text", "")))
         if block_type == "tool_use":
+            if "id" not in block_dict or "name" not in block_dict:
+                raise ValueError(
+                    "ToolCallStreamBuffer transform returned a tool_use block missing required "
+                    f"'id' or 'name' field: {block_dict!r}"
+                )
             return _events_for_tool_use(
                 index,
                 tool_id=str(block_dict["id"]),
