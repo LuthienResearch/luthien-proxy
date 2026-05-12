@@ -261,7 +261,7 @@ async def transform_anthropic_response(
                 )
             )
             tool_positions.append(len(rebuilt))
-            original_tool_blocks.append(block)
+            original_tool_blocks.append(cast(dict, block))
             rebuilt.append(_PLACEHOLDER)
         else:
             rebuilt.append(block)

@@ -393,9 +393,7 @@ class TestFailSecureOnMalformedInput:
             cast(MessageStreamEvent, _tool_delta(0, '{"command":"docker compose down"')), ctx
         )
         await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
-        emitted = await policy.on_anthropic_stream_event(
-            cast(MessageStreamEvent, message_delta("tool_use")), ctx
-        )
+        emitted = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
 
         # First emitted block must be the blocked-text replacement, not a tool_use.
         start_event = emitted[0]
