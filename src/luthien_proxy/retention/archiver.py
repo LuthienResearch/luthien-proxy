@@ -164,8 +164,7 @@ class S3ConversationArchiver:
         """Initialize archiver. Validates encryption + sizing up-front."""
         if encryption_mode not in VALID_ENCRYPTION_MODES:
             raise ValueError(
-                f"encryption_mode={encryption_mode!r} is not valid. "
-                f"Must be one of: {sorted(VALID_ENCRYPTION_MODES)}"
+                f"encryption_mode={encryption_mode!r} is not valid. Must be one of: {sorted(VALID_ENCRYPTION_MODES)}"
             )
         if encryption_mode == "aws:kms" and not kms_key_id:
             raise ValueError(
@@ -265,14 +264,12 @@ class S3ConversationArchiver:
         cols = _select_clause(_CALL_COLUMNS)
         if last_call_id is None:
             return await db_conn.fetch(
-                f"SELECT {cols} FROM conversation_calls"
-                " WHERE created_at < $1 ORDER BY call_id LIMIT $2",
+                f"SELECT {cols} FROM conversation_calls WHERE created_at < $1 ORDER BY call_id LIMIT $2",
                 cutoff,
                 self.batch_size,
             )
         return await db_conn.fetch(
-            f"SELECT {cols} FROM conversation_calls"
-            " WHERE created_at < $1 AND call_id > $2 ORDER BY call_id LIMIT $3",
+            f"SELECT {cols} FROM conversation_calls WHERE created_at < $1 AND call_id > $2 ORDER BY call_id LIMIT $3",
             cutoff,
             last_call_id,
             self.batch_size,
@@ -308,12 +305,8 @@ class S3ConversationArchiver:
         """Build per-call JSONL lines for one batch of call rows."""
         call_ids = [row["call_id"] for row in call_rows]
         events = await self._fetch_children(db_conn, "conversation_events", _EVENT_COLUMNS, call_ids)
-        policy_events = await self._fetch_children(
-            db_conn, "policy_events", _POLICY_EVENT_COLUMNS, call_ids
-        )
-        judge_decisions = await self._fetch_children(
-            db_conn, "conversation_judge_decisions", _JUDGE_COLUMNS, call_ids
-        )
+        policy_events = await self._fetch_children(db_conn, "policy_events", _POLICY_EVENT_COLUMNS, call_ids)
+        judge_decisions = await self._fetch_children(db_conn, "conversation_judge_decisions", _JUDGE_COLUMNS, call_ids)
         lines: list[str] = []
         for row in call_rows:
             cid = row["call_id"]

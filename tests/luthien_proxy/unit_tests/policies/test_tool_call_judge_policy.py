@@ -36,6 +36,7 @@ from luthien_proxy.policies.tool_call_judge_policy import (
     ToolCallJudgePolicy,
 )
 from luthien_proxy.policies.tool_call_judge_utils import JudgeResult
+from luthien_proxy.policy_core import ToolCallStreamBuffer
 from luthien_proxy.policy_core.policy_context import PolicyContext
 
 # ============================================================================
@@ -89,40 +90,45 @@ class TestStreamingToolPassThrough:
 
     @pytest.mark.asyncio
     async def test_tool_allowed_emits_full_block(self):
-        """on block_stop, allowed tool emits start + json_delta + stop."""
+        """Allowed tool reconstructed at message_delta: start + json_delta + stop, then message_delta."""
         policy = _make_policy()
         ctx = _make_context()
 
-        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
+        with patch.object(policy, "_evaluate_and_maybe_block", new_callable=AsyncMock) as mock_eval:
             mock_eval.return_value = None  # allowed
 
-            # Start is suppressed
-            await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, tool_start(0, tool_id="toolu_123", name="Bash")), ctx
+            assert (
+                await policy.on_anthropic_stream_event(
+                    cast(MessageStreamEvent, tool_start(0, tool_id="toolu_123", name="Bash")), ctx
+                )
+                == []
             )
-
-            # Delta is buffered
-            await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, tool_delta('{"command":"echo hello"}', 0)), ctx
+            assert (
+                await policy.on_anthropic_stream_event(
+                    cast(MessageStreamEvent, tool_delta('{"command":"echo hello"}', 0)), ctx
+                )
+                == []
             )
+            assert await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx) == []
 
-            # Stop triggers reconstruction
-            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            # Tool emitted at message_delta.
+            emitted = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
 
-            assert event_types(stop_events) == ["content_block_start", "content_block_delta", "content_block_stop"]
-
-            # Verify reconstructed ToolUseBlock has correct id/name
-            start_event = stop_events[0]
+            assert event_types(emitted) == [
+                "content_block_start",
+                "content_block_delta",
+                "content_block_stop",
+                "message_delta",
+            ]
+            start_event = emitted[0]
             assert isinstance(start_event, RawContentBlockStartEvent)
             assert isinstance(start_event.content_block, ToolUseBlock)
             assert start_event.content_block.id == "toolu_123"
             assert start_event.content_block.name == "Bash"
-
-            # Verify buffered JSON is in delta
-            delta_event = stop_events[1]
+            delta_event = emitted[1]
             assert isinstance(delta_event, RawContentBlockDeltaEvent)
             assert isinstance(delta_event.delta, InputJSONDelta)
-            assert delta_event.delta.partial_json == '{"command":"echo hello"}'
+            assert delta_event.delta.partial_json == '{"command": "echo hello"}'
 
 
 # ============================================================================
@@ -135,58 +141,56 @@ class TestStreamingToolBlocked:
 
     @pytest.mark.asyncio
     async def test_tool_blocked_emits_text_replacement(self):
-        """blocked tool emits text start + text_delta + stop (not a bare stop)."""
+        """Blocked tool emits text start + text_delta + stop at message_delta."""
         policy = _make_policy()
         ctx = _make_context()
 
         judge_result = JudgeResult(probability=0.9, explanation="dangerous operation", prompt=[], response_text="")
 
-        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
+        with patch.object(policy, "_evaluate_and_maybe_block", new_callable=AsyncMock) as mock_eval:
             mock_eval.return_value = judge_result
 
-            # Start is suppressed
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0, name="Bash")), ctx)
-
-            # Delta is buffered
             await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, tool_delta('{"command":"rm -rf /"}', 0)), ctx
             )
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
 
-            # Stop returns text block replacement
-            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            emitted = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
 
-            assert event_types(stop_events) == ["content_block_start", "content_block_delta", "content_block_stop"]
-
-            # Verify it's a text block
-            start_event = stop_events[0]
+            assert event_types(emitted[:3]) == [
+                "content_block_start",
+                "content_block_delta",
+                "content_block_stop",
+            ]
+            start_event = emitted[0]
             assert isinstance(start_event, RawContentBlockStartEvent)
             assert isinstance(start_event.content_block, TextBlock)
-
-            # Verify blocked message contains tool name and explanation
-            delta_event = stop_events[1]
+            delta_event = emitted[1]
             assert isinstance(delta_event, RawContentBlockDeltaEvent)
             assert isinstance(delta_event.delta, TextDelta)
             assert "Bash" in delta_event.delta.text
             assert "dangerous operation" in delta_event.delta.text
 
     @pytest.mark.asyncio
-    async def test_blocked_block_index_tracked(self):
-        """after blocking, the index is in _anthropic_blocked_blocks(context)."""
+    async def test_blocked_tool_produces_text_not_tool_use(self):
+        """Blocking is observable in the final emitted content: text block, no tool_use."""
         policy = _make_policy()
         ctx = _make_context()
 
         judge_result = JudgeResult(probability=0.9, explanation="blocked", prompt=[], response_text="")
 
-        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
+        with patch.object(policy, "_evaluate_and_maybe_block", new_callable=AsyncMock) as mock_eval:
             mock_eval.return_value = judge_result
 
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            emitted = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
 
-            # Verify index 0 is in blocked set
-            blocked_blocks = policy._anthropic_blocked_blocks(ctx)
-            assert 0 in blocked_blocks
+            start_event = emitted[0]
+            assert isinstance(start_event, RawContentBlockStartEvent)
+            assert isinstance(start_event.content_block, TextBlock)
 
 
 # ============================================================================
@@ -268,7 +272,7 @@ class TestStreamingJudgeFailure:
 
     @pytest.mark.asyncio
     async def test_judge_exception_returns_high_probability(self):
-        """When _evaluate_and_maybe_block_anthropic returns high-probability result, tool is blocked."""
+        """When _evaluate_and_maybe_block returns high-probability result, tool is blocked."""
         policy = _make_policy()
         ctx = _make_context()
 
@@ -280,17 +284,20 @@ class TestStreamingJudgeFailure:
             response_text="",
         )
 
-        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
+        with patch.object(policy, "_evaluate_and_maybe_block", new_callable=AsyncMock) as mock_eval:
             mock_eval.return_value = judge_result
 
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"cmd":"dangerous"}', 0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            emitted = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
 
-            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-
-            # Tool is blocked (replaced with text)
-            assert event_types(stop_events) == ["content_block_start", "content_block_delta", "content_block_stop"]
-            delta = stop_events[1]
+            assert event_types(emitted[:3]) == [
+                "content_block_start",
+                "content_block_delta",
+                "content_block_stop",
+            ]
+            delta = emitted[1]
             assert isinstance(delta, RawContentBlockDeltaEvent)
             assert "evaluation failed" in delta.delta.text.lower()
 
@@ -305,47 +312,64 @@ class TestStreamingMultipleTools:
 
     @pytest.mark.asyncio
     async def test_mixed_tools_one_allowed_one_blocked(self):
-        """Two tool blocks at different indices, one allowed and one blocked."""
+        """Two tool blocks at different indices: one allowed, one blocked.
+
+        Both replacements are emitted at message_delta in upstream order:
+        index 0 → ToolUseBlock (allowed), index 1 → TextBlock (blocked).
+        """
         policy = _make_policy()
         ctx = _make_context()
 
-        # First tool: allowed
-        judge_result_allowed = None
-        # Second tool: blocked
         judge_result_blocked = JudgeResult(probability=0.8, explanation="harmful", prompt=[], response_text="")
 
-        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
-            mock_eval.side_effect = [judge_result_allowed, judge_result_blocked]
+        with patch.object(policy, "_evaluate_and_maybe_block", new_callable=AsyncMock) as mock_eval:
+            mock_eval.side_effect = [None, judge_result_blocked]
 
-            # Tool at index 0 — allowed
-            await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, tool_start(0, tool_id="toolu_1", name="Tool1")), ctx
+            # Index 0 — allowed
+            assert (
+                await policy.on_anthropic_stream_event(
+                    cast(MessageStreamEvent, tool_start(0, tool_id="toolu_1", name="Tool1")), ctx
+                )
+                == []
             )
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"param":"value"}', 0)), ctx)
-            stop_0 = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            assert (
+                await policy.on_anthropic_stream_event(
+                    cast(MessageStreamEvent, tool_delta('{"param":"value"}', 0)), ctx
+                )
+                == []
+            )
+            assert await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx) == []
 
-            # Tool at index 0 was allowed, so we get full reconstruction
-            assert event_types(stop_0) == ["content_block_start", "content_block_delta", "content_block_stop"]
-            start_0 = stop_0[0]
+            # Index 1 — blocked
+            assert (
+                await policy.on_anthropic_stream_event(
+                    cast(MessageStreamEvent, tool_start(1, tool_id="toolu_2", name="Tool2")), ctx
+                )
+                == []
+            )
+            assert (
+                await policy.on_anthropic_stream_event(
+                    cast(MessageStreamEvent, tool_delta('{"param":"dangerous"}', 1)), ctx
+                )
+                == []
+            )
+            assert await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx) == []
+
+            emitted = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
+
+            # 2 blocks × (start + delta + stop) + message_delta = 7 events
+            assert len(emitted) == 7
+            # First block: allowed → ToolUseBlock with original name
+            start_0 = emitted[0]
             assert isinstance(start_0, RawContentBlockStartEvent)
             assert isinstance(start_0.content_block, ToolUseBlock)
             assert start_0.content_block.name == "Tool1"
-
-            # Tool at index 1 — blocked
-            await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, tool_start(1, tool_id="toolu_2", name="Tool2")), ctx
-            )
-            await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, tool_delta('{"param":"dangerous"}', 1)), ctx
-            )
-            stop_1 = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
-
-            # Tool at index 1 was blocked, so we get text replacement
-            assert event_types(stop_1) == ["content_block_start", "content_block_delta", "content_block_stop"]
-            start_1 = stop_1[0]
+            # Second block: blocked → TextBlock containing tool name
+            start_1 = emitted[3]
             assert isinstance(start_1, RawContentBlockStartEvent)
             assert isinstance(start_1.content_block, TextBlock)
-            delta_1 = stop_1[1]
+            delta_1 = emitted[4]
+            assert isinstance(delta_1, RawContentBlockDeltaEvent)
             assert isinstance(delta_1.delta, TextDelta)
             assert "Tool2" in delta_1.delta.text
 
@@ -371,7 +395,7 @@ class TestStreamingStopReasonCorrection:
 
         judge_result = JudgeResult(probability=0.9, explanation="harmful", prompt=[], response_text="")
 
-        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
+        with patch.object(policy, "_evaluate_and_maybe_block", new_callable=AsyncMock) as mock_eval:
             mock_eval.return_value = judge_result
 
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
@@ -392,7 +416,7 @@ class TestStreamingStopReasonCorrection:
         policy = _make_policy()
         ctx = _make_context()
 
-        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
+        with patch.object(policy, "_evaluate_and_maybe_block", new_callable=AsyncMock) as mock_eval:
             mock_eval.return_value = None  # allowed
 
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
@@ -413,7 +437,7 @@ class TestStreamingStopReasonCorrection:
         policy = _make_policy()
         ctx = _make_context()
 
-        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
+        with patch.object(policy, "_evaluate_and_maybe_block", new_callable=AsyncMock) as mock_eval:
             mock_eval.side_effect = [
                 None,  # index 0 allowed
                 JudgeResult(probability=0.9, explanation="harmful", prompt=[], response_text=""),  # index 1 blocked
@@ -458,7 +482,7 @@ class TestStreamingStopReasonCorrection:
 
         judge_result = JudgeResult(probability=0.9, explanation="harmful", prompt=[], response_text="")
 
-        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
+        with patch.object(policy, "_evaluate_and_maybe_block", new_callable=AsyncMock) as mock_eval:
             mock_eval.return_value = judge_result
 
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
@@ -538,7 +562,7 @@ class TestNonStreamingResponse:
             "stop_reason": "tool_use",
         }
 
-        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
+        with patch.object(policy, "_evaluate_and_maybe_block", new_callable=AsyncMock) as mock_eval:
             mock_eval.return_value = None  # allowed
 
             result = await policy.on_anthropic_response(response, ctx)
@@ -561,7 +585,7 @@ class TestNonStreamingResponse:
 
         judge_result = JudgeResult(probability=0.9, explanation="destructive", prompt=[], response_text="")
 
-        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
+        with patch.object(policy, "_evaluate_and_maybe_block", new_callable=AsyncMock) as mock_eval:
             mock_eval.return_value = judge_result
 
             result = await policy.on_anthropic_response(response, ctx)
@@ -585,7 +609,7 @@ class TestNonStreamingResponse:
 
         judge_result = JudgeResult(probability=0.9, explanation="blocked", prompt=[], response_text="")
 
-        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
+        with patch.object(policy, "_evaluate_and_maybe_block", new_callable=AsyncMock) as mock_eval:
             mock_eval.return_value = judge_result
 
             result = await policy.on_anthropic_response(response, ctx)
@@ -607,7 +631,7 @@ class TestNonStreamingResponse:
         }
 
         # First tool allowed, second blocked
-        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
+        with patch.object(policy, "_evaluate_and_maybe_block", new_callable=AsyncMock) as mock_eval:
             mock_eval.side_effect = [
                 None,  # Tool1 allowed
                 JudgeResult(probability=0.9, explanation="blocked", prompt=[], response_text=""),  # Tool2 blocked
@@ -634,7 +658,7 @@ class TestNonStreamingResponse:
 
         judge_result = JudgeResult(probability=0.9, explanation="destructive", prompt=[], response_text="")
 
-        with patch.object(policy, "_evaluate_and_maybe_block_anthropic", new_callable=AsyncMock) as mock_eval:
+        with patch.object(policy, "_evaluate_and_maybe_block", new_callable=AsyncMock) as mock_eval:
             mock_eval.return_value = judge_result
 
             result = await policy.on_anthropic_response(response, ctx)
@@ -657,23 +681,16 @@ class TestStateCleanup:
 
     @pytest.mark.asyncio
     async def test_streaming_policy_complete_pops_state(self):
-        """after calling on_anthropic_streaming_policy_complete, old state is removed."""
+        """on_anthropic_streaming_policy_complete must remove a populated buffer."""
         policy = _make_policy()
         ctx = _make_context()
 
-        # Buffer a tool to create non-empty state
+        # Drive a tool_use start to populate request state with a buffer.
         await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
 
-        state_before = policy._anthropic_state(ctx)
-        assert 0 in state_before.buffered_tool_uses
-
-        # Clean up
+        # Cleanup must remove the populated buffer (not just no-op on empty state).
         await policy.on_anthropic_streaming_policy_complete(ctx)
-
-        # get_request_state returns a new object — the old one was removed
-        state_after = policy._anthropic_state(ctx)
-        assert state_after is not state_before
-        assert 0 not in state_after.buffered_tool_uses
+        assert ctx.pop_request_state(policy, ToolCallStreamBuffer) is None
 
 
 # ============================================================================
@@ -694,7 +711,7 @@ class TestBlockedMessageFormatting:
         }
         judge_result = JudgeResult(probability=0.95, explanation="destructive operation", prompt=[], response_text="")
 
-        message = policy._format_anthropic_blocked_message(tool_call, judge_result)
+        message = policy._format_blocked_message(tool_call, judge_result)
 
         assert "Bash" in message
         assert "rm -rf /" in message
@@ -708,7 +725,7 @@ class TestBlockedMessageFormatting:
         tool_call = {"name": "Python", "arguments": "{}"}
         judge_result = JudgeResult(probability=0.75, explanation="explanation", prompt=[], response_text="")
 
-        message = policy._format_anthropic_blocked_message(tool_call, judge_result)
+        message = policy._format_blocked_message(tool_call, judge_result)
 
         assert message == "BLOCKED: Python with probability 0.8"
 
@@ -722,7 +739,7 @@ class TestBlockedMessageFormatting:
         tool_call = {"name": "Tool", "arguments": long_args}
         judge_result = JudgeResult(probability=0.5, explanation="test", prompt=[], response_text="")
 
-        message = policy._format_anthropic_blocked_message(tool_call, judge_result)
+        message = policy._format_blocked_message(tool_call, judge_result)
 
         # Truncated prefix appears in message, but full args do not
         assert long_args[:TOOL_ARGS_TRUNCATION_LENGTH] in message
@@ -735,7 +752,7 @@ class TestBlockedMessageFormatting:
         tool_call = {"name": "Tool", "arguments": "{}"}
         judge_result = JudgeResult(probability=0.9, explanation="", prompt=[], response_text="")
 
-        message = policy._format_anthropic_blocked_message(tool_call, judge_result)
+        message = policy._format_blocked_message(tool_call, judge_result)
 
         assert "Tool" in message
         assert "No explanation provided" in message

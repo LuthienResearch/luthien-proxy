@@ -136,8 +136,7 @@ class ConversationPurger:
         """
         if last_call_id is None:
             rows = await conn.fetch(  # type: ignore[attr-defined]
-                "SELECT call_id FROM conversation_calls"
-                " WHERE created_at < $1 ORDER BY call_id LIMIT $2",
+                "SELECT call_id FROM conversation_calls WHERE created_at < $1 ORDER BY call_id LIMIT $2",
                 cutoff,
                 batch_size,
             )
@@ -171,16 +170,13 @@ class ConversationPurger:
         while True:
             try:
                 async with self._db_pool.connection() as conn:
-                    call_ids = await self._fetch_call_ids_batch(
-                        conn, cutoff, last_call_id, _DELETE_CHUNK_SIZE
-                    )
+                    call_ids = await self._fetch_call_ids_batch(conn, cutoff, last_call_id, _DELETE_CHUNK_SIZE)
                 if not call_ids:
                     break
                 total += await self._delete_by_call_ids(call_ids)
             except Exception:
                 logger.exception(
-                    "Cutoff-DELETE failed on batch %d; stopping. "
-                    "%d records deleted in earlier batches of this run.",
+                    "Cutoff-DELETE failed on batch %d; stopping. %d records deleted in earlier batches of this run.",
                     batch_index,
                     total,
                 )

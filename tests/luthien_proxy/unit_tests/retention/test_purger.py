@@ -64,9 +64,7 @@ def _make_archiver(
     """
     archiver = MagicMock()
     archiver.new_run_id = MagicMock(return_value="testrun1")
-    archiver.fetch_batch = AsyncMock(
-        side_effect=[(b"<jsonl>", call_ids, has_more) for call_ids, has_more in batches]
-    )
+    archiver.fetch_batch = AsyncMock(side_effect=[(b"<jsonl>", call_ids, has_more) for call_ids, has_more in batches])
     if upload_side_effect is None:
         archiver.upload_batch = AsyncMock(return_value=None)
     elif isinstance(upload_side_effect, list):
@@ -142,9 +140,7 @@ async def test_fetch_failure_mid_run_preserves_earlier_batches():
     pool, conn = _make_pool()
     archiver = MagicMock()
     archiver.new_run_id = MagicMock(return_value="testrun1")
-    archiver.fetch_batch = AsyncMock(
-        side_effect=[(b"<jsonl>", ["c1", "c2"], True), RuntimeError("DB error")]
-    )
+    archiver.fetch_batch = AsyncMock(side_effect=[(b"<jsonl>", ["c1", "c2"], True), RuntimeError("DB error")])
     archiver.upload_batch = AsyncMock(return_value=None)
 
     purger = ConversationPurger(db_pool=pool, retention_days=30, archiver=archiver)
@@ -326,9 +322,7 @@ def test_cutoff_calculation():
 @pytest.mark.asyncio
 async def test_start_stop_lifecycle():
     pool, _ = _make_pool()
-    purger = ConversationPurger(
-        db_pool=pool, retention_days=30, initial_delay_seconds=0, interval_seconds=9999
-    )
+    purger = ConversationPurger(db_pool=pool, retention_days=30, initial_delay_seconds=0, interval_seconds=9999)
     purger.start()
     task_ref = purger._task
     assert task_ref is not None and not task_ref.done()
@@ -340,9 +334,7 @@ async def test_start_stop_lifecycle():
 @pytest.mark.asyncio
 async def test_start_is_idempotent():
     pool, _ = _make_pool()
-    purger = ConversationPurger(
-        db_pool=pool, retention_days=30, initial_delay_seconds=0, interval_seconds=9999
-    )
+    purger = ConversationPurger(db_pool=pool, retention_days=30, initial_delay_seconds=0, interval_seconds=9999)
     purger.start()
     first_task = purger._task
     purger.start()
@@ -353,9 +345,7 @@ async def test_start_is_idempotent():
 @pytest.mark.asyncio
 async def test_stop_then_start_creates_new_task():
     pool, _ = _make_pool()
-    purger = ConversationPurger(
-        db_pool=pool, retention_days=30, initial_delay_seconds=0, interval_seconds=9999
-    )
+    purger = ConversationPurger(db_pool=pool, retention_days=30, initial_delay_seconds=0, interval_seconds=9999)
     purger.start()
     first_task = purger._task
     await purger.stop()
@@ -382,9 +372,7 @@ async def test_loop_survives_purge_failure():
     replacing _run_loop wholesale.
     """
     pool, _ = _make_pool()
-    purger = ConversationPurger(
-        db_pool=pool, retention_days=30, initial_delay_seconds=0, interval_seconds=9999
-    )
+    purger = ConversationPurger(db_pool=pool, retention_days=30, initial_delay_seconds=0, interval_seconds=9999)
 
     call_count = {"n": 0}
     failure_done = asyncio.Event()
@@ -423,9 +411,7 @@ async def test_loop_survives_purge_failure():
 @pytest.mark.asyncio
 async def test_loop_exception_logged(caplog):
     pool, _ = _make_pool()
-    purger = ConversationPurger(
-        db_pool=pool, retention_days=30, initial_delay_seconds=0, interval_seconds=9999
-    )
+    purger = ConversationPurger(db_pool=pool, retention_days=30, initial_delay_seconds=0, interval_seconds=9999)
 
     async def failing() -> None:
         raise RuntimeError("boom")

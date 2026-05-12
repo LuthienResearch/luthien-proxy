@@ -11,6 +11,4 @@ from __future__ import annotations
 from pathlib import Path
 
 # repo_root / scripts / automated_maintenance / lib
-AUTOMATED_MAINTENANCE_LIB = (
-    Path(__file__).resolve().parents[4] / "scripts" / "automated_maintenance" / "lib"
-)
+AUTOMATED_MAINTENANCE_LIB = Path(__file__).resolve().parents[4] / "scripts" / "automated_maintenance" / "lib"

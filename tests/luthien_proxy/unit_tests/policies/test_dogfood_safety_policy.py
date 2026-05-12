@@ -20,8 +20,8 @@ from tests.luthien_proxy.unit_tests.policies.anthropic_event_builders import mes
 from luthien_proxy.policies.dogfood_safety_policy import (
     DogfoodSafetyConfig,
     DogfoodSafetyPolicy,
-    _BufferedAnthropicToolUse,
 )
+from luthien_proxy.policy_core import ToolCallStreamBuffer
 from luthien_proxy.policy_core.policy_context import PolicyContext
 
 
@@ -368,6 +368,40 @@ class TestStreamingStopReasonCorrection:
 
 
 # ============================================================================
+# Fail-secure on malformed input
+# ============================================================================
+
+
+class TestFailSecureOnMalformedInput:
+    """Streaming tool_use with malformed input_json must still match dangerous patterns.
+
+    Regression: when `BufferedToolCall.input_json` fails to parse as JSON, the
+    parsed-dict representation is `{"_raw": <string>}`. A safety policy that
+    extracted `tool_input["command"]` would see an empty string and fail open.
+    The transform falls back to the raw text in that case.
+    """
+
+    @pytest.mark.asyncio
+    async def test_dangerous_command_in_malformed_json_still_blocked(self):
+        policy = _make_policy()
+        ctx = _make_context()
+
+        # Truncated JSON: valid-up-to-here but no closing brace. json.loads will fail;
+        # the regex must still match `docker compose down` in the raw text.
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0)), ctx)
+        await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, _tool_delta(0, '{"command":"docker compose down"')), ctx
+        )
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
+        emitted = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
+
+        # First emitted block must be the blocked-text replacement, not a tool_use.
+        start_event = emitted[0]
+        assert isinstance(start_event, RawContentBlockStartEvent)
+        assert start_event.content_block.type == "text"
+
+
+# ============================================================================
 # Configuration
 # ============================================================================
 
@@ -411,10 +445,13 @@ class TestStateCleanup:
         policy = _make_policy()
         policy_ctx = _make_context("txn-456")
 
-        policy._anthropic_buffered_tool_uses(policy_ctx)[0] = _BufferedAnthropicToolUse(id="a", name="test")
-        policy._anthropic_buffered_tool_uses(policy_ctx)[1] = _BufferedAnthropicToolUse(id="b", name="test2")
+        # Drive a tool_use through the stream to populate request state.
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0)), policy_ctx)
+        await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, _tool_delta(0, '{"command":"docker compose down"}')), policy_ctx
+        )
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), policy_ctx)
 
+        # Cleanup must remove a populated buffer (not just no-op on empty state).
         await policy.on_anthropic_streaming_policy_complete(policy_ctx)
-
-        # State should be recreated empty after cleanup.
-        assert policy._anthropic_buffered_tool_uses(policy_ctx) == {}
+        assert policy_ctx.pop_request_state(policy, ToolCallStreamBuffer) is None

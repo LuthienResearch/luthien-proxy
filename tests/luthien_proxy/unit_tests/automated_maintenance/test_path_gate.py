@@ -6,7 +6,6 @@ import importlib.util
 import sys
 
 import pytest
-
 from tests.luthien_proxy.unit_tests.automated_maintenance.conftest import (
     AUTOMATED_MAINTENANCE_LIB,
 )
