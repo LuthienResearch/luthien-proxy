@@ -349,6 +349,62 @@ class TestNonStreamingTransform:
         ]
 
     @pytest.mark.asyncio
+    async def test_interleaved_text_and_tool_preserves_positions_when_count_matches(self):
+        """1-to-1 transform output preserves original tool_use positions in non-streaming."""
+        response = cast(
+            AnthropicResponse,
+            {
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "first"},
+                    {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "ls"}},
+                    {"type": "text", "text": "middle"},
+                    {"type": "tool_use", "id": "t2", "name": "Read", "input": {"path": "/x"}},
+                    {"type": "text", "text": "last"},
+                ],
+                "model": "claude-haiku-4-5",
+                "stop_reason": "tool_use",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+            },
+        )
+
+        async def block_each(calls):
+            return [cast(AnthropicContentBlock, {"type": "text", "text": f"BLOCKED {c.name}"}) for c in calls]
+
+        result = await transform_anthropic_response(response, block_each)
+        assert result["content"] == [
+            {"type": "text", "text": "first"},
+            {"type": "text", "text": "BLOCKED Bash"},
+            {"type": "text", "text": "middle"},
+            {"type": "text", "text": "BLOCKED Read"},
+            {"type": "text", "text": "last"},
+        ]
+        assert result.get("stop_reason") == "end_turn"
+
+    @pytest.mark.asyncio
+    async def test_identity_fast_path_returns_original_object_for_passthrough(self):
+        """Pure-passthrough transform with unchanged stop_reason returns the same response object."""
+        response = cast(
+            AnthropicResponse,
+            {
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "hello"},
+                    {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "ls"}},
+                ],
+                "model": "claude-haiku-4-5",
+                "stop_reason": "tool_use",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+            },
+        )
+        result = await transform_anthropic_response(response, _passthrough)
+        assert result is response
+
+    @pytest.mark.asyncio
     async def test_multiple_tool_use_blocks_replaced_with_single_output_at_first_position(self):
         response = cast(
             AnthropicResponse,

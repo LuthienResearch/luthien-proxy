@@ -234,16 +234,18 @@ async def transform_anthropic_response(
 
     Walks `response["content"]`, extracts tool_use blocks as `BufferedToolCall`s,
     invokes `transform` with them, and stitches the result back into the content
-    list in place of the original tool_uses. Non-tool-use blocks (text, thinking,
-    etc.) are preserved at their original positions; the transform output is
-    inserted at the first tool_use position and any subsequent tool_uses are
-    dropped (matching the streaming-side "tool replacements come together"
-    semantics). `stop_reason` is rewritten to match the final content shape.
+    list. When the transform returns the same number of blocks as input tool_uses,
+    each output is placed at its corresponding input's original position. When the
+    counts differ (e.g. the transform adds or drops tool calls), outputs are
+    placed together at the first tool_use position and the other tool_use slots
+    are removed — preserving the relative position of non-tool-use blocks.
+    `stop_reason` is rewritten to match the final content shape.
     """
+    _PLACEHOLDER = object()
     content = response.get("content") or []
     tool_calls: list[BufferedToolCall] = []
-    first_tool_idx: int | None = None
-    rebuilt: list["AnthropicContentBlock"] = []
+    tool_positions: list[int] = []
+    rebuilt: list[object] = []
 
     for block in content:
         if isinstance(block, dict) and block.get("type") == "tool_use":
@@ -254,9 +256,8 @@ async def transform_anthropic_response(
                     input_json=json.dumps(block.get("input", {})),
                 )
             )
-            if first_tool_idx is None:
-                first_tool_idx = len(rebuilt)
-                rebuilt.append(cast("AnthropicContentBlock", {"__TOOL_PLACEHOLDER__": True}))
+            tool_positions.append(len(rebuilt))
+            rebuilt.append(_PLACEHOLDER)
         else:
             rebuilt.append(block)
 
@@ -264,20 +265,26 @@ async def transform_anthropic_response(
         return response
 
     new_blocks = await transform(tool_calls)
-    assert first_tool_idx is not None  # tool_calls non-empty implies a placeholder exists
-    rebuilt = rebuilt[:first_tool_idx] + list(new_blocks) + rebuilt[first_tool_idx + 1 :]
+    if len(new_blocks) == len(tool_positions):
+        for pos, blk in zip(tool_positions, new_blocks):
+            rebuilt[pos] = blk
+    else:
+        first = tool_positions[0]
+        tail = [b for b in rebuilt[first + 1 :] if b is not _PLACEHOLDER]
+        rebuilt = rebuilt[:first] + list(new_blocks) + tail
 
-    any_tool_use = any(_is_tool_use_block(b) for b in rebuilt)
+    final_content = cast("list[AnthropicContentBlock]", rebuilt)
+    any_tool_use = any(_is_tool_use_block(b) for b in final_content)
     upstream_stop = response.get("stop_reason")
     new_stop = _adjust_stop_reason(upstream_stop, any_tool_use)
 
     # Identity-preserving fast path: if the transform was a pure passthrough and
     # the stop_reason didn't need adjusting, return the original response object.
-    if rebuilt == list(content) and new_stop == upstream_stop:
+    if final_content == list(content) and new_stop == upstream_stop:
         return response
 
     modified = dict(response)
-    modified["content"] = rebuilt
+    modified["content"] = final_content
     if new_stop != upstream_stop:
         modified["stop_reason"] = new_stop
     return cast("AnthropicResponse", modified)
