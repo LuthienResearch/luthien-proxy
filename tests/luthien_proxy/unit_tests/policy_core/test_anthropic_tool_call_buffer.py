@@ -430,6 +430,43 @@ class TestNonStreamingTransform:
         assert result.get("stop_reason") == "end_turn"
 
 
+class TestMalformedInputPassthroughPreservesRawBytes:
+    @pytest.mark.asyncio
+    async def test_malformed_json_passthrough_emits_original_bytes(self):
+        """Passthrough of a tool_use with malformed input_json must re-emit the
+        original (broken) bytes verbatim, not a {"_raw": ...} JSON normalization
+        the downstream client could erroneously accept and execute.
+        """
+        buf = ToolCallStreamBuffer(_passthrough)
+        await buf.process(_tool_start(0, "tu_1", "Bash"))
+        await buf.process(_json_delta(0, '{"command":"ls"'))  # missing closing brace
+        await buf.process(_block_stop(0))
+        emitted = await buf.process(_message_delta("tool_use"))
+
+        delta = emitted[1]
+        assert isinstance(delta, RawContentBlockDeltaEvent)
+        assert isinstance(delta.delta, InputJSONDelta)
+        assert delta.delta.partial_json == '{"command":"ls"'
+
+
+class TestUnknownUpstreamIndexDropped:
+    @pytest.mark.asyncio
+    async def test_delta_for_unseen_index_dropped(self):
+        """A delta for an index we never saw a block_start for must not pass
+        through with its raw upstream index (could collide with output indices).
+        """
+        buf = ToolCallStreamBuffer(_passthrough)
+        # Never sent a start event for index 5.
+        result = await buf.process(_text_delta(5, "stray"))
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_stop_for_unseen_index_dropped(self):
+        buf = ToolCallStreamBuffer(_passthrough)
+        result = await buf.process(_block_stop(5))
+        assert result == []
+
+
 class TestUnsupportedBlockType:
     @pytest.mark.asyncio
     async def test_invalid_block_type_in_transform_output_raises(self):

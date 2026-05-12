@@ -161,8 +161,11 @@ class ToolCallStreamBuffer:
             return []
         output_index = self._state.passthrough_index_map.get(event.index)
         if output_index is None:
-            logger.warning("Delta for unknown upstream index %d; passing through", event.index)
-            return [cast(MessageStreamEvent, event)]
+            # Upstream sent a delta for an index we never saw a block_start for.
+            # Passing it through with its original index could collide with an
+            # output index we've already allocated; drop it instead.
+            logger.warning("Delta for unknown upstream index %d; dropping", event.index)
+            return []
         rewritten = event.model_copy(update={"index": output_index})
         return [cast(MessageStreamEvent, rewritten)]
 
@@ -171,8 +174,8 @@ class ToolCallStreamBuffer:
             return []
         output_index = self._state.passthrough_index_map.get(event.index)
         if output_index is None:
-            logger.warning("Stop for unknown upstream index %d; passing through", event.index)
-            return [cast(MessageStreamEvent, event)]
+            logger.warning("Stop for unknown upstream index %d; dropping", event.index)
+            return []
         rewritten = event.model_copy(update={"index": output_index})
         return [cast(MessageStreamEvent, rewritten)]
 
@@ -327,7 +330,15 @@ def _events_for_tool_use(index: int, *, tool_id: str, name: str, tool_input: obj
         index=index,
         content_block=ToolUseBlock(type="tool_use", id=tool_id, name=name, input={}),
     )
-    json_payload = json.dumps(tool_input) if tool_input else "{}"
+    # Preserve original malformed bytes on passthrough: when a tool_use had an
+    # unparseable input_json upstream, BufferedToolCall.input wraps it as
+    # {"_raw": "<original string>"}. Emitting json.dumps(...) would normalize
+    # to valid JSON the client might then execute. Re-emit the raw string so
+    # the client sees the same broken bytes it would have seen pre-PR.
+    if isinstance(tool_input, dict) and set(tool_input.keys()) == {"_raw"} and isinstance(tool_input["_raw"], str):
+        json_payload = tool_input["_raw"]
+    else:
+        json_payload = json.dumps(tool_input) if tool_input else "{}"
     delta = RawContentBlockDeltaEvent(
         type="content_block_delta",
         index=index,
