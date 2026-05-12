@@ -15,9 +15,11 @@ from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
+    RawContentBlockStopEvent,
     RawMessageDeltaEvent,
     TextBlock,
     TextDelta,
+    ThinkingBlock,
     ToolUseBlock,
 )
 from tests.luthien_proxy.fixtures.anthropic_stream_validator import validate_anthropic_event_ordering
@@ -647,3 +649,213 @@ class TestMultiBlockReplacementIndices:
             f"Indices must be strictly increasing with no duplicates, got {start_indices}"
         )
         validate_anthropic_event_ordering(full_stream(all_events)).assert_valid()
+
+    @pytest.mark.asyncio
+    async def test_thinking_block_passthrough_after_multi_replace_uses_shifted_index(self):
+        """Thinking block (passthrough, not buffered) must apply index_shift.
+
+        tool@0 → replace([A, B]) emits at [0, 1] and shifts; subsequent
+        thinking@1 must emit at shifted index 2, not collide at 1.
+        """
+        policy = _make_policy()
+        ctx = _make_context()
+
+        replace = JudgeAction(
+            action="replace",
+            blocks=(ReplacementBlock(type="text", text="A"), ReplacementBlock(type="text", text="B")),
+        )
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = replace
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
+            replace_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            thinking_start = RawContentBlockStartEvent(
+                type="content_block_start",
+                index=1,
+                content_block=ThinkingBlock(type="thinking", thinking="hmm", signature="sig"),
+            )
+            thinking_stop = RawContentBlockStopEvent(type="content_block_stop", index=1)
+            t_start = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, thinking_start), ctx)
+            t_stop = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, thinking_stop), ctx)
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        all_events = replace_events + t_start + t_stop + msg_events
+        starts = [e.index for e in all_events if isinstance(e, RawContentBlockStartEvent)]
+        assert starts == [0, 1, 2], f"Thinking-block passthrough must emit at index+shift=2, got starts {starts}"
+        validate_anthropic_event_ordering(full_stream(all_events)).assert_valid()
+
+    @pytest.mark.asyncio
+    async def test_two_multi_block_replacements_compound_shift(self):
+        """Two multi-block replacements in series must compound index_shift.
+
+        tool@0 → replace([A,B]) → emits [0,1] shift=1
+        tool@1 → replace([C,D]) → emits at shifted [2,3] shift=3
+        tool@2 → pass → emits at shifted index 4
+        Guards against `index_shift = N-1` regression vs `+=`.
+        """
+        policy = _make_policy()
+        ctx = _make_context()
+
+        replace_ab = JudgeAction(
+            action="replace",
+            blocks=(ReplacementBlock(type="text", text="A"), ReplacementBlock(type="text", text="B")),
+        )
+        replace_cd = JudgeAction(
+            action="replace",
+            blocks=(ReplacementBlock(type="text", text="C"), ReplacementBlock(type="text", text="D")),
+        )
+        pass_action = JudgeAction(action="pass")
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = [replace_ab, replace_cd, pass_action]
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
+            e1 = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":2}', 1)), ctx)
+            e2 = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(2)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":3}', 2)), ctx)
+            e3 = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(2)), ctx)
+
+            msg = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
+
+        all_events = e1 + e2 + e3 + msg
+        starts = [e.index for e in all_events if isinstance(e, RawContentBlockStartEvent)]
+        assert starts == [0, 1, 2, 3, 4], f"Compound shift broken: expected [0,1,2,3,4], got {starts}"
+        validate_anthropic_event_ordering(full_stream(all_events)).assert_valid()
+
+    @pytest.mark.asyncio
+    async def test_one_for_one_replace_after_multi_block_replace_no_extra_shift(self):
+        """1-for-1 replace consumes its upstream slot; no extra shift.
+
+        tool@0 → replace([A,B]) shifts by 1; tool@1 → replace([C]) is 1-for-1
+        and must emit at shifted index 2 without bumping shift further;
+        tool@2 → pass emits at shifted index 3.
+        """
+        policy = _make_policy()
+        ctx = _make_context()
+
+        replace_ab = JudgeAction(
+            action="replace",
+            blocks=(ReplacementBlock(type="text", text="A"), ReplacementBlock(type="text", text="B")),
+        )
+        replace_c = JudgeAction(action="replace", blocks=(ReplacementBlock(type="text", text="C"),))
+        pass_action = JudgeAction(action="pass")
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = [replace_ab, replace_c, pass_action]
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
+            e1 = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":2}', 1)), ctx)
+            e2 = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(2)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":3}', 2)), ctx)
+            e3 = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(2)), ctx)
+
+            msg = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
+
+        all_events = e1 + e2 + e3 + msg
+        starts = [e.index for e in all_events if isinstance(e, RawContentBlockStartEvent)]
+        assert starts == [0, 1, 2, 3], f"1-for-1 replace bumped shift unexpectedly: expected [0,1,2,3], got {starts}"
+        validate_anthropic_event_ordering(full_stream(all_events)).assert_valid()
+
+    @pytest.mark.asyncio
+    async def test_text_passthrough_after_multi_block_replacement(self):
+        """Text pass after multi-replace must shift via pending_text_start rebuild.
+
+        tool@0 → replace([A,B]); text@1 → pass — exercises the
+        pending_text_start shift branch in _handle_block_stop.
+        """
+        policy = _make_policy()
+        ctx = _make_context()
+
+        replace_ab = JudgeAction(
+            action="replace",
+            blocks=(ReplacementBlock(type="text", text="A"), ReplacementBlock(type="text", text="B")),
+        )
+        pass_action = JudgeAction(action="pass")
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = [replace_ab, pass_action]
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
+            e1 = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("hello", 1)), ctx)
+            e2 = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+            msg = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
+
+        all_events = e1 + e2 + msg
+        starts = [e.index for e in all_events if isinstance(e, RawContentBlockStartEvent)]
+        assert starts == [0, 1, 2], f"Text passthrough must shift to 2 after [A,B] at [0,1], got {starts}"
+        validate_anthropic_event_ordering(full_stream(all_events)).assert_valid()
+
+    @pytest.mark.asyncio
+    async def test_replacement_stream_accumulates_via_anthropic_sdk(self):
+        """End-to-end: SDK accumulator must rebuild the stream without IndexError.
+
+        The validator catches structural violations; this catches what the
+        actual downstream Anthropic SDK client would do with the bytes.
+        """
+        from anthropic.lib.streaming._messages import accumulate_event
+        from anthropic.types import Message, RawMessageStartEvent, RawMessageStopEvent, Usage
+
+        policy = _make_policy()
+        ctx = _make_context()
+
+        replace_ab = JudgeAction(
+            action="replace",
+            blocks=(ReplacementBlock(type="text", text="A"), ReplacementBlock(type="text", text="B")),
+        )
+        pass_action = JudgeAction(action="pass")
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = [replace_ab, pass_action]
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
+            e1 = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"y":2}', 1)), ctx)
+            e2 = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+            msg = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
+
+        message_start = RawMessageStartEvent(
+            type="message_start",
+            message=Message.model_construct(
+                type="message",
+                id="test",
+                role="assistant",
+                model="test-model",
+                content=[],
+                stop_reason=None,
+                stop_sequence=None,
+                usage=Usage(input_tokens=0, output_tokens=0),
+            ),
+        )
+        message_stop = RawMessageStopEvent(type="message_stop")
+
+        snapshot: Message | None = None
+        for ev in [message_start, *e1, *e2, *msg, message_stop]:
+            snapshot = accumulate_event(event=ev, current_snapshot=snapshot)
+        assert snapshot is not None
+        assert len(snapshot.content) == 3, f"SDK accumulator should see 3 blocks, got {len(snapshot.content)}"

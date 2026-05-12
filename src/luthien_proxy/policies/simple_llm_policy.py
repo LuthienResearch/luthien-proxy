@@ -101,6 +101,13 @@ class _SimpleLLMAnthropicState:
     # Cumulative downstream offset from multi-block replacements: when one
     # upstream block is replaced with N>1 blocks, every subsequent downstream
     # index shifts by N-1 to avoid colliding with the extra emitted blocks.
+    #
+    # Invariant: every emitted content_block_{start,delta,stop}.index equals
+    # `upstream_event.index + state.index_shift` at emission time. All emit
+    # paths — buffered text, buffered tool_use, replacement events, AND
+    # passthrough for unbuffered block types (e.g. thinking blocks) — must
+    # apply this shift. Violating the invariant produces duplicate indices
+    # downstream and breaks Anthropic SDK clients.
     index_shift: int = 0
 
 
@@ -357,7 +364,15 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             state.pending_text_start[index] = cast(MessageStreamEvent, event)
             return []
 
-        return [event]
+        # Passthrough for unbuffered block types (thinking, redacted_thinking,
+        # future types). Must apply index_shift to maintain monotonic indices
+        # after a prior multi-block replacement.
+        shifted = RawContentBlockStartEvent(
+            type="content_block_start",
+            index=index + state.index_shift,
+            content_block=event.content_block,
+        )
+        return [cast(MessageStreamEvent, shifted)]
 
     def _handle_block_delta(
         self, event: RawContentBlockDeltaEvent, context: "PolicyContext"
@@ -374,7 +389,15 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             state.tool_buffer[index].input_json += delta.partial_json
             return []  # buffer
 
-        return [event]
+        # Passthrough delta for unbuffered block types (e.g. thinking deltas).
+        # Apply index_shift to match the shifted start/stop emitted for the
+        # same upstream block.
+        shifted = RawContentBlockDeltaEvent(
+            type="content_block_delta",
+            index=index + state.index_shift,
+            delta=event.delta,
+        )
+        return [cast(MessageStreamEvent, shifted)]
 
     async def _handle_block_stop(
         self, event: RawContentBlockStopEvent, context: "PolicyContext"
@@ -449,7 +472,14 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             state.emitted_blocks.append(self._block_descriptor_from_text(blocked_text))
             return self._make_anthropic_text_block_events(emitted_index, blocked_text)
 
-        return [cast(MessageStreamEvent, event)]
+        # Passthrough stop for unbuffered block types (e.g. thinking blocks).
+        # Apply index_shift to match the shifted start/delta emitted for the
+        # same upstream block.
+        shifted = RawContentBlockStopEvent(
+            type="content_block_stop",
+            index=index + state.index_shift,
+        )
+        return [cast(MessageStreamEvent, shifted)]
 
     def _handle_message_delta(self, event: RawMessageDeltaEvent, context: "PolicyContext") -> list[MessageStreamEvent]:
         """Handle message_delta event: inject warning and correct stop_reason.
