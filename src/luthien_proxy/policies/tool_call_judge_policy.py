@@ -48,6 +48,7 @@ from luthien_proxy.policy_core import (
     CatalogBadge,
     Category,
     ToolCallStreamBuffer,
+    ToolCallTransform,
     UIMetadata,
     transform_anthropic_response,
 )
@@ -200,7 +201,7 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
     # Transform closure
     # ========================================================================
 
-    def _make_transform(self, context: "PolicyContext"):
+    def _make_transform(self, context: "PolicyContext") -> ToolCallTransform:
         """Build the transform closure passed to the buffer / non-streaming helper.
 
         Captures `context` so the closure can call the judge (needs credentials)

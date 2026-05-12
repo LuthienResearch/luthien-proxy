@@ -273,13 +273,14 @@ async def transform_anthropic_response(
     if len(new_blocks) == len(tool_positions):
         for pos, blk, original in zip(tool_positions, new_blocks, original_tool_blocks):
             # Passthrough preservation: when the transform output matches the
-            # original on (id, input), substitute the original block back so any
-            # extra fields beyond {type, id, name, input} (e.g. future Anthropic
-            # schema additions) survive a no-op transform.
+            # original on (id, name, input), substitute the original block back
+            # so any extra fields beyond {type, id, name, input} (e.g. future
+            # Anthropic schema additions) survive a no-op transform.
             if (
                 isinstance(blk, dict)
                 and blk.get("type") == "tool_use"
                 and blk.get("id") == original.get("id")
+                and blk.get("name") == original.get("name")
                 and blk.get("input") == original.get("input")
             ):
                 rebuilt[pos] = original

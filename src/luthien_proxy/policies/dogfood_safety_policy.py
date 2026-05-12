@@ -33,6 +33,7 @@ from luthien_proxy.policy_core import (
     CatalogBadge,
     Category,
     ToolCallStreamBuffer,
+    ToolCallTransform,
     UIMetadata,
     transform_anthropic_response,
 )
@@ -156,7 +157,7 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
         """Render blocked-message template with truncated command."""
         return self.config.blocked_message.format(command=command[:200], pattern="regex")
 
-    def _make_transform(self, context: "PolicyContext"):
+    def _make_transform(self, context: "PolicyContext") -> ToolCallTransform:
         """Build a transform closure that captures `context` for event-recording."""
 
         async def transform(tool_calls: list[BufferedToolCall]) -> list["AnthropicContentBlock"]:
