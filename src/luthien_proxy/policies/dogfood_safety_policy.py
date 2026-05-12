@@ -162,7 +162,15 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
         async def transform(tool_calls: list[BufferedToolCall]) -> list["AnthropicContentBlock"]:
             output: list[AnthropicContentBlock] = []
             for tc in tool_calls:
-                is_blocked, command = self._is_dangerous(tc.name, tc.input)
+                # Fail-secure: if the buffered input_json failed to parse,
+                # `tc.input` returns `{"_raw": <string>}` — but we want to scan
+                # the raw text for dangerous patterns anyway, not silently
+                # treat the call as safe because the dict path returned empty.
+                parsed = tc.input
+                tool_input: "JSONObject | str" = (
+                    tc.input_json if isinstance(parsed, dict) and "_raw" in parsed else parsed
+                )
+                is_blocked, command = self._is_dangerous(tc.name, tool_input)
                 if is_blocked:
                     context.record_event(
                         "policy.dogfood_safety.blocked",

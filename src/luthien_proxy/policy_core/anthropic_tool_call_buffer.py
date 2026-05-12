@@ -16,6 +16,14 @@ replacements are emitted after all upstream events have been seen (at the
 (text-then-tools); a future `buffer_all` mode could preserve exact ordering at
 the cost of streaming latency.
 
+Error-handling caveat: exceptions raised by the transform (or by `_emit_block`
+when the transform returns an unsupported block type) propagate out of
+`process()`. By that point any earlier text content has already been streamed
+to the client, so the client sees a partial response with no terminating
+`message_delta` / `message_stop`. Transforms should be written to not raise on
+normal data; the pipeline above is responsible for surfacing the error to the
+client connection.
+
 Usage:
     buf = ctx.get_request_state(
         self, ToolCallStreamBuffer, lambda: ToolCallStreamBuffer(self._decide)

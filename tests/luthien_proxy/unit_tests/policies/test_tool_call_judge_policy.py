@@ -681,18 +681,14 @@ class TestStateCleanup:
 
     @pytest.mark.asyncio
     async def test_streaming_policy_complete_pops_state(self):
-        """after calling on_anthropic_streaming_policy_complete, the buffer is removed."""
+        """on_anthropic_streaming_policy_complete must remove a populated buffer."""
         policy = _make_policy()
         ctx = _make_context()
 
-        # Drive a tool_use start to create the buffer in request state.
+        # Drive a tool_use start to populate request state with a buffer.
         await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
 
-        # Buffer exists before cleanup.
-        assert ctx.pop_request_state(policy, ToolCallStreamBuffer) is not None
-
-        # After cleanup, no buffer remains. Drive another event and confirm a
-        # fresh buffer is constructed instead of reusing the prior one.
+        # Cleanup must remove the populated buffer (not just no-op on empty state).
         await policy.on_anthropic_streaming_policy_complete(ctx)
         assert ctx.pop_request_state(policy, ToolCallStreamBuffer) is None
 
