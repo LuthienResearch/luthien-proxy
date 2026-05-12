@@ -1,38 +1,19 @@
 """Policy-agnostic Anthropic tool_use buffer with caller-supplied transform.
 
-A per-request streaming filter that lets callers transform a model's tool calls
-without writing event-state-machine code. Text content streams through in real
-time; tool_use blocks are buffered until the upstream response is complete; the
-caller's transform closure receives the full list of buffered tool calls and
-returns the content blocks to emit in their place.
+Per-request streaming filter. Text streams in real time; tool_use blocks
+buffer until `message_delta`; the caller's transform receives the full list
+of buffered tool calls and returns content blocks to emit in their place.
+Cross-event invariants (output indices, `stop_reason` consistency) live in
+the buffer.
 
-Cross-event invariants (output indices, `stop_reason` consistency) live inside
-the buffer so individual policies cannot drop them.
-
-Ordering caveat: text passes through immediately to preserve streaming UX. Tool
-replacements are emitted after all upstream events have been seen (at the
-`message_delta`). Upstream order `text, tool_use, text` becomes output order
-`text, text, <transform output>`. This matches typical Claude responses
-(text-then-tools); a future `buffer_all` mode could preserve exact ordering at
-the cost of streaming latency.
-
-Error-handling caveat: exceptions raised by the transform (or by `_emit_block`
-when the transform returns an unsupported block type) propagate out of
-`process()`. Earlier text content may have already been streamed. The streaming
-pipeline catches these and emits an in-stream SSE `error` event before closing
-the connection (see `pipeline/anthropic_processor.py` — the `except Exception`
-arm around the `on_anthropic_stream_event` loop). Transforms should still be
-written to not raise on normal data; the SSE error is a last-resort surface,
-not a "no terminating message_delta" leak.
+Note: upstream `text, tool_use, text` becomes output `text, text, <transform output>`
+because text isn't held hostage waiting for tool decisions.
 
 Usage:
     buf = ctx.get_request_state(
         self, ToolCallStreamBuffer, lambda: ToolCallStreamBuffer(self._decide)
     )
     return await buf.process(event)
-
-    async def _decide(self, tool_calls: list[BufferedToolCall]) -> list[AnthropicContentBlock]:
-        ...
 """
 
 from __future__ import annotations
@@ -351,11 +332,8 @@ def _events_for_tool_use(index: int, *, tool_id: str, name: str, tool_input: obj
         index=index,
         content_block=ToolUseBlock(type="tool_use", id=tool_id, name=name, input={}),
     )
-    # Preserve original malformed bytes on passthrough: when a tool_use had an
-    # unparseable input_json upstream, BufferedToolCall.input wraps it as
-    # {"_raw": "<original string>"}. Emitting json.dumps(...) would normalize
-    # to valid JSON the client might then execute. Re-emit the raw string so
-    # the client sees the same broken bytes it would have seen pre-PR.
+    # If input is the {"_raw": str} malformed-passthrough sentinel, re-emit
+    # the original bytes rather than normalizing them through json.dumps.
     if isinstance(tool_input, dict) and set(tool_input.keys()) == {"_raw"} and isinstance(tool_input["_raw"], str):
         json_payload = tool_input["_raw"]
     else:
