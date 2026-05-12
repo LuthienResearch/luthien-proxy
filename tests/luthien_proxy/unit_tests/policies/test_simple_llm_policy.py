@@ -20,9 +20,11 @@ from anthropic.types import (
     TextDelta,
     ToolUseBlock,
 )
+from tests.luthien_proxy.fixtures.anthropic_stream_validator import validate_anthropic_event_ordering
 from tests.luthien_proxy.unit_tests.policies.anthropic_event_builders import (
     block_stop,
     event_types,
+    full_stream,
     message_delta,
     text_delta,
     text_start,
@@ -569,3 +571,79 @@ class TestJudgeErrorEmptyResponseInjection:
             e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
         ]
         assert any(JUDGE_ERROR_BLOCKED_MESSAGE in d.delta.text for d in error_deltas)
+
+
+# ============================================================================
+# Multi-block replacement indices: monotonicity + no-collision-with-passthrough
+# ============================================================================
+
+
+class TestMultiBlockReplacementIndices:
+    @pytest.mark.asyncio
+    async def test_replacement_with_multiple_blocks_uses_monotonic_indices(self):
+        """Two replacement blocks must use indices [0, 1], not [0, 0]."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        blocks = (
+            ReplacementBlock(type="text", text="A"),
+            ReplacementBlock(type="text", text="B"),
+        )
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="replace", blocks=blocks)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"command":"ls"}', 0)), ctx)
+            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        all_events = stop_events + msg_events
+        start_indices = [e.index for e in all_events if isinstance(e, RawContentBlockStartEvent)]
+
+        assert len(start_indices) == 2, f"Expected 2 replacement blocks, got {len(start_indices)}"
+        assert start_indices[0] < start_indices[1], (
+            f"Replacement block indices must be monotonically increasing, got {start_indices}"
+        )
+
+        validate_anthropic_event_ordering(full_stream(all_events)).assert_valid()
+
+    @pytest.mark.asyncio
+    async def test_replacement_then_passthrough_no_index_collision(self):
+        """Replacing one block with 2 then passing the next upstream block must not collide.
+
+        tool@0 → replace([A, B]) emits at [0, 1]; tool@1 → pass must emit at 2 (not 1).
+        """
+        policy = _make_policy()
+        ctx = _make_context()
+
+        replace_action = JudgeAction(
+            action="replace",
+            blocks=(ReplacementBlock(type="text", text="A"), ReplacementBlock(type="text", text="B")),
+        )
+        pass_action = JudgeAction(action="pass")
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = [replace_action, pass_action]
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"cmd":"ls"}', 0)), ctx)
+            replace_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"cmd":"echo"}', 1)), ctx)
+            pass_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        all_events = replace_events + pass_events + msg_events
+        start_indices = [e.index for e in all_events if isinstance(e, RawContentBlockStartEvent)]
+
+        assert len(start_indices) == 3, f"Expected A, B, tool — got {start_indices}"
+        assert start_indices == sorted(set(start_indices)), (
+            f"Indices must be strictly increasing with no duplicates, got {start_indices}"
+        )
+        validate_anthropic_event_ordering(full_stream(all_events)).assert_valid()

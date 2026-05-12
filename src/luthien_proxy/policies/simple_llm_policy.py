@@ -98,6 +98,10 @@ class _SimpleLLMAnthropicState:
     emitted_blocks: list[BlockDescriptor] = field(default_factory=list)
     original_had_tool_use: bool = False
     judge_error_occurred: bool = False
+    # Cumulative downstream offset from multi-block replacements: when one
+    # upstream block is replaced with N>1 blocks, every subsequent downstream
+    # index shifts by N-1 to avoid colliding with the extra emitted blocks.
+    index_shift: int = 0
 
 
 class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
@@ -395,15 +399,22 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             if action.judge_failed:
                 state.judge_error_occurred = True
 
+            emitted_index = index + state.index_shift
             if action.action == "pass":
                 state.emitted_blocks.append(descriptor)
                 events: list[MessageStreamEvent] = []
                 if pending_start is not None:
-                    events.append(pending_start)
-                events.extend(self._emit_anthropic_text_events(index, text, event))
+                    orig_start = cast(RawContentBlockStartEvent, pending_start)
+                    shifted_start = RawContentBlockStartEvent(
+                        type="content_block_start",
+                        index=emitted_index,
+                        content_block=orig_start.content_block,
+                    )
+                    events.append(cast(MessageStreamEvent, shifted_start))
+                events.extend(self._emit_anthropic_text_events(emitted_index, text))
                 return events
             elif action.action == "replace":
-                return self._emit_anthropic_replacement_events(index, action, state, event)
+                return self._emit_anthropic_replacement_events(emitted_index, action, state)
             # Judge blocked the text block — suppress entirely (pending_start was
             # never emitted, so there's nothing to close).
             return []
@@ -423,11 +434,12 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             if action.judge_failed:
                 state.judge_error_occurred = True
 
+            emitted_index = index + state.index_shift
             if action.action == "pass":
                 state.emitted_blocks.append(descriptor)
-                return self._emit_anthropic_tool_events(index, buffered, event)
+                return self._emit_anthropic_tool_events(emitted_index, buffered)
             elif action.action == "replace":
-                return self._emit_anthropic_replacement_events(index, action, state, event)
+                return self._emit_anthropic_replacement_events(emitted_index, action, state)
             # Tool start was suppressed — emit a text block so the client
             # knows the tool call was blocked and can continue the conversation.
             if action.judge_failed:
@@ -435,7 +447,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             else:
                 blocked_text = _blocked_tool_message(buffered.name)
             state.emitted_blocks.append(self._block_descriptor_from_text(blocked_text))
-            return self._make_anthropic_text_block_events(index, blocked_text)
+            return self._make_anthropic_text_block_events(emitted_index, blocked_text)
 
         return [cast(MessageStreamEvent, event)]
 
@@ -475,26 +487,26 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         self,
         index: int,
         text: str,
-        stop_event: RawContentBlockStopEvent,
     ) -> list[MessageStreamEvent]:
-        """Emit buffered text as a single delta + stop."""
+        """Emit buffered text as a single delta + stop at the given (possibly shifted) index."""
         text_delta = TextDelta.model_construct(type="text_delta", text=text)
         delta_event = RawContentBlockDeltaEvent.model_construct(
             type="content_block_delta", index=index, delta=text_delta
         )
+        stop_event = RawContentBlockStopEvent(type="content_block_stop", index=index)
         return [cast(MessageStreamEvent, delta_event), cast(MessageStreamEvent, stop_event)]
 
     def _emit_anthropic_tool_events(
         self,
         index: int,
         buffered: _BufferedToolUse,
-        stop_event: RawContentBlockStopEvent,
     ) -> list[MessageStreamEvent]:
-        """Reconstruct tool_use block events: start + json delta + stop."""
+        """Reconstruct tool_use block events at the given (possibly shifted) index: start + json delta + stop."""
         tool_block = ToolUseBlock(type="tool_use", id=buffered.id, name=buffered.name, input={})
         start_event = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=tool_block)
         json_delta = InputJSONDelta(type="input_json_delta", partial_json=buffered.input_json or "{}")
         delta_event = RawContentBlockDeltaEvent(type="content_block_delta", index=index, delta=json_delta)
+        stop_event = RawContentBlockStopEvent(type="content_block_stop", index=index)
         return [
             cast(MessageStreamEvent, start_event),
             cast(MessageStreamEvent, delta_event),
@@ -523,43 +535,73 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         index: int,
         action: JudgeAction,
         state: _SimpleLLMAnthropicState,
-        stop_event: RawContentBlockStopEvent,
     ) -> list[MessageStreamEvent]:
-        """Emit replacement block events."""
+        """Emit replacement block events with monotonically increasing indices.
+
+        When the judge replaces one upstream block with N blocks, each emitted
+        block gets a distinct index starting at `index` (which already includes
+        any prior index_shift). For N>1 we update state.index_shift so that
+        subsequent passthrough/replacement blocks land at non-colliding indices.
+        """
         events: list[MessageStreamEvent] = []
+        current_index = index
 
         for rblock in action.blocks or ():
-            state.emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
+            block_stop = RawContentBlockStopEvent(type="content_block_stop", index=current_index)
 
             if rblock.type == "text":
                 text_block = TextBlock(type="text", text="")
-                start = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=text_block)
+                start = RawContentBlockStartEvent(
+                    type="content_block_start", index=current_index, content_block=text_block
+                )
                 text_delta = TextDelta.model_construct(type="text_delta", text=rblock.text or "")
                 delta = RawContentBlockDeltaEvent.model_construct(
-                    type="content_block_delta", index=index, delta=text_delta
+                    type="content_block_delta", index=current_index, delta=text_delta
                 )
                 events.extend(
                     [
                         cast(MessageStreamEvent, start),
                         cast(MessageStreamEvent, delta),
+                        cast(MessageStreamEvent, block_stop),
                     ]
                 )
 
             elif rblock.type == "tool_use":
                 tool_id = f"toolu_{uuid4().hex[:24]}"
                 tool_block = ToolUseBlock(type="tool_use", id=tool_id, name=rblock.name or "", input={})
-                start = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=tool_block)
+                start = RawContentBlockStartEvent(
+                    type="content_block_start", index=current_index, content_block=tool_block
+                )
                 json_str = json.dumps(rblock.input or {})
                 json_delta = InputJSONDelta(type="input_json_delta", partial_json=json_str)
-                delta = RawContentBlockDeltaEvent(type="content_block_delta", index=index, delta=json_delta)
+                delta = RawContentBlockDeltaEvent(type="content_block_delta", index=current_index, delta=json_delta)
                 events.extend(
                     [
                         cast(MessageStreamEvent, start),
                         cast(MessageStreamEvent, delta),
+                        cast(MessageStreamEvent, block_stop),
                     ]
                 )
 
-        events.append(cast(MessageStreamEvent, stop_event))
+            else:
+                # Unknown rblock type: skip, don't consume an index slot or
+                # append a descriptor — keeps state.emitted_blocks aligned with
+                # what was actually emitted.
+                logger.warning(
+                    "SimpleLLMPolicy: unknown replacement block type %r — skipping, index not consumed",
+                    rblock.type,
+                )
+                continue
+
+            state.emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
+            current_index += 1
+
+        num_emitted = current_index - index
+        # 1-for-1 replacement consumes the same upstream index slot it came
+        # from, so downstream indices are unaffected. Only shift when N>1.
+        if num_emitted > 1:
+            state.index_shift += num_emitted - 1
+
         return events
 
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
