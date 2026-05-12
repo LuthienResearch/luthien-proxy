@@ -430,6 +430,85 @@ class TestNonStreamingTransform:
         assert result.get("stop_reason") == "end_turn"
 
 
+class TestNonStreamingPassthroughPreservesExtraFields:
+    @pytest.mark.asyncio
+    async def test_passthrough_preserves_unknown_fields_on_original_tool_use_block(self):
+        """Allowed tool_use on non-streaming path must preserve fields outside
+        {type, id, name, input} (e.g. future Anthropic schema additions).
+        """
+        original_block = {
+            "type": "tool_use",
+            "id": "t1",
+            "name": "Bash",
+            "input": {"command": "ls"},
+            "future_field": "should_survive_passthrough",
+        }
+        response = cast(
+            AnthropicResponse,
+            {
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "content": [original_block],
+                "model": "claude-haiku-4-5",
+                "stop_reason": "tool_use",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+            },
+        )
+        result = await transform_anthropic_response(response, _passthrough)
+        assert result["content"][0] == original_block
+        assert result["content"][0].get("future_field") == "should_survive_passthrough"
+
+
+class TestNonStreamingCountMismatchInterleaved:
+    @pytest.mark.asyncio
+    async def test_single_output_replaces_two_tools_with_text_between(self):
+        """`[text, tool1, text2, tool2]` with a single-output transform produces
+        `[text, BLOCKED, text2]` — tool2's slot is removed, text2 stays.
+        """
+        response = cast(
+            AnthropicResponse,
+            {
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "before"},
+                    {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "ls"}},
+                    {"type": "text", "text": "middle"},
+                    {"type": "tool_use", "id": "t2", "name": "Read", "input": {"path": "/x"}},
+                ],
+                "model": "claude-haiku-4-5",
+                "stop_reason": "tool_use",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+            },
+        )
+        result = await transform_anthropic_response(response, _block_all)
+        assert result["content"] == [
+            {"type": "text", "text": "before"},
+            {"type": "text", "text": "BLOCKED"},
+            {"type": "text", "text": "middle"},
+        ]
+
+
+class TestDuplicateMessageDeltaPassthrough:
+    @pytest.mark.asyncio
+    async def test_second_message_delta_passes_through_unchanged(self):
+        """A second `message_delta` after the transform has fired logs and passes through.
+
+        Pinning the documented behavior so it can't silently regress.
+        """
+        buf = ToolCallStreamBuffer(_passthrough)
+        await buf.process(_tool_start(0, "tu_1", "Bash"))
+        await buf.process(_json_delta(0, '{"command":"ls"}'))
+        await buf.process(_block_stop(0))
+        await buf.process(_message_delta("tool_use"))
+
+        second = _message_delta("end_turn")
+        out = await buf.process(second)
+        assert out == [second]
+
+
 class TestMalformedInputPassthroughPreservesRawBytes:
     @pytest.mark.asyncio
     async def test_malformed_json_passthrough_emits_original_bytes(self):
