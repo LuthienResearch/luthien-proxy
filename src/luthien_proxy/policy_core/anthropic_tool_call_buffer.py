@@ -235,7 +235,6 @@ async def transform_anthropic_response(
     content = response.get("content") or []
     tool_calls: list[BufferedToolCall] = []
     tool_positions: list[int] = []
-    original_tool_blocks: list[dict] = []
     rebuilt: list[object] = []
 
     for block in content:
@@ -248,7 +247,6 @@ async def transform_anthropic_response(
                 )
             )
             tool_positions.append(len(rebuilt))
-            original_tool_blocks.append(cast(dict, block))
             rebuilt.append(_PLACEHOLDER)
         else:
             rebuilt.append(block)
@@ -258,21 +256,8 @@ async def transform_anthropic_response(
 
     new_blocks = await transform(tool_calls)
     if len(new_blocks) == len(tool_positions):
-        for pos, blk, original in zip(tool_positions, new_blocks, original_tool_blocks):
-            # Passthrough preservation: when the transform output matches the
-            # original on (id, name, input), substitute the original block back
-            # so any extra fields beyond {type, id, name, input} (e.g. future
-            # Anthropic schema additions) survive a no-op transform.
-            if (
-                isinstance(blk, dict)
-                and blk.get("type") == "tool_use"
-                and blk.get("id") == original.get("id")
-                and blk.get("name") == original.get("name")
-                and blk.get("input") == original.get("input")
-            ):
-                rebuilt[pos] = original
-            else:
-                rebuilt[pos] = blk
+        for pos, blk in zip(tool_positions, new_blocks):
+            rebuilt[pos] = blk
     else:
         first = tool_positions[0]
         tail = [b for b in rebuilt[first + 1 :] if b is not _PLACEHOLDER]

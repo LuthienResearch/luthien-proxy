@@ -430,36 +430,6 @@ class TestNonStreamingTransform:
         assert result.get("stop_reason") == "end_turn"
 
 
-class TestNonStreamingPassthroughPreservesExtraFields:
-    @pytest.mark.asyncio
-    async def test_passthrough_preserves_unknown_fields_on_original_tool_use_block(self):
-        """Allowed tool_use on non-streaming path must preserve fields outside
-        {type, id, name, input} (e.g. future Anthropic schema additions).
-        """
-        original_block = {
-            "type": "tool_use",
-            "id": "t1",
-            "name": "Bash",
-            "input": {"command": "ls"},
-            "future_field": "should_survive_passthrough",
-        }
-        response = cast(
-            AnthropicResponse,
-            {
-                "id": "msg_1",
-                "type": "message",
-                "role": "assistant",
-                "content": [original_block],
-                "model": "claude-haiku-4-5",
-                "stop_reason": "tool_use",
-                "usage": {"input_tokens": 10, "output_tokens": 5},
-            },
-        )
-        result = await transform_anthropic_response(response, _passthrough)
-        assert result["content"][0] == original_block
-        assert result["content"][0].get("future_field") == "should_survive_passthrough"
-
-
 class TestNonStreamingCountMismatchInterleaved:
     @pytest.mark.asyncio
     async def test_single_output_replaces_two_tools_with_text_between(self):
