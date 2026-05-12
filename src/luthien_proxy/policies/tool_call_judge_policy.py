@@ -211,6 +211,11 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         async def transform(tool_calls: list[BufferedToolCall]) -> list["AnthropicContentBlock"]:
             output: list[AnthropicContentBlock] = []
             for tc in tool_calls:
+                # Pass the raw accumulated input_json to the judge. If upstream
+                # delivered malformed JSON, the judge sees the same broken bytes
+                # the client would have seen pre-buffer — and is expected to
+                # rate it high-probability (block) on that signal alone. This
+                # is the analog of DogfoodSafetyPolicy's _raw fail-secure check.
                 tool_call: ToolCallDict = {
                     "id": tc.id,
                     "name": tc.name,

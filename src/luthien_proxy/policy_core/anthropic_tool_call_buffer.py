@@ -18,11 +18,12 @@ the cost of streaming latency.
 
 Error-handling caveat: exceptions raised by the transform (or by `_emit_block`
 when the transform returns an unsupported block type) propagate out of
-`process()`. By that point any earlier text content has already been streamed
-to the client, so the client sees a partial response with no terminating
-`message_delta` / `message_stop`. Transforms should be written to not raise on
-normal data; the pipeline above is responsible for surfacing the error to the
-client connection.
+`process()`. Earlier text content may have already been streamed. The streaming
+pipeline catches these and emits an in-stream SSE `error` event before closing
+the connection (see `pipeline/anthropic_processor.py` — the `except Exception`
+arm around the `on_anthropic_stream_event` loop). Transforms should still be
+written to not raise on normal data; the SSE error is a last-resort surface,
+not a "no terminating message_delta" leak.
 
 Usage:
     buf = ctx.get_request_state(
