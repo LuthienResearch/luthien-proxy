@@ -280,7 +280,9 @@ class TestMultiBlockStreaming:
                 cast(MessageStreamEvent, message_delta("tool_use")), ctx
             )
             marker_starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
-            assert len(marker_starts) == 1, f"Expected one marker block at message_delta, got: {event_types(msg_events)}"
+            assert len(marker_starts) == 1, (
+                f"Expected one marker block at message_delta, got: {event_types(msg_events)}"
+            )
             delta_event = [e for e in msg_events if isinstance(e, RawMessageDeltaEvent)][0]
             assert delta_event.delta.stop_reason == "end_turn"
 
@@ -313,8 +315,7 @@ class TestJudgeFailure:
                 cast(MessageStreamEvent, message_delta("tool_use")), ctx
             )
             text_deltas = [
-                e for e in msg_events
-                if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+                e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
             ]
             assert text_deltas, f"Expected marker text emitted at message_delta, got: {event_types(msg_events)}"
             assert "policy evaluation unavailable" in text_deltas[0].delta.text
@@ -525,8 +526,7 @@ class TestJudgeFailedBlockedToolStreaming:
             )
 
         text_deltas = [
-            e for e in msg_events
-            if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+            e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
         ]
         assert text_deltas
         assert "Bash" in text_deltas[0].delta.text
@@ -552,8 +552,7 @@ class TestJudgeFailedBlockedToolStreaming:
             )
 
         text_deltas = [
-            e for e in msg_events
-            if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+            e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
         ]
         assert text_deltas
         assert "blocked by policy" in text_deltas[0].delta.text
@@ -1077,8 +1076,7 @@ class TestBlockTruncation:
         marker_starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
         assert len(marker_starts) == 1, f"Expected one marker block, got: {event_types(msg_events)}"
         text_deltas = [
-            e for e in msg_events
-            if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+            e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
         ]
         assert text_deltas
         marker_text = text_deltas[0].delta.text
@@ -1162,7 +1160,7 @@ class TestToolUseTrailingNonStreaming:
 
             for idx, name in [(0, "Bash"), (1, "Read"), (2, "Edit")]:
                 await policy.on_anthropic_stream_event(_tool_start_named(idx, name), ctx)
-                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{}', idx)), ctx)
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta("{}", idx)), ctx)
                 await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(idx)), ctx)
 
             msg_events = await policy.on_anthropic_stream_event(
@@ -1170,8 +1168,7 @@ class TestToolUseTrailingNonStreaming:
             )
 
         text_deltas = [
-            e for e in msg_events
-            if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+            e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
         ]
         assert text_deltas, f"Expected a marker block, got: {event_types(msg_events)}"
         marker_text = text_deltas[0].delta.text
