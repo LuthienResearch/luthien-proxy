@@ -11,3 +11,7 @@ category: Fixes
   - The warning is now injected before the first `tool_use` so the assistant
     message ends with the `tool_use`, satisfying the Anthropic invariant. Applies
     to both streaming and non-streaming paths.
+  - Test harness: `ClaudeCodeSimulator` now preserves wire-order block layout
+    when reconstructing assistant content. The previous behavior — merging text
+    blocks and grouping `tool_use` after text — silently corrected malformed
+    proxy output before it reached turn 2, hiding this class of bug.

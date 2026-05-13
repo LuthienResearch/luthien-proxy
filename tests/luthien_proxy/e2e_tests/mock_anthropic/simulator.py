@@ -279,20 +279,29 @@ class ClaudeCodeSimulator:
                         elif dtype == "input_json_delta" and idx in tool_blocks:
                             tool_blocks[idx]["input_parts"].append(delta.get("partial_json", ""))
 
-        # Assemble text from all text blocks in order
+        # Assemble text for the Turn.text property (concatenation of all text
+        # blocks in stream order; convenience for assertions).
         text = "".join(text_blocks[i] for i in sorted(text_blocks))
 
-        # Assemble tool calls and build the assistant content list for history
+        # Build the assistant content list for history by walking block indices
+        # in wire order. Real Claude Code echoes the assistant message back
+        # verbatim on the next turn, so the simulator must preserve block
+        # ordering exactly — merging text blocks or grouping tool_use blocks
+        # after text would hide protocol bugs that only surface in real
+        # multi-turn traffic (see issue #708).
         tool_calls: list[ToolCall] = []
         assistant_content: list[dict] = []
-        if text:
-            assistant_content.append({"type": "text", "text": text})
-        for idx in sorted(tool_blocks):
-            tb = tool_blocks[idx]
-            raw_input = "".join(tb["input_parts"])
-            parsed_input = json.loads(raw_input) if raw_input else {}
-            tool_calls.append(ToolCall(id=tb["id"], name=tb["name"], input=parsed_input))
-            assistant_content.append({"type": "tool_use", "id": tb["id"], "name": tb["name"], "input": parsed_input})
+        for idx in sorted(set(text_blocks) | set(tool_blocks)):
+            if idx in text_blocks:
+                assistant_content.append({"type": "text", "text": text_blocks[idx]})
+            else:
+                tb = tool_blocks[idx]
+                raw_input = "".join(tb["input_parts"])
+                parsed_input = json.loads(raw_input) if raw_input else {}
+                tool_calls.append(ToolCall(id=tb["id"], name=tb["name"], input=parsed_input))
+                assistant_content.append(
+                    {"type": "tool_use", "id": tb["id"], "name": tb["name"], "input": parsed_input}
+                )
 
         # Extract stop_reason from the message_delta event
         stop_reason = "end_turn"

@@ -16,16 +16,18 @@ rejected it:
      blocks immediately after: toolu_… . Each `tool_use` block must have a
      corresponding `tool_result` block in the next message."}}
 
-The mock backend doesn't enforce this rule, so the e2e test checks the
-invariant directly: when SimpleLLMPolicy emits a streaming response with any
-`tool_use` blocks, the LAST content block before `message_delta` must be a
-`tool_use` (the warning, if present, must be injected earlier).
+The mock backend doesn't enforce this rule, so the e2e tests check the
+invariant directly via two complementary regression tests:
 
-Why ClaudeCodeSimulator-based tests missed it: the simulator regroups
-assistant content as `[all_text, all_tool_use]` when reconstructing history,
-silently fixing the malformed ordering before turn 2. Real Claude Code
-preserves block-index order verbatim, so the bug only surfaces against the
-real API.
+1. `test_tool_use_is_last_block_when_judge_fails_under_pass` — inspects the
+   SSE the proxy emits and asserts the LAST content block is a `tool_use`.
+2. `test_next_turn_forwards_well_formed_assistant_message` — drives a
+   two-turn conversation through `ClaudeCodeSimulator` and asserts the
+   assistant message the proxy forwards upstream on turn 2 ends with a
+   `tool_use`. This relies on the simulator being wire-faithful; prior to
+   that change the simulator regrouped assistant content as
+   `[merged_text, tool_use]`, silently masking the bug.
+
 """
 
 from __future__ import annotations
@@ -35,8 +37,9 @@ import json
 import httpx
 import pytest
 from tests.luthien_proxy.e2e_tests.conftest import policy_context
-from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import MockToolResponse
+from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import MockToolResponse, text_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
+from tests.luthien_proxy.e2e_tests.mock_anthropic.simulator import ClaudeCodeSimulator
 
 pytestmark = pytest.mark.mock_e2e
 
@@ -164,3 +167,66 @@ async def test_tool_use_is_last_block_when_judge_fails_under_pass(
     # stop_reason should still be "tool_use" since a tool_use is present
     stop_reasons = [ev.get("delta", {}).get("stop_reason") for ev in events if ev.get("type") == "message_delta"]
     assert stop_reasons and stop_reasons[-1] == "tool_use", f"Expected stop_reason='tool_use', got: {stop_reasons}"
+
+
+@pytest.mark.asyncio
+async def test_next_turn_forwards_well_formed_assistant_message(
+    mock_anthropic: MockAnthropicServer,
+    gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
+):
+    """End-to-end check using the (now wire-faithful) ClaudeCodeSimulator.
+
+    Drives Yash's two-turn flow:
+      turn 1: user asks for an install; backend emits text preamble + tool_use;
+              judge is unreachable, on_error='pass' kicks in.
+      turn 2: simulator echoes the assistant message back verbatim along with a
+              tool_result.
+
+    Asserts the assistant message the proxy forwards upstream on turn 2 has its
+    final content block as `tool_use`. Without the #708 fix, the warning text
+    sits after the tool_use here and the real Anthropic API 400s. This test
+    relies on the simulator preserving block order verbatim — before the
+    simulator was made faithful it regrouped content as `[merged_text, tool_use]`
+    and silently masked the bug.
+    """
+    mock_anthropic.clear_requests()
+    mock_anthropic.enqueue(
+        MockToolResponse(
+            tool_name="Bash",
+            tool_input={"command": "pip install scrapling"},
+            text_preamble="I'll install Scrapling using pip.",
+        )
+    )
+    mock_anthropic.enqueue(text_response("Scrapling installed successfully."))
+
+    async with policy_context(
+        _MULTI_SERIAL, _RAILWAY_LIKE_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+    ):
+        session = ClaudeCodeSimulator(gateway_url, api_key)
+        turn1 = await session.send("Install scrapling")
+
+        assert turn1.tool_calls, f"Expected a tool call on turn 1, got: {turn1!r}"
+        assert "Safety judge unavailable" in turn1.text, (
+            f"Expected judge-unavailable warning in turn 1 text, got: {turn1.text!r}"
+        )
+
+        # Drive turn 2; the proxy forwards the message history (including the
+        # faithfully-preserved turn-1 assistant content) upstream.
+        await session.continue_with_tool_result(turn1.tool_calls[0].id, "Successfully installed scrapling-0.2.0")
+
+    upstream_requests = mock_anthropic.received_requests()
+    assert len(upstream_requests) >= 2, f"Expected ≥2 upstream calls, got {len(upstream_requests)}"
+
+    turn2_messages = upstream_requests[1]["messages"]
+    assistant_msgs = [m for m in turn2_messages if m.get("role") == "assistant"]
+    assert assistant_msgs, "Expected an assistant message in turn 2 upstream request"
+    last_assistant = assistant_msgs[-1]
+    content = last_assistant.get("content")
+    assert isinstance(content, list) and content, f"Expected list-shaped assistant content, got: {content!r}"
+    assert content[-1].get("type") == "tool_use", (
+        f"Last block of forwarded assistant message must be tool_use; got block types "
+        f"{[b.get('type') for b in content]}. Anthropic 400s otherwise (#708)."
+    )
