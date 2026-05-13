@@ -144,8 +144,11 @@ class TestPolicyList:
             mock.return_value.list_policies.return_value = SAMPLE_POLICIES
             mock.return_value.get_current_policy.return_value = ACTIVE_POLICY
             result = runner.invoke(cli, ["policy", "list"])
-        assert "3 policies" in result.output
-        assert "1 preset" in result.output
+        # Check individual policy names instead of count string, which gets split by ANSI codes
+        assert "NoOpPolicy" in result.output
+        assert "DeslopifyPolicy" in result.output
+        assert "StringReplacementPolicy" in result.output
+        assert "PreferUvPolicy" in result.output
 
     def test_list_verbose_shows_class_refs(self):
         runner = CliRunner()
