@@ -82,12 +82,24 @@ JUDGE_ERROR_BLOCKED_MESSAGE = (
 )
 
 
-def _blocked_tool_message(name: str) -> str:
-    return f"[Tool call `{name}` was blocked by policy]"
+def _blocked_tools_message(names: list[str]) -> str:
+    """Default marker text listing every tool blocked or truncated in this response.
+
+    Plural / singular variants share the same shape so downstream parsers can
+    match either. The list is the order in which the upstream model emitted the
+    blocks (which is what the user expects to see).
+    """
+    quoted = ", ".join(f"`{n}`" for n in names)
+    if len(names) == 1:
+        return f"[Tool call {quoted} was blocked by policy]"
+    return f"[Tool calls {quoted} were blocked by policy]"
 
 
-def _blocked_tool_judge_failed_message(name: str) -> str:
-    return f"[Tool call `{name}` blocked: policy evaluation unavailable]"
+def _blocked_tools_judge_failed_message(names: list[str]) -> str:
+    quoted = ", ".join(f"`{n}`" for n in names)
+    if len(names) == 1:
+        return f"[Tool call {quoted} blocked: policy evaluation unavailable]"
+    return f"[Tool calls {quoted} blocked: policy evaluation unavailable]"
 
 
 @dataclass
@@ -118,6 +130,18 @@ class _SimpleLLMAnthropicState:
     # Truncating on first block keeps intent obvious to the model on the
     # next turn and avoids surfacing partial intervention.
     tool_blocking_engaged: bool = False
+    # Names of tools dropped from this response — either blocked by the
+    # judge or truncated as fallout from blocking an earlier tool. We defer
+    # the user-facing marker until message_delta so a single text block
+    # lists every blocked tool, rather than emitting one marker per block
+    # (which would be impossible anyway: after the first marker emits, the
+    # second can't follow without violating #708 in the marker-then-marker
+    # case, and a single marker is what users want to see regardless).
+    blocked_tool_names: list[str] = field(default_factory=list)
+    # True if any of the drops in [[blocked_tool_names]] was due to the
+    # judge erroring rather than explicitly blocking. Affects the marker
+    # phrasing ("policy evaluation unavailable" vs. "blocked by policy").
+    any_blocked_due_to_judge_failure: bool = False
     # Cumulative downstream offset from multi-block replacements: when one
     # upstream block is replaced with N>1 blocks, every subsequent downstream
     # index shifts by N-1 to avoid colliding with the extra emitted blocks.
@@ -290,6 +314,8 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         judge_error_occurred = False
         tool_use_emitted = False
         tool_blocking_engaged = False
+        blocked_tool_names: list[str] = []
+        any_blocked_due_to_judge_failure = False
 
         for block in content:
             if not isinstance(block, dict):
@@ -300,10 +326,13 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
 
             # Drop any tool_use after we've decided to block one in this
             # response (see [[tool_blocking_engaged]] in the streaming state).
+            # Record the name so the consolidated marker lists it.
             if block_type == "tool_use" and tool_blocking_engaged:
+                name = block.get("name", "") or ""
+                blocked_tool_names.append(name)
                 logger.warning(
                     "SimpleLLMPolicy: dropping tool_use '%s' after a prior tool was blocked",
-                    block.get("name", ""),
+                    name,
                 )
                 continue
 
@@ -343,19 +372,14 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                     if rblock.type == "tool_use":
                         tool_use_emitted = True
             elif action.action == "block" and block_type == "tool_use":
-                # Engage truncation; emit the blocked-text marker only when
-                # it's safe (#708: text can't follow a prior tool_use).
+                # Engage truncation; record the name. The consolidated
+                # marker is emitted after the loop. Skipping in-loop emission
+                # also avoids the #708 violation when a prior tool_use is
+                # already in new_content.
                 tool_blocking_engaged = True
-                if tool_use_emitted:
-                    logger.warning("SimpleLLMPolicy: dropping blocked-tool marker following a prior tool_use (#708)")
-                    continue
+                blocked_tool_names.append(block.get("name", "") or "")
                 if action.judge_failed:
-                    blocked_text = _blocked_tool_judge_failed_message(block.get("name", ""))
-                else:
-                    blocked_text = _blocked_tool_message(block.get("name", ""))
-                emitted_blocks.append(self._block_descriptor_from_text(blocked_text))
-                blocked_block: AnthropicTextBlock = {"type": "text", "text": blocked_text}
-                new_content.append(blocked_block)
+                    any_blocked_due_to_judge_failure = True
 
         if judge_error_occurred and self._config.on_error == "pass":
             warning_block: AnthropicTextBlock = {"type": "text", "text": JUDGE_UNAVAILABLE_WARNING}
@@ -370,9 +394,27 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                 new_content.append(warning_block)
             else:
                 new_content.insert(first_tool_idx, warning_block)
-        elif judge_error_occurred and not new_content:
+        elif judge_error_occurred and not new_content and not blocked_tool_names:
             error_block: AnthropicTextBlock = {"type": "text", "text": JUDGE_ERROR_BLOCKED_MESSAGE}
             new_content.append(error_block)
+
+        # Consolidated blocked-tools marker, listing every tool blocked or
+        # truncated. Skip when a tool_use was emitted upstream (#708: text
+        # can't follow a tool_use).
+        if blocked_tool_names and not tool_use_emitted:
+            if any_blocked_due_to_judge_failure:
+                marker_text = _blocked_tools_judge_failed_message(blocked_tool_names)
+            else:
+                marker_text = _blocked_tools_message(blocked_tool_names)
+            marker_block: AnthropicTextBlock = {"type": "text", "text": marker_text}
+            new_content.append(marker_block)
+        elif blocked_tool_names and tool_use_emitted:
+            logger.warning(
+                "SimpleLLMPolicy: %d blocked tool(s) could not be communicated "
+                "(a tool_use was emitted upstream — #708): %r",
+                len(blocked_tool_names),
+                blocked_tool_names,
+            )
 
         modified_response = cast("AnthropicResponse", dict(response))
         modified_response["content"] = new_content
@@ -518,8 +560,10 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             # Once we've blocked any tool in this response, drop the rest of
             # the model's tool calls without judging. See
             # [[tool_blocking_engaged]]: partial intervention has no clean
-            # way to communicate.
+            # way to communicate. Record the name so the deferred marker at
+            # message_delta lists every dropped tool.
             if state.tool_blocking_engaged:
+                state.blocked_tool_names.append(buffered.name)
                 logger.warning(
                     "SimpleLLMPolicy: dropping tool_use '%s' after a prior tool was blocked",
                     buffered.name,
@@ -566,23 +610,16 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                 return events
             elif action.action == "replace":
                 return self._emit_anthropic_replacement_events(emitted_index, action, state)
-            # action == "block" — engage truncation for the rest of this
-            # response so we don't half-execute the model's plan.
+            # action == "block" — engage truncation, record the name, and
+            # defer the marker emission to message_delta so a single text
+            # block lists every blocked / truncated tool. Emitting here
+            # would also fail the invariant when a prior tool_use is
+            # already downstream (#708); deferral handles that uniformly.
             state.tool_blocking_engaged = True
-            # The marker text we'd normally emit ("[Tool X was blocked]")
-            # can't follow a previously-emitted tool_use (#708 invariant);
-            # drop it silently in that case. Before any tool_use, it's safe.
-            if state.tool_use_emitted:
-                logger.warning(
-                    "SimpleLLMPolicy: dropping blocked-tool marker following a prior tool_use (#708)",
-                )
-                return []
+            state.blocked_tool_names.append(buffered.name)
             if action.judge_failed:
-                blocked_text = _blocked_tool_judge_failed_message(buffered.name)
-            else:
-                blocked_text = _blocked_tool_message(buffered.name)
-            state.emitted_blocks.append(self._block_descriptor_from_text(blocked_text))
-            return self._make_anthropic_text_block_events(emitted_index, blocked_text)
+                state.any_blocked_due_to_judge_failure = True
+            return []
 
         # Passthrough stop for unbuffered block types (e.g. thinking blocks).
         # Apply index_shift to match the shifted start/delta emitted for the
@@ -629,8 +666,29 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                 "SimpleLLMPolicy: judge-unavailable warning could not be emitted "
                 "(first judge failure occurred after tool_use was already streamed — #708)",
             )
-        elif state.judge_error_occurred and not state.emitted_blocks:
+        elif state.judge_error_occurred and not state.emitted_blocks and not state.blocked_tool_names:
             events.extend(self._make_anthropic_text_block_events(0, JUDGE_ERROR_BLOCKED_MESSAGE))
+
+        # Emit the consolidated blocked-tools marker, listing every tool that
+        # was blocked by the judge or truncated as fallout. Deferred until
+        # message_delta so one text block covers them all. If a tool_use was
+        # already emitted upstream, the marker can't follow it (#708) — log
+        # and drop, conversation continuity wins.
+        if state.blocked_tool_names and not state.tool_use_emitted:
+            if state.any_blocked_due_to_judge_failure:
+                marker_text = _blocked_tools_judge_failed_message(state.blocked_tool_names)
+            else:
+                marker_text = _blocked_tools_message(state.blocked_tool_names)
+            marker_index = len(state.emitted_blocks)
+            state.emitted_blocks.append(self._block_descriptor_from_text(marker_text))
+            events.extend(self._make_anthropic_text_block_events(marker_index, marker_text))
+        elif state.blocked_tool_names and state.tool_use_emitted:
+            logger.warning(
+                "SimpleLLMPolicy: %d blocked tool(s) could not be communicated to the client "
+                "(a tool_use was already emitted — #708): %r",
+                len(state.blocked_tool_names),
+                state.blocked_tool_names,
+            )
 
         # Correct stop_reason if the emitted block types differ from the original
         has_emitted_tool = any(b.type == "tool_use" for b in state.emitted_blocks)

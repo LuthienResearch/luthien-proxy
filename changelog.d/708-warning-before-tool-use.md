@@ -27,6 +27,11 @@ category: Fixes
     has no clean way to communicate to the next turn (the "[Tool X was
     blocked]" marker can't follow a prior tool_use under the invariant), so
     truncating at the first block keeps intent obvious to the model.
+  - The blocked-tools marker now lists every tool blocked / truncated in
+    the response (e.g. `[Tool calls 'Bash', 'Read', 'Edit' were blocked by
+    policy]`) instead of mentioning only the first one. Streaming defers
+    marker emission to `message_delta` so a single text block can cover all
+    of them; non-streaming appends the consolidated marker after the loop.
   - Test harness: `ClaudeCodeSimulator` now preserves wire-order block layout
     when reconstructing assistant content. The previous behavior — merging
     text blocks and grouping `tool_use` after text — silently corrected

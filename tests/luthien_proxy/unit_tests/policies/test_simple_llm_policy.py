@@ -179,10 +179,12 @@ class TestToolBlockStreaming:
 
     @pytest.mark.asyncio
     async def test_tool_blocked_no_orphaned_stop(self):
-        """BUG FIX: Tool block judged 'block' must emit nothing — start was suppressed.
+        """Blocked tool: emission is deferred to message_delta — block_stop must be silent.
 
-        Before the fix, this returned [content_block_stop] without a preceding
-        content_block_start, violating the Anthropic streaming protocol.
+        The consolidated blocked-tools marker is emitted at message_delta so it
+        can list every blocked / truncated tool in one text block. Verify
+        block_stop emits nothing (and never a content_block_stop without a
+        matching start, which would violate the Anthropic streaming protocol).
         """
         policy = _make_policy()
         ctx = _make_context()
@@ -190,27 +192,27 @@ class TestToolBlockStreaming:
         with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
             mock_judge.return_value = JudgeAction(action="block")
 
-            # Start suppressed
             start_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
             assert start_events == []
 
-            # Delta buffered
             await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, tool_delta('{"command":"rm -rf /"}', 0)), ctx
             )
 
-            # Stop: blocked tool emits a text block explaining the block
             stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-            assert event_types(stop_events) == [
-                "content_block_start",
-                "content_block_delta",
-                "content_block_stop",
-            ], f"Blocked tool_use should emit explanatory text block, got: {event_types(stop_events)}"
-            # Verify the text explains what was blocked
-            delta = [e for e in stop_events if isinstance(e, RawContentBlockDeltaEvent)][0]
-            assert isinstance(delta.delta, TextDelta)
-            assert "Bash" in delta.delta.text
-            assert "blocked" in delta.delta.text
+            assert stop_events == [], (
+                f"Blocked tool's block_stop must defer to message_delta, got: {event_types(stop_events)}"
+            )
+
+            # Marker is emitted at message_delta.
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+            delta = [e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent)]
+            assert delta, f"Expected a text delta emitted at message_delta, got: {event_types(msg_events)}"
+            text_deltas = [d for d in delta if isinstance(d.delta, TextDelta)]
+            assert text_deltas and "Bash" in text_deltas[0].delta.text
+            assert "blocked" in text_deltas[0].delta.text
 
     @pytest.mark.asyncio
     async def test_tool_replaced_with_text(self):
@@ -265,20 +267,20 @@ class TestMultiBlockStreaming:
             text_stop = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
             assert event_types(text_stop) == ["content_block_start", "content_block_delta", "content_block_stop"]
 
-            # Tool block at index 1 — blocked, emits explanatory text
+            # Tool block at index 1 — blocked, marker deferred to message_delta
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(1)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta("{}", 1)), ctx)
             tool_stop = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
-            assert event_types(tool_stop) == [
-                "content_block_start",
-                "content_block_delta",
-                "content_block_stop",
-            ]
+            assert tool_stop == [], (
+                f"Blocked tool's block_stop must defer marker emission, got: {event_types(tool_stop)}"
+            )
 
-            # stop_reason should be end_turn (no tool_use passed through)
+            # message_delta emits the marker AND corrects stop_reason
             msg_events = await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, message_delta("tool_use")), ctx
             )
+            marker_starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+            assert len(marker_starts) == 1, f"Expected one marker block at message_delta, got: {event_types(msg_events)}"
             delta_event = [e for e in msg_events if isinstance(e, RawMessageDeltaEvent)][0]
             assert delta_event.delta.stop_reason == "end_turn"
 
@@ -293,7 +295,7 @@ class TestJudgeFailure:
 
     @pytest.mark.asyncio
     async def test_judge_failure_block_tool_suppressed(self):
-        """on_error='block' + judge failure on tool_use: nothing emitted."""
+        """on_error='block' + judge failure on tool_use: marker emitted at message_delta."""
         policy = _make_policy(on_error="block")
         ctx = _make_context()
 
@@ -304,12 +306,18 @@ class TestJudgeFailure:
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"cmd":"x"}', 0)), ctx)
 
             stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-            # Blocked tool emits explanatory text block
-            assert event_types(stop_events) == [
-                "content_block_start",
-                "content_block_delta",
-                "content_block_stop",
+            # Marker emission is deferred until message_delta.
+            assert stop_events == [], f"block_stop must defer marker, got: {event_types(stop_events)}"
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+            text_deltas = [
+                e for e in msg_events
+                if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
             ]
+            assert text_deltas, f"Expected marker text emitted at message_delta, got: {event_types(msg_events)}"
+            assert "policy evaluation unavailable" in text_deltas[0].delta.text
 
     @pytest.mark.asyncio
     async def test_judge_failure_pass_tool_emitted_with_warning(self):
@@ -499,7 +507,7 @@ class TestJudgeFailedBlockedToolStreaming:
 
     @pytest.mark.asyncio
     async def test_tool_blocked_judge_failed_streaming(self):
-        """on_error='block' + judge failure on tool_use: blocked text says judge unavailable."""
+        """on_error='block' + judge failure: marker at message_delta uses judge-failed phrasing."""
         policy = _make_policy(on_error="block")
         ctx = _make_context()
 
@@ -510,23 +518,23 @@ class TestJudgeFailedBlockedToolStreaming:
             await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, tool_delta('{"command":"echo hi"}', 0)), ctx
             )
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
 
-            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
 
-        # Should emit a text block with the judge-failed message
-        assert event_types(stop_events) == [
-            "content_block_start",
-            "content_block_delta",
-            "content_block_stop",
+        text_deltas = [
+            e for e in msg_events
+            if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
         ]
-        delta = [e for e in stop_events if isinstance(e, RawContentBlockDeltaEvent)][0]
-        assert isinstance(delta.delta, TextDelta)
-        assert "Bash" in delta.delta.text
-        assert "policy evaluation unavailable" in delta.delta.text
+        assert text_deltas
+        assert "Bash" in text_deltas[0].delta.text
+        assert "policy evaluation unavailable" in text_deltas[0].delta.text
 
     @pytest.mark.asyncio
     async def test_tool_blocked_intentional_uses_standard_message(self):
-        """Intentional block (no judge failure) uses the standard blocked message."""
+        """Intentional block (no judge failure): marker uses the standard blocked phrasing."""
         policy = _make_policy(on_error="block")
         ctx = _make_context()
 
@@ -537,13 +545,19 @@ class TestJudgeFailedBlockedToolStreaming:
             await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, tool_delta('{"command":"rm -rf /"}', 0)), ctx
             )
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
 
-            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
 
-        delta = [e for e in stop_events if isinstance(e, RawContentBlockDeltaEvent)][0]
-        assert isinstance(delta.delta, TextDelta)
-        assert "blocked by policy" in delta.delta.text
-        assert "policy evaluation unavailable" not in delta.delta.text
+        text_deltas = [
+            e for e in msg_events
+            if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+        ]
+        assert text_deltas
+        assert "blocked by policy" in text_deltas[0].delta.text
+        assert "policy evaluation unavailable" not in text_deltas[0].delta.text
 
 
 # ============================================================================
@@ -983,7 +997,11 @@ class TestBlockTruncation:
 
     @pytest.mark.asyncio
     async def test_subsequent_tool_dropped_after_block_streaming(self):
-        """`[tool_A_pass, tool_B_blocked, tool_C]` → `[tool_A, blocked_text_B]`. tool_C dropped without judging."""
+        """`[tool_A_pass, tool_B_blocked, tool_C]` → wire is just `[tool_A]`.
+
+        The marker can't follow tool_A (#708), so the policy logs the dropped
+        names but emits no in-stream marker. tool_C is never judged.
+        """
         policy = _make_policy(on_error="block")
         ctx = _make_context()
 
@@ -1006,26 +1024,30 @@ class TestBlockTruncation:
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"c":3}', 2)), ctx)
             ev_c = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(2)), ctx)
 
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
         # tool_C must emit nothing — it was dropped without judging.
         assert ev_c == [], f"tool_C must be dropped after block engaged, got: {event_types(ev_c)}"
-        # Verify judge was called exactly twice (for A and B), not three times.
         assert mock_judge.call_count == 2, f"Judge must not run on tool_C, ran {mock_judge.call_count} times"
 
-        # tool_A passes through; tool_B's blocked-text emits (only one tool_use was
-        # emitted prior to the block, but it WAS emitted, so the marker would
-        # actually 400 — verify it's dropped).
+        # tool_A passes through.
         a_starts = [e for e in ev_a if isinstance(e, RawContentBlockStartEvent)]
         assert len(a_starts) == 1 and a_starts[0].content_block.type == "tool_use"
-        # tool_B blocked-text would follow tool_A; it must be dropped.
-        b_starts = [e for e in ev_b if isinstance(e, RawContentBlockStartEvent)]
-        assert b_starts == [], (
-            f"blocked-text marker for tool_B must be dropped (would 400 after tool_A — #708), "
-            f"got: {[s.content_block.type for s in b_starts]}"
+        # tool_B block defers, but the marker can't be emitted (would follow
+        # tool_A and violate #708) — it's logged and dropped.
+        assert ev_b == [], f"tool_B block_stop must defer, got: {event_types(ev_b)}"
+
+        # message_delta emits no marker either (a tool_use was already emitted).
+        marker_starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+        assert marker_starts == [], (
+            f"Marker must NOT be emitted after a tool_use (#708), got: {[s.content_block.type for s in marker_starts]}"
         )
 
     @pytest.mark.asyncio
     async def test_block_on_first_tool_emits_marker_then_drops_rest(self):
-        """`[tool_A_blocked, tool_B]` → `[blocked_text_A]`. tool_B dropped."""
+        """`[tool_A_blocked, tool_B]` → consolidated marker at message_delta lists both."""
         policy = _make_policy(on_error="block")
         ctx = _make_context()
 
@@ -1040,13 +1062,31 @@ class TestBlockTruncation:
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"b":2}', 1)), ctx)
             ev_b = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
 
-        # tool_A blocked → emit blocked-text marker (safe: no tool_use yet emitted).
-        a_starts = [e for e in ev_a if isinstance(e, RawContentBlockStartEvent)]
-        assert len(a_starts) == 1 and a_starts[0].content_block.type == "text"
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        # Both block_stops defer to message_delta.
+        assert ev_a == [], f"tool_A block must defer marker, got: {event_types(ev_a)}"
 
         # tool_B must be dropped without judging.
         assert ev_b == [], f"tool_B must be dropped after block engaged, got: {event_types(ev_b)}"
         assert mock_judge.call_count == 1, f"Judge must not run on tool_B, ran {mock_judge.call_count} times"
+
+        # message_delta emits ONE marker text block listing BOTH tools.
+        marker_starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+        assert len(marker_starts) == 1, f"Expected one marker block, got: {event_types(msg_events)}"
+        text_deltas = [
+            e for e in msg_events
+            if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+        ]
+        assert text_deltas
+        marker_text = text_deltas[0].delta.text
+        assert "Bash" in marker_text  # both tools are named Bash; one mention is enough
+        # The marker should use the plural form because two tools were blocked.
+        assert "Tool calls" in marker_text, (
+            f"Expected plural marker phrasing for two blocked tools, got: {marker_text!r}"
+        )
 
 
 class TestToolUseTrailingNonStreaming:
@@ -1092,6 +1132,54 @@ class TestToolUseTrailingNonStreaming:
 
         types = [b.get("type") for b in result["content"]]
         assert types == ["tool_use", "tool_use"], f"Text between tools must be dropped, got: {types}"
+
+    @pytest.mark.asyncio
+    async def test_marker_lists_all_blocked_tool_names(self):
+        """Multiple distinct tools blocked: the marker lists every name.
+
+        Streaming case. tool_A blocked, tool_B / tool_C truncated as fallout.
+        The single deferred marker emitted at message_delta must contain all
+        three names.
+        """
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+
+        # Use distinct tool names to verify the list rendering.
+        def _tool_start_named(idx: int, name: str) -> Any:
+            from anthropic.types import ToolUseBlock as _TUB
+
+            return cast(
+                MessageStreamEvent,
+                RawContentBlockStartEvent(
+                    type="content_block_start",
+                    index=idx,
+                    content_block=_TUB(type="tool_use", id=f"toolu_{idx}", name=name, input={}),
+                ),
+            )
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = [JudgeAction(action="block")]
+
+            for idx, name in [(0, "Bash"), (1, "Read"), (2, "Edit")]:
+                await policy.on_anthropic_stream_event(_tool_start_named(idx, name), ctx)
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{}', idx)), ctx)
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(idx)), ctx)
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        text_deltas = [
+            e for e in msg_events
+            if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+        ]
+        assert text_deltas, f"Expected a marker block, got: {event_types(msg_events)}"
+        marker_text = text_deltas[0].delta.text
+        for name in ("Bash", "Read", "Edit"):
+            assert name in marker_text, (
+                f"Marker must list every blocked tool name; missing {name!r} in: {marker_text!r}"
+            )
+        assert "Tool calls" in marker_text, f"Expected plural phrasing, got: {marker_text!r}"
 
     @pytest.mark.asyncio
     async def test_subsequent_tool_dropped_after_block_non_streaming(self):
