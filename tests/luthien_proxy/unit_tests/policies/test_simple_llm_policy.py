@@ -313,7 +313,13 @@ class TestJudgeFailure:
 
     @pytest.mark.asyncio
     async def test_judge_failure_pass_tool_emitted_with_warning(self):
-        """on_error='pass' + judge failure on tool_use: tool passes through, warning injected at message_delta."""
+        """on_error='pass' + judge failure on tool_use: warning emitted BEFORE the
+        tool_use so the assistant message ends with the tool_use block.
+
+        Anthropic 400s on the next turn if any content follows a tool_use within
+        the assistant message ("tool_use ids were found without tool_result blocks
+        immediately after"). See issue #708.
+        """
         policy = _make_policy(on_error="pass")
         ctx = _make_context()
 
@@ -324,28 +330,42 @@ class TestJudgeFailure:
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"cmd":"echo"}', 0)), ctx)
 
             stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-            # Tool is passed through
+            # Expected sequence: warning text block (start+delta+stop) THEN
+            # tool_use block (start+delta+stop). Six events total.
             assert event_types(stop_events) == [
                 "content_block_start",
                 "content_block_delta",
                 "content_block_stop",
-            ]
+                "content_block_start",
+                "content_block_delta",
+                "content_block_stop",
+            ], event_types(stop_events)
 
-            # Warning is injected before message_delta
+            # First content block is the warning text
+            warning_deltas = [
+                e
+                for e in stop_events[:3]
+                if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+            ]
+            assert any(JUDGE_UNAVAILABLE_WARNING in d.delta.text for d in warning_deltas), (
+                "Expected warning text in first emitted block"
+            )
+
+            # Last emitted content block is the tool_use — that's the invariant
+            # that protects against #708.
+            last_start = [e for e in stop_events if e.type == "content_block_start"][-1]
+            assert last_start.content_block.type == "tool_use", (
+                f"Last content block must be tool_use to avoid #708 400, got: {last_start.content_block.type}"
+            )
+
+            # message_delta should NOT re-emit the warning (already done above)
             msg_delta_events = await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, message_delta("tool_use")), ctx
             )
             types = event_types(msg_delta_events)
-            assert "content_block_start" in types, "Warning block should be injected before message_delta"
-            assert types[-1] == "message_delta", "message_delta should be last"
-
-            # Find the warning text
-            warning_deltas = [
-                e
-                for e in msg_delta_events
-                if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
-            ]
-            assert any(JUDGE_UNAVAILABLE_WARNING in d.delta.text for d in warning_deltas)
+            assert types == ["message_delta"], (
+                f"Expected only message_delta (warning already injected before tool_use), got: {types}"
+            )
 
 
 # ============================================================================

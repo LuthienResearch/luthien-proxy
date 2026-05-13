@@ -98,6 +98,9 @@ class _SimpleLLMAnthropicState:
     emitted_blocks: list[BlockDescriptor] = field(default_factory=list)
     original_had_tool_use: bool = False
     judge_error_occurred: bool = False
+    # True once the judge-unavailable warning has been injected into the
+    # stream. Used to avoid double-emission at message_delta time.
+    warning_emitted: bool = False
     # Cumulative downstream offset from multi-block replacements: when one
     # upstream block is replaced with N>1 blocks, every subsequent downstream
     # index shifts by N-1 to avoid colliding with the extra emitted blocks.
@@ -309,7 +312,17 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
 
         if judge_error_occurred and self._config.on_error == "pass":
             warning_block: AnthropicTextBlock = {"type": "text", "text": JUDGE_UNAVAILABLE_WARNING}
-            new_content.append(warning_block)
+            # The warning must not appear after any tool_use, else Anthropic
+            # 400s on the next turn (#708). Insert before the first tool_use
+            # if any exist; otherwise append at the end.
+            first_tool_idx = next(
+                (i for i, b in enumerate(new_content) if b.get("type") == "tool_use"),
+                None,
+            )
+            if first_tool_idx is None:
+                new_content.append(warning_block)
+            else:
+                new_content.insert(first_tool_idx, warning_block)
         elif judge_error_occurred and not new_content:
             error_block: AnthropicTextBlock = {"type": "text", "text": JUDGE_ERROR_BLOCKED_MESSAGE}
             new_content.append(error_block)
@@ -459,8 +472,22 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
 
             emitted_index = index + state.index_shift
             if action.action == "pass":
+                # If a judge failure occurred earlier in this stream and the
+                # warning hasn't been emitted yet, inject it BEFORE the
+                # tool_use. Anthropic rejects the next turn with 400 if a
+                # tool_use is followed by other content in the same assistant
+                # message — see issue #708.
+                events: list[MessageStreamEvent] = []
+                if state.judge_error_occurred and self._config.on_error == "pass" and not state.warning_emitted:
+                    warning_descriptor = self._block_descriptor_from_text(JUDGE_UNAVAILABLE_WARNING)
+                    state.emitted_blocks.append(warning_descriptor)
+                    events.extend(self._make_anthropic_warning_events(emitted_index))
+                    state.warning_emitted = True
+                    state.index_shift += 1
+                    emitted_index += 1
                 state.emitted_blocks.append(descriptor)
-                return self._emit_anthropic_tool_events(emitted_index, buffered)
+                events.extend(self._emit_anthropic_tool_events(emitted_index, buffered))
+                return events
             elif action.action == "replace":
                 return self._emit_anthropic_replacement_events(emitted_index, action, state)
             # Tool start was suppressed — emit a text block so the client
@@ -493,10 +520,14 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         state = self._anthropic_state(context)
         events: list[MessageStreamEvent] = []
 
-        # Inject judge-unavailable warning as a content block before message_delta
-        if state.judge_error_occurred and self._config.on_error == "pass":
+        # Inject judge-unavailable warning as a content block before message_delta.
+        # If a tool_use was emitted, the warning has already been injected before
+        # it (see _handle_block_stop) to keep the assistant message ending with
+        # the tool_use — otherwise Anthropic 400s on the next turn (#708).
+        if state.judge_error_occurred and self._config.on_error == "pass" and not state.warning_emitted:
             warning_index = len(state.emitted_blocks)
             events.extend(self._make_anthropic_warning_events(warning_index))
+            state.warning_emitted = True
         elif state.judge_error_occurred and not state.emitted_blocks:
             events.extend(self._make_anthropic_text_block_events(0, JUDGE_ERROR_BLOCKED_MESSAGE))
 
