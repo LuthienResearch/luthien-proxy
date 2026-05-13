@@ -147,35 +147,38 @@ class TestToolBlockStreaming:
 
     @pytest.mark.asyncio
     async def test_tool_pass_through(self):
-        """Tool block judged 'pass' emits: start + delta + stop."""
+        """Tool block judged 'pass' buffers; the start+delta+stop emit at message_delta.
+
+        The builder buffers tool_use blocks so they always trail any text/warning
+        content (Anthropic 400s on next turn if anything follows a tool_use — #708).
+        """
         policy = _make_policy()
         ctx = _make_context()
 
         with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
             mock_judge.return_value = JudgeAction(action="pass")
 
-            # Start is suppressed (buffered for judge)
-            start_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
-            assert start_events == []
-
-            # Delta is buffered
-            delta_events = await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, tool_delta('{"command":"echo hi"}', 0)), ctx
+            # Start, delta, stop all buffered — nothing emits until message_delta
+            assert await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx) == []
+            assert (
+                await policy.on_anthropic_stream_event(
+                    cast(MessageStreamEvent, tool_delta('{"command":"echo hi"}', 0)), ctx
+                )
+                == []
             )
-            assert delta_events == []
+            assert await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx) == []
 
-            # Stop triggers judge, emits full tool block
-            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-            assert event_types(stop_events) == [
-                "content_block_start",
-                "content_block_delta",
-                "content_block_stop",
+            # message_delta flushes the buffered tool
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+            tool_starts = [
+                e
+                for e in msg_events
+                if isinstance(e, RawContentBlockStartEvent) and isinstance(e.content_block, ToolUseBlock)
             ]
-            # Verify reconstructed tool block
-            start = stop_events[0]
-            assert isinstance(start, RawContentBlockStartEvent)
-            assert isinstance(start.content_block, ToolUseBlock)
-            assert start.content_block.name == "Bash"
+            assert len(tool_starts) == 1
+            assert tool_starts[0].content_block.name == "Bash"
 
     @pytest.mark.asyncio
     async def test_tool_blocked_no_orphaned_stop(self):
@@ -335,46 +338,34 @@ class TestJudgeFailure:
         with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
             mock_judge.return_value = JudgeAction(action="pass", judge_failed=True)
 
+            # Tool buffers; nothing emits at block_stop.
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"cmd":"echo"}', 0)), ctx)
+            assert await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx) == []
 
-            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-            # Expected sequence: warning text block (start+delta+stop) THEN
-            # tool_use block (start+delta+stop). Six events total.
-            assert event_types(stop_events) == [
-                "content_block_start",
-                "content_block_delta",
-                "content_block_stop",
-                "content_block_start",
-                "content_block_delta",
-                "content_block_stop",
-            ], event_types(stop_events)
-
-            # First content block is the warning text
-            warning_deltas = [
-                e
-                for e in stop_events[:3]
-                if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
-            ]
-            assert any(JUDGE_UNAVAILABLE_WARNING in d.delta.text for d in warning_deltas), (
-                "Expected warning text in first emitted block"
-            )
-
-            # Last emitted content block is the tool_use — that's the invariant
-            # that protects against #708.
-            last_start = [e for e in stop_events if e.type == "content_block_start"][-1]
-            assert last_start.content_block.type == "tool_use", (
-                f"Last content block must be tool_use to avoid #708 400, got: {last_start.content_block.type}"
-            )
-
-            # message_delta should NOT re-emit the warning (already done above)
-            msg_delta_events = await policy.on_anthropic_stream_event(
+            # message_delta flushes: warning text block, then buffered tool, then message_delta.
+            msg_events = await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, message_delta("tool_use")), ctx
             )
-            types = event_types(msg_delta_events)
-            assert types == ["message_delta"], (
-                f"Expected only message_delta (warning already injected before tool_use), got: {types}"
-            )
+            assert event_types(msg_events) == [
+                "content_block_start",
+                "content_block_delta",
+                "content_block_stop",
+                "content_block_start",
+                "content_block_delta",
+                "content_block_stop",
+                "message_delta",
+            ], event_types(msg_events)
+
+            # Warning text in the first emitted block.
+            warning_deltas = [
+                e for e in msg_events[:3] if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+            ]
+            assert any(JUDGE_UNAVAILABLE_WARNING in d.delta.text for d in warning_deltas)
+
+            # Last content_block_start is the tool_use — the #708 invariant.
+            last_start = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)][-1]
+            assert last_start.content_block.type == "tool_use"
 
 
 # ============================================================================
@@ -915,8 +906,12 @@ class TestToolUseTrailingStreaming:
     """Streaming: nothing follows the first tool_use except more tool_uses (#708)."""
 
     @pytest.mark.asyncio
-    async def test_text_after_tool_use_is_dropped(self):
-        """`[tool_passes, text_passes]` upstream → `[tool]` downstream."""
+    async def test_text_after_buffered_tool_is_reordered(self):
+        """`[tool_pass, text_pass]` upstream → wire is `[text, tool]`.
+
+        The builder buffers the tool, queues the post-tool text for emission
+        before the tool flush. Both blocks are preserved; tool_use still trails.
+        """
         policy = _make_policy(on_error="pass")
         ctx = _make_context()
 
@@ -925,16 +920,26 @@ class TestToolUseTrailingStreaming:
 
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            assert await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx) == []
 
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(1)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("after tool", 1)), ctx)
-            text_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+            assert await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx) == []
 
-        assert text_events == [], f"Text after tool_use must be dropped (#708), got: {event_types(text_events)}"
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+        assert [type(s.content_block).__name__ for s in starts] == ["TextBlock", "ToolUseBlock"]
 
     @pytest.mark.asyncio
-    async def test_text_replacement_after_tool_use_is_dropped(self):
+    async def test_text_replacement_after_buffered_tool_is_reordered(self):
+        """Cross-replacement case: judge replaces text with text after a tool was buffered.
+
+        Replacement text queues alongside other post-tool text; final wire is
+        `[replacement_text, tool]`.
+        """
         policy = _make_policy(on_error="pass")
         ctx = _make_context()
 
@@ -950,17 +955,27 @@ class TestToolUseTrailingStreaming:
 
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(1)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("orig", 1)), ctx)
-            text_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
 
-        assert text_events == [], (
-            f"Text replacement after tool_use must be dropped (#708), got: {event_types(text_events)}"
-        )
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+        assert [type(s.content_block).__name__ for s in starts] == ["TextBlock", "ToolUseBlock"]
+        text_deltas = [
+            e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+        ]
+        assert any("replaced" in d.delta.text for d in text_deltas)
 
     @pytest.mark.asyncio
-    async def test_judge_failure_after_tool_use_drops_warning(self):
-        """Trace from devil critique: judge fails on text AFTER tool_use → warning dropped.
+    async def test_judge_failure_after_buffered_tool_emits_warning_before_tool(self):
+        """Judge fails on text emitted AFTER a tool was buffered → warning still lands.
 
-        The warning would land after the tool_use (400). Best-effort: drop it.
+        With the builder buffering tool_use until message_delta, a late judge
+        failure on a post-tool text block can still surface the warning *before*
+        the tool flush, satisfying the #708 invariant. Wire order ends up
+        [text, warning, tool_use] — tool_use last, warning visible to the user.
         """
         policy = _make_policy(on_error="pass")
         ctx = _make_context()
@@ -983,24 +998,66 @@ class TestToolUseTrailingStreaming:
                 cast(MessageStreamEvent, message_delta("tool_use")), ctx
             )
 
-        # message_delta path must not emit a warning content block — it
-        # would land after the tool_use.
-        starts_in_msg_delta = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
-        assert starts_in_msg_delta == [], (
-            f"No content blocks may be emitted at message_delta after tool_use, got: {starts_in_msg_delta}"
-        )
+        # Final content_block_start must be the tool_use (#708).
+        starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+        assert starts[-1].content_block.type == "tool_use"
 
-
-class TestBlockTruncation:
-    """Blocking one tool truncates subsequent tool_uses in the same response."""
+        # Warning text appears somewhere before the tool_use start.
+        text_deltas = [
+            e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+        ]
+        assert any(JUDGE_UNAVAILABLE_WARNING in d.delta.text for d in text_deltas)
 
     @pytest.mark.asyncio
-    async def test_subsequent_tool_dropped_after_block_streaming(self):
-        """`[tool_A_pass, tool_B_blocked, tool_C]` → wire is just `[tool_A]`.
+    async def test_text_replaced_with_tool_then_passthrough_text(self):
+        """Regression: text→tool_use replacement followed by a passing text.
 
-        The marker can't follow tool_A (#708), so the policy logs the dropped
-        names but emits no in-stream marker. tool_C is never judged.
+        Devil round 2 found this case in the previous design: replacement
+        path didn't set the tool_use_emitted flag, so a subsequent passing
+        text emitted as a sibling of the new tool_use → `[tool, text]` → 400.
+        With the builder, the replacement-emitted tool is buffered and the
+        late text queues to pending_text. Wire ends `[text, tool]`.
         """
+        policy = _make_policy(on_error="pass")
+        ctx = _make_context()
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = [
+                JudgeAction(
+                    action="replace",
+                    blocks=(ReplacementBlock(type="tool_use", name="Bash", input={"cmd": "ls"}),),
+                ),
+                JudgeAction(action="pass"),  # subsequent text passes
+            ]
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("orig", 0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("after", 1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+        assert [type(s.content_block).__name__ for s in starts] == ["TextBlock", "ToolUseBlock"]
+
+
+class TestMixedToolDecisions:
+    """Each tool is judged independently; blocked tools surface in a consolidated marker
+    in the pre-tool slot, regardless of whether other tools in the response pass.
+
+    This replaces the earlier "truncate on first block" behavior — the builder's
+    pre-tool/post-tool split means the marker has somewhere legal to live even
+    when a passing tool follows, so we no longer have to drop subsequent tools.
+    """
+
+    @pytest.mark.asyncio
+    async def test_pass_then_block_then_pass(self):
+        """`[A_pass, B_block, C_pass]` → wire: `[marker(B), A, C]`. All three judged."""
         policy = _make_policy(on_error="block")
         ctx = _make_context()
 
@@ -1008,90 +1065,68 @@ class TestBlockTruncation:
             mock_judge.side_effect = [
                 JudgeAction(action="pass"),
                 JudgeAction(action="block"),
-                # No third call — tool_C must be dropped without judging.
+                JudgeAction(action="pass"),
             ]
 
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"a":1}', 0)), ctx)
-            ev_a = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(1)), ctx)
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"b":2}', 1)), ctx)
-            ev_b = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
-
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(2)), ctx)
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"c":3}', 2)), ctx)
-            ev_c = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(2)), ctx)
+            for idx in (0, 1, 2):
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(idx)), ctx)
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta("{}", idx)), ctx)
+                assert await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(idx)), ctx) == []
 
             msg_events = await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, message_delta("tool_use")), ctx
             )
 
-        # tool_C must emit nothing — it was dropped without judging.
-        assert ev_c == [], f"tool_C must be dropped after block engaged, got: {event_types(ev_c)}"
-        assert mock_judge.call_count == 2, f"Judge must not run on tool_C, ran {mock_judge.call_count} times"
+        # All three tools judged.
+        assert mock_judge.call_count == 3
 
-        # tool_A passes through.
-        a_starts = [e for e in ev_a if isinstance(e, RawContentBlockStartEvent)]
-        assert len(a_starts) == 1 and a_starts[0].content_block.type == "tool_use"
-        # tool_B block defers, but the marker can't be emitted (would follow
-        # tool_A and violate #708) — it's logged and dropped.
-        assert ev_b == [], f"tool_B block_stop must defer, got: {event_types(ev_b)}"
+        # Wire order: marker text block, then two tool_use blocks. tool_use last.
+        starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+        assert [type(s.content_block).__name__ for s in starts] == ["TextBlock", "ToolUseBlock", "ToolUseBlock"]
 
-        # message_delta emits no marker either (a tool_use was already emitted).
-        marker_starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
-        assert marker_starts == [], (
-            f"Marker must NOT be emitted after a tool_use (#708), got: {[s.content_block.type for s in marker_starts]}"
-        )
+        # Marker mentions blocked tool name.
+        text_deltas = [
+            e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+        ]
+        assert "Bash" in text_deltas[0].delta.text and "blocked" in text_deltas[0].delta.text.lower()
 
     @pytest.mark.asyncio
-    async def test_block_on_first_tool_emits_marker_then_drops_rest(self):
-        """`[tool_A_blocked, tool_B]` → consolidated marker at message_delta lists both."""
+    async def test_block_then_pass_marker_lists_all_blocked(self):
+        """`[A_blocked, B_blocked, C_pass]` → consolidated marker lists A and B; C tool_use trails."""
         policy = _make_policy(on_error="block")
         ctx = _make_context()
 
         with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
-            mock_judge.side_effect = [JudgeAction(action="block")]
+            mock_judge.side_effect = [
+                JudgeAction(action="block"),
+                JudgeAction(action="block"),
+                JudgeAction(action="pass"),
+            ]
 
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"a":1}', 0)), ctx)
-            ev_a = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(1)), ctx)
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"b":2}', 1)), ctx)
-            ev_b = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+            for idx in (0, 1, 2):
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(idx)), ctx)
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta("{}", idx)), ctx)
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(idx)), ctx)
 
             msg_events = await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, message_delta("tool_use")), ctx
             )
 
-        # Both block_stops defer to message_delta.
-        assert ev_a == [], f"tool_A block must defer marker, got: {event_types(ev_a)}"
-
-        # tool_B must be dropped without judging.
-        assert ev_b == [], f"tool_B must be dropped after block engaged, got: {event_types(ev_b)}"
-        assert mock_judge.call_count == 1, f"Judge must not run on tool_B, ran {mock_judge.call_count} times"
-
-        # message_delta emits ONE marker text block listing BOTH tools.
-        marker_starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
-        assert len(marker_starts) == 1, f"Expected one marker block, got: {event_types(msg_events)}"
+        # One marker text block, one tool_use (the passing one). Marker uses plural.
+        starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+        assert [type(s.content_block).__name__ for s in starts] == ["TextBlock", "ToolUseBlock"]
         text_deltas = [
             e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
         ]
-        assert text_deltas
-        marker_text = text_deltas[0].delta.text
-        assert "Bash" in marker_text  # both tools are named Bash; one mention is enough
-        # The marker should use the plural form because two tools were blocked.
-        assert "Tool calls" in marker_text, (
-            f"Expected plural marker phrasing for two blocked tools, got: {marker_text!r}"
-        )
+        assert "Tool calls" in text_deltas[0].delta.text
 
 
 class TestToolUseTrailingNonStreaming:
     """Non-streaming: assistant content list must satisfy the invariant after processing."""
 
     @pytest.mark.asyncio
-    async def test_text_after_tool_use_dropped(self):
+    async def test_text_after_tool_use_reordered_before_tool(self):
+        """`[tool, text]` upstream → `[text, tool]` downstream. Text is preserved, just reordered."""
         policy = _make_policy(on_error="pass")
         ctx = _make_context()
 
@@ -1108,10 +1143,11 @@ class TestToolUseTrailingNonStreaming:
             result = await policy.on_anthropic_response(response, ctx)
 
         types = [b.get("type") for b in result["content"]]
-        assert types == ["tool_use"], f"Trailing text must be dropped, got: {types}"
+        assert types == ["text", "tool_use"], f"Text must be reordered before tool, got: {types}"
 
     @pytest.mark.asyncio
-    async def test_text_between_tools_dropped(self):
+    async def test_text_between_tools_reordered_before_tools(self):
+        """`[tool_A, text, tool_B]` → `[text, tool_A, tool_B]`. Text preserved, tools trail."""
         policy = _make_policy(on_error="pass")
         ctx = _make_context()
 
@@ -1129,20 +1165,18 @@ class TestToolUseTrailingNonStreaming:
             result = await policy.on_anthropic_response(response, ctx)
 
         types = [b.get("type") for b in result["content"]]
-        assert types == ["tool_use", "tool_use"], f"Text between tools must be dropped, got: {types}"
+        assert types == ["text", "tool_use", "tool_use"], f"Text must move before tools, got: {types}"
 
     @pytest.mark.asyncio
     async def test_marker_lists_all_blocked_tool_names(self):
-        """Multiple distinct tools blocked: the marker lists every name.
+        """Multiple distinct tools blocked: the consolidated marker lists every name.
 
-        Streaming case. tool_A blocked, tool_B / tool_C truncated as fallout.
-        The single deferred marker emitted at message_delta must contain all
-        three names.
+        Each tool is judged independently; blocked ones accumulate into a single
+        marker text block emitted in the pre-tool slot.
         """
         policy = _make_policy(on_error="block")
         ctx = _make_context()
 
-        # Use distinct tool names to verify the list rendering.
         def _tool_start_named(idx: int, name: str) -> Any:
             from anthropic.types import ToolUseBlock as _TUB
 
@@ -1156,7 +1190,7 @@ class TestToolUseTrailingNonStreaming:
             )
 
         with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
-            mock_judge.side_effect = [JudgeAction(action="block")]
+            mock_judge.return_value = JudgeAction(action="block")
 
             for idx, name in [(0, "Bash"), (1, "Read"), (2, "Edit")]:
                 await policy.on_anthropic_stream_event(_tool_start_named(idx, name), ctx)
@@ -1173,14 +1207,12 @@ class TestToolUseTrailingNonStreaming:
         assert text_deltas, f"Expected a marker block, got: {event_types(msg_events)}"
         marker_text = text_deltas[0].delta.text
         for name in ("Bash", "Read", "Edit"):
-            assert name in marker_text, (
-                f"Marker must list every blocked tool name; missing {name!r} in: {marker_text!r}"
-            )
-        assert "Tool calls" in marker_text, f"Expected plural phrasing, got: {marker_text!r}"
+            assert name in marker_text
+        assert "Tool calls" in marker_text
 
     @pytest.mark.asyncio
-    async def test_subsequent_tool_dropped_after_block_non_streaming(self):
-        """Non-streaming: `[tool_A_pass, tool_B_block, tool_C]` → `[tool_A]`. tool_C never judged."""
+    async def test_block_in_middle_judges_all_tools_non_streaming(self):
+        """`[A_pass, B_block, C_pass]` → `[marker(B), A, C]`. Each tool judged independently."""
         policy = _make_policy(on_error="block")
         ctx = _make_context()
 
@@ -1197,14 +1229,10 @@ class TestToolUseTrailingNonStreaming:
             mock_judge.side_effect = [
                 JudgeAction(action="pass"),
                 JudgeAction(action="block"),
-                # tool_C must not be judged.
+                JudgeAction(action="pass"),
             ]
             result = await policy.on_anthropic_response(response, ctx)
 
         types = [b.get("type") for b in result["content"]]
-        # tool_A passes; blocked-text for tool_B drops (it'd follow tool_A — #708);
-        # tool_C drops because block engaged truncation.
-        assert types == ["tool_use"], f"Expected only tool_A after truncation, got: {types}"
-        assert mock_judge.call_count == 2, (
-            f"tool_C must not be judged after truncation engaged, ran {mock_judge.call_count} times"
-        )
+        assert types == ["text", "tool_use", "tool_use"], f"Got: {types}"
+        assert mock_judge.call_count == 3
