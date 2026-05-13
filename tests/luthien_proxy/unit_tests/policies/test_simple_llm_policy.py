@@ -879,3 +879,247 @@ class TestMultiBlockReplacementIndices:
             snapshot = accumulate_event(event=ev, current_snapshot=snapshot)
         assert snapshot is not None
         assert len(snapshot.content) == 3, f"SDK accumulator should see 3 blocks, got {len(snapshot.content)}"
+
+
+# ============================================================================
+# Tool_use-trailing invariant + block-truncation (#708)
+# ============================================================================
+#
+# Anthropic empirically rejects any non-tool_use content following the first
+# tool_use in a single assistant message (live-API probe at
+# tests/luthien_proxy/e2e_tests/real_anthropic/probe_tool_use_invariant.py).
+# Two related behaviours are tested here:
+#
+# 1. Text emission after a tool_use is dropped from every emission site
+#    (streaming pass / replace / block, non-streaming).
+# 2. Once a tool is blocked, all subsequent tools in the same response are
+#    dropped without judging — partial intervention has no clean way to
+#    communicate (the "[Tool X was blocked]" marker can't follow a prior
+#    tool_use either).
+
+
+class TestToolUseTrailingStreaming:
+    """Streaming: nothing follows the first tool_use except more tool_uses (#708)."""
+
+    @pytest.mark.asyncio
+    async def test_text_after_tool_use_is_dropped(self):
+        """`[tool_passes, text_passes]` upstream → `[tool]` downstream."""
+        policy = _make_policy(on_error="pass")
+        ctx = _make_context()
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="pass")
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("after tool", 1)), ctx)
+            text_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+        assert text_events == [], f"Text after tool_use must be dropped (#708), got: {event_types(text_events)}"
+
+    @pytest.mark.asyncio
+    async def test_text_replacement_after_tool_use_is_dropped(self):
+        policy = _make_policy(on_error="pass")
+        ctx = _make_context()
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = [
+                JudgeAction(action="pass"),
+                JudgeAction(action="replace", blocks=(ReplacementBlock(type="text", text="replaced"),)),
+            ]
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("orig", 1)), ctx)
+            text_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+        assert text_events == [], (
+            f"Text replacement after tool_use must be dropped (#708), got: {event_types(text_events)}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_judge_failure_after_tool_use_drops_warning(self):
+        """Trace from devil critique: judge fails on text AFTER tool_use → warning dropped.
+
+        The warning would land after the tool_use (400). Best-effort: drop it.
+        """
+        policy = _make_policy(on_error="pass")
+        ctx = _make_context()
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = [
+                JudgeAction(action="pass"),  # tool_use passes
+                JudgeAction(action="pass", judge_failed=True),  # later text fails judge
+            ]
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("after", 1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        # message_delta path must not emit a warning content block — it
+        # would land after the tool_use.
+        starts_in_msg_delta = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+        assert starts_in_msg_delta == [], (
+            f"No content blocks may be emitted at message_delta after tool_use, got: {starts_in_msg_delta}"
+        )
+
+
+class TestBlockTruncation:
+    """Blocking one tool truncates subsequent tool_uses in the same response."""
+
+    @pytest.mark.asyncio
+    async def test_subsequent_tool_dropped_after_block_streaming(self):
+        """`[tool_A_pass, tool_B_blocked, tool_C]` → `[tool_A, blocked_text_B]`. tool_C dropped without judging."""
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = [
+                JudgeAction(action="pass"),
+                JudgeAction(action="block"),
+                # No third call — tool_C must be dropped without judging.
+            ]
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"a":1}', 0)), ctx)
+            ev_a = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"b":2}', 1)), ctx)
+            ev_b = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(2)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"c":3}', 2)), ctx)
+            ev_c = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(2)), ctx)
+
+        # tool_C must emit nothing — it was dropped without judging.
+        assert ev_c == [], f"tool_C must be dropped after block engaged, got: {event_types(ev_c)}"
+        # Verify judge was called exactly twice (for A and B), not three times.
+        assert mock_judge.call_count == 2, f"Judge must not run on tool_C, ran {mock_judge.call_count} times"
+
+        # tool_A passes through; tool_B's blocked-text emits (only one tool_use was
+        # emitted prior to the block, but it WAS emitted, so the marker would
+        # actually 400 — verify it's dropped).
+        a_starts = [e for e in ev_a if isinstance(e, RawContentBlockStartEvent)]
+        assert len(a_starts) == 1 and a_starts[0].content_block.type == "tool_use"
+        # tool_B blocked-text would follow tool_A; it must be dropped.
+        b_starts = [e for e in ev_b if isinstance(e, RawContentBlockStartEvent)]
+        assert b_starts == [], (
+            f"blocked-text marker for tool_B must be dropped (would 400 after tool_A — #708), "
+            f"got: {[s.content_block.type for s in b_starts]}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_block_on_first_tool_emits_marker_then_drops_rest(self):
+        """`[tool_A_blocked, tool_B]` → `[blocked_text_A]`. tool_B dropped."""
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = [JudgeAction(action="block")]
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"a":1}', 0)), ctx)
+            ev_a = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"b":2}', 1)), ctx)
+            ev_b = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+        # tool_A blocked → emit blocked-text marker (safe: no tool_use yet emitted).
+        a_starts = [e for e in ev_a if isinstance(e, RawContentBlockStartEvent)]
+        assert len(a_starts) == 1 and a_starts[0].content_block.type == "text"
+
+        # tool_B must be dropped without judging.
+        assert ev_b == [], f"tool_B must be dropped after block engaged, got: {event_types(ev_b)}"
+        assert mock_judge.call_count == 1, f"Judge must not run on tool_B, ran {mock_judge.call_count} times"
+
+
+class TestToolUseTrailingNonStreaming:
+    """Non-streaming: assistant content list must satisfy the invariant after processing."""
+
+    @pytest.mark.asyncio
+    async def test_text_after_tool_use_dropped(self):
+        policy = _make_policy(on_error="pass")
+        ctx = _make_context()
+
+        response: dict[str, Any] = {
+            "content": [
+                {"type": "tool_use", "id": "toolu_a", "name": "Bash", "input": {"x": 1}},
+                {"type": "text", "text": "trailing"},
+            ],
+            "stop_reason": "tool_use",
+        }
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="pass")
+            result = await policy.on_anthropic_response(response, ctx)
+
+        types = [b.get("type") for b in result["content"]]
+        assert types == ["tool_use"], f"Trailing text must be dropped, got: {types}"
+
+    @pytest.mark.asyncio
+    async def test_text_between_tools_dropped(self):
+        policy = _make_policy(on_error="pass")
+        ctx = _make_context()
+
+        response: dict[str, Any] = {
+            "content": [
+                {"type": "tool_use", "id": "toolu_a", "name": "Bash", "input": {"a": 1}},
+                {"type": "text", "text": "between"},
+                {"type": "tool_use", "id": "toolu_b", "name": "Bash", "input": {"b": 2}},
+            ],
+            "stop_reason": "tool_use",
+        }
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="pass")
+            result = await policy.on_anthropic_response(response, ctx)
+
+        types = [b.get("type") for b in result["content"]]
+        assert types == ["tool_use", "tool_use"], f"Text between tools must be dropped, got: {types}"
+
+    @pytest.mark.asyncio
+    async def test_subsequent_tool_dropped_after_block_non_streaming(self):
+        """Non-streaming: `[tool_A_pass, tool_B_block, tool_C]` → `[tool_A]`. tool_C never judged."""
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+
+        response: dict[str, Any] = {
+            "content": [
+                {"type": "tool_use", "id": "toolu_a", "name": "Bash", "input": {"a": 1}},
+                {"type": "tool_use", "id": "toolu_b", "name": "Bash", "input": {"b": 2}},
+                {"type": "tool_use", "id": "toolu_c", "name": "Bash", "input": {"c": 3}},
+            ],
+            "stop_reason": "tool_use",
+        }
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = [
+                JudgeAction(action="pass"),
+                JudgeAction(action="block"),
+                # tool_C must not be judged.
+            ]
+            result = await policy.on_anthropic_response(response, ctx)
+
+        types = [b.get("type") for b in result["content"]]
+        # tool_A passes; blocked-text for tool_B drops (it'd follow tool_A — #708);
+        # tool_C drops because block engaged truncation.
+        assert types == ["tool_use"], f"Expected only tool_A after truncation, got: {types}"
+        assert mock_judge.call_count == 2, (
+            f"tool_C must not be judged after truncation engaged, ran {mock_judge.call_count} times"
+        )

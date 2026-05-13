@@ -37,7 +37,11 @@ import json
 import httpx
 import pytest
 from tests.luthien_proxy.e2e_tests.conftest import policy_context
-from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import MockToolResponse, text_response
+from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import (
+    MockParallelToolResponse,
+    MockToolResponse,
+    text_response,
+)
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 from tests.luthien_proxy.e2e_tests.mock_anthropic.simulator import ClaudeCodeSimulator
 
@@ -229,4 +233,71 @@ async def test_next_turn_forwards_well_formed_assistant_message(
     assert content[-1].get("type") == "tool_use", (
         f"Last block of forwarded assistant message must be tool_use; got block types "
         f"{[b.get('type') for b in content]}. Anthropic 400s otherwise (#708)."
+    )
+
+
+@pytest.mark.asyncio
+async def test_parallel_tools_with_judge_failure_no_text_between(
+    mock_anthropic: MockAnthropicServer,
+    gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
+):
+    """Parallel tools + judge unreachable: no text may appear between the tool_uses.
+
+    Empirically (verified 2026-05-13 against real Anthropic API), `[tool_A, text, tool_B]`
+    in an assistant message produces the same 400 as text-after-tool. The judge-unavailable
+    warning must NOT be inserted between two parallel tool_uses.
+    """
+    mock_anthropic.clear_requests()
+    mock_anthropic.enqueue(
+        MockParallelToolResponse(
+            tools=[
+                ("Bash", {"command": "pip install scrapling"}),
+                ("Bash", {"command": "pip install requests"}),
+            ],
+        )
+    )
+
+    async with policy_context(
+        _MULTI_SERIAL, _RAILWAY_LIKE_CONFIG, gateway_url=gateway_url, admin_api_key=admin_api_key
+    ):
+        payload = {
+            "model": "claude-haiku-4-5",
+            "max_tokens": 1024,
+            "stream": True,
+            "system": [{"type": "text", "text": "You are Claude Code."}],
+            "tools": [
+                {
+                    "name": "Bash",
+                    "description": "Run a bash command",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {"command": {"type": "string"}},
+                        "required": ["command"],
+                    },
+                }
+            ],
+            "messages": [{"role": "user", "content": "Install scrapling and requests"}],
+        }
+        headers = {"Authorization": f"Bearer {api_key}"}
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            async with client.stream("POST", f"{gateway_url}/v1/messages", json=payload, headers=headers) as r:
+                r.raise_for_status()
+                raw = await r.aread()
+
+    events = _parse_sse(raw.decode())
+    block_types = _block_types_in_order(events)
+
+    # Both tool_uses must survive; no text block may sit between or after them.
+    tool_count = sum(1 for t in block_types if t == "tool_use")
+    assert tool_count == 2, f"Expected two tool_use blocks, got: {block_types}"
+
+    first_tool_idx = block_types.index("tool_use")
+    after_first_tool = block_types[first_tool_idx:]
+    assert all(t == "tool_use" for t in after_first_tool), (
+        f"No non-tool_use block may follow the first tool_use; got order after first tool: {after_first_tool}. "
+        f"This shape 400s on the next turn (#708)."
     )

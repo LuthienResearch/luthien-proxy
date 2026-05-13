@@ -101,6 +101,23 @@ class _SimpleLLMAnthropicState:
     # True once the judge-unavailable warning has been injected into the
     # stream. Used to avoid double-emission at message_delta time.
     warning_emitted: bool = False
+    # True once any tool_use block has been emitted downstream. The Anthropic
+    # API rejects an assistant message containing any non-tool_use content
+    # after the first tool_use ("tool_use ids were found without tool_result
+    # blocks immediately after" — see #708). Once this flag is set, every
+    # downstream emission site in this policy must refuse to emit non-tool
+    # content. The invariant is enforced inline at each emission point in
+    # _handle_block_stop, _handle_message_delta, and
+    # _emit_anthropic_replacement_events — there is no separate post-pass.
+    tool_use_emitted: bool = False
+    # True once a tool_use has been blocked by the judge. Subsequent
+    # upstream tool_use blocks are dropped without judging: blocking one
+    # tool means we've decided to intervene, and there's no clean way to
+    # communicate "tool N was blocked" once tool N+1 has been emitted (the
+    # marker text would land after a tool_use — see [[tool_use_emitted]]).
+    # Truncating on first block keeps intent obvious to the model on the
+    # next turn and avoids surfacing partial intervention.
+    tool_blocking_engaged: bool = False
     # Cumulative downstream offset from multi-block replacements: when one
     # upstream block is replaced with N>1 blocks, every subsequent downstream
     # index shifts by N-1 to avoid colliding with the extra emitted blocks.
@@ -271,6 +288,8 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         emitted_blocks: list[BlockDescriptor] = []
         new_content: list["AnthropicContentBlock"] = []
         judge_error_occurred = False
+        tool_use_emitted = False
+        tool_blocking_engaged = False
 
         for block in content:
             if not isinstance(block, dict):
@@ -278,6 +297,21 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                 continue
 
             block_type = block.get("type")
+
+            # Drop any tool_use after we've decided to block one in this
+            # response (see [[tool_blocking_engaged]] in the streaming state).
+            if block_type == "tool_use" and tool_blocking_engaged:
+                logger.warning(
+                    "SimpleLLMPolicy: dropping tool_use '%s' after a prior tool was blocked",
+                    block.get("name", ""),
+                )
+                continue
+
+            # Once a tool_use has been emitted, no non-tool content may
+            # follow in this assistant message (#708).
+            if block_type == "text" and tool_use_emitted:
+                logger.warning("SimpleLLMPolicy: dropping text block following a prior tool_use (#708)")
+                continue
 
             if block_type == "text":
                 descriptor = self._block_descriptor_from_text(block.get("text", ""))
@@ -297,11 +331,24 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             if action.action == "pass":
                 new_content.append(block)
                 emitted_blocks.append(descriptor)
+                if block_type == "tool_use":
+                    tool_use_emitted = True
             elif action.action == "replace":
                 for rblock in action.blocks or ():
+                    if rblock.type == "text" and tool_use_emitted:
+                        logger.warning("SimpleLLMPolicy: dropping text replacement following a prior tool_use (#708)")
+                        continue
                     emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
                     new_content.append(self._replacement_to_anthropic_block(rblock))
+                    if rblock.type == "tool_use":
+                        tool_use_emitted = True
             elif action.action == "block" and block_type == "tool_use":
+                # Engage truncation; emit the blocked-text marker only when
+                # it's safe (#708: text can't follow a prior tool_use).
+                tool_blocking_engaged = True
+                if tool_use_emitted:
+                    logger.warning("SimpleLLMPolicy: dropping blocked-tool marker following a prior tool_use (#708)")
+                    continue
                 if action.judge_failed:
                     blocked_text = _blocked_tool_judge_failed_message(block.get("name", ""))
                 else:
@@ -312,9 +359,9 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
 
         if judge_error_occurred and self._config.on_error == "pass":
             warning_block: AnthropicTextBlock = {"type": "text", "text": JUDGE_UNAVAILABLE_WARNING}
-            # The warning must not appear after any tool_use, else Anthropic
-            # 400s on the next turn (#708). Insert before the first tool_use
-            # if any exist; otherwise append at the end.
+            # Place the warning before the first tool_use (if any) so it sits
+            # in the pre-tool region — Anthropic rejects non-tool_use content
+            # following a tool_use (#708).
             first_tool_idx = next(
                 (i for i, b in enumerate(new_content) if b.get("type") == "tool_use"),
                 None,
@@ -435,6 +482,15 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             if action.judge_failed:
                 state.judge_error_occurred = True
 
+            # Once a tool_use is downstream, no text may follow — Anthropic
+            # 400s next turn (#708). Drop silently; pending_start was buffered
+            # and never emitted so the wire stays clean.
+            if state.tool_use_emitted:
+                logger.warning(
+                    "SimpleLLMPolicy: dropping text block following a prior tool_use (#708)",
+                )
+                return []
+
             emitted_index = index + state.index_shift
             if action.action == "pass":
                 state.emitted_blocks.append(descriptor)
@@ -458,6 +514,18 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         # Tool block stop
         if index in state.tool_buffer:
             buffered = state.tool_buffer.pop(index)
+
+            # Once we've blocked any tool in this response, drop the rest of
+            # the model's tool calls without judging. See
+            # [[tool_blocking_engaged]]: partial intervention has no clean
+            # way to communicate.
+            if state.tool_blocking_engaged:
+                logger.warning(
+                    "SimpleLLMPolicy: dropping tool_use '%s' after a prior tool was blocked",
+                    buffered.name,
+                )
+                return []
+
             try:
                 input_data: "JSONObject | str" = (
                     json.loads(buffered.input_json) if buffered.input_json else {}
@@ -472,13 +540,20 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
 
             emitted_index = index + state.index_shift
             if action.action == "pass":
-                # If a judge failure occurred earlier in this stream and the
-                # warning hasn't been emitted yet, inject it BEFORE the
-                # tool_use. Anthropic rejects the next turn with 400 if a
-                # tool_use is followed by other content in the same assistant
-                # message — see issue #708.
+                # Inject the judge-unavailable warning BEFORE the first
+                # tool_use if a judge failure has occurred. After that point
+                # the tool_use-trailing invariant (#708) forbids inserting
+                # text between or after tool_uses, so the warning becomes
+                # best-effort: if the first judge error surfaces only after a
+                # tool_use was already emitted, the warning is dropped
+                # silently in _handle_message_delta.
                 events: list[MessageStreamEvent] = []
-                if state.judge_error_occurred and self._config.on_error == "pass" and not state.warning_emitted:
+                if (
+                    state.judge_error_occurred
+                    and self._config.on_error == "pass"
+                    and not state.warning_emitted
+                    and not state.tool_use_emitted
+                ):
                     warning_descriptor = self._block_descriptor_from_text(JUDGE_UNAVAILABLE_WARNING)
                     state.emitted_blocks.append(warning_descriptor)
                     events.extend(self._make_anthropic_warning_events(emitted_index))
@@ -487,11 +562,21 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                     emitted_index += 1
                 state.emitted_blocks.append(descriptor)
                 events.extend(self._emit_anthropic_tool_events(emitted_index, buffered))
+                state.tool_use_emitted = True
                 return events
             elif action.action == "replace":
                 return self._emit_anthropic_replacement_events(emitted_index, action, state)
-            # Tool start was suppressed — emit a text block so the client
-            # knows the tool call was blocked and can continue the conversation.
+            # action == "block" — engage truncation for the rest of this
+            # response so we don't half-execute the model's plan.
+            state.tool_blocking_engaged = True
+            # The marker text we'd normally emit ("[Tool X was blocked]")
+            # can't follow a previously-emitted tool_use (#708 invariant);
+            # drop it silently in that case. Before any tool_use, it's safe.
+            if state.tool_use_emitted:
+                logger.warning(
+                    "SimpleLLMPolicy: dropping blocked-tool marker following a prior tool_use (#708)",
+                )
+                return []
             if action.judge_failed:
                 blocked_text = _blocked_tool_judge_failed_message(buffered.name)
             else:
@@ -520,14 +605,30 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         state = self._anthropic_state(context)
         events: list[MessageStreamEvent] = []
 
-        # Inject judge-unavailable warning as a content block before message_delta.
-        # If a tool_use was emitted, the warning has already been injected before
-        # it (see _handle_block_stop) to keep the assistant message ending with
-        # the tool_use — otherwise Anthropic 400s on the next turn (#708).
-        if state.judge_error_occurred and self._config.on_error == "pass" and not state.warning_emitted:
+        # Inject judge-unavailable warning before message_delta only if no
+        # tool_use is downstream (#708: any text after the first tool_use
+        # 400s the next turn). When a tool_use is present, the warning was
+        # either injected before it in _handle_block_stop or is dropped
+        # here because the judge error surfaced too late to place safely.
+        if (
+            state.judge_error_occurred
+            and self._config.on_error == "pass"
+            and not state.warning_emitted
+            and not state.tool_use_emitted
+        ):
             warning_index = len(state.emitted_blocks)
             events.extend(self._make_anthropic_warning_events(warning_index))
             state.warning_emitted = True
+        elif (
+            state.judge_error_occurred
+            and self._config.on_error == "pass"
+            and not state.warning_emitted
+            and state.tool_use_emitted
+        ):
+            logger.warning(
+                "SimpleLLMPolicy: judge-unavailable warning could not be emitted "
+                "(first judge failure occurred after tool_use was already streamed — #708)",
+            )
         elif state.judge_error_occurred and not state.emitted_blocks:
             events.extend(self._make_anthropic_text_block_events(0, JUDGE_ERROR_BLOCKED_MESSAGE))
 
@@ -611,6 +712,13 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             block_stop = RawContentBlockStopEvent(type="content_block_stop", index=current_index)
 
             if rblock.type == "text":
+                # Once a tool_use is downstream, no text may follow (#708).
+                # Drop the text replacement; don't consume an index slot.
+                if state.tool_use_emitted:
+                    logger.warning(
+                        "SimpleLLMPolicy: dropping text replacement following a prior tool_use (#708)",
+                    )
+                    continue
                 text_block = TextBlock(type="text", text="")
                 start = RawContentBlockStartEvent(
                     type="content_block_start", index=current_index, content_block=text_block
