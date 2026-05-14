@@ -3,7 +3,9 @@
 Builds an Anthropic-compliant assistant message from a stream of policy
 decisions. The builder owns the wire-protocol invariants — policies feed it
 abstract decisions (commit text, buffer tool, block tool, note judge
-unavailable) and the builder produces SSE events in a legal order.
+unavailable) and the builder produces SSE events in a legal order. The
+same primitives also drive the non-streaming path via
+`to_anthropic_response()`.
 
 The key invariant: once any `tool_use` block reaches the wire, no non-tool
 content may follow (Anthropic 400s on the next turn — see issue #708). The
@@ -22,11 +24,8 @@ Other invariants the builder owns:
 - The judge-unavailable warning and the consolidated blocked-tool marker
   emit at `finalize()` in the pre-tool slot, so they can never violate the
   trailing-tool_use invariant regardless of when they were noted.
-- `stop_reason` is rewritten at `finalize()` to match whether any tool_use
-  was actually emitted.
-
-Streaming-only. The non-streaming path uses the same conceptual flow but
-operates on a content list directly.
+- `stop_reason` is rewritten at `finalize()` / `to_anthropic_response()`
+  to match whether any tool_use was actually emitted.
 """
 
 from __future__ import annotations
@@ -48,10 +47,14 @@ from anthropic.types import (
     ToolUseBlock,
 )
 
-from luthien_proxy.policies.simple_llm_utils import BlockDescriptor
+from luthien_proxy.policy_core.block_descriptor import BlockDescriptor
 
 if TYPE_CHECKING:
-    from luthien_proxy.llm.types.anthropic import JSONObject
+    from luthien_proxy.llm.types.anthropic import (
+        AnthropicContentBlock,
+        AnthropicResponse,
+        JSONObject,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +104,7 @@ class _BuilderState:
     tool_buffer: dict[int, BufferedTool] = field(default_factory=dict)
     # Downstream composition: where committed/queued content lives until flush.
     committed_descriptors: list[BlockDescriptor] = field(default_factory=list)
+    pre_tool_blocks: list["AnthropicContentBlock"] = field(default_factory=list)
     buffered_tools: list[_QueuedTool] = field(default_factory=list)
     blocked_tools: list[_BlockedToolRecord] = field(default_factory=list)
     pending_text: list[str] = field(default_factory=list)
@@ -121,13 +125,16 @@ class AnthropicMessageBuilder:
         - `buffer_tool(id, name, input_json)` — record a tool_use (always buffers)
         - `record_blocked_tool(name, judge_failed)` — record that a tool was blocked
         - `passthrough_start(event)` / `passthrough_delta(event)` / `passthrough_stop(event)` —
-          re-emit a non-buffered block type (thinking) with a rewritten index
+          re-emit a non-buffered block type (text, thinking) with a rewritten index
         - `note_judge_unavailable(text)` — request a warning text block at finalize
         - `set_fallback_text(text)` — text to emit if nothing else gets committed
     2. Use returned events directly; they're already wire-ordered for events
        that can commit immediately.
     3. At end of stream, call `finalize(message_delta)` to flush queued
        warnings, marker, buffered tools, and the corrected message_delta.
+       Alternatively, for non-streaming use, call
+       `to_anthropic_response(template)` after all decisions have been
+       recorded.
 
     The builder is stateful and per-request; do not share across requests.
     """
@@ -231,6 +238,7 @@ class AnthropicMessageBuilder:
         if self._state.buffered_tools:
             self._state.pending_text.append(text)
             self._state.committed_descriptors.append(BlockDescriptor(type="text", content=text))
+            self._state.pre_tool_blocks.append({"type": "text", "text": text})
             return []
         return self._emit_text_now(text)
 
@@ -259,13 +267,27 @@ class AnthropicMessageBuilder:
         """
         self._state.pending_fallback_text = text
 
+    def commit_raw_block(self, block: "AnthropicContentBlock") -> None:
+        """Commit an opaque content block (e.g. thinking) to the pre-tool slot.
+
+        Used by the non-streaming path for block types the builder has no
+        specific handling for. The block is preserved verbatim. Like
+        `commit_text`, this lands in the pre-tool region — blocks committed
+        after a tool has been buffered are still placed before the tool flush.
+        """
+        self._state.pre_tool_blocks.append(block)
+        block_type = (
+            block.get("type") if isinstance(block, dict) else getattr(block, "type", "passthrough")
+        ) or "passthrough"
+        self._state.committed_descriptors.append(BlockDescriptor(type=str(block_type), content=""))
+
     def passthrough_start(self, event: RawContentBlockStartEvent) -> list[MessageStreamEvent]:
-        """Re-emit a non-buffered content_block_start (thinking, etc.) with rewritten index.
+        """Re-emit a non-buffered content_block_start (text, thinking, etc.) with rewritten index.
 
         Like `commit_text`: emits now if no tool buffered, otherwise the
         passthrough block is dropped — there's no clean way to interleave a
-        thinking block between the pre-tool region and the tool flush. In
-        practice models don't emit thinking after tool_use within a stream.
+        non-tool block between the pre-tool region and the tool flush. The
+        intentional drop preserves the trailing-tool_use invariant (#708).
         """
         if self._state.buffered_tools:
             logger.warning(
@@ -277,6 +299,9 @@ class AnthropicMessageBuilder:
             return []
         index = self._allocate_index()
         self._state.passthrough_index_map[event.index] = index
+        # Track as a passthrough descriptor; type may be "text", "thinking", etc.
+        block_type = getattr(event.content_block, "type", "passthrough") or "passthrough"
+        self._state.committed_descriptors.append(BlockDescriptor(type=block_type, content=""))
         rewritten = event.model_copy(update={"index": index})
         return [cast(MessageStreamEvent, rewritten)]
 
@@ -295,7 +320,7 @@ class AnthropicMessageBuilder:
         return [cast(MessageStreamEvent, event.model_copy(update={"index": idx}))]
 
     # ------------------------------------------------------------------
-    # Finalize
+    # Finalize (streaming)
     # ------------------------------------------------------------------
 
     def finalize(self, message_delta: RawMessageDeltaEvent) -> list[MessageStreamEvent]:
@@ -327,9 +352,7 @@ class AnthropicMessageBuilder:
             events.extend(self._emit_text_now(s.pending_warning_text))
 
         if s.blocked_tools:
-            judge_failed = any(b.judge_failed for b in s.blocked_tools)
-            names = [b.name for b in s.blocked_tools]
-            marker = _blocked_tools_judge_failed_message(names) if judge_failed else _blocked_tools_message(names)
+            marker = _blocked_tools_marker(s.blocked_tools)
             events.extend(self._emit_text_now(marker))
 
         for tool in s.buffered_tools:
@@ -349,6 +372,57 @@ class AnthropicMessageBuilder:
         return events
 
     # ------------------------------------------------------------------
+    # Finalize (non-streaming)
+    # ------------------------------------------------------------------
+
+    def to_anthropic_response(self, template: "AnthropicResponse") -> "AnthropicResponse":
+        """Return a finalized non-streaming response composed from builder state.
+
+        Uses `template` as the response shell (id, model, role, usage, etc.)
+        and replaces `content` and `stop_reason` with the wire-correct
+        composition: pre-tool blocks (in `commit_text`/`passthrough` order)
+        → warning → marker → buffered tools. `stop_reason` is corrected to
+        match the final shape.
+
+        Should be called after all decisions have been recorded. Callers
+        that interleave `to_anthropic_response()` with `finalize()` on the
+        same builder will get undefined behavior.
+        """
+        if self._state.finalized:
+            raise RuntimeError("AnthropicMessageBuilder.to_anthropic_response called after finalize")
+        self._state.finalized = True
+
+        s = self._state
+        new_content: list["AnthropicContentBlock"] = list(s.pre_tool_blocks)
+
+        if s.pending_warning_text is not None:
+            new_content.append({"type": "text", "text": s.pending_warning_text})
+
+        if s.blocked_tools:
+            marker = _blocked_tools_marker(s.blocked_tools)
+            new_content.append({"type": "text", "text": marker})
+
+        for tool in s.buffered_tools:
+            new_content.append(
+                {
+                    "type": "tool_use",
+                    "id": tool.id,
+                    "name": tool.name,
+                    "input": parse_tool_input(tool.input_json),
+                }
+            )
+
+        if not new_content and s.pending_fallback_text is not None:
+            new_content.append({"type": "text", "text": s.pending_fallback_text})
+
+        expected_stop = "tool_use" if s.buffered_tools else "end_turn"
+
+        modified = cast("AnthropicResponse", dict(template))
+        modified["content"] = new_content
+        modified["stop_reason"] = expected_stop
+        return modified
+
+    # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
 
@@ -360,6 +434,7 @@ class AnthropicMessageBuilder:
     def _emit_text_now(self, text: str) -> list[MessageStreamEvent]:
         index = self._allocate_index()
         self._state.committed_descriptors.append(BlockDescriptor(type="text", content=text))
+        self._state.pre_tool_blocks.append({"type": "text", "text": text})
         return _events_for_text(index, text)
 
     def _emit_tool_now(self, tool: _QueuedTool) -> list[MessageStreamEvent]:
@@ -413,18 +488,26 @@ def _events_for_tool_use(index: int, *, tool_id: str, name: str, input_json: str
     return [cast(MessageStreamEvent, start), cast(MessageStreamEvent, delta), cast(MessageStreamEvent, stop)]
 
 
-def _blocked_tools_message(names: list[str]) -> str:
+def blocked_tools_message(names: list[str]) -> str:
+    """Marker text for tools blocked by explicit policy decision."""
     quoted = ", ".join(f"`{n}`" for n in names)
     if len(names) == 1:
         return f"[Tool call {quoted} was blocked by policy]"
     return f"[Tool calls {quoted} were blocked by policy]"
 
 
-def _blocked_tools_judge_failed_message(names: list[str]) -> str:
+def blocked_tools_judge_failed_message(names: list[str]) -> str:
+    """Marker text for tools blocked because the judge couldn't evaluate."""
     quoted = ", ".join(f"`{n}`" for n in names)
     if len(names) == 1:
         return f"[Tool call {quoted} blocked: policy evaluation unavailable]"
     return f"[Tool calls {quoted} blocked: policy evaluation unavailable]"
+
+
+def _blocked_tools_marker(blocked: list[_BlockedToolRecord]) -> str:
+    judge_failed = any(b.judge_failed for b in blocked)
+    names = [b.name for b in blocked]
+    return blocked_tools_judge_failed_message(names) if judge_failed else blocked_tools_message(names)
 
 
 def parse_tool_input(input_json: str) -> "JSONObject":
@@ -443,5 +526,7 @@ def parse_tool_input(input_json: str) -> "JSONObject":
 __all__ = [
     "AnthropicMessageBuilder",
     "BufferedTool",
+    "blocked_tools_message",
+    "blocked_tools_judge_failed_message",
     "parse_tool_input",
 ]
