@@ -40,7 +40,6 @@ from luthien_proxy.credentials import AuthProvider, parse_auth_provider
 from luthien_proxy.policies.simple_llm_utils import (
     BlockDescriptor,
     JudgeAction,
-    ReplacementBlock,
     SimpleLLMJudgeConfig,
     call_simple_llm_judge,
 )
@@ -190,12 +189,6 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
     def _block_descriptor_from_tool(self, name: str, input_data: "JSONObject | str") -> BlockDescriptor:
         input_str = json.dumps(input_data) if not isinstance(input_data, str) else input_data
         return BlockDescriptor(type="tool_use", content=f"{name}({input_str})")
-
-    def _block_descriptor_from_replacement(self, block: ReplacementBlock) -> BlockDescriptor:
-        if block.type == "tool_use":
-            input_str = json.dumps(block.input or {})
-            return BlockDescriptor(type="tool_use", content=f"{block.name}({input_str})")
-        return BlockDescriptor(type="text", content=block.text or "")
 
     async def _judge_block(
         self,
