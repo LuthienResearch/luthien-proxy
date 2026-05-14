@@ -16,7 +16,6 @@ from anthropic.types import (
     InputJSONDelta,
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
-    RawContentBlockStopEvent,
     RawMessageDeltaEvent,
     TextBlock,
     TextDelta,
@@ -59,11 +58,7 @@ def _response_template() -> AnthropicResponse:
 
 
 def _text_deltas(events) -> list[str]:
-    return [
-        e.delta.text
-        for e in events
-        if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
-    ]
+    return [e.delta.text for e in events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)]
 
 
 # ----------------------------------------------------------------------
