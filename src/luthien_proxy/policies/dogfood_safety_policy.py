@@ -21,26 +21,30 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from anthropic.lib.streaming import MessageStreamEvent
+from anthropic.types import (
+    InputJSONDelta,
+    RawContentBlockDeltaEvent,
+    RawContentBlockStartEvent,
+    RawContentBlockStopEvent,
+    RawMessageDeltaEvent,
+    ToolUseBlock,
+)
 from pydantic import BaseModel, Field
 
 from luthien_proxy.policy_core import (
     AnthropicHookPolicy,
     BasePolicy,
-    BufferedToolCall,
     CatalogBadge,
     Category,
-    ToolCallStreamBuffer,
-    ToolCallTransform,
     UIMetadata,
-    transform_anthropic_response,
 )
+from luthien_proxy.policy_core.anthropic_message_builder import AnthropicMessageBuilder, BufferedTool
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import (
-        AnthropicContentBlock,
         AnthropicResponse,
         JSONObject,
     )
@@ -157,59 +161,125 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
         """Render blocked-message template with truncated command."""
         return self.config.blocked_message.format(command=command[:200], pattern="regex")
 
-    def _make_transform(self, context: "PolicyContext") -> ToolCallTransform:
-        """Build a transform closure that captures `context` for event-recording."""
+    def _decide_tool(
+        self,
+        tool_name: str,
+        tool_input_json: str,
+        context: "PolicyContext",
+    ) -> tuple[bool, str]:
+        """Pattern-match a tool call; emit observability if blocked.
 
-        async def transform(tool_calls: list[BufferedToolCall]) -> list["AnthropicContentBlock"]:
-            output: list[AnthropicContentBlock] = []
-            for tc in tool_calls:
-                # Fail-secure: if the buffered input_json failed to parse,
-                # `tc.input` returns `{"_raw": <string>}` — but we want to scan
-                # the raw text for dangerous patterns anyway, not silently
-                # treat the call as safe because the dict path returned empty.
-                parsed = tc.input
-                tool_input: "JSONObject | str" = (
-                    tc.input_json if isinstance(parsed, dict) and "_raw" in parsed else parsed
-                )
-                is_blocked, command = self._is_dangerous(tc.name, tool_input)
-                if is_blocked:
-                    context.record_event(
-                        "policy.dogfood_safety.blocked",
-                        {"tool_name": tc.name, "command": command[:200]},
-                    )
-                    logger.warning(f"Blocked dangerous Anthropic tool_use: {command[:100]}")
-                    output.append(
-                        cast(
-                            "AnthropicContentBlock",
-                            {"type": "text", "text": self._format_blocked_message(command)},
-                        )
-                    )
-                else:
-                    output.append(tc.as_content_block())
-            return output
+        Returns `(is_blocked, command_preview)`. Fail-secure: if the buffered
+        input_json failed to parse, scans the raw text for dangerous patterns
+        anyway rather than treating the call as safe.
+        """
+        try:
+            parsed = json.loads(tool_input_json) if tool_input_json else {}
+        except json.JSONDecodeError:
+            parsed = None
+        scan_input: JSONObject | str = parsed if isinstance(parsed, dict) else tool_input_json
 
-        return transform
+        is_blocked, command = self._is_dangerous(tool_name, scan_input)
+        if is_blocked:
+            context.record_event(
+                "policy.dogfood_safety.blocked",
+                {"tool_name": tool_name, "command": command[:200]},
+            )
+            logger.warning(f"Blocked dangerous Anthropic tool_use: {command[:100]}")
+        return is_blocked, command
+
+    # ========================================================================
+    # Anthropic hooks
+    # ========================================================================
 
     async def on_anthropic_response(
         self, response: "AnthropicResponse", context: "PolicyContext"
     ) -> "AnthropicResponse":
         """Check non-streaming Anthropic tool_use blocks."""
-        return await transform_anthropic_response(response, self._make_transform(context))
+        content = response.get("content") or []
+        if not content:
+            return response
+        # Early-out: nothing to do if there are no tool_use blocks.
+        if not any(isinstance(b, dict) and b.get("type") == "tool_use" for b in content):
+            return response
+
+        builder = AnthropicMessageBuilder()
+        for block in content:
+            if not isinstance(block, dict):
+                builder.commit_raw_block(block)
+                continue
+            if block.get("type") == "tool_use":
+                tool_input = block.get("input", {})
+                input_json = (
+                    tool_input if isinstance(tool_input, str) else json.dumps(tool_input) if tool_input else "{}"
+                )
+                is_blocked, command = self._decide_tool(
+                    str(block.get("name", "")),
+                    input_json,
+                    context,
+                )
+                if is_blocked:
+                    builder.commit_text(self._format_blocked_message(command))
+                else:
+                    builder.buffer_tool(
+                        id=str(block.get("id", "")),
+                        name=str(block.get("name", "")),
+                        input_json=input_json,
+                    )
+            elif block.get("type") == "text":
+                builder.commit_text(block.get("text", ""))
+            else:
+                builder.commit_raw_block(block)
+
+        return builder.to_anthropic_response(response)
 
     async def on_anthropic_stream_event(
         self, event: MessageStreamEvent, context: "PolicyContext"
     ) -> list[MessageStreamEvent]:
         """Buffer tool_use blocks in streaming, evaluate on completion."""
-        buf = context.get_request_state(
-            self,
-            ToolCallStreamBuffer,
-            lambda: ToolCallStreamBuffer(self._make_transform(context)),
-        )
-        return await buf.process(event)
+        builder = context.get_request_state(self, AnthropicMessageBuilder, AnthropicMessageBuilder)
+
+        if isinstance(event, RawContentBlockStartEvent):
+            cb = event.content_block
+            if isinstance(cb, ToolUseBlock):
+                builder.begin_tool_buffer(event.index, id=cb.id, name=cb.name)
+                return []
+            return builder.passthrough_start(event)
+
+        if isinstance(event, RawContentBlockDeltaEvent):
+            if isinstance(event.delta, InputJSONDelta) and builder.append_tool_delta(
+                event.index, event.delta.partial_json
+            ):
+                return []
+            return builder.passthrough_delta(event)
+
+        if isinstance(event, RawContentBlockStopEvent):
+            tool = builder.take_tool(event.index)
+            if tool is not None:
+                return self._handle_tool_stop(builder, tool, context)
+            return builder.passthrough_stop(event)
+
+        if isinstance(event, RawMessageDeltaEvent):
+            return builder.finalize(event)
+
+        return [event]
+
+    def _handle_tool_stop(
+        self,
+        builder: AnthropicMessageBuilder,
+        tool: BufferedTool,
+        context: "PolicyContext",
+    ) -> list[MessageStreamEvent]:
+        """Apply pattern-match decision at tool block_stop."""
+        is_blocked, command = self._decide_tool(tool.name, tool.input_json, context)
+        if is_blocked:
+            return builder.commit_text(self._format_blocked_message(command))
+        builder.buffer_tool(id=tool.id, name=tool.name, input_json=tool.input_json)
+        return []
 
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
         """Clean up request-scoped Anthropic state."""
-        context.pop_request_state(self, ToolCallStreamBuffer)
+        context.pop_request_state(self, AnthropicMessageBuilder)
 
 
 __all__ = ["DogfoodSafetyPolicy", "DogfoodSafetyConfig"]
