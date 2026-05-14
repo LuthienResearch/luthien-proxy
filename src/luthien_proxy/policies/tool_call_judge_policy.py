@@ -30,14 +30,6 @@ import logging
 from typing import TYPE_CHECKING, TypedDict
 
 from anthropic.lib.streaming import MessageStreamEvent
-from anthropic.types import (
-    InputJSONDelta,
-    RawContentBlockDeltaEvent,
-    RawContentBlockStartEvent,
-    RawContentBlockStopEvent,
-    RawMessageDeltaEvent,
-    ToolUseBlock,
-)
 from pydantic import BaseModel, Field
 
 from luthien_proxy.credentials import AuthProvider, parse_auth_provider
@@ -218,52 +210,23 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
     async def on_anthropic_stream_event(
         self, event: MessageStreamEvent, context: "PolicyContext"
     ) -> list[MessageStreamEvent]:
-        """Stream events through the per-request builder."""
+        """Stream events through the per-request builder; judge each tool at block_stop."""
         builder = context.get_request_state(self, AnthropicMessageBuilder, AnthropicMessageBuilder)
 
-        if isinstance(event, RawContentBlockStartEvent):
-            cb = event.content_block
-            if isinstance(cb, ToolUseBlock):
-                builder.begin_tool_buffer(event.index, id=cb.id, name=cb.name)
-                return []
-            return builder.passthrough_start(event)
+        async def on_tool_stop(b: AnthropicMessageBuilder, tool: BufferedTool) -> list[MessageStreamEvent]:
+            tool_call: ToolCallDict = {
+                "id": tool.id,
+                "name": tool.name,
+                "arguments": tool.input_json or "{}",
+            }
+            blocked = await self._evaluate_and_maybe_block(tool_call, context)
+            if blocked is not None:
+                logger.info(f"Blocked tool call '{tool.name}'")
+                return b.commit_text(self._format_blocked_message(tool_call, blocked))
+            b.buffer_tool(id=tool.id, name=tool.name, input_json=tool.input_json)
+            return []
 
-        if isinstance(event, RawContentBlockDeltaEvent):
-            if isinstance(event.delta, InputJSONDelta) and builder.append_tool_delta(
-                event.index, event.delta.partial_json
-            ):
-                return []
-            return builder.passthrough_delta(event)
-
-        if isinstance(event, RawContentBlockStopEvent):
-            tool = builder.take_tool(event.index)
-            if tool is not None:
-                return await self._handle_tool_stop(builder, tool, context)
-            return builder.passthrough_stop(event)
-
-        if isinstance(event, RawMessageDeltaEvent):
-            return builder.finalize(event)
-
-        return [event]
-
-    async def _handle_tool_stop(
-        self,
-        builder: AnthropicMessageBuilder,
-        tool: BufferedTool,
-        context: "PolicyContext",
-    ) -> list[MessageStreamEvent]:
-        """Judge a complete tool_use block; commit blocked text or buffer the tool."""
-        tool_call: ToolCallDict = {
-            "id": tool.id,
-            "name": tool.name,
-            "arguments": tool.input_json or "{}",
-        }
-        blocked = await self._evaluate_and_maybe_block(tool_call, context)
-        if blocked is not None:
-            logger.info(f"Blocked tool call '{tool.name}'")
-            return builder.commit_text(self._format_blocked_message(tool_call, blocked))
-        builder.buffer_tool(id=tool.id, name=tool.name, input_json=tool.input_json)
-        return []
+        return await builder.dispatch_tool_only(event, on_tool_stop)
 
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
         """Drop the per-request builder."""

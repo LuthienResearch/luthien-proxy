@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
@@ -57,6 +58,14 @@ if TYPE_CHECKING:
     )
 
 logger = logging.getLogger(__name__)
+
+ToolStopHandler = Callable[["AnthropicMessageBuilder", "BufferedTool"], Awaitable[list[MessageStreamEvent]]]
+"""Caller-supplied async hook invoked at each tool_use block_stop.
+
+Receives the builder and the assembled `BufferedTool`. Should call the
+builder primitives (`commit_text`, `buffer_tool`, `record_blocked_tool`)
+to record its decision and return any events emitted by those calls.
+"""
 
 
 @dataclass(frozen=True)
@@ -320,6 +329,53 @@ class AnthropicMessageBuilder:
         return [cast(MessageStreamEvent, event.model_copy(update={"index": idx}))]
 
     # ------------------------------------------------------------------
+    # Streaming dispatch (helper for the common tool-buffering pattern).
+    # ------------------------------------------------------------------
+
+    async def dispatch_tool_only(
+        self,
+        event: MessageStreamEvent,
+        on_tool_stop: "ToolStopHandler",
+    ) -> list[MessageStreamEvent]:
+        """Default event router for policies that only inspect tool_use blocks.
+
+        Buffers tool_use deltas internally; non-tool events stream through
+        via `passthrough_*`. At each tool block_stop the supplied
+        `on_tool_stop` is awaited with the assembled `BufferedTool` — it
+        should drive `commit_text` / `buffer_tool` / `record_blocked_tool`
+        as appropriate and return any events those calls emitted. At
+        message_delta the builder finalizes.
+
+        For richer per-block judging (e.g. SimpleLLMPolicy, which inspects
+        text blocks too), call the builder primitives directly instead of
+        this helper.
+        """
+        if isinstance(event, RawContentBlockStartEvent):
+            cb = event.content_block
+            if isinstance(cb, ToolUseBlock):
+                self.begin_tool_buffer(event.index, id=cb.id, name=cb.name)
+                return []
+            return self.passthrough_start(event)
+
+        if isinstance(event, RawContentBlockDeltaEvent):
+            if isinstance(event.delta, InputJSONDelta) and self.append_tool_delta(
+                event.index, event.delta.partial_json
+            ):
+                return []
+            return self.passthrough_delta(event)
+
+        if isinstance(event, RawContentBlockStopEvent):
+            tool = self.take_tool(event.index)
+            if tool is not None:
+                return await on_tool_stop(self, tool)
+            return self.passthrough_stop(event)
+
+        if isinstance(event, RawMessageDeltaEvent):
+            return self.finalize(event)
+
+        return [event]
+
+    # ------------------------------------------------------------------
     # Finalize (streaming)
     # ------------------------------------------------------------------
 
@@ -526,6 +582,7 @@ def parse_tool_input(input_json: str) -> "JSONObject":
 __all__ = [
     "AnthropicMessageBuilder",
     "BufferedTool",
+    "ToolStopHandler",
     "blocked_tools_message",
     "blocked_tools_judge_failed_message",
     "parse_tool_input",

@@ -24,14 +24,6 @@ import re
 from typing import TYPE_CHECKING
 
 from anthropic.lib.streaming import MessageStreamEvent
-from anthropic.types import (
-    InputJSONDelta,
-    RawContentBlockDeltaEvent,
-    RawContentBlockStartEvent,
-    RawContentBlockStopEvent,
-    RawMessageDeltaEvent,
-    ToolUseBlock,
-)
 from pydantic import BaseModel, Field
 
 from luthien_proxy.policy_core import (
@@ -236,46 +228,17 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
     async def on_anthropic_stream_event(
         self, event: MessageStreamEvent, context: "PolicyContext"
     ) -> list[MessageStreamEvent]:
-        """Buffer tool_use blocks in streaming, evaluate on completion."""
+        """Buffer tool_use blocks; pattern-match each at block_stop via the builder."""
         builder = context.get_request_state(self, AnthropicMessageBuilder, AnthropicMessageBuilder)
 
-        if isinstance(event, RawContentBlockStartEvent):
-            cb = event.content_block
-            if isinstance(cb, ToolUseBlock):
-                builder.begin_tool_buffer(event.index, id=cb.id, name=cb.name)
-                return []
-            return builder.passthrough_start(event)
+        async def on_tool_stop(b: AnthropicMessageBuilder, tool: BufferedTool) -> list[MessageStreamEvent]:
+            is_blocked, command = self._decide_tool(tool.name, tool.input_json, context)
+            if is_blocked:
+                return b.commit_text(self._format_blocked_message(command))
+            b.buffer_tool(id=tool.id, name=tool.name, input_json=tool.input_json)
+            return []
 
-        if isinstance(event, RawContentBlockDeltaEvent):
-            if isinstance(event.delta, InputJSONDelta) and builder.append_tool_delta(
-                event.index, event.delta.partial_json
-            ):
-                return []
-            return builder.passthrough_delta(event)
-
-        if isinstance(event, RawContentBlockStopEvent):
-            tool = builder.take_tool(event.index)
-            if tool is not None:
-                return self._handle_tool_stop(builder, tool, context)
-            return builder.passthrough_stop(event)
-
-        if isinstance(event, RawMessageDeltaEvent):
-            return builder.finalize(event)
-
-        return [event]
-
-    def _handle_tool_stop(
-        self,
-        builder: AnthropicMessageBuilder,
-        tool: BufferedTool,
-        context: "PolicyContext",
-    ) -> list[MessageStreamEvent]:
-        """Apply pattern-match decision at tool block_stop."""
-        is_blocked, command = self._decide_tool(tool.name, tool.input_json, context)
-        if is_blocked:
-            return builder.commit_text(self._format_blocked_message(command))
-        builder.buffer_tool(id=tool.id, name=tool.name, input_json=tool.input_json)
-        return []
+        return await builder.dispatch_tool_only(event, on_tool_stop)
 
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
         """Clean up request-scoped Anthropic state."""
