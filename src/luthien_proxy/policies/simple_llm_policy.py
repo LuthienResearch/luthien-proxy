@@ -58,10 +58,7 @@ from luthien_proxy.policy_core.judge_orchestrator import Bailed, JudgeOrchestrat
 from luthien_proxy.settings import get_settings
 
 if TYPE_CHECKING:
-    from luthien_proxy.llm.types.anthropic import (
-        AnthropicResponse,
-        JSONObject,
-    )
+    from luthien_proxy.llm.types.anthropic import AnthropicResponse
     from luthien_proxy.policy_core.policy_context import PolicyContext
 
 logger = logging.getLogger(__name__)
@@ -183,13 +180,6 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
     # Shared helpers
     # ========================================================================
 
-    def _block_descriptor_from_text(self, text: str) -> BlockDescriptor:
-        return BlockDescriptor(type="text", content=text)
-
-    def _block_descriptor_from_tool(self, name: str, input_data: "JSONObject | str") -> BlockDescriptor:
-        input_str = json.dumps(input_data) if not isinstance(input_data, str) else input_data
-        return BlockDescriptor(type="tool_use", content=f"{name}({input_str})")
-
     async def _judge_block(
         self,
         descriptor: BlockDescriptor,
@@ -287,11 +277,11 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
 
             block_type = block.get("type")
             if block_type == "text":
-                descriptor = self._block_descriptor_from_text(block.get("text", ""))
+                descriptor = BlockDescriptor(type="text", content=block.get("text", ""))
             elif block_type == "tool_use":
-                descriptor = self._block_descriptor_from_tool(
-                    block.get("name", ""),
-                    block.get("input", {}),
+                descriptor = BlockDescriptor(
+                    type="tool_use",
+                    content=f"{block.get('name', '')}({json.dumps(block.get('input', {}))})",
                 )
             else:
                 builder.commit_raw_block(block)
@@ -404,7 +394,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             # Empty text block — Anthropic rejects on next turn. Suppress.
             return []
 
-        descriptor = self._block_descriptor_from_text(text)
+        descriptor = BlockDescriptor(type="text", content=text)
         action = await self._judge_block(descriptor, state.builder.committed_descriptors, context)
         if action.judge_failed:
             state.judge_error_occurred = True
@@ -430,7 +420,9 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         sibling tool judges. Order-preserving collection happens in
         `_handle_message_delta`.
         """
-        descriptor = self._block_descriptor_from_tool(tool.name, tool.parsed_input)
+        descriptor = BlockDescriptor(
+            type="tool_use", content=f"{tool.name}({json.dumps(tool.parsed_input)})"
+        )
         coro = self._judge_block(descriptor, state.builder.committed_descriptors, context)
         state.tool_judge.submit(_PendingTool(tool=tool), coro)
         return []
