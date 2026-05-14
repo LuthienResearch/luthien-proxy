@@ -68,6 +68,49 @@ to record its decision and return any events emitted by those calls.
 """
 
 
+ToolBlockHandler = Callable[["AnthropicMessageBuilder", "BufferedTool"], Awaitable[None]]
+"""Async hook for `compose_tool_only_response`: receives the builder and a
+`BufferedTool` per upstream tool_use block; should record a decision on
+the builder. Returns None — the non-streaming caller doesn't need events."""
+
+
+async def compose_tool_only_response(
+    response: "AnthropicResponse",
+    on_tool: ToolBlockHandler,
+) -> "AnthropicResponse":
+    """Non-streaming sibling of `AnthropicMessageBuilder.dispatch_tool_only`.
+
+    Walks `response["content"]`, hands each tool_use to `on_tool` (which
+    drives a fresh builder), and asks the builder for the finalized
+    response. Non-tool blocks (text, thinking, etc.) are committed
+    verbatim into the pre-tool slot. Returns the original response
+    unchanged when content has no tool_use blocks.
+    """
+    content = response.get("content") or []
+    if not content or not any(isinstance(b, dict) and b.get("type") == "tool_use" for b in content):
+        return response
+
+    builder = AnthropicMessageBuilder()
+    for block in content:
+        if not isinstance(block, dict):
+            builder.commit_raw_block(block)
+            continue
+        if block.get("type") == "tool_use":
+            tool_input = block.get("input", {})
+            input_json = tool_input if isinstance(tool_input, str) else json.dumps(tool_input) if tool_input else "{}"
+            tool = BufferedTool(
+                id=str(block.get("id", "")),
+                name=str(block.get("name", "")),
+                input_json=input_json,
+            )
+            await on_tool(builder, tool)
+        elif block.get("type") == "text":
+            builder.commit_text(block.get("text", ""))
+        else:
+            builder.commit_raw_block(block)
+    return builder.to_anthropic_response(response)
+
+
 @dataclass(frozen=True)
 class _QueuedTool:
     id: str
@@ -582,8 +625,10 @@ def parse_tool_input(input_json: str) -> "JSONObject":
 __all__ = [
     "AnthropicMessageBuilder",
     "BufferedTool",
+    "ToolBlockHandler",
     "ToolStopHandler",
     "blocked_tools_message",
     "blocked_tools_judge_failed_message",
+    "compose_tool_only_response",
     "parse_tool_input",
 ]

@@ -47,7 +47,11 @@ from luthien_proxy.policy_core import (
     Category,
     UIMetadata,
 )
-from luthien_proxy.policy_core.anthropic_message_builder import AnthropicMessageBuilder, BufferedTool
+from luthien_proxy.policy_core.anthropic_message_builder import (
+    AnthropicMessageBuilder,
+    BufferedTool,
+    compose_tool_only_response,
+)
 from luthien_proxy.settings import get_settings
 from luthien_proxy.utils.constants import DEFAULT_JUDGE_MAX_TOKENS, TOOL_ARGS_TRUNCATION_LENGTH
 
@@ -173,39 +177,21 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         self, response: "AnthropicResponse", context: "PolicyContext"
     ) -> "AnthropicResponse":
         """Judge each tool_use block; replace blocked calls with text."""
-        content = response.get("content") or []
-        if not content:
-            return response
-        if not any(isinstance(b, dict) and b.get("type") == "tool_use" for b in content):
-            return response
 
-        builder = AnthropicMessageBuilder()
-        for block in content:
-            if not isinstance(block, dict):
-                builder.commit_raw_block(block)
-                continue
-            if block.get("type") == "tool_use":
-                tool_input = block.get("input", {})
-                input_json = (
-                    tool_input if isinstance(tool_input, str) else json.dumps(tool_input) if tool_input else "{}"
-                )
-                tool_call: ToolCallDict = {
-                    "id": str(block.get("id", "")),
-                    "name": str(block.get("name", "")),
-                    "arguments": input_json,
-                }
-                blocked = await self._evaluate_and_maybe_block(tool_call, context)
-                if blocked is not None:
-                    builder.commit_text(self._format_blocked_message(tool_call, blocked))
-                    logger.info(f"Blocked tool call '{tool_call['name']}'")
-                else:
-                    builder.buffer_tool(id=tool_call["id"], name=tool_call["name"], input_json=input_json)
-            elif block.get("type") == "text":
-                builder.commit_text(block.get("text", ""))
+        async def on_tool(b: AnthropicMessageBuilder, tool: BufferedTool) -> None:
+            tool_call: ToolCallDict = {
+                "id": tool.id,
+                "name": tool.name,
+                "arguments": tool.input_json or "{}",
+            }
+            blocked = await self._evaluate_and_maybe_block(tool_call, context)
+            if blocked is not None:
+                logger.info(f"Blocked tool call '{tool.name}'")
+                b.commit_text(self._format_blocked_message(tool_call, blocked))
             else:
-                builder.commit_raw_block(block)
+                b.buffer_tool(id=tool.id, name=tool.name, input_json=tool.input_json)
 
-        return builder.to_anthropic_response(response)
+        return await compose_tool_only_response(response, on_tool)
 
     async def on_anthropic_stream_event(
         self, event: MessageStreamEvent, context: "PolicyContext"

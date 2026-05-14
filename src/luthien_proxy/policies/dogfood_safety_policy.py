@@ -33,7 +33,11 @@ from luthien_proxy.policy_core import (
     Category,
     UIMetadata,
 )
-from luthien_proxy.policy_core.anthropic_message_builder import AnthropicMessageBuilder, BufferedTool
+from luthien_proxy.policy_core.anthropic_message_builder import (
+    AnthropicMessageBuilder,
+    BufferedTool,
+    compose_tool_only_response,
+)
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import (
@@ -188,42 +192,15 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
         self, response: "AnthropicResponse", context: "PolicyContext"
     ) -> "AnthropicResponse":
         """Check non-streaming Anthropic tool_use blocks."""
-        content = response.get("content") or []
-        if not content:
-            return response
-        # Early-out: nothing to do if there are no tool_use blocks.
-        if not any(isinstance(b, dict) and b.get("type") == "tool_use" for b in content):
-            return response
 
-        builder = AnthropicMessageBuilder()
-        for block in content:
-            if not isinstance(block, dict):
-                builder.commit_raw_block(block)
-                continue
-            if block.get("type") == "tool_use":
-                tool_input = block.get("input", {})
-                input_json = (
-                    tool_input if isinstance(tool_input, str) else json.dumps(tool_input) if tool_input else "{}"
-                )
-                is_blocked, command = self._decide_tool(
-                    str(block.get("name", "")),
-                    input_json,
-                    context,
-                )
-                if is_blocked:
-                    builder.commit_text(self._format_blocked_message(command))
-                else:
-                    builder.buffer_tool(
-                        id=str(block.get("id", "")),
-                        name=str(block.get("name", "")),
-                        input_json=input_json,
-                    )
-            elif block.get("type") == "text":
-                builder.commit_text(block.get("text", ""))
+        async def on_tool(b: AnthropicMessageBuilder, tool: BufferedTool) -> None:
+            is_blocked, command = self._decide_tool(tool.name, tool.input_json, context)
+            if is_blocked:
+                b.commit_text(self._format_blocked_message(command))
             else:
-                builder.commit_raw_block(block)
+                b.buffer_tool(id=tool.id, name=tool.name, input_json=tool.input_json)
 
-        return builder.to_anthropic_response(response)
+        return await compose_tool_only_response(response, on_tool)
 
     async def on_anthropic_stream_event(
         self, event: MessageStreamEvent, context: "PolicyContext"
