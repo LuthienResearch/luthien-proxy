@@ -36,7 +36,7 @@ from luthien_proxy.policies.tool_call_judge_policy import (
     ToolCallJudgePolicy,
 )
 from luthien_proxy.policies.tool_call_judge_utils import JudgeResult
-from luthien_proxy.policy_core import ToolCallStreamBuffer
+from luthien_proxy.policy_core.anthropic_message_builder import AnthropicMessageBuilder
 from luthien_proxy.policy_core.policy_context import PolicyContext
 
 # ============================================================================
@@ -128,7 +128,8 @@ class TestStreamingToolPassThrough:
             delta_event = emitted[1]
             assert isinstance(delta_event, RawContentBlockDeltaEvent)
             assert isinstance(delta_event.delta, InputJSONDelta)
-            assert delta_event.delta.partial_json == '{"command": "echo hello"}'
+            # Builder preserves the original streamed bytes verbatim.
+            assert delta_event.delta.partial_json == '{"command":"echo hello"}'
 
 
 # ============================================================================
@@ -141,7 +142,13 @@ class TestStreamingToolBlocked:
 
     @pytest.mark.asyncio
     async def test_tool_blocked_emits_text_replacement(self):
-        """Blocked tool emits text start + text_delta + stop at message_delta."""
+        """Blocked tool emits text start + text_delta + stop in the pre-tool slot.
+
+        With the trailing-tool_use invariant (#708), the blocked-text replacement
+        emits live at block_stop (before any tool reaches the wire); the
+        message_delta only carries the corrected stop_reason and any deferred
+        flush events.
+        """
         policy = _make_policy()
         ctx = _make_context()
 
@@ -150,23 +157,27 @@ class TestStreamingToolBlocked:
         with patch.object(policy, "_evaluate_and_maybe_block", new_callable=AsyncMock) as mock_eval:
             mock_eval.return_value = judge_result
 
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0, name="Bash")), ctx)
-            await policy.on_anthropic_stream_event(
+            all_events: list[MessageStreamEvent] = []
+            all_events += await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, tool_start(0, name="Bash")), ctx
+            )
+            all_events += await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, tool_delta('{"command":"rm -rf /"}', 0)), ctx
             )
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            all_events += await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            all_events += await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
 
-            emitted = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
-
-            assert event_types(emitted[:3]) == [
+            assert event_types(all_events[:3]) == [
                 "content_block_start",
                 "content_block_delta",
                 "content_block_stop",
             ]
-            start_event = emitted[0]
+            start_event = all_events[0]
             assert isinstance(start_event, RawContentBlockStartEvent)
             assert isinstance(start_event.content_block, TextBlock)
-            delta_event = emitted[1]
+            delta_event = all_events[1]
             assert isinstance(delta_event, RawContentBlockDeltaEvent)
             assert isinstance(delta_event.delta, TextDelta)
             assert "Bash" in delta_event.delta.text
@@ -183,14 +194,26 @@ class TestStreamingToolBlocked:
         with patch.object(policy, "_evaluate_and_maybe_block", new_callable=AsyncMock) as mock_eval:
             mock_eval.return_value = judge_result
 
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-            emitted = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
+            all_events: list[MessageStreamEvent] = []
+            all_events += await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            all_events += await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx
+            )
+            all_events += await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            all_events += await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
 
-            start_event = emitted[0]
+            start_event = all_events[0]
             assert isinstance(start_event, RawContentBlockStartEvent)
             assert isinstance(start_event.content_block, TextBlock)
+            # No ToolUseBlock anywhere in the wire output.
+            tool_starts = [
+                e
+                for e in all_events
+                if isinstance(e, RawContentBlockStartEvent) and isinstance(e.content_block, ToolUseBlock)
+            ]
+            assert tool_starts == []
 
 
 # ============================================================================
@@ -287,17 +310,22 @@ class TestStreamingJudgeFailure:
         with patch.object(policy, "_evaluate_and_maybe_block", new_callable=AsyncMock) as mock_eval:
             mock_eval.return_value = judge_result
 
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"cmd":"dangerous"}', 0)), ctx)
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-            emitted = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
+            all_events: list[MessageStreamEvent] = []
+            all_events += await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            all_events += await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, tool_delta('{"cmd":"dangerous"}', 0)), ctx
+            )
+            all_events += await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            all_events += await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
 
-            assert event_types(emitted[:3]) == [
+            assert event_types(all_events[:3]) == [
                 "content_block_start",
                 "content_block_delta",
                 "content_block_stop",
             ]
-            delta = emitted[1]
+            delta = all_events[1]
             assert isinstance(delta, RawContentBlockDeltaEvent)
             assert "evaluation failed" in delta.delta.text.lower()
 
@@ -314,8 +342,9 @@ class TestStreamingMultipleTools:
     async def test_mixed_tools_one_allowed_one_blocked(self):
         """Two tool blocks at different indices: one allowed, one blocked.
 
-        Both replacements are emitted at message_delta in upstream order:
-        index 0 → ToolUseBlock (allowed), index 1 → TextBlock (blocked).
+        Wire shape: tool_use must trail (#708). The blocked-text
+        replacement lands in the pre-tool slot; the surviving allowed
+        tool_use is the trailing block.
         """
         policy = _make_policy()
         ctx = _make_context()
@@ -326,52 +355,39 @@ class TestStreamingMultipleTools:
             mock_eval.side_effect = [None, judge_result_blocked]
 
             # Index 0 — allowed
-            assert (
-                await policy.on_anthropic_stream_event(
-                    cast(MessageStreamEvent, tool_start(0, tool_id="toolu_1", name="Tool1")), ctx
-                )
-                == []
+            await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, tool_start(0, tool_id="toolu_1", name="Tool1")), ctx
             )
-            assert (
-                await policy.on_anthropic_stream_event(
-                    cast(MessageStreamEvent, tool_delta('{"param":"value"}', 0)), ctx
-                )
-                == []
-            )
-            assert await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx) == []
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"param":"value"}', 0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
 
-            # Index 1 — blocked
-            assert (
-                await policy.on_anthropic_stream_event(
-                    cast(MessageStreamEvent, tool_start(1, tool_id="toolu_2", name="Tool2")), ctx
-                )
-                == []
+            # Index 1 — blocked: blocked-text emits live at block_stop (before any tool buffered yet?
+            # No, tool1 is already buffered, so commit_text queues for pre-tool flush).
+            await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, tool_start(1, tool_id="toolu_2", name="Tool2")), ctx
             )
-            assert (
-                await policy.on_anthropic_stream_event(
-                    cast(MessageStreamEvent, tool_delta('{"param":"dangerous"}', 1)), ctx
-                )
-                == []
+            await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, tool_delta('{"param":"dangerous"}', 1)), ctx
             )
-            assert await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx) == []
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
 
             emitted = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
 
             # 2 blocks × (start + delta + stop) + message_delta = 7 events
             assert len(emitted) == 7
-            # First block: allowed → ToolUseBlock with original name
+            # First block on the wire: blocked-text marker (pre-tool slot).
             start_0 = emitted[0]
             assert isinstance(start_0, RawContentBlockStartEvent)
-            assert isinstance(start_0.content_block, ToolUseBlock)
-            assert start_0.content_block.name == "Tool1"
-            # Second block: blocked → TextBlock containing tool name
+            assert isinstance(start_0.content_block, TextBlock)
+            delta_0 = emitted[1]
+            assert isinstance(delta_0, RawContentBlockDeltaEvent)
+            assert isinstance(delta_0.delta, TextDelta)
+            assert "Tool2" in delta_0.delta.text
+            # Trailing block: the surviving allowed tool_use.
             start_1 = emitted[3]
             assert isinstance(start_1, RawContentBlockStartEvent)
-            assert isinstance(start_1.content_block, TextBlock)
-            delta_1 = emitted[4]
-            assert isinstance(delta_1, RawContentBlockDeltaEvent)
-            assert isinstance(delta_1.delta, TextDelta)
-            assert "Tool2" in delta_1.delta.text
+            assert isinstance(start_1.content_block, ToolUseBlock)
+            assert start_1.content_block.name == "Tool1"
 
 
 # ============================================================================
@@ -475,8 +491,13 @@ class TestStreamingStopReasonCorrection:
         assert msg_events == [original]
 
     @pytest.mark.asyncio
-    async def test_stop_reason_passes_through_other_values(self):
-        """stop_reason values other than 'tool_use' are not rewritten even with blocks."""
+    async def test_stop_reason_rewritten_to_match_emitted_content(self):
+        """When all tools are blocked, stop_reason is rewritten to end_turn regardless of upstream value.
+
+        The builder owns stop_reason consistency: the value on the wire
+        must match what content actually shipped. Preserving an upstream
+        max_tokens while emitting no tool_use would mislead downstream.
+        """
         policy = _make_policy()
         ctx = _make_context()
 
@@ -495,24 +516,24 @@ class TestStreamingStopReasonCorrection:
 
         delta_events = [e for e in msg_events if isinstance(e, RawMessageDeltaEvent)]
         assert len(delta_events) == 1
-        assert delta_events[0].delta.stop_reason == "max_tokens"
+        assert delta_events[0].delta.stop_reason == "end_turn"
 
     @pytest.mark.asyncio
-    async def test_stop_reason_tool_use_unchanged_when_no_blocks_seen(self):
+    async def test_stop_reason_rewritten_to_end_turn_when_no_blocks_seen(self):
         """Upstream sent stop_reason='tool_use' but no tool_use blocks were seen.
 
-        This locks the documented invariant: only rewrite when *we* blocked
-        something. If we never saw a tool_use block, the upstream stream is
-        either malformed or empty — pass it through unchanged rather than
-        silently coercing it.
+        The builder rewrites stop_reason to match what actually shipped on
+        the wire. A malformed upstream (no tool_use content but stop_reason
+        tool_use) is corrected, not silently passed through.
         """
         policy = _make_policy()
         ctx = _make_context()
 
-        original = message_delta("tool_use")
-        msg_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, original), ctx)
+        msg_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
 
-        assert msg_events == [original]
+        delta_events = [e for e in msg_events if isinstance(e, RawMessageDeltaEvent)]
+        assert len(delta_events) == 1
+        assert delta_events[0].delta.stop_reason == "end_turn"
 
 
 # ============================================================================
@@ -690,7 +711,7 @@ class TestStateCleanup:
 
         # Cleanup must remove the populated buffer (not just no-op on empty state).
         await policy.on_anthropic_streaming_policy_complete(ctx)
-        assert ctx.pop_request_state(policy, ToolCallStreamBuffer) is None
+        assert ctx.pop_request_state(policy, AnthropicMessageBuilder) is None
 
 
 # ============================================================================

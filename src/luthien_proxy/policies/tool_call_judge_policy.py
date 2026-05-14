@@ -5,10 +5,9 @@ probability. Tool calls at or above the configured threshold are replaced with
 a text block containing the blocked-message template. Judge failures are
 treated as block (fail-secure).
 
-Streaming and non-streaming responses are handled by delegating to
-`ToolCallStreamBuffer` and `transform_anthropic_response` — the policy only
-defines a transform closure; the buffer owns event sequencing, output indices,
-and stop_reason invariants.
+Streaming and non-streaming responses share the same `AnthropicMessageBuilder`
+primitives: text passes through, tool_use blocks buffer until judged, and the
+trailing-tool_use wire invariant (#708) is enforced by the builder.
 
 Example config:
     policy:
@@ -28,9 +27,17 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TYPE_CHECKING, TypedDict
 
 from anthropic.lib.streaming import MessageStreamEvent
+from anthropic.types import (
+    InputJSONDelta,
+    RawContentBlockDeltaEvent,
+    RawContentBlockStartEvent,
+    RawContentBlockStopEvent,
+    RawMessageDeltaEvent,
+    ToolUseBlock,
+)
 from pydantic import BaseModel, Field
 
 from luthien_proxy.credentials import AuthProvider, parse_auth_provider
@@ -44,22 +51,16 @@ from luthien_proxy.policies.tool_call_judge_utils import (
 from luthien_proxy.policy_core import (
     AnthropicHookPolicy,
     BasePolicy,
-    BufferedToolCall,
     CatalogBadge,
     Category,
-    ToolCallStreamBuffer,
-    ToolCallTransform,
     UIMetadata,
-    transform_anthropic_response,
 )
+from luthien_proxy.policy_core.anthropic_message_builder import AnthropicMessageBuilder, BufferedTool
 from luthien_proxy.settings import get_settings
 from luthien_proxy.utils.constants import DEFAULT_JUDGE_MAX_TOKENS, TOOL_ARGS_TRUNCATION_LENGTH
 
 if TYPE_CHECKING:
-    from luthien_proxy.llm.types.anthropic import (
-        AnthropicContentBlock,
-        AnthropicResponse,
-    )
+    from luthien_proxy.llm.types.anthropic import AnthropicResponse
     from luthien_proxy.policy_core.policy_context import PolicyContext
 
 logger = logging.getLogger(__name__)
@@ -115,9 +116,9 @@ class ToolCallJudgeConfig(BaseModel):
 class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
     """Evaluates each tool call with a judge LLM and blocks harmful ones.
 
-    Stateless across requests. Per-request streaming state is owned by a
-    `ToolCallStreamBuffer` stored on the request context; this policy only
-    supplies the per-tool-call evaluation closure.
+    Stateless across requests. Per-request streaming state is owned by an
+    `AnthropicMessageBuilder` stored on the request context; this policy
+    drives the builder via per-tool judge calls at block_stop.
     """
 
     # NOTE: ui_policy_preview is a UI hint. The runtime blocked message is
@@ -180,52 +181,93 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
         self, response: "AnthropicResponse", context: "PolicyContext"
     ) -> "AnthropicResponse":
         """Judge each tool_use block; replace blocked calls with text."""
-        return await transform_anthropic_response(response, self._make_transform(context))
+        content = response.get("content") or []
+        if not content:
+            return response
+        if not any(isinstance(b, dict) and b.get("type") == "tool_use" for b in content):
+            return response
+
+        builder = AnthropicMessageBuilder()
+        for block in content:
+            if not isinstance(block, dict):
+                builder.commit_raw_block(block)
+                continue
+            if block.get("type") == "tool_use":
+                tool_input = block.get("input", {})
+                input_json = (
+                    tool_input if isinstance(tool_input, str) else json.dumps(tool_input) if tool_input else "{}"
+                )
+                tool_call: ToolCallDict = {
+                    "id": str(block.get("id", "")),
+                    "name": str(block.get("name", "")),
+                    "arguments": input_json,
+                }
+                blocked = await self._evaluate_and_maybe_block(tool_call, context)
+                if blocked is not None:
+                    builder.commit_text(self._format_blocked_message(tool_call, blocked))
+                    logger.info(f"Blocked tool call '{tool_call['name']}'")
+                else:
+                    builder.buffer_tool(id=tool_call["id"], name=tool_call["name"], input_json=input_json)
+            elif block.get("type") == "text":
+                builder.commit_text(block.get("text", ""))
+            else:
+                builder.commit_raw_block(block)
+
+        return builder.to_anthropic_response(response)
 
     async def on_anthropic_stream_event(
         self, event: MessageStreamEvent, context: "PolicyContext"
     ) -> list[MessageStreamEvent]:
-        """Stream events through the per-request buffer."""
-        buf = context.get_request_state(
-            self,
-            ToolCallStreamBuffer,
-            lambda: ToolCallStreamBuffer(self._make_transform(context)),
-        )
-        return await buf.process(event)
+        """Stream events through the per-request builder."""
+        builder = context.get_request_state(self, AnthropicMessageBuilder, AnthropicMessageBuilder)
+
+        if isinstance(event, RawContentBlockStartEvent):
+            cb = event.content_block
+            if isinstance(cb, ToolUseBlock):
+                builder.begin_tool_buffer(event.index, id=cb.id, name=cb.name)
+                return []
+            return builder.passthrough_start(event)
+
+        if isinstance(event, RawContentBlockDeltaEvent):
+            if isinstance(event.delta, InputJSONDelta) and builder.append_tool_delta(
+                event.index, event.delta.partial_json
+            ):
+                return []
+            return builder.passthrough_delta(event)
+
+        if isinstance(event, RawContentBlockStopEvent):
+            tool = builder.take_tool(event.index)
+            if tool is not None:
+                return await self._handle_tool_stop(builder, tool, context)
+            return builder.passthrough_stop(event)
+
+        if isinstance(event, RawMessageDeltaEvent):
+            return builder.finalize(event)
+
+        return [event]
+
+    async def _handle_tool_stop(
+        self,
+        builder: AnthropicMessageBuilder,
+        tool: BufferedTool,
+        context: "PolicyContext",
+    ) -> list[MessageStreamEvent]:
+        """Judge a complete tool_use block; commit blocked text or buffer the tool."""
+        tool_call: ToolCallDict = {
+            "id": tool.id,
+            "name": tool.name,
+            "arguments": tool.input_json or "{}",
+        }
+        blocked = await self._evaluate_and_maybe_block(tool_call, context)
+        if blocked is not None:
+            logger.info(f"Blocked tool call '{tool.name}'")
+            return builder.commit_text(self._format_blocked_message(tool_call, blocked))
+        builder.buffer_tool(id=tool.id, name=tool.name, input_json=tool.input_json)
+        return []
 
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
-        """Drop the per-request buffer."""
-        context.pop_request_state(self, ToolCallStreamBuffer)
-
-    # ========================================================================
-    # Transform closure
-    # ========================================================================
-
-    def _make_transform(self, context: "PolicyContext") -> ToolCallTransform:
-        """Build the transform closure passed to the buffer / non-streaming helper.
-
-        Captures `context` so the closure can call the judge (needs credentials)
-        and emit observability events.
-        """
-
-        async def transform(tool_calls: list[BufferedToolCall]) -> list["AnthropicContentBlock"]:
-            output: list[AnthropicContentBlock] = []
-            for tc in tool_calls:
-                tool_call: ToolCallDict = {
-                    "id": tc.id,
-                    "name": tc.name,
-                    "arguments": tc.input_json or "{}",
-                }
-                blocked = await self._evaluate_and_maybe_block(tool_call, context)
-                if blocked is not None:
-                    blocked_text = self._format_blocked_message(tool_call, blocked)
-                    output.append(cast("AnthropicContentBlock", {"type": "text", "text": blocked_text}))
-                    logger.info(f"Blocked tool call '{tc.name}'")
-                else:
-                    output.append(tc.as_content_block())
-            return output
-
-        return transform
+        """Drop the per-request builder."""
+        context.pop_request_state(self, AnthropicMessageBuilder)
 
     # ========================================================================
     # Judge call
