@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from anthropic.lib.streaming import MessageStreamEvent
@@ -60,7 +60,6 @@ from luthien_proxy.settings import get_settings
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import (
-        AnthropicContentBlock,
         AnthropicResponse,
         JSONObject,
     )
@@ -74,26 +73,6 @@ JUDGE_UNAVAILABLE_WARNING = "⚠️ Safety judge unavailable — this response w
 JUDGE_ERROR_BLOCKED_MESSAGE = (
     "❌ Response blocked: the safety judge encountered an error and the policy requires blocking on failure."
 )
-
-
-def _blocked_tools_message(names: list[str]) -> str:
-    quoted = ", ".join(f"`{n}`" for n in names)
-    if len(names) == 1:
-        return f"[Tool call {quoted} was blocked by policy]"
-    return f"[Tool calls {quoted} were blocked by policy]"
-
-
-def _blocked_tools_judge_failed_message(names: list[str]) -> str:
-    quoted = ", ".join(f"`{n}`" for n in names)
-    if len(names) == 1:
-        return f"[Tool call {quoted} blocked: policy evaluation unavailable]"
-    return f"[Tool calls {quoted} blocked: policy evaluation unavailable]"
-
-
-@dataclass
-class _BlockedToolRecord:
-    name: str
-    judge_failed: bool
 
 
 @dataclass(frozen=True)
@@ -218,16 +197,6 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             return BlockDescriptor(type="tool_use", content=f"{block.name}({input_str})")
         return BlockDescriptor(type="text", content=block.text or "")
 
-    def _replacement_to_anthropic_block(self, block: ReplacementBlock) -> "AnthropicContentBlock":
-        if block.type == "tool_use":
-            return {
-                "type": "tool_use",
-                "id": f"toolu_{uuid4().hex[:24]}",
-                "name": block.name or "",
-                "input": block.input or {},
-            }
-        return {"type": "text", "text": block.text or ""}
-
     async def _judge_block(
         self,
         descriptor: BlockDescriptor,
@@ -268,15 +237,33 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             )
             return JudgeAction(action=self._config.on_error, judge_failed=True)
 
-    def _correct_anthropic_stop_reason(
-        self, response: "AnthropicResponse", content: list["AnthropicContentBlock"]
-    ) -> "AnthropicResponse":
-        has_tool_use = any(b.get("type") == "tool_use" for b in content)
-        expected = "tool_use" if has_tool_use else "end_turn"
-        if response.get("stop_reason") != expected:
-            response = cast("AnthropicResponse", dict(response))
-            response["stop_reason"] = expected
-        return response
+    def _apply_replacement_to_builder(
+        self,
+        builder: AnthropicMessageBuilder,
+        action: JudgeAction,
+    ) -> list[MessageStreamEvent]:
+        """Translate a judge `replace` action into builder commits.
+
+        Text replacements emit immediately (or queue post-tool-buffer);
+        tool_use replacements buffer for the tool flush. The builder
+        guarantees the wire ordering invariant regardless of the order in
+        which replacement blocks are emitted. Returns the streaming events
+        emitted by `commit_text`; non-streaming callers ignore the result.
+        """
+        events: list[MessageStreamEvent] = []
+        for rblock in action.blocks or ():
+            if rblock.type == "text":
+                events.extend(builder.commit_text(rblock.text or ""))
+            elif rblock.type == "tool_use":
+                tool_id = f"toolu_{uuid4().hex[:24]}"
+                input_json = json.dumps(rblock.input or {})
+                builder.buffer_tool(id=tool_id, name=rblock.name or "", input_json=input_json)
+            else:
+                logger.warning(
+                    "SimpleLLMPolicy: unknown replacement block type %r — skipping",
+                    rblock.type,
+                )
+        return events
 
     # ========================================================================
     # Anthropic non-streaming
@@ -285,26 +272,24 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
     async def on_anthropic_response(
         self, response: "AnthropicResponse", context: "PolicyContext"
     ) -> "AnthropicResponse":
-        """Judge each content block and apply replacements.
+        """Judge each content block via the shared builder and compose a wire-correct response.
 
-        Builds a wire-correct response by partitioning decisions into
-        pre-tool blocks (text, thinking, replacement-text) and buffered
-        tools, then composing: pre_tool + warning + blocked-tool marker +
-        tools. The trailing-tool_use invariant (#708) is true by construction.
+        Routes per-block decisions through the same primitives the streaming
+        path uses (`commit_text`, `buffer_tool`, `record_blocked_tool`,
+        `note_judge_unavailable`, `set_fallback_text`) and then asks the
+        builder for the finalized response. The trailing-tool_use invariant
+        (#708) is enforced by the builder, not by per-policy reconstruction.
         """
         content = response.get("content", [])
         if not content:
             return response
 
-        pre_tool_blocks: list["AnthropicContentBlock"] = []
-        buffered_tools: list["AnthropicContentBlock"] = []
-        blocked_tools: list[_BlockedToolRecord] = []
-        descriptors_so_far: list[BlockDescriptor] = []
+        builder = AnthropicMessageBuilder()
         judge_error_occurred = False
 
         for block in content:
             if not isinstance(block, dict):
-                pre_tool_blocks.append(block)
+                builder.commit_raw_block(block)
                 continue
 
             block_type = block.get("type")
@@ -316,57 +301,37 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                     block.get("input", {}),
                 )
             else:
-                pre_tool_blocks.append(block)
+                builder.commit_raw_block(block)
                 continue
 
-            action = await self._judge_block(descriptor, tuple(descriptors_so_far), context)
+            action = await self._judge_block(descriptor, builder.committed_descriptors, context)
             if action.judge_failed:
                 judge_error_occurred = True
 
             if action.action == "pass":
-                descriptors_so_far.append(descriptor)
                 if block_type == "tool_use":
-                    buffered_tools.append(block)
-                else:
-                    pre_tool_blocks.append(block)
-            elif action.action == "replace":
-                for rblock in action.blocks or ():
-                    descriptors_so_far.append(self._block_descriptor_from_replacement(rblock))
-                    rendered = self._replacement_to_anthropic_block(rblock)
-                    if rblock.type == "tool_use":
-                        buffered_tools.append(rendered)
-                    else:
-                        pre_tool_blocks.append(rendered)
-            elif action.action == "block" and block_type == "tool_use":
-                blocked_tools.append(
-                    _BlockedToolRecord(
-                        name=block.get("name", "") or "",
-                        judge_failed=action.judge_failed,
+                    builder.buffer_tool(
+                        id=str(block.get("id", "")),
+                        name=str(block.get("name", "")),
+                        input_json=json.dumps(block.get("input", {})),
                     )
+                else:
+                    builder.commit_text(block.get("text", ""))
+            elif action.action == "replace":
+                self._apply_replacement_to_builder(builder, action)
+            elif action.action == "block" and block_type == "tool_use":
+                builder.record_blocked_tool(
+                    str(block.get("name", "") or ""),
+                    judge_failed=action.judge_failed,
                 )
 
-        # Compose final content.
-        new_content: list["AnthropicContentBlock"] = list(pre_tool_blocks)
+        if judge_error_occurred:
+            if self._config.on_error == "pass":
+                builder.note_judge_unavailable(JUDGE_UNAVAILABLE_WARNING)
+            else:
+                builder.set_fallback_text(JUDGE_ERROR_BLOCKED_MESSAGE)
 
-        if judge_error_occurred and self._config.on_error == "pass":
-            new_content.append({"type": "text", "text": JUDGE_UNAVAILABLE_WARNING})
-
-        if blocked_tools:
-            judge_failed = any(b.judge_failed for b in blocked_tools)
-            names = [b.name for b in blocked_tools]
-            marker_text = _blocked_tools_judge_failed_message(names) if judge_failed else _blocked_tools_message(names)
-            new_content.append({"type": "text", "text": marker_text})
-
-        new_content.extend(buffered_tools)
-
-        # Fallback: if everything was blocked and the judge errored, surface
-        # the blocked-response message so the response isn't empty.
-        if not new_content and judge_error_occurred:
-            new_content.append({"type": "text", "text": JUDGE_ERROR_BLOCKED_MESSAGE})
-
-        modified_response = cast("AnthropicResponse", dict(response))
-        modified_response["content"] = new_content
-        return self._correct_anthropic_stop_reason(modified_response, new_content)
+        return builder.to_anthropic_response(response)
 
     # ========================================================================
     # Anthropic streaming
@@ -454,7 +419,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         if action.action == "pass":
             return state.builder.commit_text(text)
         if action.action == "replace":
-            return self._commit_replacement(state.builder, action)
+            return self._apply_replacement_to_builder(state.builder, action)
         return []  # blocked text — suppress
 
     async def _handle_tool_stop(
@@ -476,33 +441,6 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         coro = self._judge_block(descriptor, state.builder.committed_descriptors, context)
         state.tool_judge.submit(_PendingTool(tool=tool), coro)
         return []
-
-    def _commit_replacement(
-        self,
-        builder: AnthropicMessageBuilder,
-        action: JudgeAction,
-    ) -> list[MessageStreamEvent]:
-        """Translate a judge `replace` action into builder commits.
-
-        Text replacements emit immediately (or queue post-tool-buffer);
-        tool_use replacements buffer for the tool flush. The builder
-        guarantees the wire ordering invariant regardless of the order in
-        which replacement blocks are emitted.
-        """
-        events: list[MessageStreamEvent] = []
-        for rblock in action.blocks or ():
-            if rblock.type == "text":
-                events.extend(builder.commit_text(rblock.text or ""))
-            elif rblock.type == "tool_use":
-                tool_id = f"toolu_{uuid4().hex[:24]}"
-                input_json = json.dumps(rblock.input or {})
-                builder.buffer_tool(id=tool_id, name=rblock.name or "", input_json=input_json)
-            else:
-                logger.warning(
-                    "SimpleLLMPolicy: unknown replacement block type %r — skipping",
-                    rblock.type,
-                )
-        return events
 
     async def _handle_message_delta(
         self, event: RawMessageDeltaEvent, context: "PolicyContext"
@@ -553,7 +491,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             state.builder.buffer_tool(id=tool.id, name=tool.name, input_json=tool.input_json)
             return []
         if result.action == "replace":
-            return self._commit_replacement(state.builder, result)
+            return self._apply_replacement_to_builder(state.builder, result)
         # "block"
         state.builder.record_blocked_tool(tool.name, judge_failed=result.judge_failed)
         return []
