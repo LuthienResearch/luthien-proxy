@@ -17,7 +17,6 @@ from anthropic.types import (
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
     RawMessageDeltaEvent,
-    TextBlock,
     TextDelta,
     ThinkingBlock,
     ToolUseBlock,
@@ -219,7 +218,11 @@ class TestToolBlockStreaming:
 
     @pytest.mark.asyncio
     async def test_tool_replaced_with_text(self):
-        """Tool block judged 'replace' with text emits text block events."""
+        """Tool replacement with text: replacement event emitted at message_delta.
+
+        Tool judges run concurrently — the decision (replace) is applied
+        when the orchestrator collects results in `_handle_message_delta`.
+        """
         policy = _make_policy()
         ctx = _make_context()
 
@@ -231,17 +234,14 @@ class TestToolBlockStreaming:
             await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, tool_delta('{"command":"echo hi"}', 0)), ctx
             )
+            assert await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx) == []
 
-            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-            assert event_types(stop_events) == [
-                "content_block_start",
-                "content_block_delta",
-                "content_block_stop",
-            ]
-            # Verify it's a text replacement, not tool_use
-            start = stop_events[0]
-            assert isinstance(start, RawContentBlockStartEvent)
-            assert isinstance(start.content_block, TextBlock)
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+        assert [type(s.content_block).__name__ for s in starts] == ["TextBlock"]
 
 
 # ============================================================================
@@ -906,11 +906,13 @@ class TestToolUseTrailingStreaming:
     """Streaming: nothing follows the first tool_use except more tool_uses (#708)."""
 
     @pytest.mark.asyncio
-    async def test_text_after_buffered_tool_is_reordered(self):
-        """`[tool_pass, text_pass]` upstream → wire is `[text, tool]`.
+    async def test_text_after_tool_emits_with_tool_trailing(self):
+        """`[tool_pass, text_pass]` upstream → wire ends with `tool_use`.
 
-        The builder buffers the tool, queues the post-tool text for emission
-        before the tool flush. Both blocks are preserved; tool_use still trails.
+        With concurrent tool dispatch, the text's judge runs (synchronously)
+        before the tool's judge has resolved, so text commits to the wire
+        immediately. The tool's buffered emission lands at message_delta.
+        Either way the wire is `[..., text, tool]` — tool last, invariant ✓.
         """
         policy = _make_policy(on_error="pass")
         ctx = _make_context()
@@ -920,51 +922,57 @@ class TestToolUseTrailingStreaming:
 
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
-            assert await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx) == []
+            tool_stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
 
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(1)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("after tool", 1)), ctx)
-            assert await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx) == []
+            text_stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
 
             msg_events = await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, message_delta("tool_use")), ctx
             )
 
-        starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+        all_events = tool_stop_events + text_stop_events + msg_events
+        starts = [e for e in all_events if isinstance(e, RawContentBlockStartEvent)]
         assert [type(s.content_block).__name__ for s in starts] == ["TextBlock", "ToolUseBlock"]
 
     @pytest.mark.asyncio
-    async def test_text_replacement_after_buffered_tool_is_reordered(self):
-        """Cross-replacement case: judge replaces text with text after a tool was buffered.
+    async def test_text_replacement_after_tool_emits_with_tool_trailing(self):
+        """Replacement text after a tool: replacement emits inline; tool flushes at finalize.
 
-        Replacement text queues alongside other post-tool text; final wire is
-        `[replacement_text, tool]`.
+        Wire ends `[replaced, tool]` — tool last.
         """
         policy = _make_policy(on_error="pass")
         ctx = _make_context()
 
+        # Branch by descriptor type — concurrent dispatch means a list-style
+        # side_effect would be consumed in await order (text first, tool second),
+        # not call order, swapping the actions.
+        async def judge_by_type(descriptor, prev, ctx):
+            if descriptor.type == "tool_use":
+                return JudgeAction(action="pass")
+            return JudgeAction(action="replace", blocks=(ReplacementBlock(type="text", text="replaced"),))
+
         with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
-            mock_judge.side_effect = [
-                JudgeAction(action="pass"),
-                JudgeAction(action="replace", blocks=(ReplacementBlock(type="text", text="replaced"),)),
-            ]
+            mock_judge.side_effect = judge_by_type
 
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            tool_stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
 
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(1)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("orig", 1)), ctx)
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+            text_stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
 
             msg_events = await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, message_delta("tool_use")), ctx
             )
 
-        starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+        all_events = tool_stop_events + text_stop_events + msg_events
+        starts = [e for e in all_events if isinstance(e, RawContentBlockStartEvent)]
         assert [type(s.content_block).__name__ for s in starts] == ["TextBlock", "ToolUseBlock"]
         text_deltas = [
-            e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+            e for e in all_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
         ]
         assert any("replaced" in d.delta.text for d in text_deltas)
 
@@ -1046,18 +1054,22 @@ class TestToolUseTrailingStreaming:
         assert [type(s.content_block).__name__ for s in starts] == ["TextBlock", "ToolUseBlock"]
 
 
-class TestMixedToolDecisions:
-    """Each tool is judged independently; blocked tools surface in a consolidated marker
-    in the pre-tool slot, regardless of whether other tools in the response pass.
+class TestConcurrentToolJudgingWithBail:
+    """Tool judges dispatched concurrently at block_stop; collected at message_delta.
 
-    This replaces the earlier "truncate on first block" behavior — the builder's
-    pre-tool/post-tool split means the marker has somewhere legal to live even
-    when a passing tool follows, so we no longer have to drop subsequent tools.
+    The first `block` decision (in submission order) cancels every still-pending
+    tool judge. Bailed tools surface in the consolidated blocked-tools marker
+    so the next turn can see what was attempted.
     """
 
     @pytest.mark.asyncio
-    async def test_pass_then_block_then_pass(self):
-        """`[A_pass, B_block, C_pass]` → wire: `[marker(B), A, C]`. All three judged."""
+    async def test_block_bails_subsequent_tools(self):
+        """`[A_pass, B_block, C_pass]` upstream → wire: `[marker(B,C), A]`.
+
+        Tool A's judge returns pass (it's first in submission order).
+        Tool B's judge returns block — bail predicate fires.
+        Tool C's judge is cancelled; C surfaces as Bailed and joins the marker.
+        """
         policy = _make_policy(on_error="block")
         ctx = _make_context()
 
@@ -1077,22 +1089,24 @@ class TestMixedToolDecisions:
                 cast(MessageStreamEvent, message_delta("tool_use")), ctx
             )
 
-        # All three tools judged.
-        assert mock_judge.call_count == 3
-
-        # Wire order: marker text block, then two tool_use blocks. tool_use last.
+        # Wire order: one marker text block, then tool A only. tool_use last.
         starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
-        assert [type(s.content_block).__name__ for s in starts] == ["TextBlock", "ToolUseBlock", "ToolUseBlock"]
+        assert [type(s.content_block).__name__ for s in starts] == ["TextBlock", "ToolUseBlock"]
 
-        # Marker mentions blocked tool name.
+        # Marker uses plural and lists both blocked + bailed tools.
         text_deltas = [
             e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
         ]
-        assert "Bash" in text_deltas[0].delta.text and "blocked" in text_deltas[0].delta.text.lower()
+        marker = text_deltas[0].delta.text
+        assert "Tool calls" in marker  # plural
+        assert marker.count("Bash") == 2  # B and C both named Bash
 
     @pytest.mark.asyncio
-    async def test_block_then_pass_marker_lists_all_blocked(self):
-        """`[A_blocked, B_blocked, C_pass]` → consolidated marker lists A and B; C tool_use trails."""
+    async def test_first_block_bails_everything_after(self):
+        """`[A_block, B_block, C_pass]` upstream → wire: `[marker]` only.
+
+        A blocks first → B and C both bail. No tool_use survives.
+        """
         policy = _make_policy(on_error="block")
         ctx = _make_context()
 
@@ -1112,13 +1126,51 @@ class TestMixedToolDecisions:
                 cast(MessageStreamEvent, message_delta("tool_use")), ctx
             )
 
-        # One marker text block, one tool_use (the passing one). Marker uses plural.
         starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
-        assert [type(s.content_block).__name__ for s in starts] == ["TextBlock", "ToolUseBlock"]
-        text_deltas = [
-            e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
-        ]
-        assert "Tool calls" in text_deltas[0].delta.text
+        assert [type(s.content_block).__name__ for s in starts] == ["TextBlock"]
+
+    @pytest.mark.asyncio
+    async def test_concurrent_dispatch_skips_judges_after_bail(self):
+        """When a block fires early, subsequent tools' judges are cancelled.
+
+        Without cancellation, all N judges would always complete. With it, we
+        save real latency once a block decision arrives.
+        """
+        import asyncio
+
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+
+        completed = 0
+        call_count = 0
+
+        async def judge_side_effect(descriptor, prev, ctx_):
+            nonlocal completed, call_count
+            call_count += 1
+            if call_count == 1:
+                # First tool blocks. Returns immediately so bail fires before
+                # the slow judges below can complete.
+                completed += 1
+                return JudgeAction(action="block")
+            # Subsequent tools: take a long time. Cancellation must abort.
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                raise
+            completed += 1
+            return JudgeAction(action="pass")
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = judge_side_effect
+
+            for idx in (0, 1, 2):
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(idx)), ctx)
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta("{}", idx)), ctx)
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(idx)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
+
+        assert completed == 1, f"Only the blocking judge should complete; got {completed}"
 
 
 class TestToolUseTrailingNonStreaming:

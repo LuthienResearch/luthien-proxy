@@ -55,6 +55,7 @@ from luthien_proxy.policy_core.anthropic_message_builder import (
     AnthropicMessageBuilder,
     BufferedTool,
 )
+from luthien_proxy.policy_core.judge_orchestrator import Bailed, JudgeOrchestrator
 from luthien_proxy.settings import get_settings
 
 if TYPE_CHECKING:
@@ -95,17 +96,43 @@ class _BlockedToolRecord:
     judge_failed: bool
 
 
+@dataclass(frozen=True)
+class _PendingTool:
+    """Tag attached to a concurrently-dispatched tool judge."""
+
+    tool: BufferedTool
+
+
+def _bail_on_block(action: JudgeAction) -> bool:
+    """Bail predicate: a `block` decision cancels every later tool judge."""
+    return action.action == "block"
+
+
 @dataclass
 class _SimpleLLMAnthropicState:
     """Per-request state.
 
-    The builder owns all Anthropic-streaming concerns (upstream buffering,
-    wire ordering, indices, invariants); the only policy-specific state
-    here is the judge-failure flag, consulted at message_delta to decide
-    whether to ask the builder for a warning or a fallback message.
+    The builder owns Anthropic-streaming concerns (upstream buffering, wire
+    ordering, indices, invariants). The orchestrator owns concurrent tool
+    judging and the early-bail rule. The only policy-specific scalar is
+    `judge_error_occurred`, consulted at message_delta to decide whether
+    to ask the builder for a warning or fallback message.
+
+    Tool judges run concurrently — every tool's `block_stop` dispatches
+    its judge as a task and returns immediately. Results are collected in
+    submission order at `message_delta`. The first `block` cancels every
+    pending tool judge; subsequent tools surface as `Bailed` and are
+    recorded as blocked (their judges never ran).
+
+    Text judges stay serial (await inline at text `block_stop`) so text
+    can commit to the wire incrementally — deferring the text judge would
+    cost the streaming property of the entire pre-tool region.
     """
 
     builder: AnthropicMessageBuilder = field(default_factory=AnthropicMessageBuilder)
+    tool_judge: JudgeOrchestrator[_PendingTool, JudgeAction] = field(
+        default_factory=lambda: JudgeOrchestrator(bail_predicate=_bail_on_block)
+    )
     judge_error_occurred: bool = False
 
 
@@ -359,7 +386,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             return await self._handle_block_stop(event, context)
 
         if isinstance(event, RawMessageDeltaEvent):
-            return self._handle_message_delta(event, context)
+            return await self._handle_message_delta(event, context)
 
         return [event]
 
@@ -436,18 +463,18 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         tool: BufferedTool,
         context: "PolicyContext",
     ) -> list[MessageStreamEvent]:
-        descriptor = self._block_descriptor_from_tool(tool.name, tool.parsed_input)
-        action = await self._judge_block(descriptor, state.builder.committed_descriptors, context)
-        if action.judge_failed:
-            state.judge_error_occurred = True
+        """Dispatch the judge concurrently; the decision is applied at message_delta.
 
-        if action.action == "pass":
-            state.builder.buffer_tool(id=tool.id, name=tool.name, input_json=tool.input_json)
-            return []
-        if action.action == "replace":
-            return self._commit_replacement(state.builder, action)
-        # action == "block"
-        state.builder.record_blocked_tool(tool.name, judge_failed=action.judge_failed)
+        Tools all buffer until finalize anyway, so awaiting the judge here
+        would just serialize N round-trips for no incremental wire gain.
+        Submitting to the orchestrator returns immediately; the actual
+        coroutine starts on the next event-loop tick and runs alongside
+        sibling tool judges. Order-preserving collection happens in
+        `_handle_message_delta`.
+        """
+        descriptor = self._block_descriptor_from_tool(tool.name, tool.parsed_input)
+        coro = self._judge_block(descriptor, state.builder.committed_descriptors, context)
+        state.tool_judge.submit(_PendingTool(tool=tool), coro)
         return []
 
     def _commit_replacement(
@@ -477,9 +504,25 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                 )
         return events
 
-    def _handle_message_delta(self, event: RawMessageDeltaEvent, context: "PolicyContext") -> list[MessageStreamEvent]:
-        """Finalize the response: queue judge-status messages, then flush via the builder."""
+    async def _handle_message_delta(
+        self, event: RawMessageDeltaEvent, context: "PolicyContext"
+    ) -> list[MessageStreamEvent]:
+        """Collect concurrent tool-judge results, apply decisions, then flush.
+
+        Walks the orchestrator's results in submission order. A `Bailed`
+        item — a tool whose judge was cancelled because an earlier tool
+        was blocked — is recorded as blocked in the consolidated marker.
+        Each non-bailed `pass` becomes `builder.buffer_tool`, `replace`
+        becomes the appropriate commit chain, `block` becomes
+        `record_blocked_tool`. Any judge failure flips
+        `judge_error_occurred`, which surfaces as the warning (on_error
+        pass) or fallback (on_error block) at finalize time.
+        """
         state = self._anthropic_state(context)
+
+        events: list[MessageStreamEvent] = []
+        for item, result in await state.tool_judge.collect():
+            events.extend(self._apply_tool_decision(state, item.tool, result))
 
         if state.judge_error_occurred:
             if self._config.on_error == "pass":
@@ -487,7 +530,33 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             else:
                 state.builder.set_fallback_text(JUDGE_ERROR_BLOCKED_MESSAGE)
 
-        return state.builder.finalize(event)
+        events.extend(state.builder.finalize(event))
+        return events
+
+    def _apply_tool_decision(
+        self,
+        state: _SimpleLLMAnthropicState,
+        tool: BufferedTool,
+        result: JudgeAction | Bailed,
+    ) -> list[MessageStreamEvent]:
+        if isinstance(result, Bailed):
+            # An earlier tool was blocked; this one's judge was cancelled
+            # before completing. Surface in the consolidated marker so the
+            # next turn can see what was attempted.
+            state.builder.record_blocked_tool(tool.name, judge_failed=False)
+            return []
+
+        if result.judge_failed:
+            state.judge_error_occurred = True
+
+        if result.action == "pass":
+            state.builder.buffer_tool(id=tool.id, name=tool.name, input_json=tool.input_json)
+            return []
+        if result.action == "replace":
+            return self._commit_replacement(state.builder, result)
+        # "block"
+        state.builder.record_blocked_tool(tool.name, judge_failed=result.judge_failed)
+        return []
 
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
         """Clean up per-request Anthropic state."""
