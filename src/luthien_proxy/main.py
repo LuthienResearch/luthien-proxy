@@ -41,6 +41,7 @@ from luthien_proxy.observability.event_publisher import (
 )
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.observability.sentry import init_sentry
+from luthien_proxy.perf.timing_middleware import ServerTimingMiddleware
 from luthien_proxy.pipeline.upstream_headers import validate_upstream_headers_at_startup
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.rate_limit import TokenBucketRateLimiter
@@ -439,6 +440,10 @@ def create_app(
             return response
 
     app.add_middleware(StaticCacheMiddleware)
+
+    # Add ServerTimingMiddleware as the last (innermost) middleware
+    # so it captures actual handler latency
+    app.add_middleware(ServerTimingMiddleware)
 
     # Include routers
     app.include_router(gateway_router)  # /v1/messages

@@ -15,6 +15,7 @@ import logging
 import urllib.parse
 from typing import TYPE_CHECKING, Any
 
+from luthien_proxy.perf.timing_middleware import time_phase
 from luthien_proxy.utils.db import parse_db_ts
 
 if TYPE_CHECKING:
@@ -216,15 +217,16 @@ async def fetch_call_events(call_id: str, db_pool: DatabasePool) -> CallEventsRe
         Exception: If database query fails
     """
     async with db_pool.connection() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT call_id, event_type, payload, created_at, session_id
-            FROM conversation_events
-            WHERE call_id = $1
-            ORDER BY created_at ASC
-            """,
-            call_id,
-        )
+        with time_phase("db"):
+            rows = await conn.fetch(
+                """
+                SELECT call_id, event_type, payload, created_at, session_id
+                FROM conversation_events
+                WHERE call_id = $1
+                ORDER BY created_at ASC
+                """,
+                call_id,
+            )
 
     if not rows:
         raise ValueError(f"No events found for call_id: {call_id}")
@@ -271,19 +273,20 @@ async def fetch_call_diff(call_id: str, db_pool: DatabasePool) -> CallDiffRespon
         Exception: If database query fails
     """
     async with db_pool.connection() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT call_id, event_type, payload
-            FROM conversation_events
-            WHERE call_id = $1 AND event_type IN (
-                'transaction.request_recorded',
-                'transaction.non_streaming_response_recorded',
-                'transaction.streaming_response_recorded'
+        with time_phase("db"):
+            rows = await conn.fetch(
+                """
+                SELECT call_id, event_type, payload
+                FROM conversation_events
+                WHERE call_id = $1 AND event_type IN (
+                    'transaction.request_recorded',
+                    'transaction.non_streaming_response_recorded',
+                    'transaction.streaming_response_recorded'
+                )
+                ORDER BY created_at ASC
+                """,
+                call_id,
             )
-            ORDER BY created_at ASC
-            """,
-            call_id,
-        )
 
     if not rows:
         raise ValueError(f"No events found for call_id: {call_id}")
@@ -337,20 +340,21 @@ async def fetch_recent_calls(limit: int, db_pool: DatabasePool) -> CallListRespo
         Exception: If database query fails
     """
     async with db_pool.connection() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT
-                call_id,
-                COUNT(*) as event_count,
-                MAX(created_at) as latest,
-                MAX(session_id) as session_id
-            FROM conversation_events
-            GROUP BY call_id
-            ORDER BY latest DESC
-            LIMIT $1
-            """,
-            limit,
-        )
+        with time_phase("db"):
+            rows = await conn.fetch(
+                """
+                SELECT
+                    call_id,
+                    COUNT(*) as event_count,
+                    MAX(created_at) as latest,
+                    MAX(session_id) as session_id
+                FROM conversation_events
+                GROUP BY call_id
+                ORDER BY latest DESC
+                LIMIT $1
+                """,
+                limit,
+            )
 
     calls = [
         CallListItem(
