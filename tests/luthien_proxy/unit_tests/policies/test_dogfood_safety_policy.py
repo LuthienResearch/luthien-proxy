@@ -388,7 +388,7 @@ class TestStreamingStopReasonCorrection:
 class TestFailSecureOnMalformedInput:
     """Streaming tool_use with malformed input_json must still match dangerous patterns.
 
-    Regression: when `BufferedToolCall.input_json` fails to parse as JSON, the
+    Regression: when `BufferedTool.input_json` fails to parse as JSON, the
     parsed-dict representation is `{"_raw": <string>}`. A safety policy that
     extracted `tool_input["command"]` would see an empty string and fail open.
     The transform falls back to the raw text in that case.
