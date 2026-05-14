@@ -420,9 +420,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         sibling tool judges. Order-preserving collection happens in
         `_handle_message_delta`.
         """
-        descriptor = BlockDescriptor(
-            type="tool_use", content=f"{tool.name}({json.dumps(tool.parsed_input)})"
-        )
+        descriptor = BlockDescriptor(type="tool_use", content=f"{tool.name}({json.dumps(tool.parsed_input)})")
         coro = self._judge_block(descriptor, state.builder.committed_descriptors, context)
         state.tool_judge.submit(_PendingTool(tool=tool), coro)
         return []
