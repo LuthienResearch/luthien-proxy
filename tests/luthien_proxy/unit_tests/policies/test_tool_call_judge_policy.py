@@ -342,52 +342,43 @@ class TestStreamingMultipleTools:
     async def test_mixed_tools_one_allowed_one_blocked(self):
         """Two tool blocks at different indices: one allowed, one blocked.
 
-        Wire shape: tool_use must trail (#708). The blocked-text
-        replacement lands in the pre-tool slot; the surviving allowed
-        tool_use is the trailing block.
+        Wire shape: blocked-text emits live at the blocked tool's
+        block_stop; the surviving allowed tool emits at finalize. Total
+        wire is `[blocked_text, allowed_tool]` — tool_use trails (#708).
         """
         policy = _make_policy()
         ctx = _make_context()
 
         judge_result_blocked = JudgeResult(probability=0.8, explanation="harmful", prompt=[], response_text="")
 
+        all_events: list[MessageStreamEvent] = []
+
+        async def feed(event: MessageStreamEvent) -> None:
+            all_events.extend(await policy.on_anthropic_stream_event(event, ctx))
+
         with patch.object(policy, "_evaluate_and_maybe_block", new_callable=AsyncMock) as mock_eval:
             mock_eval.side_effect = [None, judge_result_blocked]
 
-            # Index 0 — allowed
-            await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, tool_start(0, tool_id="toolu_1", name="Tool1")), ctx
-            )
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"param":"value"}', 0)), ctx)
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            await feed(cast(MessageStreamEvent, tool_start(0, tool_id="toolu_1", name="Tool1")))
+            await feed(cast(MessageStreamEvent, tool_delta('{"param":"value"}', 0)))
+            await feed(cast(MessageStreamEvent, block_stop(0)))
 
-            # Index 1 — blocked: blocked-text emits live at block_stop (before any tool buffered yet?
-            # No, tool1 is already buffered, so commit_text queues for pre-tool flush).
-            await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, tool_start(1, tool_id="toolu_2", name="Tool2")), ctx
-            )
-            await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, tool_delta('{"param":"dangerous"}', 1)), ctx
-            )
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+            await feed(cast(MessageStreamEvent, tool_start(1, tool_id="toolu_2", name="Tool2")))
+            await feed(cast(MessageStreamEvent, tool_delta('{"param":"dangerous"}', 1)))
+            await feed(cast(MessageStreamEvent, block_stop(1)))
 
-            emitted = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
+            await feed(cast(MessageStreamEvent, message_delta("tool_use")))
 
-            # 2 blocks × (start + delta + stop) + message_delta = 7 events
-            assert len(emitted) == 7
-            # First block on the wire: blocked-text marker (pre-tool slot).
-            start_0 = emitted[0]
-            assert isinstance(start_0, RawContentBlockStartEvent)
-            assert isinstance(start_0.content_block, TextBlock)
-            delta_0 = emitted[1]
-            assert isinstance(delta_0, RawContentBlockDeltaEvent)
-            assert isinstance(delta_0.delta, TextDelta)
-            assert "Tool2" in delta_0.delta.text
-            # Trailing block: the surviving allowed tool_use.
-            start_1 = emitted[3]
-            assert isinstance(start_1, RawContentBlockStartEvent)
-            assert isinstance(start_1.content_block, ToolUseBlock)
-            assert start_1.content_block.name == "Tool1"
+        starts = [e for e in all_events if isinstance(e, RawContentBlockStartEvent)]
+        block_types = [type(s.content_block).__name__ for s in starts]
+        assert block_types == ["TextBlock", "ToolUseBlock"]
+
+        text_delta_event = next(
+            e for e in all_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+        )
+        assert "Tool2" in text_delta_event.delta.text
+        tool_start_event = next(s for s in starts if isinstance(s.content_block, ToolUseBlock))
+        assert tool_start_event.content_block.name == "Tool1"
 
 
 # ============================================================================

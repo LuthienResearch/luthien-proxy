@@ -122,21 +122,6 @@ class TestCommitText:
     def test_empty_text_suppressed(self):
         assert AnthropicMessageBuilder().commit_text("") == []
 
-    def test_text_after_tool_queues_for_pre_tool_flush(self):
-        builder = AnthropicMessageBuilder()
-        builder.buffer_tool(id="t1", name="Bash", input_json='{"x": 1}')
-        assert builder.commit_text("trailing") == []
-
-        flushed = builder.finalize(_delta("tool_use"))
-        text_starts = [
-            e for e in flushed if isinstance(e, RawContentBlockStartEvent) and isinstance(e.content_block, TextBlock)
-        ]
-        tool_starts = [
-            e for e in flushed if isinstance(e, RawContentBlockStartEvent) and isinstance(e.content_block, ToolUseBlock)
-        ]
-        assert text_starts and tool_starts
-        assert flushed.index(text_starts[0]) < flushed.index(tool_starts[0])
-
 
 class TestBufferToolAndFinalize:
     def test_buffer_tool_emits_at_finalize(self):
@@ -236,17 +221,6 @@ class TestPassthrough:
         assert len(events) == 1
         assert events[0].index == 0
 
-    def test_dropped_after_tool_buffered(self):
-        """Passthrough after a tool is buffered is dropped to preserve trailing-tool invariant."""
-        builder = AnthropicMessageBuilder()
-        builder.buffer_tool(id="t1", name="Bash", input_json="{}")
-        upstream = RawContentBlockStartEvent(
-            type="content_block_start",
-            index=0,
-            content_block=TextBlock(type="text", text=""),
-        )
-        assert builder.passthrough_start(upstream) == []
-
 
 class TestUpstreamBuffering:
     def test_text_buffer_roundtrip(self):
@@ -271,18 +245,16 @@ class TestUpstreamBuffering:
         assert (tool.id, tool.name, tool.input_json) == ("t1", "Bash", '{"command": "ls"}')
 
 
-def test_finalize_ordering_pending_text_warning_marker_tools():
-    """Wire order at finalize: pending pre-tool text → warning → marker → tools → message_delta."""
+def test_finalize_ordering_warning_marker_tools():
+    """Wire order at finalize: warning → marker → tools → message_delta."""
     builder = AnthropicMessageBuilder()
     builder.buffer_tool(id="t1", name="Bash", input_json="{}")
-    builder.commit_text("post-tool-text")  # queues as pending_text
     builder.note_judge_unavailable("WARN")
     builder.record_blocked_tool("Read")
 
     events = builder.finalize(_delta("tool_use"))
     texts = _text_deltas(events)
-    assert texts == ["post-tool-text", "WARN", "[Tool call `Read` was blocked by policy]"]
-    # Tool start follows all text starts.
+    assert texts == ["WARN", "[Tool call `Read` was blocked by policy]"]
     tool_starts = [
         e for e in events if isinstance(e, RawContentBlockStartEvent) and isinstance(e.content_block, ToolUseBlock)
     ]

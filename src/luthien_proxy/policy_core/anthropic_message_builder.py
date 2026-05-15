@@ -159,7 +159,6 @@ class _BuilderState:
     pre_tool_blocks: list["AnthropicContentBlock"] = field(default_factory=list)
     buffered_tools: list[_QueuedTool] = field(default_factory=list)
     blocked_tools: list[_BlockedToolRecord] = field(default_factory=list)
-    pending_text: list[str] = field(default_factory=list)
     pending_warning_text: str | None = None
     pending_fallback_text: str | None = None
     next_output_index: int = 0
@@ -270,9 +269,7 @@ class AnthropicMessageBuilder:
         Used by callers to decide whether to set a fallback message.
         """
         s = self._state
-        return bool(
-            s.committed_descriptors or s.buffered_tools or s.blocked_tools or s.pending_text or s.pending_warning_text
-        )
+        return bool(s.committed_descriptors or s.buffered_tools or s.blocked_tools or s.pending_warning_text)
 
     # ------------------------------------------------------------------
     # Commit methods
@@ -281,16 +278,11 @@ class AnthropicMessageBuilder:
     def commit_text(self, text: str) -> list[MessageStreamEvent]:
         """Commit a text block. Empty text is suppressed (Anthropic rejects empty text blocks).
 
-        Emits immediately when no tool_use has been buffered yet. Once a
-        tool_use is buffered, text is queued for emission at finalize, in
-        the pre-tool slot — keeping the wire-ordering invariant.
+        Emits immediately. Callers must not commit text after `buffer_tool`;
+        the wire invariant (`tool_use` is the last block) is honored by
+        caller discipline, not by builder enforcement.
         """
         if not text:
-            return []
-        if self._state.buffered_tools:
-            self._state.pending_text.append(text)
-            self._state.committed_descriptors.append(BlockDescriptor(type="text", content=text))
-            self._state.pre_tool_blocks.append({"type": "text", "text": text})
             return []
         return self._emit_text_now(text)
 
@@ -306,9 +298,9 @@ class AnthropicMessageBuilder:
     def note_judge_unavailable(self, text: str) -> None:
         """Queue a judge-unavailable warning text block for emission at finalize.
 
-        Idempotent: subsequent calls overwrite the queued text. The warning
-        emits in the pre-tool slot regardless of when this is called relative
-        to the tool stream.
+        Last call wins: a subsequent call overwrites the queued text. The
+        warning emits before any buffered tools regardless of when this is
+        called relative to the tool stream.
         """
         self._state.pending_warning_text = text
 
@@ -336,22 +328,13 @@ class AnthropicMessageBuilder:
     def passthrough_start(self, event: RawContentBlockStartEvent) -> list[MessageStreamEvent]:
         """Re-emit a non-buffered content_block_start (text, thinking, etc.) with rewritten index.
 
-        Like `commit_text`: emits now if no tool buffered, otherwise the
-        passthrough block is dropped — there's no clean way to interleave a
-        non-tool block between the pre-tool region and the tool flush. The
-        intentional drop preserves the trailing-tool_use invariant (#708).
+        Emits immediately. Callers must not pass non-tool blocks through
+        after `buffer_tool`; the upstream invariant ("`tool_use` is the
+        last content block") makes that an upstream error, not a case the
+        builder defends against.
         """
-        if self._state.buffered_tools:
-            logger.warning(
-                "AnthropicMessageBuilder: dropping passthrough %r at upstream index %d "
-                "(arrived after a tool_use was buffered)",
-                getattr(event.content_block, "type", "?"),
-                event.index,
-            )
-            return []
         index = self._allocate_index()
         self._state.passthrough_index_map[event.index] = index
-        # Track as a passthrough descriptor; type may be "text", "thinking", etc.
         block_type = getattr(event.content_block, "type", "passthrough") or "passthrough"
         self._state.committed_descriptors.append(BlockDescriptor(type=block_type, content=""))
         rewritten = event.model_copy(update={"index": index})
@@ -423,12 +406,11 @@ class AnthropicMessageBuilder:
     # ------------------------------------------------------------------
 
     def finalize(self, message_delta: RawMessageDeltaEvent) -> list[MessageStreamEvent]:
-        """Flush pending warnings, blocked-tool marker, buffered tools, and corrected message_delta.
+        """Flush pending warning, blocked-tool marker, buffered tools, and corrected message_delta.
 
-        Order: pending text (any text that arrived after a tool was buffered)
-        → judge-unavailable warning → blocked-tools marker → buffered tools
-        → message_delta. The pending text + warning + marker land before the
-        first tool, satisfying the trailing-tool_use invariant.
+        Order: judge-unavailable warning → blocked-tools marker → buffered
+        tools → message_delta. Warning + marker land before the first tool,
+        satisfying the trailing-tool_use invariant.
         """
         if self._state.finalized:
             raise RuntimeError("AnthropicMessageBuilder.finalize called twice")
@@ -441,11 +423,6 @@ class AnthropicMessageBuilder:
         nothing_emitted = not (s.committed_descriptors or s.buffered_tools or s.blocked_tools or s.pending_warning_text)
         if nothing_emitted and s.pending_fallback_text is not None:
             events.extend(self._emit_text_now(s.pending_fallback_text))
-
-        # Pending text (from text decisions that arrived post-tool-buffer).
-        for text in s.pending_text:
-            events.extend(_events_for_text(self._allocate_index(), text))
-        s.pending_text.clear()
 
         if s.pending_warning_text is not None:
             events.extend(self._emit_text_now(s.pending_warning_text))
