@@ -1,0 +1,13 @@
+{% autoescape true %}
+<div class="sessions-fragment">
+  {% for session in sessions %}
+  <div class="session-row" data-session-id="{{ session.session_id }}" data-last-ts="{{ session.last_ts }}">
+    <span class="session-id">{{ session.session_id }}</span>
+    <span class="session-preview">{{ session.preview }}</span>
+  </div>
+  {% endfor %}
+  {% if next_cursor %}
+  <div class="load-more-sentinel" data-cursor="{{ next_cursor }}"></div>
+  {% endif %}
+</div>
+{% endautoescape %}
