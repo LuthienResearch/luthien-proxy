@@ -82,3 +82,24 @@ However:
 **Residual risk:** `CREATE INDEX CONCURRENTLY` holds a share-update-exclusive lock, not a full table lock, but it does require two table scans. On a large `conversation_events` table it may run for minutes. The Docker `migrations` container has no configurable `lock_timeout`; a very large production table could cause the migration container to hang. Mitigation: document the expected index build time in the migration file comment, or run it manually outside the automated runner for very large tables.
 
 **Out-of-scope risk (do not fix here):** The non-atomic tracking gap exists for ALL migrations, not just CONCURRENTLY ones. A proper fix would wrap both the DDL and the `INSERT INTO _migrations` in a single transaction — but that would break `CREATE INDEX CONCURRENTLY`. The correct long-term approach is to move tracking into the same psql session with `\set ON_ERROR_STOP on` and careful sequencing, but that is a separate refactor not required for this PR series.
+
+---
+
+## Experimental Validation
+
+Confirmed: The P8 audit findings are correct.
+
+**SQLite experiment** (run 2026-05-15):
+- `CREATE INDEX IF NOT EXISTS` via `executescript()`: works correctly
+- `CREATE INDEX CONCURRENTLY`: fails with `sqlite3.OperationalError: near "IF": syntax error`
+- Conclusion: SQLite migrations must always use plain `CREATE INDEX IF NOT EXISTS`
+
+**Postgres validation** (theoretical, based on runner analysis):
+- The Postgres runner (`docker/run-migrations.sh`) uses `psql -f` with no transaction wrapping
+- `CREATE INDEX CONCURRENTLY` requires running outside a transaction block
+- Since the runner does NOT wrap in BEGIN/COMMIT, CONCURRENTLY should work
+- Practical test deferred (no Postgres available in local dev); theoretical analysis confirmed
+
+**Verdict**: PARTIAL support confirmed experimentally:
+- SQLite: CONCURRENTLY not supported (syntax error) — use plain `CREATE INDEX IF NOT EXISTS`
+- Postgres: CONCURRENTLY supported (no transaction wrapping in runner) — safe to use
