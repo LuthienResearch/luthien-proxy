@@ -1,0 +1,1467 @@
+== Dependency sync (locked) ==
+warning: `VIRTUAL_ENV=/Users/paolo/Documents/Projects/mcpm.sh/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+Resolved 156 packages in 18ms
+Checked 154 packages in 39ms
+== Shellcheck (shell scripts) ==
+  Checking automated_maintenance/deploy/install.sh...
+  Checking automated_maintenance/lib/autofix.sh...
+  Checking automated_maintenance/lib/config.sh...
+  Checking automated_maintenance/lib/checks.sh...
+  Checking automated_maintenance/lib/doc_drift.sh...
+  Checking automated_maintenance/automated_maintenance.sh...
+  Checking install-hooks.sh...
+  Checking test-onboarding.sh...
+  Checking auth_mode_check.sh...
+  Checking install.sh...
+  Checking run_perf.sh...
+  Checking start_gateway.sh...
+  Checking find-available-ports.sh...
+  Checking format_all.sh...
+  Checking install-hackathon.sh...
+  Checking check_agents_claude_parity.sh...
+  Checking run_e2e.sh...
+  Checking test_gateway.sh...
+  Checking quick_start.sh...
+  Checking dev_checks.sh...
+  Checking quick_start_standalone.sh...
+  Checking launch_codex.sh...
+  Checking launch_claude_code.sh...
+  Checking test-hackathon.sh...
+  Checking observability.sh...
+  All shell scripts passed.
+== Generate settings.py from config_fields ==
+warning: `VIRTUAL_ENV=/Users/paolo/Documents/Projects/mcpm.sh/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+Generated /Users/paolo/Documents/Projects/luthien-proxy/src/luthien_proxy/settings.py
+== Generate .env.example from config_fields ==
+warning: `VIRTUAL_ENV=/Users/paolo/Documents/Projects/mcpm.sh/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+== Ruff format (apply) ==
+warning: `VIRTUAL_ENV=/Users/paolo/Documents/Projects/mcpm.sh/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+408 files left unchanged
+== Ruff lint (autofix) ==
+warning: `VIRTUAL_ENV=/Users/paolo/Documents/Projects/mcpm.sh/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+All checks passed!
+== Ruff lint (E/F/I/D gating) ==
+warning: `VIRTUAL_ENV=/Users/paolo/Documents/Projects/mcpm.sh/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+All checks passed!
+== Ruff docstrings (report-only) ==
+warning: `VIRTUAL_ENV=/Users/paolo/Documents/Projects/mcpm.sh/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+All checks passed!
+== Pyright (basic) ==
+warning: `VIRTUAL_ENV=/Users/paolo/Documents/Projects/mcpm.sh/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+0 errors, 0 warnings, 0 informations
+WARNING: there is a new pyright version available (v1.1.406 -> v1.1.409).
+Please install the new version or set PYRIGHT_PYTHON_FORCE_VERSION to `latest`
+
+== Tests ==
+warning: `VIRTUAL_ENV=/Users/paolo/Documents/Projects/mcpm.sh/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+........................................................................ [  2%]
+........................................................................ [  5%]
+........................................................................ [  7%]
+........................................................................ [ 10%]
+........................................................................ [ 12%]
+........................................................................ [ 15%]
+........................................................................ [ 17%]
+........................................................................ [ 20%]
+........................................................................ [ 22%]
+........................................................................ [ 25%]
+........................................................................ [ 27%]
+........................................................................ [ 30%]
+........................................................................ [ 32%]
+........................................................................ [ 35%]
+........................................................................ [ 37%]
+........................................................................ [ 40%]
+........................................................................ [ 42%]
+........................................................................ [ 45%]
+........................................................................ [ 47%]
+........................................................................ [ 50%]
+........................................................................ [ 52%]
+........................................................................ [ 55%]
+........................................................................ [ 57%]
+........................................................................ [ 60%]
+........................................................................ [ 62%]
+........................................................................ [ 65%]
+........................................................................ [ 67%]
+........................................................................ [ 70%]
+........................................................................ [ 72%]
+........................................................................ [ 75%]
+........................................................................ [ 77%]
+........................................................................ [ 80%]
+........................................................................ [ 82%]
+........................................................................ [ 85%]
+........................................................................ [ 87%]
+........................................................................ [ 90%]
+........................................................................ [ 92%]
+........................................................................ [ 95%]
+........................................................................ [ 97%]
+....................................................................     [100%]
+=============================== warnings summary ===============================
+tests/luthien_proxy/unit_tests/retention/test_integration_sqlite.py::test_purge_with_archiver_against_real_sqlite
+tests/luthien_proxy/unit_tests/retention/test_integration_sqlite.py::test_purge_without_archiver_against_real_sqlite
+tests/luthien_proxy/unit_tests/retention/test_integration_sqlite.py::test_purge_archive_failure_leaves_data_intact
+tests/luthien_proxy/unit_tests/retention/test_integration_sqlite.py::test_purge_partial_run_archives_and_deletes_first_batch_only
+tests/luthien_proxy/unit_tests/retention/test_integration_sqlite.py::test_archive_includes_policy_events_and_judge_decisions
+tests/luthien_proxy/unit_tests/retention/test_integration_sqlite.py::test_purge_with_archiver_no_old_rows_uploads_nothing
+  /Users/paolo/Documents/Projects/luthien-proxy/.venv/lib/python3.13/site-packages/aiosqlite/core.py:63: DeprecationWarning: The default datetime adapter is deprecated as of Python 3.12; see the sqlite3 documentation for suggested replacement recipes
+    result = function()
+
+tests/luthien_proxy/unit_tests/test_auth_modes.py::TestAuthModeClientKey::test_client_key_mode_rejects_unknown_key
+  /Users/paolo/.local/share/uv/python/cpython-3.13.5-macos-x86_64-none/lib/python3.13/asyncio/base_events.py:764: ResourceWarning: unclosed event loop <_UnixSelectorEventLoop running=False closed=False debug=False>
+    _warn(f"unclosed event loop {self!r}", ResourceWarning, source=self)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/luthien_proxy/unit_tests/test_auth_modes.py::TestAuthWithNoClientKey::test_both_mode_falls_through_to_passthrough_when_no_key
+tests/luthien_proxy/unit_tests/test_auth_modes.py::TestAuthWithNoClientKey::test_passthrough_mode_validates_without_key
+  /Users/paolo/Documents/Projects/luthien-proxy/src/luthien_proxy/observability/emitter.py:244: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    async with db_pool.connection() as conn:
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/luthien_proxy/unit_tests/test_main.py::TestCreateApp::test_ready_endpoint_returns_503_when_db_unreachable
+  /Users/paolo/Documents/Projects/luthien-proxy/.venv/lib/python3.13/site-packages/aiosqlite/core.py:102: ResourceWarning: <aiosqlite.core.Connection object at 0x115b8a3d0> was deleted before being closed. Please use 'async with' or '.close()' to close the connection properly.
+    warn(
+
+tests/luthien_proxy/unit_tests/utils/test_migration_check.py::TestApplySqliteMigrations::test_applies_migrations_in_order
+  /Users/paolo/Documents/Projects/luthien-proxy/.venv/lib/python3.13/site-packages/aiosqlite/core.py:102: ResourceWarning: <aiosqlite.core.Connection object at 0x11430b150> was deleted before being closed. Please use 'async with' or '.close()' to close the connection properly.
+    warn(
+
+tests/luthien_proxy/unit_tests/utils/test_migration_check.py::TestApplySqliteMigrations::test_skips_already_applied
+  /Users/paolo/Documents/Projects/luthien-proxy/.venv/lib/python3.13/site-packages/aiosqlite/core.py:102: ResourceWarning: <aiosqlite.core.Connection object at 0x11430b8d0> was deleted before being closed. Please use 'async with' or '.close()' to close the connection properly.
+    warn(
+
+tests/luthien_proxy/unit_tests/utils/test_migration_check.py::TestApplySqliteMigrations::test_handles_comment_only_files
+  /Users/paolo/Documents/Projects/luthien-proxy/.venv/lib/python3.13/site-packages/aiosqlite/core.py:102: ResourceWarning: <aiosqlite.core.Connection object at 0x11430b4d0> was deleted before being closed. Please use 'async with' or '.close()' to close the connection properly.
+    warn(
+
+tests/luthien_proxy/unit_tests/utils/test_migration_check.py::TestApplySqliteMigrations::test_detects_hash_mismatch
+  /Users/paolo/Documents/Projects/luthien-proxy/.venv/lib/python3.13/site-packages/aiosqlite/core.py:102: ResourceWarning: <aiosqlite.core.Connection object at 0x115fbed50> was deleted before being closed. Please use 'async with' or '.close()' to close the connection properly.
+    warn(
+
+tests/luthien_proxy/unit_tests/utils/test_migration_check.py::TestApplySqliteMigrations::test_bootstrap_snapshot_era_database
+  /Users/paolo/Documents/Projects/luthien-proxy/.venv/lib/python3.13/site-packages/aiosqlite/core.py:102: ResourceWarning: <aiosqlite.core.Connection object at 0x115fbee50> was deleted before being closed. Please use 'async with' or '.close()' to close the connection properly.
+    warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+_______________ coverage: platform darwin, python 3.13.5-final-0 _______________
+
+Name                                                                Stmts   Miss  Cover   Missing
+-------------------------------------------------------------------------------------------------
+src/luthien_proxy/__init__.py                                           1      0   100%
+src/luthien_proxy/_version.py                                          11     11     0%   3-24
+src/luthien_proxy/admin/__init__.py                                     2      0   100%
+src/luthien_proxy/admin/policy_discovery.py                           286     66    77%   56-57, 74, 96, 108, 126, 139, 151-152, 196, 199, 202, 205, 223-225, 268, 299-301, 315, 317, 319, 326-327, 347-394, 451-453, 474-476, 497
+src/luthien_proxy/admin/routes.py                                     437     20    95%   266, 317, 324-325, 331-332, 365-381, 403, 406, 419, 654-656, 737-739, 1231, 1237
+src/luthien_proxy/auth.py                                              59      2    97%   94, 127
+src/luthien_proxy/config.py                                            58      2    97%   120, 170
+src/luthien_proxy/config_fields.py                                     23      0   100%
+src/luthien_proxy/config_registry.py                                  191     13    93%   102, 118, 188, 194-195, 220, 287, 291, 352-353, 370, 388, 394
+src/luthien_proxy/credential_manager.py                               238     39    84%   177-201, 277, 293-295, 299, 305, 315, 329, 333, 336, 344, 355, 456, 465-468, 484-488, 492-498, 502-504, 509-510
+src/luthien_proxy/credentials/__init__.py                               3      0   100%
+src/luthien_proxy/credentials/auth_provider.py                         39      2    95%   68, 78
+src/luthien_proxy/credentials/credential.py                            19      0   100%
+src/luthien_proxy/credentials/store.py                                 59      2    97%   35-36
+src/luthien_proxy/debug/__init__.py                                     2      0   100%
+src/luthien_proxy/debug/models.py                                      49      0   100%
+src/luthien_proxy/debug/routes.py                                      44      0   100%
+src/luthien_proxy/debug/service.py                                    110      6    95%   45-48, 158, 302
+src/luthien_proxy/dependencies.py                                      88     10    89%   61, 119, 203, 220-222, 236, 243-245
+src/luthien_proxy/exceptions.py                                        17      0   100%
+src/luthien_proxy/gateway_routes.py                                   116      4    97%   90, 255-257
+src/luthien_proxy/history/__init__.py                                   3      0   100%
+src/luthien_proxy/history/models.py                                    58      0   100%
+src/luthien_proxy/history/routes.py                                    51     11    78%   51-54, 150-159
+src/luthien_proxy/history/service.py                                  468    112    76%   192, 256, 317, 329-330, 337, 345, 347, 401, 430, 506-507, 524-528, 783, 810, 879-883, 907-908, 913, 947, 1026, 1053-1056, 1070-1131, 1140-1269
+src/luthien_proxy/inference/__init__.py                                 5      0   100%
+src/luthien_proxy/inference/base.py                                    57      1    98%   215
+src/luthien_proxy/inference/claude_code.py                            190     10    95%   186, 286, 397-398, 449, 460-461, 496-498, 682
+src/luthien_proxy/inference/direct_api.py                              99      4    96%   145, 242, 260, 293
+src/luthien_proxy/inference/registry.py                               153     14    91%   226-227, 244-250, 282, 367, 449, 494, 546-549, 580
+src/luthien_proxy/llm/__init__.py                                       2      0   100%
+src/luthien_proxy/llm/anthropic_client.py                              65      2    97%   177, 205
+src/luthien_proxy/llm/anthropic_client_cache.py                        56      2    96%   50-51
+src/luthien_proxy/llm/judge_client.py                                  23      1    96%   54
+src/luthien_proxy/llm/types/__init__.py                                 2      0   100%
+src/luthien_proxy/llm/types/anthropic.py                              103      0   100%
+src/luthien_proxy/main.py                                             393    104    74%   149, 211-212, 240, 247-248, 285, 304, 308-309, 316-341, 344, 362, 402, 435-439, 527-530, 612-614, 757-865
+src/luthien_proxy/observability/__init__.py                             4      0   100%
+src/luthien_proxy/observability/emitter.py                             99      9    91%   75, 78, 158, 204-205, 219-220, 299-300
+src/luthien_proxy/observability/event_publisher.py                     56      8    86%   111-113, 116, 130-132, 138
+src/luthien_proxy/observability/redis_event_publisher.py               57      4    93%   92-96, 110-111
+src/luthien_proxy/observability/sentry.py                              69      0   100%
+src/luthien_proxy/perf/__init__.py                                      0      0   100%
+src/luthien_proxy/perf/cursor.py                                       35      4    89%   55-56, 72-73
+src/luthien_proxy/perf/db.py                                           49     14    71%   30-34, 75-86, 109
+src/luthien_proxy/perf/seeding.py                                     126      3    98%   116, 280, 309
+src/luthien_proxy/perf/timing_middleware.py                            36      0   100%
+src/luthien_proxy/pipeline/__init__.py                                  3      0   100%
+src/luthien_proxy/pipeline/anthropic_processor.py                     451     45    90%   213, 260-262, 272-273, 278-282, 294, 368, 397, 399, 471, 473, 832-834, 864-869, 924-925, 928, 967-970, 1023, 1045, 1051-1054, 1101-1104, 1122-1132, 1244-1245
+src/luthien_proxy/pipeline/client_format.py                             4      0   100%
+src/luthien_proxy/pipeline/policy_context_injection.py                 47      3    94%   51, 60, 78
+src/luthien_proxy/pipeline/session.py                                  78      4    95%   53-54, 192, 216
+src/luthien_proxy/pipeline/stream_protocol_validator.py                82      3    96%   169-177, 182
+src/luthien_proxy/pipeline/upstream_headers.py                        100      1    99%   115
+src/luthien_proxy/policies/__init__.py                                 10      0   100%
+src/luthien_proxy/policies/all_caps_policy.py                           7      0   100%
+src/luthien_proxy/policies/conversation_link_policy.py                 41      1    98%   69
+src/luthien_proxy/policies/debug_logging_policy.py                     30      0   100%
+src/luthien_proxy/policies/dogfood_safety_policy.py                    71      1    99%   154
+src/luthien_proxy/policies/hackathon_onboarding_policy.py              16      0   100%
+src/luthien_proxy/policies/hackathon_policy_template.py                13      0   100%
+src/luthien_proxy/policies/multi_policy_utils.py                       13      0   100%
+src/luthien_proxy/policies/multi_serial_policy.py                      83      8    90%   89, 104-107, 156, 171, 174
+src/luthien_proxy/policies/noop_policy.py                              12      0   100%
+src/luthien_proxy/policies/onboarding_policy.py                        44      1    98%   130
+src/luthien_proxy/policies/presets/__init__.py                          0      0   100%
+src/luthien_proxy/policies/presets/block_dangerous_commands.py          6      0   100%
+src/luthien_proxy/policies/presets/block_sensitive_file_writes.py       6      0   100%
+src/luthien_proxy/policies/presets/block_web_requests.py                6      0   100%
+src/luthien_proxy/policies/presets/no_apologies.py                      6      0   100%
+src/luthien_proxy/policies/presets/no_yapping.py                        6      0   100%
+src/luthien_proxy/policies/presets/plain_dashes.py                      6      0   100%
+src/luthien_proxy/policies/presets/prefer_uv.py                         6      0   100%
+src/luthien_proxy/policies/sample_pydantic_policy.py                   27      0   100%
+src/luthien_proxy/policies/simple_llm_policy.py                       272     33    88%   140, 192-193, 198, 234-244, 266, 274-275, 287-288, 311-312, 341, 395-400, 418, 452-454, 599-624, 639
+src/luthien_proxy/policies/simple_llm_utils.py                         94      1    99%   192
+src/luthien_proxy/policies/simple_noop_policy.py                        7      0   100%
+src/luthien_proxy/policies/simple_policy.py                           115      3    97%   135, 171, 320
+src/luthien_proxy/policies/string_replacement_policy.py               280     13    95%   111, 129, 173-174, 211, 364, 376, 388, 431, 436, 454, 457, 465
+src/luthien_proxy/policies/tool_call_judge_policy.py                  102     30    71%   241-251, 262-300, 310, 324, 334, 347, 359, 369
+src/luthien_proxy/policies/tool_call_judge_utils.py                    49      0   100%
+src/luthien_proxy/policy_composition.py                                16      0   100%
+src/luthien_proxy/policy_core/__init__.py                               7      0   100%
+src/luthien_proxy/policy_core/anthropic_execution_interface.py         21      0   100%
+src/luthien_proxy/policy_core/anthropic_hook_policy.py                 14      0   100%
+src/luthien_proxy/policy_core/anthropic_tool_call_buffer.py           166      1    99%   139
+src/luthien_proxy/policy_core/base_policy.py                           61      0   100%
+src/luthien_proxy/policy_core/policy_context.py                       105      2    98%   173, 259
+src/luthien_proxy/policy_core/text_modifier_policy.py                  91      3    97%   94, 150, 204
+src/luthien_proxy/policy_manager.py                                   193     12    94%   277, 281, 328-336, 347-348
+src/luthien_proxy/policy_types.py                                      64     25    61%   121-169
+src/luthien_proxy/rate_limit.py                                        53      1    98%   97
+src/luthien_proxy/request_log/__init__.py                               3      0   100%
+src/luthien_proxy/request_log/models.py                                33      0   100%
+src/luthien_proxy/request_log/recorder.py                             118      1    99%   34
+src/luthien_proxy/request_log/routes.py                                32      0   100%
+src/luthien_proxy/request_log/sanitize.py                              13      0   100%
+src/luthien_proxy/request_log/service.py                               79      6    92%   121, 123, 125-133
+src/luthien_proxy/retention/__init__.py                                 0      0   100%
+src/luthien_proxy/retention/archiver.py                               121      9    93%   102, 104, 110-111, 188-189, 220-221, 292
+src/luthien_proxy/retention/purger.py                                 131      6    95%   109, 209, 315-317, 341
+src/luthien_proxy/session.py                                           99     11    89%   111-112, 145, 177-180, 186-188, 405
+src/luthien_proxy/settings.py                                          75      0   100%
+src/luthien_proxy/telemetry.py                                         91      6    93%   191-192, 203-204, 225-226
+src/luthien_proxy/types.py                                             18      0   100%
+src/luthien_proxy/ui/__init__.py                                        2      0   100%
+src/luthien_proxy/ui/routes.py                                        121     63    48%   50-56, 87-90, 103-106, 120-123, 132-135, 146, 156-159, 172-175, 190-193, 217, 222-223, 235-250, 255-256, 268-283
+src/luthien_proxy/usage_telemetry/__init__.py                           0      0   100%
+src/luthien_proxy/usage_telemetry/collector.py                         50      0   100%
+src/luthien_proxy/usage_telemetry/config.py                            31      0   100%
+src/luthien_proxy/usage_telemetry/sender.py                            55      5    91%   29-31, 93, 101
+src/luthien_proxy/utils/constants.py                                   25      0   100%
+src/luthien_proxy/utils/credential_cache.py                            75     12    84%   83-84, 122-125, 129, 133, 137, 141-142, 146
+src/luthien_proxy/utils/db.py                                          83      7    92%   47, 61-62, 74, 111, 123, 133
+src/luthien_proxy/utils/db_sqlite.py                                  152      5    97%   139, 151, 207-209
+src/luthien_proxy/utils/migration_check.py                            109      7    94%   48, 53, 73-74, 78-79, 197
+src/luthien_proxy/utils/policy_cache.py                                79      2    97%   170, 251
+src/luthien_proxy/utils/redis_client.py                                45      9    80%   21, 29, 38, 50, 53, 60-62, 66
+src/luthien_proxy/utils/search.py                                      14      0   100%
+src/luthien_proxy/utils/url.py                                         15      3    80%   18-19, 28
+src/luthien_proxy/version.py                                           16      2    88%   18-19
+src/luthien_proxy/webhook/__init__.py                                   2      0   100%
+src/luthien_proxy/webhook/sender.py                                   223      9    96%   288, 452, 456, 514-515, 560-561, 755-758
+-------------------------------------------------------------------------------------------------
+TOTAL                                                                8905    834    91%
+== Radon complexity (report-only) ==
+warning: `VIRTUAL_ENV=/Users/paolo/Documents/Projects/mcpm.sh/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+src/luthien_proxy/auth.py
+    F 111:0 check_auth_or_redirect - B (9)
+    F 56:0 verify_admin_token - B (8)
+    F 143:0 get_base_url - A (3)
+    F 41:0 is_localhost_request - A (2)
+    F 49:0 _should_bypass_auth - A (2)
+src/luthien_proxy/credential_manager.py
+    M 149:4 CredentialManager.update_config - B (7)
+    M 347:4 CredentialManager._call_count_tokens - B (7)
+    M 392:4 CredentialManager.resolve - B (7)
+    M 264:4 CredentialManager.list_cached - A (5)
+    M 321:4 CredentialManager._touch_last_used - A (5)
+    M 458:4 CredentialManager._get_server_key - A (5)
+    C 84:0 CredentialManager - A (4)
+    M 118:4 CredentialManager.initialize - A (4)
+    M 249:4 CredentialManager.invalidate_all - A (4)
+    M 297:4 CredentialManager._get_cached - A (4)
+    M 208:4 CredentialManager.validate_credential - A (3)
+    M 313:4 CredentialManager._cache_result - A (3)
+    M 490:4 CredentialManager.delete_server_credential - A (3)
+    M 91:4 CredentialManager.__init__ - A (2)
+    M 290:4 CredentialManager._parse_cached_data - A (2)
+    M 342:4 CredentialManager._invalidate_key - A (2)
+    M 427:4 CredentialManager._get_user_credential - A (2)
+    M 482:4 CredentialManager.put_server_credential - A (2)
+    M 500:4 CredentialManager.list_server_credentials - A (2)
+    M 506:4 CredentialManager.close - A (2)
+    F 79:0 hash_credential - A (1)
+    C 49:0 AuthMode - A (1)
+    C 58:0 AuthConfig - A (1)
+    C 70:0 CachedCredential - A (1)
+    M 145:4 CredentialManager.config - A (1)
+    M 239:4 CredentialManager.on_backend_401 - A (1)
+    M 245:4 CredentialManager.invalidate_credential - A (1)
+    M 433:4 CredentialManager.resolve_server_credential - A (1)
+src/luthien_proxy/policy_types.py
+    F 109:0 sync_policy_types - B (8)
+    F 69:0 resolve_collisions - A (4)
+    F 95:0 _resolve_description - A (3)
+    F 48:0 derive_builtin_name - A (2)
+src/luthien_proxy/config.py
+    F 35:0 load_policy_from_yaml - B (9)
+    F 128:0 _instantiate_policy - B (7)
+    F 92:0 _import_policy_class - A (4)
+src/luthien_proxy/version.py
+    F 22:0 _short_version - A (3)
+src/luthien_proxy/policy_composition.py
+    F 17:0 compose_policy - A (3)
+src/luthien_proxy/policy_manager.py
+    M 374:4 PolicyManager._generate_troubleshooting - B (8)
+    M 252:4 PolicyManager.get_current_policy - B (7)
+    M 90:4 PolicyManager.initialize - B (6)
+    M 350:4 PolicyManager._maybe_compose_dogfood - B (6)
+    M 312:4 PolicyManager._acquire_lock - A (5)
+    C 57:0 PolicyManager - A (4)
+    M 153:4 PolicyManager._load_from_db - A (4)
+    M 67:4 PolicyManager.__init__ - A (3)
+    M 109:4 PolicyManager._initialize_from_file - A (3)
+    M 141:4 PolicyManager._initialize_file_fallback_db - A (3)
+    M 123:4 PolicyManager._initialize_from_db_strict - A (2)
+    M 131:4 PolicyManager._initialize_db_fallback_file - A (2)
+    M 191:4 PolicyManager.enable_policy - A (2)
+    M 298:4 PolicyManager.current_policy - A (2)
+    C 33:0 PolicyEnableResult - A (1)
+    C 44:0 PolicyInfo - A (1)
+    M 234:4 PolicyManager._persist_to_db - A (1)
+src/luthien_proxy/session.py
+    F 29:0 _validate_next_url - A (5)
+    F 82:0 _verify_session_token - A (5)
+    F 115:0 get_session_user - A (4)
+    F 133:0 login - A (3)
+    F 205:0 get_login_page_html - A (3)
+    F 58:0 _get_session_secret - A (1)
+    F 67:0 _create_session_token - A (1)
+    F 175:0 logout - A (1)
+    F 184:0 logout_get - A (1)
+    F 191:0 _escape_html_attr - A (1)
+    F 399:0 login_page - A (1)
+    F 413:0 login_page_root - A (1)
+src/luthien_proxy/telemetry.py
+    F 112:0 _build_otlp_exporter - A (3)
+    F 95:0 _silence_otel_loggers - A (2)
+    F 130:0 configure_tracing - A (2)
+    F 176:0 instrument_app - A (2)
+    F 195:0 instrument_redis - A (2)
+    F 254:0 setup_telemetry - A (2)
+    F 48:0 restore_context - A (1)
+    F 78:0 _get_otel_config - A (1)
+    F 207:0 configure_logging - A (1)
+src/luthien_proxy/config_registry.py
+    F 334:0 coerce_value - C (19)
+    M 153:4 ConfigRegistry._resolve_field - B (10)
+    M 89:4 ConfigRegistry._snapshot_env_values - B (6)
+    M 116:4 ConfigRegistry._load_db_values - B (6)
+    M 222:4 ConfigRegistry.set_db_value - B (6)
+    M 308:4 ConfigRegistry.dashboard_view - B (6)
+    M 276:4 ConfigRegistry.delete_db_value - A (5)
+    C 61:0 ConfigRegistry - A (4)
+    M 185:4 ConfigRegistry._sync_one - A (3)
+    F 391:0 _display_value - A (2)
+    C 36:0 ConfigOverriddenError - A (2)
+    M 69:4 ConfigRegistry.__init__ - A (2)
+    M 149:4 ConfigRegistry._resolve_all - A (2)
+    M 203:4 ConfigRegistry._sync_to_settings - A (2)
+    C 27:0 ConfigSource - A (1)
+    M 43:4 ConfigOverriddenError.__init__ - A (1)
+    C 53:0 ResolvedValue - A (1)
+    M 110:4 ConfigRegistry.initialize - A (1)
+    M 210:4 ConfigRegistry.get - A (1)
+    M 214:4 ConfigRegistry.get_resolved - A (1)
+    M 218:4 ConfigRegistry.get_field_meta - A (1)
+src/luthien_proxy/types.py
+    C 19:0 RawHttpRequest - A (1)
+src/luthien_proxy/config_fields.py
+    C 22:0 ConfigFieldMeta - A (1)
+src/luthien_proxy/gateway_routes.py
+    F 78:0 verify_token - C (14)
+    F 114:0 resolve_anthropic_client - B (10)
+    F 225:0 proxy_passthrough - B (7)
+    F 54:0 get_request_credential - A (5)
+    F 181:0 check_rate_limit - A (2)
+    F 194:0 anthropic_messages - A (1)
+src/luthien_proxy/rate_limit.py
+    M 54:4 TokenBucketRateLimiter.__init__ - A (5)
+    C 14:0 TokenBucketRateLimiter - A (4)
+    M 85:4 TokenBucketRateLimiter._get_or_create_bucket - A (4)
+    M 100:4 TokenBucketRateLimiter.check - A (3)
+    M 82:4 TokenBucketRateLimiter._hash_key - A (1)
+src/luthien_proxy/settings.py
+    C 22:0 _SettingsBase - A (4)
+    M 32:4 _SettingsBase._set_environment_from_railway - A (3)
+    F 130:0 client_error_detail - A (2)
+    F 120:0 get_settings - A (1)
+    F 125:0 clear_settings_cache - A (1)
+    C 41:0 Settings - A (1)
+src/luthien_proxy/exceptions.py
+    C 16:0 BackendAPIError - A (2)
+    F 71:0 map_litellm_error_type - A (1)
+    M 31:4 BackendAPIError.__init__ - A (1)
+    M 47:4 BackendAPIError.__repr__ - A (1)
+src/luthien_proxy/main.py
+    F 759:4 main - C (18)
+    F 691:0 auto_provision_defaults - B (9)
+    F 590:0 load_config_from_env - B (6)
+    F 662:0 propagate_cli_overrides_to_env - B (6)
+    F 108:0 http_exception_handler - A (4)
+    F 133:0 request_validation_error_handler - A (2)
+    F 548:0 connect_db - A (2)
+    F 569:0 connect_redis - A (2)
+    F 103:0 http_status_to_anthropic_error_type - A (1)
+    F 152:0 create_app - A (1)
+    F 641:0 configure_local_mode - A (1)
+    F 657:0 _is_railway - A (1)
+src/luthien_proxy/dependencies.py
+    C 28:0 Dependencies - A (3)
+    F 72:0 get_dependencies - A (2)
+    F 216:0 require_config_registry - A (2)
+    F 225:0 require_credential_manager - A (2)
+    F 239:0 require_inference_provider_registry - A (2)
+    M 53:4 Dependencies.get_anthropic_policy - A (2)
+    F 93:0 get_db_pool - A (1)
+    F 105:0 get_redis_client - A (1)
+    F 117:0 get_event_publisher - A (1)
+    F 122:0 get_emitter - A (1)
+    F 134:0 get_policy_manager - A (1)
+    F 146:0 get_api_key - A (1)
+    F 158:0 get_admin_key - A (1)
+    F 170:0 get_anthropic_client - A (1)
+    F 179:0 get_anthropic_policy - A (1)
+    F 191:0 get_credential_manager - A (1)
+    F 196:0 get_usage_collector - A (1)
+    F 201:0 get_config_registry - A (1)
+    F 206:0 get_rate_limiter - A (1)
+    F 211:0 get_webhook_sender - A (1)
+    F 234:0 get_inference_provider_registry - A (1)
+src/luthien_proxy/webhook/sender.py
+    M 228:4 WebhookSender.__init__ - C (15)
+    M 547:4 WebhookSender._send_with_retries - B (10)
+    M 708:4 WebhookSender.stop - B (9)
+    M 473:4 WebhookSender._compute_safe_url - B (7)
+    M 498:4 WebhookSender._attempt_send - B (7)
+    M 624:4 WebhookSender.fire_and_forget - B (6)
+    C 206:0 WebhookSender - A (5)
+    F 28:0 _log_task_exception - A (3)
+    F 136:0 build_payload - A (1)
+    C 80:0 _UsageCounts - A (1)
+    C 98:0 ConversationCompletedPayload - A (1)
+    M 404:4 WebhookSender.enabled - A (1)
+    M 409:4 WebhookSender.pending_depth - A (1)
+    M 414:4 WebhookSender.dropped_count - A (1)
+    M 427:4 WebhookSender.gave_up_count - A (1)
+    M 432:4 WebhookSender.permanent_failure_count - A (1)
+    M 445:4 WebhookSender.payload_build_failure_count - A (1)
+    M 454:4 WebhookSender.record_payload_build_failure - A (1)
+    M 459:4 WebhookSender.max_pending_tasks - A (1)
+    M 464:4 WebhookSender.started_at - A (1)
+    M 469:4 WebhookSender.safe_url - A (1)
+src/luthien_proxy/ui/routes.py
+    F 227:0 fragment_session_turns - A (5)
+    F 260:0 fragment_sessions - A (5)
+    F 38:0 activity_stream - A (2)
+    F 78:0 debug_activity_monitor - A (2)
+    F 94:0 diff_viewer - A (2)
+    F 110:0 policy_config - A (2)
+    F 127:0 config_dashboard - A (2)
+    F 139:0 credentials_page - A (2)
+    F 151:0 inference_providers_page - A (2)
+    F 163:0 request_logs_viewer - A (2)
+    F 179:0 conversation_live_view - A (2)
+    F 68:0 landing_page - A (1)
+    F 197:0 client_setup - A (1)
+    F 215:0 deprecated_admin_redirect - A (1)
+    F 220:0 _render_turns_fragment - A (1)
+    F 253:0 _render_sessions_fragment - A (1)
+src/luthien_proxy/pipeline/anthropic_processor.py
+    F 219:0 _reconstruct_response_from_stream_events - D (24)
+    F 1000:0 _handle_execution_non_streaming - C (15)
+    F 662:0 _fire_webhook_for_completion - C (13)
+    F 478:0 _process_request - C (12)
+    F 332:0 process_anthropic_request - C (11)
+    F 320:0 _is_anthropic_response_emission - B (6)
+    F 580:0 _run_policy_hooks - A (5)
+    F 1229:0 _handle_anthropic_error - A (5)
+    F 1179:0 _build_error_event - A (4)
+    M 147:4 _AnthropicPolicyIO.ensure_request_recorded - A (3)
+    M 184:4 _AnthropicPolicyIO.complete - A (3)
+    F 606:0 _execute_anthropic_policy - A (2)
+    F 1159:0 _format_sse_event - A (2)
+    C 98:0 _AnthropicPolicyIO - A (2)
+    M 198:4 _AnthropicPolicyIO.stream - A (2)
+    F 714:0 _handle_execution_streaming - A (1)
+    C 80:0 _ErrorDetail - A (1)
+    C 87:0 _StreamErrorEvent - A (1)
+    M 101:4 _AnthropicPolicyIO.__init__ - A (1)
+    M 134:4 _AnthropicPolicyIO.request - A (1)
+    M 139:4 _AnthropicPolicyIO.first_backend_response - A (1)
+    M 143:4 _AnthropicPolicyIO.set_request - A (1)
+    M 167:4 _AnthropicPolicyIO._record_backend_request - A (1)
+src/luthien_proxy/pipeline/policy_context_injection.py
+    F 41:0 _already_injected - B (9)
+    F 63:0 inject_policy_awareness_anthropic - B (6)
+    F 55:0 _find_first_user_message_index - A (4)
+    F 36:0 build_awareness_message - A (1)
+src/luthien_proxy/pipeline/session.py
+    F 30:0 extract_session_id_from_anthropic_body - B (9)
+    F 164:0 extract_user_id_from_bearer_token - B (8)
+    F 95:0 _sanitize_user_id - A (5)
+    F 137:0 extract_user_id_from_authorization_header - A (4)
+    F 114:0 extract_user_id_from_headers - A (3)
+    F 74:0 extract_session_id_from_headers - A (2)
+src/luthien_proxy/pipeline/stream_protocol_validator.py
+    F 86:0 validate_anthropic_event_ordering - D (28)
+    C 52:0 StreamValidationResult - A (3)
+    M 62:4 StreamValidationResult.assert_valid - A (3)
+    F 72:0 _get_event_type - A (2)
+    F 79:0 _get_block_index - A (2)
+    C 42:0 StreamViolation - A (1)
+    M 58:4 StreamValidationResult.valid - A (1)
+src/luthien_proxy/pipeline/client_format.py
+    C 6:0 ClientFormat - A (1)
+src/luthien_proxy/pipeline/upstream_headers.py
+    F 143:0 _audit_template_vars - C (11)
+    F 102:0 _validate_and_filter - B (10)
+    F 254:0 merge_forwarded_headers - B (7)
+    F 226:0 expand_upstream_headers - A (5)
+    F 179:0 _load_header_templates - A (4)
+    F 197:0 validate_upstream_headers_at_startup - A (1)
+    F 207:0 _expand_template - A (1)
+src/luthien_proxy/llm/judge_client.py
+    F 17:0 judge_completion - B (6)
+src/luthien_proxy/llm/anthropic_client_cache.py
+    F 54:0 get_client - A (4)
+    F 25:0 _max_cache_size - A (2)
+    F 43:0 _make_key - A (2)
+    F 47:0 _safe_close - A (2)
+    F 89:0 close_all - A (2)
+    F 99:0 clear - A (1)
+    F 106:0 cache_size - A (1)
+src/luthien_proxy/llm/anthropic_client.py
+    M 22:4 AnthropicClient.__init__ - B (6)
+    M 91:4 AnthropicClient._prepare_request_kwargs - B (6)
+    C 15:0 AnthropicClient - A (3)
+    M 182:4 AnthropicClient.stream - A (3)
+    M 132:4 AnthropicClient._message_to_response - A (2)
+    M 154:4 AnthropicClient.complete - A (2)
+    M 54:4 AnthropicClient.close - A (1)
+    M 58:4 AnthropicClient.with_api_key - A (1)
+    M 62:4 AnthropicClient.with_auth_token - A (1)
+src/luthien_proxy/llm/types/anthropic.py
+    F 246:0 build_usage - A (3)
+    C 22:0 AnthropicCacheControl - A (1)
+    C 33:0 AnthropicTextBlock - A (1)
+    C 40:0 AnthropicImageSourceBase64 - A (1)
+    C 48:0 AnthropicImageSourceUrl - A (1)
+    C 59:0 AnthropicImageBlock - A (1)
+    C 66:0 AnthropicToolUseBlock - A (1)
+    C 75:0 AnthropicToolResultBlock - A (1)
+    C 84:0 AnthropicThinkingBlock - A (1)
+    C 92:0 AnthropicRedactedThinkingBlock - A (1)
+    C 115:0 AnthropicUserMessage - A (1)
+    C 122:0 AnthropicAssistantMessage - A (1)
+    C 138:0 AnthropicSystemBlock - A (1)
+    C 159:0 AnthropicTool - A (1)
+    C 172:0 AnthropicToolChoiceAuto - A (1)
+    C 178:0 AnthropicToolChoiceAny - A (1)
+    C 184:0 AnthropicToolChoiceTool - A (1)
+    C 199:0 AnthropicThinkingConfig - A (1)
+    C 211:0 AnthropicRequest - A (1)
+    C 237:0 AnthropicUsage - A (1)
+    C 260:0 AnthropicResponse - A (1)
+src/luthien_proxy/retention/archiver.py
+    M 154:4 S3ConversationArchiver.__init__ - B (10)
+    F 89:0 _serialize_value - B (7)
+    M 278:4 S3ConversationArchiver._fetch_children - A (5)
+    C 124:0 S3ConversationArchiver - A (4)
+    M 210:4 S3ConversationArchiver._get_s3_client - A (3)
+    M 242:4 S3ConversationArchiver._build_put_kwargs - A (3)
+    M 304:4 S3ConversationArchiver._build_batch_records - A (3)
+    M 322:4 S3ConversationArchiver.fetch_batch - A (3)
+    F 115:0 _row_to_dict - A (2)
+    M 257:4 S3ConversationArchiver._fetch_call_batch - A (2)
+    F 120:0 _select_clause - A (1)
+    M 223:4 S3ConversationArchiver._build_s3_key - A (1)
+    M 365:4 S3ConversationArchiver.upload_batch - A (1)
+    M 395:4 S3ConversationArchiver.new_run_id - A (1)
+src/luthien_proxy/retention/purger.py
+    M 190:4 ConversationPurger._archive_and_delete_per_batch - B (9)
+    M 153:4 ConversationPurger._delete_by_cutoff - A (5)
+    C 71:0 ConversationPurger - A (4)
+    M 106:4 ConversationPurger._delete_by_call_ids - A (4)
+    M 289:4 ConversationPurger.purge_once - A (4)
+    M 325:4 ConversationPurger._run_loop - A (4)
+    F 65:0 _log_task_exception - A (3)
+    M 123:4 ConversationPurger._fetch_call_ids_batch - A (3)
+    M 346:4 ConversationPurger.start - A (3)
+    M 359:4 ConversationPurger.stop - A (3)
+    M 85:4 ConversationPurger.__init__ - A (1)
+    M 102:4 ConversationPurger._cutoff_datetime - A (1)
+src/luthien_proxy/admin/policy_discovery.py
+    F 42:0 python_type_to_json_schema - E (33)
+    F 434:0 discover_policies - C (17)
+    F 330:0 validate_policy_config - C (15)
+    F 209:0 extract_config_schema - C (13)
+    F 142:0 _resolve_ast_node - B (10)
+    F 308:0 _get_example_value - B (9)
+    F 397:0 _extract_pydantic_model - B (9)
+    F 192:0 _is_sub_policy_list_type - B (6)
+    F 167:0 _resolve_string_annotation - A (5)
+    F 281:0 _pydantic_model_defaults - A (5)
+    F 412:0 extract_description - A (3)
+src/luthien_proxy/admin/routes.py
+    F 279:0 set_policy - C (11)
+    F 577:0 send_chat - C (11)
+    F 410:0 _extract_text_content - B (7)
+    F 1193:0 set_config_value - B (6)
+    F 443:0 _resolve_test_anthropic_client - A (5)
+    F 1221:0 delete_config_value - A (5)
+    F 795:0 get_billing_status - A (4)
+    F 243:0 get_available_models - A (3)
+    F 396:0 _coerce_usage - A (3)
+    F 473:0 _build_test_user_credential - A (3)
+    F 817:0 update_auth_config - A (3)
+    F 902:0 put_server_credential - A (3)
+    F 941:0 delete_server_credential - A (3)
+    F 1048:0 put_inference_provider - A (3)
+    F 1088:0 delete_inference_provider - A (3)
+    F 1139:0 update_telemetry_config - A (3)
+    C 960:0 InferenceProviderRequest - A (3)
+    F 253:0 get_current_policy - A (2)
+    F 349:0 list_available_policies - A (2)
+    F 496:0 _build_test_raw_http_request - A (2)
+    F 843:0 list_cached_credentials - A (2)
+    F 862:0 invalidate_credential - A (2)
+    F 1072:0 list_inference_providers - A (2)
+    F 1180:0 _admin_subject - A (2)
+    F 1268:0 webhook_stats - A (2)
+    M 991:4 InferenceProviderRequest._check_config_size - A (2)
+    F 385:0 list_models - A (1)
+    F 431:0 _snapshot_request - A (1)
+    F 532:0 _build_test_policy_context - A (1)
+    F 774:0 _config_to_response - A (1)
+    F 786:0 get_auth_config - A (1)
+    F 875:0 invalidate_all_credentials - A (1)
+    F 931:0 list_server_credentials - A (1)
+    F 1033:0 _record_to_response - A (1)
+    F 1123:0 get_telemetry_config - A (1)
+    F 1172:0 get_config_dashboard - A (1)
+    C 64:0 PolicySetRequest - A (1)
+    C 72:0 PolicyEnableResponse - A (1)
+    C 84:0 PolicyCurrentResponse - A (1)
+    C 94:0 PolicyClassInfo - A (1)
+    C 119:0 PolicyListResponse - A (1)
+    C 125:0 ChatRequest - A (1)
+    C 146:0 ChatResponse - A (1)
+    C 193:0 AuthConfigResponse - A (1)
+    C 204:0 BillingStatusResponse - A (1)
+    C 218:0 AuthConfigUpdateRequest - A (1)
+    C 227:0 CachedCredentialResponse - A (1)
+    C 236:0 CachedCredentialsListResponse - A (1)
+    C 887:0 ServerCredentialRequest - A (1)
+    C 1003:0 InferenceProviderResponse - A (1)
+    C 1021:0 InferenceProviderListResponse - A (1)
+    C 1107:0 TelemetryConfigResponse - A (1)
+    C 1116:0 TelemetryConfigUpdateRequest - A (1)
+    C 1165:0 ConfigSetRequest - A (1)
+    C 1245:0 WebhookStatsResponse - A (1)
+src/luthien_proxy/utils/policy_cache.py
+    M 112:4 PolicyCache.get - A (5)
+    C 60:0 PolicyCache - A (4)
+    M 146:4 PolicyCache.put - A (4)
+    M 191:4 PolicyCache._enforce_cap - A (4)
+    F 28:0 build_factory - A (3)
+    M 84:4 PolicyCache.__init__ - A (3)
+    M 241:4 PolicyCache.cleanup_expired - A (3)
+    M 108:4 PolicyCache.max_entries - A (1)
+    M 232:4 PolicyCache.delete - A (1)
+src/luthien_proxy/utils/db.py
+    M 135:4 DatabasePool.get_pool - B (6)
+    M 159:4 DatabasePool.close - A (4)
+    F 67:0 create_pool - A (3)
+    F 173:0 parse_db_ts - A (3)
+    C 79:0 DatabasePool - A (3)
+    M 85:4 DatabasePool.__init__ - A (3)
+    C 15:0 ConnectionProtocol - A (2)
+    C 29:0 PoolProtocol - A (2)
+    C 189:0 DatabaseWriteError - A (2)
+    F 45:0 get_connector - A (1)
+    F 50:0 get_pool_factory - A (1)
+    M 16:4 ConnectionProtocol.close - A (1)
+    M 18:4 ConnectionProtocol.fetch - A (1)
+    M 20:4 ConnectionProtocol.fetchrow - A (1)
+    M 22:4 ConnectionProtocol.fetchval - A (1)
+    M 24:4 ConnectionProtocol.execute - A (1)
+    M 26:4 ConnectionProtocol.transaction - A (1)
+    M 30:4 PoolProtocol.acquire - A (1)
+    M 32:4 PoolProtocol.close - A (1)
+    M 34:4 PoolProtocol.fetch - A (1)
+    M 36:4 PoolProtocol.fetchrow - A (1)
+    M 38:4 PoolProtocol.execute - A (1)
+    M 121:4 DatabasePool.url - A (1)
+    M 126:4 DatabasePool.is_sqlite - A (1)
+    M 131:4 DatabasePool.is_postgres - A (1)
+    M 153:4 DatabasePool.connection - A (1)
+    M 199:4 DatabaseWriteError.__init__ - A (1)
+src/luthien_proxy/utils/credential_cache.py
+    M 87:4 InProcessCredentialCache.scan_iter - A (5)
+    C 45:0 InProcessCredentialCache - A (3)
+    M 56:4 InProcessCredentialCache.get - A (3)
+    M 75:4 InProcessCredentialCache.ttl - A (3)
+    M 100:4 InProcessCredentialCache.unlink - A (3)
+    M 120:4 RedisCredentialCache.get - A (3)
+    M 139:4 RedisCredentialCache.scan_iter - A (3)
+    C 17:0 CredentialCacheProtocol - A (2)
+    C 109:0 RedisCredentialCache - A (2)
+    M 20:4 CredentialCacheProtocol.get - A (1)
+    M 24:4 CredentialCacheProtocol.setex - A (1)
+    M 28:4 CredentialCacheProtocol.delete - A (1)
+    M 32:4 CredentialCacheProtocol.ttl - A (1)
+    M 36:4 CredentialCacheProtocol.scan_iter - A (1)
+    M 40:4 CredentialCacheProtocol.unlink - A (1)
+    M 52:4 InProcessCredentialCache.__init__ - A (1)
+    M 67:4 InProcessCredentialCache.setex - A (1)
+    M 71:4 InProcessCredentialCache.delete - A (1)
+    M 116:4 RedisCredentialCache.__init__ - A (1)
+    M 127:4 RedisCredentialCache.setex - A (1)
+    M 131:4 RedisCredentialCache.delete - A (1)
+    M 135:4 RedisCredentialCache.ttl - A (1)
+    M 144:4 RedisCredentialCache.unlink - A (1)
+src/luthien_proxy/utils/migration_check.py
+    F 168:0 check_migrations - C (18)
+    F 56:0 _apply_sqlite_migrations - C (16)
+    F 31:0 _find_sqlite_migrations_dir - A (4)
+    F 25:0 compute_file_hash - A (1)
+src/luthien_proxy/utils/url.py
+    F 8:0 sanitize_url_for_logging - A (5)
+src/luthien_proxy/utils/redis_client.py
+    M 26:4 RedisClientManager.get_client - A (4)
+    M 46:4 RedisClientManager.close_client - A (4)
+    C 15:0 RedisClientManager - A (3)
+    M 18:4 RedisClientManager.__init__ - A (2)
+    M 58:4 RedisClientManager.close_all - A (2)
+    M 64:4 RedisClientManager.clear_without_closing - A (1)
+src/luthien_proxy/utils/search.py
+    F 26:0 _fts5_query_from_user_input - A (3)
+    F 47:0 session_fts_filter_sql - A (2)
+src/luthien_proxy/utils/db_sqlite.py
+    M 153:4 SqliteConnection.fetch - A (5)
+    M 164:4 SqliteConnection.fetchrow - A (4)
+    F 29:0 _reject_dollar_n_in_literals - A (3)
+    F 50:0 _translate_params - A (3)
+    F 109:0 _convert_arg - A (3)
+    F 265:0 parse_sqlite_url - A (3)
+    C 142:0 SqliteConnection - A (3)
+    F 118:0 _convert_args - A (2)
+    F 281:0 create_sqlite_pool - A (2)
+    C 123:0 _RowProxy - A (2)
+    M 175:4 SqliteConnection.fetchval - A (2)
+    M 182:4 SqliteConnection.execute - A (2)
+    M 200:4 SqliteConnection.transaction - A (2)
+    C 214:0 SqlitePool - A (2)
+    M 226:4 SqlitePool._get_conn - A (2)
+    M 243:4 SqlitePool.close - A (2)
+    F 296:0 is_sqlite_url - A (1)
+    M 126:4 _RowProxy.__init__ - A (1)
+    M 129:4 _RowProxy.__getitem__ - A (1)
+    M 132:4 _RowProxy.__iter__ - A (1)
+    M 135:4 _RowProxy.__len__ - A (1)
+    M 138:4 _RowProxy.__repr__ - A (1)
+    M 145:4 SqliteConnection.__init__ - A (1)
+    M 149:4 SqliteConnection.close - A (1)
+    M 191:4 SqliteConnection.executescript - A (1)
+    M 221:4 SqlitePool.__init__ - A (1)
+    M 237:4 SqlitePool.acquire - A (1)
+    M 249:4 SqlitePool.fetch - A (1)
+    M 254:4 SqlitePool.fetchrow - A (1)
+    M 259:4 SqlitePool.execute - A (1)
+src/luthien_proxy/observability/event_publisher.py
+    M 118:4 InProcessEventPublisher.stream_events - A (5)
+    C 86:0 InProcessEventPublisher - A (4)
+    M 97:4 InProcessEventPublisher.publish_event - A (4)
+    F 27:0 build_activity_event - A (3)
+    C 63:0 EventPublisherProtocol - A (2)
+    F 44:0 format_sse_payload - A (1)
+    F 49:0 heartbeat_event - A (1)
+    F 54:0 should_send_heartbeat - A (1)
+    M 66:4 EventPublisherProtocol.publish_event - A (1)
+    M 75:4 EventPublisherProtocol.stream_events - A (1)
+    M 93:4 InProcessEventPublisher.__init__ - A (1)
+src/luthien_proxy/observability/sentry.py
+    F 83:0 _sentry_before_send - C (17)
+    F 62:0 _summarize - B (9)
+    F 123:0 init_sentry - B (6)
+src/luthien_proxy/observability/emitter.py
+    F 28:0 _safe_serialize - C (13)
+    M 137:4 EventEmitter.emit - B (6)
+    C 121:0 EventEmitter - A (4)
+    M 222:4 EventEmitter._write_db - A (4)
+    F 72:0 _log_task_exception - A (3)
+    M 191:4 EventEmitter._write_stdout - A (3)
+    C 81:0 EventEmitterProtocol - A (2)
+    C 104:0 NullEventEmitter - A (2)
+    M 284:4 EventEmitter._write_events - A (2)
+    M 88:4 EventEmitterProtocol.record - A (1)
+    M 111:4 NullEventEmitter.record - A (1)
+    M 126:4 EventEmitter.__init__ - A (1)
+    M 172:4 EventEmitter.record - A (1)
+src/luthien_proxy/observability/redis_event_publisher.py
+    F 114:0 stream_activity_events - B (7)
+    C 40:0 RedisEventPublisher - A (3)
+    F 104:0 _poll_pubsub_message - A (2)
+    M 65:4 RedisEventPublisher.publish_event - A (2)
+    M 87:4 RedisEventPublisher.stream_events - A (2)
+    F 99:0 _decode_payload - A (1)
+    M 56:4 RedisEventPublisher.__init__ - A (1)
+src/luthien_proxy/policies/multi_serial_policy.py
+    M 146:4 MultiSerialPolicy.on_anthropic_stream_complete - B (8)
+    C 46:0 MultiSerialPolicy - A (4)
+    M 69:4 MultiSerialPolicy.__init__ - A (4)
+    M 131:4 MultiSerialPolicy.on_anthropic_stream_event - A (4)
+    M 80:4 MultiSerialPolicy.from_instances - A (3)
+    M 178:4 MultiSerialPolicy.on_anthropic_streaming_policy_complete - A (3)
+    M 97:4 MultiSerialPolicy.short_policy_name - A (2)
+    M 102:4 MultiSerialPolicy.active_policy_names - A (2)
+    M 117:4 MultiSerialPolicy.on_anthropic_request - A (2)
+    M 124:4 MultiSerialPolicy.on_anthropic_response - A (2)
+    M 109:4 MultiSerialPolicy._validate_interface - A (1)
+src/luthien_proxy/policies/all_caps_policy.py
+    C 16:0 AllCapsPolicy - A (2)
+    M 28:4 AllCapsPolicy.modify_text - A (1)
+src/luthien_proxy/policies/debug_logging_policy.py
+    C 42:0 DebugLoggingPolicy - A (2)
+    F 32:0 _safe_json_dump - A (1)
+    F 37:0 _event_to_dict - A (1)
+    M 56:4 DebugLoggingPolicy.short_policy_name - A (1)
+    M 60:4 DebugLoggingPolicy.on_anthropic_request - A (1)
+    M 78:4 DebugLoggingPolicy.on_anthropic_response - A (1)
+    M 97:4 DebugLoggingPolicy.on_anthropic_stream_event - A (1)
+src/luthien_proxy/policies/hackathon_policy_template.py
+    C 27:0 HackathonPolicy - A (2)
+    M 46:4 HackathonPolicy.simple_on_request - A (1)
+    M 56:4 HackathonPolicy.simple_on_response_content - A (1)
+    M 66:4 HackathonPolicy.simple_on_anthropic_tool_call - A (1)
+src/luthien_proxy/policies/dogfood_safety_policy.py
+    M 124:4 DogfoodSafetyPolicy._is_dangerous - A (5)
+    M 142:4 DogfoodSafetyPolicy._extract_command - A (5)
+    C 90:0 DogfoodSafetyPolicy - A (3)
+    M 112:4 DogfoodSafetyPolicy.__init__ - A (3)
+    C 69:0 DogfoodSafetyConfig - A (1)
+    M 108:4 DogfoodSafetyPolicy.short_policy_name - A (1)
+    M 156:4 DogfoodSafetyPolicy._format_blocked_message - A (1)
+    M 160:4 DogfoodSafetyPolicy._make_transform - A (1)
+    M 193:4 DogfoodSafetyPolicy.on_anthropic_response - A (1)
+    M 199:4 DogfoodSafetyPolicy.on_anthropic_stream_event - A (1)
+    M 210:4 DogfoodSafetyPolicy.on_anthropic_streaming_policy_complete - A (1)
+src/luthien_proxy/policies/simple_llm_policy.py
+    M 260:4 SimpleLLMPolicy.on_anthropic_response - C (18)
+    M 402:4 SimpleLLMPolicy._handle_block_stop - C (14)
+    M 563:4 SimpleLLMPolicy._emit_anthropic_replacement_events - B (9)
+    M 484:4 SimpleLLMPolicy._handle_message_delta - B (8)
+    C 114:0 SimpleLLMPolicy - A (5)
+    M 196:4 SimpleLLMPolicy._replacement_to_anthropic_block - A (5)
+    M 325:4 SimpleLLMPolicy.on_anthropic_stream_event - A (5)
+    M 377:4 SimpleLLMPolicy._handle_block_delta - A (5)
+    M 142:4 SimpleLLMPolicy.__init__ - A (4)
+    M 190:4 SimpleLLMPolicy._block_descriptor_from_replacement - A (4)
+    M 246:4 SimpleLLMPolicy._correct_anthropic_stop_reason - A (4)
+    M 343:4 SimpleLLMPolicy._handle_block_start - A (4)
+    M 186:4 SimpleLLMPolicy._block_descriptor_from_tool - A (2)
+    M 206:4 SimpleLLMPolicy._judge_block - A (2)
+    M 529:4 SimpleLLMPolicy._emit_anthropic_tool_events - A (2)
+    F 85:0 _blocked_tool_message - A (1)
+    F 89:0 _blocked_tool_judge_failed_message - A (1)
+    C 70:0 _BufferedToolUse - A (1)
+    C 94:0 _SimpleLLMAnthropicState - A (1)
+    M 138:4 SimpleLLMPolicy.short_policy_name - A (1)
+    M 176:4 SimpleLLMPolicy._anthropic_state - A (1)
+    M 183:4 SimpleLLMPolicy._block_descriptor_from_text - A (1)
+    M 516:4 SimpleLLMPolicy._emit_anthropic_text_events - A (1)
+    M 546:4 SimpleLLMPolicy._make_anthropic_text_block_events - A (1)
+    M 559:4 SimpleLLMPolicy._make_anthropic_warning_events - A (1)
+    M 637:4 SimpleLLMPolicy.on_anthropic_streaming_policy_complete - A (1)
+src/luthien_proxy/policies/string_replacement_policy.py
+    M 340:4 StringReplacementPolicy.on_anthropic_request - C (14)
+    M 422:4 StringReplacementPolicy._apply_to_block_in_place - C (14)
+    F 140:0 _apply_capitalization_pattern - C (13)
+    F 115:0 _detect_capitalization_pattern - C (12)
+    M 531:4 StringReplacementPolicy.on_anthropic_stream_event - C (12)
+    M 468:4 StringReplacementPolicy.on_anthropic_response - B (9)
+    C 279:0 StringReplacementPolicy - B (8)
+    F 225:0 apply_replacements_with_count - B (7)
+    C 85:0 StringReplacementConfig - B (7)
+    M 101:4 StringReplacementConfig._validate_replacement_pairs - B (6)
+    F 205:0 _apply_with_compiled_count - A (4)
+    M 307:4 StringReplacementPolicy.__init__ - A (4)
+    M 618:4 StringReplacementPolicy.on_anthropic_stream_complete - A (4)
+    F 192:0 _compile_case_insensitive_patterns - A (3)
+    M 330:4 StringReplacementPolicy._apply_replacements_with_count - A (2)
+    M 513:4 StringReplacementPolicy._flush_buffer - A (2)
+    F 259:0 apply_replacements - A (1)
+    C 67:0 _StreamBufferState - A (1)
+    M 510:4 StringReplacementPolicy._get_buffer_state - A (1)
+src/luthien_proxy/policies/onboarding_policy.py
+    F 62:0 is_first_turn - B (7)
+    C 86:0 OnboardingPolicy - A (2)
+    M 118:4 OnboardingPolicy.on_anthropic_response - A (2)
+    M 124:4 OnboardingPolicy.on_anthropic_stream_event - A (2)
+    M 132:4 OnboardingPolicy.on_anthropic_stream_complete - A (2)
+    C 56:0 OnboardingPolicyConfig - A (1)
+    C 80:0 _OnboardingState - A (1)
+    M 99:4 OnboardingPolicy.__init__ - A (1)
+    M 105:4 OnboardingPolicy.extra_text - A (1)
+    M 109:4 OnboardingPolicy._is_first_turn - A (1)
+    M 113:4 OnboardingPolicy.on_anthropic_request - A (1)
+src/luthien_proxy/policies/simple_noop_policy.py
+    C 9:0 SimpleNoOpPolicy - A (1)
+src/luthien_proxy/policies/multi_policy_utils.py
+    F 31:0 validate_sub_policies_interface - A (3)
+    F 11:0 load_sub_policy - A (1)
+src/luthien_proxy/policies/noop_policy.py
+    C 17:0 NoOpPolicy - A (2)
+    M 30:4 NoOpPolicy.short_policy_name - A (1)
+    M 34:4 NoOpPolicy.active_policy_names - A (1)
+src/luthien_proxy/policies/hackathon_onboarding_policy.py
+    C 65:0 HackathonOnboardingPolicy - A (2)
+    C 59:0 HackathonOnboardingPolicyConfig - A (1)
+    M 78:4 HackathonOnboardingPolicy.__init__ - A (1)
+    M 84:4 HackathonOnboardingPolicy.extra_text - A (1)
+src/luthien_proxy/policies/sample_pydantic_policy.py
+    C 49:0 SamplePydanticPolicy - A (2)
+    C 21:0 RegexRuleConfig - A (1)
+    C 29:0 KeywordRuleConfig - A (1)
+    C 39:0 SampleConfig - A (1)
+    M 63:4 SamplePydanticPolicy.short_policy_name - A (1)
+    M 67:4 SamplePydanticPolicy.__init__ - A (1)
+src/luthien_proxy/policies/simple_policy.py
+    M 200:4 SimplePolicy.on_anthropic_stream_event - C (15)
+    M 123:4 SimplePolicy.on_anthropic_request - B (9)
+    M 153:4 SimplePolicy.on_anthropic_response - B (9)
+    C 60:0 SimplePolicy - A (5)
+    C 48:0 _BufferedAnthropicToolUse - A (1)
+    C 55:0 _SimplePolicyAnthropicState - A (1)
+    M 75:4 SimplePolicy._anthropic_state - A (1)
+    M 81:4 SimplePolicy.simple_on_request - A (1)
+    M 90:4 SimplePolicy.simple_on_response_content - A (1)
+    M 100:4 SimplePolicy.simple_on_anthropic_tool_call - A (1)
+    M 117:4 SimplePolicy.on_anthropic_streaming_policy_complete - A (1)
+src/luthien_proxy/policies/conversation_link_policy.py
+    M 84:4 ConversationLinkPolicy.simple_on_response_content - A (4)
+    C 53:0 ConversationLinkPolicy - A (2)
+    C 38:0 ConversationLinkPolicyConfig - A (1)
+    C 46:0 _ConversationLinkState - A (1)
+    M 62:4 ConversationLinkPolicy.__init__ - A (1)
+    M 67:4 ConversationLinkPolicy.short_policy_name - A (1)
+    M 71:4 ConversationLinkPolicy._state - A (1)
+    M 74:4 ConversationLinkPolicy.on_anthropic_request - A (1)
+src/luthien_proxy/policies/tool_call_judge_utils.py
+    F 58:0 parse_judge_response - B (6)
+    F 93:0 parse_to_judge_result - A (2)
+    F 116:0 build_judge_prompt - A (1)
+    C 23:0 JudgeConfig - A (1)
+    C 49:0 JudgeResult - A (1)
+src/luthien_proxy/policies/tool_call_judge_policy.py
+    M 139:4 ToolCallJudgePolicy.__init__ - A (5)
+    M 253:4 ToolCallJudgePolicy._evaluate_and_maybe_block - A (4)
+    M 302:4 ToolCallJudgePolicy._format_blocked_message - A (3)
+    C 115:0 ToolCallJudgePolicy - A (2)
+    C 68:0 ToolCallDict - A (1)
+    C 76:0 ToolCallJudgeConfig - A (1)
+    M 135:4 ToolCallJudgePolicy.short_policy_name - A (1)
+    M 179:4 ToolCallJudgePolicy.on_anthropic_response - A (1)
+    M 185:4 ToolCallJudgePolicy.on_anthropic_stream_event - A (1)
+    M 196:4 ToolCallJudgePolicy.on_anthropic_streaming_policy_complete - A (1)
+    M 204:4 ToolCallJudgePolicy._make_transform - A (1)
+    M 234:4 ToolCallJudgePolicy._call_judge - A (1)
+    M 323:4 ToolCallJudgePolicy._emit_evaluation_started - A (1)
+    M 333:4 ToolCallJudgePolicy._emit_evaluation_failed - A (1)
+    M 346:4 ToolCallJudgePolicy._emit_evaluation_complete - A (1)
+    M 358:4 ToolCallJudgePolicy._emit_tool_call_allowed - A (1)
+    M 368:4 ToolCallJudgePolicy._emit_tool_call_blocked - A (1)
+src/luthien_proxy/policies/simple_llm_utils.py
+    F 150:0 parse_judge_action - C (11)
+    F 197:0 call_simple_llm_judge - B (6)
+    F 126:0 build_judge_prompt - A (3)
+    C 28:0 SimpleLLMJudgeConfig - A (1)
+    C 78:0 BlockDescriptor - A (1)
+    C 86:0 ReplacementBlock - A (1)
+    C 96:0 JudgeAction - A (1)
+src/luthien_proxy/policies/presets/block_web_requests.py
+    C 7:0 BlockWebRequestsPolicy - A (2)
+    M 28:4 BlockWebRequestsPolicy.__init__ - A (1)
+src/luthien_proxy/policies/presets/no_apologies.py
+    C 7:0 NoApologiesPolicy - A (2)
+    M 20:4 NoApologiesPolicy.__init__ - A (1)
+src/luthien_proxy/policies/presets/block_sensitive_file_writes.py
+    C 7:0 BlockSensitiveFileWritesPolicy - A (2)
+    M 28:4 BlockSensitiveFileWritesPolicy.__init__ - A (1)
+src/luthien_proxy/policies/presets/block_dangerous_commands.py
+    C 7:0 BlockDangerousCommandsPolicy - A (2)
+    M 29:4 BlockDangerousCommandsPolicy.__init__ - A (1)
+src/luthien_proxy/policies/presets/plain_dashes.py
+    C 7:0 PlainDashesPolicy - A (2)
+    M 20:4 PlainDashesPolicy.__init__ - A (1)
+src/luthien_proxy/policies/presets/no_yapping.py
+    C 7:0 NoYappingPolicy - A (2)
+    M 20:4 NoYappingPolicy.__init__ - A (1)
+src/luthien_proxy/policies/presets/prefer_uv.py
+    C 7:0 PreferUvPolicy - A (2)
+    M 20:4 PreferUvPolicy.__init__ - A (1)
+src/luthien_proxy/usage_telemetry/sender.py
+    M 70:4 TelemetrySender.send_once - B (7)
+    C 52:0 TelemetrySender - A (4)
+    M 112:4 TelemetrySender.stop - A (3)
+    F 26:0 _get_proxy_version - A (2)
+    M 97:4 TelemetrySender._run_loop - A (2)
+    F 34:0 build_payload - A (1)
+    M 55:4 TelemetrySender.__init__ - A (1)
+    M 103:4 TelemetrySender.start - A (1)
+src/luthien_proxy/usage_telemetry/config.py
+    F 29:0 resolve_telemetry_config - B (7)
+    C 21:0 TelemetryConfig - A (1)
+src/luthien_proxy/usage_telemetry/collector.py
+    C 26:0 UsageCollector - A (2)
+    M 45:4 UsageCollector.record_completed - A (2)
+    M 60:4 UsageCollector.record_session - A (2)
+    C 14:0 MetricsSnapshot - A (1)
+    M 29:4 UsageCollector.__init__ - A (1)
+    M 40:4 UsageCollector.record_accepted - A (1)
+    M 54:4 UsageCollector.record_tokens - A (1)
+    M 67:4 UsageCollector.snapshot_and_reset - A (1)
+src/luthien_proxy/history/service.py
+    F 839:0 _build_turn - D (21)
+    F 170:0 _parse_request_messages - C (17)
+    F 551:0 _fetch_session_list_sqlite - C (17)
+    F 1134:0 _fetch_sessions_page - C (17)
+    F 301:0 _extract_preview_message - C (16)
+    F 381:0 _fetch_session_list_pg - C (13)
+    F 1005:0 export_session_jsonl - B (10)
+    F 744:0 fetch_session_detail - B (9)
+    F 950:0 export_session_markdown - B (9)
+    F 109:0 _extract_tool_calls - B (8)
+    F 242:0 _parse_response_messages - B (8)
+    F 1064:0 _fetch_session_turns_page - B (8)
+    F 82:0 extract_text_content - B (7)
+    F 1033:0 _format_message_markdown - B (6)
+    F 71:0 _get_event_summary - A (3)
+    F 152:0 _safe_parse_json - A (3)
+    F 357:0 fetch_session_list - A (2)
+    F 942:0 _extract_policy_name - A (2)
+    C 35:0 StoredEvent - A (1)
+src/luthien_proxy/history/models.py
+    C 15:0 MessageType - A (1)
+    C 26:0 PolicyAnnotation - A (1)
+    C 35:0 ConversationMessage - A (1)
+    C 47:0 ConversationTurn - A (1)
+    C 69:0 SessionSummary - A (1)
+    C 88:0 SessionListResponse - A (1)
+    C 97:0 SessionDetail - A (1)
+src/luthien_proxy/history/routes.py
+    F 111:0 export_session - A (5)
+    F 140:0 export_session_jsonl_endpoint - A (5)
+    F 42:0 history_list_page - A (2)
+    F 93:0 get_session - A (2)
+    F 61:0 list_sessions - A (1)
+src/luthien_proxy/request_log/service.py
+    F 67:0 list_request_logs - C (12)
+    F 43:0 _row_to_entry - B (10)
+    F 171:0 get_transaction_logs - B (6)
+    F 32:0 _parse_jsonb - A (4)
+    F 25:0 _parse_ts - A (2)
+src/luthien_proxy/request_log/models.py
+    C 10:0 RequestLogEntry - A (1)
+    C 33:0 RequestLogListResponse - A (1)
+    C 42:0 RequestLogDetailResponse - A (1)
+src/luthien_proxy/request_log/recorder.py
+    F 60:0 _insert_log_row - A (4)
+    F 31:0 _log_task_exception - A (3)
+    F 311:0 create_recorder - A (3)
+    M 228:4 RequestLogRecorder._serialize_body - A (3)
+    M 237:4 RequestLogRecorder._write_logs - A (3)
+    C 117:0 RequestLogRecorder - A (2)
+    M 160:4 RequestLogRecorder.record_inbound_response - A (2)
+    M 215:4 RequestLogRecorder.flush - A (2)
+    C 253:0 NoOpRequestLogRecorder - A (2)
+    C 38:0 _PendingLog - A (1)
+    M 130:4 RequestLogRecorder.__init__ - A (1)
+    M 138:4 RequestLogRecorder.record_inbound_request - A (1)
+    M 179:4 RequestLogRecorder.record_outbound_request - A (1)
+    M 199:4 RequestLogRecorder.record_outbound_response - A (1)
+    M 259:4 NoOpRequestLogRecorder.__init__ - A (1)
+    M 262:4 NoOpRequestLogRecorder.record_inbound_request - A (1)
+    M 276:4 NoOpRequestLogRecorder.record_inbound_response - A (1)
+    M 286:4 NoOpRequestLogRecorder.record_outbound_request - A (1)
+    M 298:4 NoOpRequestLogRecorder.record_outbound_response - A (1)
+    M 307:4 NoOpRequestLogRecorder.flush - A (1)
+src/luthien_proxy/request_log/sanitize.py
+    F 28:0 sanitize_headers - A (3)
+src/luthien_proxy/request_log/routes.py
+    F 67:0 get_transaction - A (4)
+    F 29:0 list_logs - A (3)
+src/luthien_proxy/inference/direct_api.py
+    M 82:4 DirectApiProvider.complete - C (11)
+    F 171:0 _build_messages - B (10)
+    F 220:0 _coerce_system_content - B (7)
+    C 54:0 DirectApiProvider - B (7)
+    F 271:0 _translate_response_format - A (4)
+    F 296:0 _parse_and_validate - A (4)
+    M 68:4 DirectApiProvider.__init__ - A (1)
+src/luthien_proxy/inference/registry.py
+    F 530:0 _row_to_record - B (7)
+    M 419:4 InferenceProviderRegistry._resolve_record - B (6)
+    M 378:4 InferenceProviderRegistry.get - A (5)
+    F 258:0 _build_direct_api - A (3)
+    F 565:0 _validate_record - A (3)
+    C 167:0 NullCredentialDirectApiProvider - A (3)
+    M 205:4 NullCredentialDirectApiProvider.complete - A (3)
+    C 298:0 InferenceProviderRegistry - A (3)
+    M 348:4 InferenceProviderRegistry.list - A (3)
+    M 359:4 InferenceProviderRegistry.get_record - A (3)
+    M 446:4 InferenceProviderRegistry.put - A (3)
+    M 491:4 InferenceProviderRegistry.delete - A (3)
+    F 238:0 _build_claude_code - A (2)
+    M 310:4 InferenceProviderRegistry.__init__ - A (2)
+    C 86:0 InferenceRegistryError - A (1)
+    C 95:0 UnknownBackendTypeError - A (1)
+    C 104:0 ProviderNotFoundError - A (1)
+    C 108:0 MissingCredentialError - A (1)
+    C 122:0 CredentialResolutionError - A (1)
+    C 132:0 NullCredentialError - A (1)
+    C 144:0 ProviderRecord - A (1)
+    M 185:4 NullCredentialDirectApiProvider.__init__ - A (1)
+    M 344:4 InferenceProviderRegistry.initialize - A (1)
+    M 507:4 InferenceProviderRegistry.close - A (1)
+    M 515:4 InferenceProviderRegistry._invalidate - A (1)
+    M 519:4 InferenceProviderRegistry.known_backend_types - A (1)
+src/luthien_proxy/inference/base.py
+    F 230:0 extract_schema - A (4)
+    F 259:0 validate_schema - A (4)
+    C 95:0 InferenceResult - A (2)
+    C 142:0 InferenceProvider - A (2)
+    C 36:0 InferenceError - A (1)
+    C 44:0 InferenceProviderError - A (1)
+    C 53:0 InferenceInvalidCredentialError - A (1)
+    C 61:0 InferenceTimeoutError - A (1)
+    C 69:0 InferenceCredentialOverrideUnsupported - A (1)
+    C 80:0 InferenceStructuredOutputError - A (1)
+    M 127:4 InferenceResult.from_text - A (1)
+    M 132:4 InferenceResult.from_structured - A (1)
+    M 157:4 InferenceProvider.__init__ - A (1)
+    M 162:4 InferenceProvider.complete - A (1)
+    M 217:4 InferenceProvider.close - A (1)
+    M 225:4 InferenceProvider.__repr__ - A (1)
+src/luthien_proxy/inference/claude_code.py
+    M 237:4 ClaudeCodeProvider._parse_output - C (12)
+    F 560:0 _redact_argv_for_log - B (8)
+    C 95:0 ClaudeCodeProvider - B (8)
+    M 144:4 ClaudeCodeProvider.complete - B (8)
+    F 401:0 _reap_child - B (7)
+    F 603:0 _render_prompt - B (7)
+    F 653:0 _content_to_text - B (7)
+    F 334:0 _run_subprocess - A (5)
+    F 504:0 _build_child_env - A (4)
+    F 474:0 _terminate_and_wait - A (3)
+    M 107:4 ClaudeCodeProvider.__init__ - A (2)
+src/luthien_proxy/policy_core/anthropic_hook_policy.py
+    C 23:0 AnthropicHookPolicy - A (2)
+    M 36:4 AnthropicHookPolicy.on_anthropic_request - A (1)
+    M 40:4 AnthropicHookPolicy.on_anthropic_response - A (1)
+    M 44:4 AnthropicHookPolicy.on_anthropic_stream_event - A (1)
+    M 50:4 AnthropicHookPolicy.on_anthropic_stream_complete - A (1)
+src/luthien_proxy/policy_core/policy_context.py
+    M 160:4 PolicyContext.record_event - A (5)
+    M 177:4 PolicyContext.span - A (4)
+    M 227:4 PolicyContext.get_request_state - A (4)
+    C 33:0 PolicyContext - A (3)
+    M 210:4 PolicyContext.add_span_event - A (3)
+    M 252:4 PolicyContext.pop_request_state - A (3)
+    M 51:4 PolicyContext.__init__ - A (2)
+    M 113:4 PolicyContext.credential_manager - A (2)
+    M 127:4 PolicyContext.policy_cache - A (2)
+    M 264:4 PolicyContext.__deepcopy__ - A (2)
+    M 101:4 PolicyContext.emitter - A (1)
+    M 146:4 PolicyContext.has_policy_cache - A (1)
+    M 151:4 PolicyContext.scratchpad - A (1)
+    M 300:4 PolicyContext.for_testing - A (1)
+src/luthien_proxy/policy_core/anthropic_tool_call_buffer.py
+    F 219:0 transform_anthropic_response - C (14)
+    M 164:4 ToolCallStreamBuffer._on_message_delta - B (6)
+    F 314:0 _events_for_tool_use - A (5)
+    M 111:4 ToolCallStreamBuffer.process - A (5)
+    M 195:4 ToolCallStreamBuffer._emit_block - A (5)
+    C 50:0 BufferedToolCall - A (4)
+    M 58:4 BufferedToolCall.input - A (4)
+    C 98:0 ToolCallStreamBuffer - A (4)
+    M 133:4 ToolCallStreamBuffer._on_block_delta - A (4)
+    F 287:0 _adjust_stop_reason - A (3)
+    M 154:4 ToolCallStreamBuffer._on_block_stop - A (3)
+    F 283:0 _is_tool_use_block - A (2)
+    M 123:4 ToolCallStreamBuffer._on_block_start - A (2)
+    F 301:0 _events_for_text - A (1)
+    M 70:4 BufferedToolCall.as_content_block - A (1)
+    C 88:0 _BufferState - A (1)
+    M 106:4 ToolCallStreamBuffer.__init__ - A (1)
+    M 190:4 ToolCallStreamBuffer._allocate_output_index - A (1)
+src/luthien_proxy/policy_core/anthropic_execution_interface.py
+    C 30:0 AnthropicPolicyIOProtocol - A (2)
+    C 61:0 AnthropicExecutionInterface - A (2)
+    M 38:4 AnthropicPolicyIOProtocol.request - A (1)
+    M 42:4 AnthropicPolicyIOProtocol.set_request - A (1)
+    M 47:4 AnthropicPolicyIOProtocol.first_backend_response - A (1)
+    M 51:4 AnthropicPolicyIOProtocol.complete - A (1)
+    M 55:4 AnthropicPolicyIOProtocol.stream - A (1)
+    M 68:4 AnthropicExecutionInterface.on_anthropic_request - A (1)
+    M 76:4 AnthropicExecutionInterface.on_anthropic_response - A (1)
+    M 84:4 AnthropicExecutionInterface.on_anthropic_stream_event - A (1)
+    M 92:4 AnthropicExecutionInterface.on_anthropic_stream_complete - A (1)
+src/luthien_proxy/policy_core/base_policy.py
+    M 171:4 BasePolicy.get_config - A (5)
+    C 99:0 BasePolicy - A (3)
+    M 136:4 BasePolicy._validate_no_mutable_instance_state - A (3)
+    M 197:4 BasePolicy._init_config - A (3)
+    C 29:0 Category - A (1)
+    C 42:0 CatalogBadge - A (1)
+    C 53:0 UIMetadata - A (1)
+    M 127:4 BasePolicy.freeze_configured_state - A (1)
+    M 155:4 BasePolicy.short_policy_name - A (1)
+    M 163:4 BasePolicy.active_policy_names - A (1)
+src/luthien_proxy/policy_core/text_modifier_policy.py
+    M 112:4 TextModifierPolicy.on_anthropic_stream_event - C (15)
+    M 78:4 TextModifierPolicy._modify_anthropic_response - C (11)
+    C 56:0 TextModifierPolicy - B (6)
+    M 193:4 TextModifierPolicy.on_anthropic_stream_complete - B (6)
+    M 165:4 TextModifierPolicy._flush_before_message_delta - A (4)
+    C 48:0 _StreamState - A (1)
+    M 70:4 TextModifierPolicy.modify_text - A (1)
+    M 74:4 TextModifierPolicy.extra_text - A (1)
+    M 103:4 TextModifierPolicy.on_anthropic_request - A (1)
+    M 107:4 TextModifierPolicy.on_anthropic_response - A (1)
+src/luthien_proxy/perf/seeding.py
+    F 120:0 _seed_sqlite - C (12)
+    F 95:0 _call_count - A (3)
+    F 254:0 seed_sessions - A (3)
+    F 283:0 seed_sami_like - A (3)
+    F 113:0 _sqlite_path - A (2)
+    F 79:0 _fmt_ts - A (1)
+    F 83:0 _req_payload - A (1)
+    F 89:0 _resp_payload - A (1)
+    C 67:0 SeedingReport - A (1)
+src/luthien_proxy/perf/db.py
+    F 15:0 get_perf_db_url - A (4)
+    F 37:0 ensure_perf_isolation - A (4)
+    F 63:0 drop_perf_db - A (2)
+    F 89:0 migrate_perf_db - A (2)
+    F 112:0 _migrate_sqlite - A (1)
+src/luthien_proxy/perf/timing_middleware.py
+    C 93:0 ServerTimingMiddleware - A (4)
+    M 106:4 ServerTimingMiddleware.dispatch - A (3)
+    F 47:0 time_phase - A (2)
+    F 75:0 format_phases - A (2)
+src/luthien_proxy/perf/cursor.py
+    F 40:0 decode_cursor - A (5)
+    F 20:0 encode_cursor - A (1)
+    F 78:0 cursor_where_clause - A (1)
+src/luthien_proxy/debug/service.py
+    F 261:0 fetch_call_diff - C (12)
+    F 76:0 compute_request_diff - B (6)
+    F 137:0 _extract_response_content - B (6)
+    F 205:0 fetch_call_events - B (6)
+    F 41:0 _parse_payload - A (3)
+    F 329:0 fetch_recent_calls - A (3)
+    F 51:0 build_tempo_url - A (2)
+    F 161:0 _extract_finish_reason - A (2)
+    F 68:0 extract_message_content - A (1)
+    F 176:0 compute_response_diff - A (1)
+src/luthien_proxy/debug/models.py
+    C 14:0 ConversationEventResponse - A (1)
+    C 25:0 CallEventsResponse - A (1)
+    C 34:0 MessageDiff - A (1)
+    C 44:0 RequestDiff - A (1)
+    C 56:0 ResponseDiff - A (1)
+    C 67:0 CallDiffResponse - A (1)
+    C 76:0 CallListItem - A (1)
+    C 85:0 CallListResponse - A (1)
+src/luthien_proxy/debug/routes.py
+    F 38:0 get_call_events - A (4)
+    F 69:0 get_call_diff - A (4)
+    F 100:0 list_recent_calls - A (3)
+src/luthien_proxy/credentials/store.py
+    M 43:4 CredentialStore.get - B (10)
+    C 21:0 CredentialStore - A (5)
+    M 24:4 CredentialStore.__init__ - A (3)
+    M 84:4 CredentialStore.put - A (3)
+    M 128:4 CredentialStore.list_names - A (2)
+    M 120:4 CredentialStore.delete - A (1)
+src/luthien_proxy/credentials/auth_provider.py
+    F 45:0 parse_auth_provider - C (12)
+    C 14:0 UserCredentials - A (1)
+    C 19:0 ServerKey - A (1)
+    C 26:0 UserThenServer - A (1)
+src/luthien_proxy/credentials/credential.py
+    C 23:0 Credential - A (3)
+    M 36:4 Credential.__repr__ - A (2)
+    C 15:0 CredentialType - A (1)
+    C 42:0 CredentialError - A (1)
+    C 46:0 ServerCredentialNotFoundError - A (1)
+src/luthien_cli/tests/test_onboard.py
+    M 16:4 TestEnsureDockerEnv.test_sets_postgres_vars_from_example - C (17)
+    C 13:0 TestEnsureDockerEnv - B (9)
+    M 67:4 TestEnsureDockerEnv.test_sets_vars_even_without_example - A (4)
+    M 79:4 TestEnsureDockerEnv.test_env_file_permissions - A (2)
+    C 91:0 TestOnboardDockerCloneSystemExit - A (2)
+    M 94:4 TestOnboardDockerCloneSystemExit.test_ensure_repo_clone_system_exit_propagates - A (1)
+src/luthien_cli/tests/test_local_build_fallback.py
+    M 225:4 TestEnsureRepoClone.test_updates_existing_repo_with_fetch_reset - B (7)
+    C 14:0 TestLocalBuildFallback - A (4)
+    M 30:4 TestLocalBuildFallback.test_pull_fail_offers_local_build - A (4)
+    M 121:4 TestLocalBuildFallback.test_build_fails_suggests_local_mode - A (4)
+    C 193:0 TestEnsureRepoClone - A (4)
+    M 199:4 TestEnsureRepoClone.test_clones_fresh_repo - A (4)
+    M 95:4 TestLocalBuildFallback.test_pull_fail_user_declines_suggests_local_mode - A (3)
+    M 166:4 TestLocalBuildFallback.test_pull_succeeds_no_fallback_offered - A (3)
+    M 276:4 TestEnsureRepoClone.test_fetch_failure_continues - A (2)
+    M 17:4 TestLocalBuildFallback._make_config - A (1)
+    M 252:4 TestEnsureRepoClone.test_no_git_exits - A (1)
+    M 259:4 TestEnsureRepoClone.test_clone_failure_exits - A (1)
+src/luthien_cli/tests/test_onboard_error_handling.py
+    C 196:0 TestDownloadFiles403 - A (5)
+    C 14:0 TestDockerPullErrorHandling - A (4)
+    M 108:4 TestDockerPullErrorHandling.test_pull_bare_denied_does_not_match - A (4)
+    M 154:4 TestDockerPullErrorHandling.test_pull_generic_failure_shows_raw_stderr - A (4)
+    M 201:4 TestDownloadFiles403.test_download_403_shows_access_denied - A (4)
+    M 224:4 TestDownloadFiles403.test_download_401_shows_access_denied - A (4)
+    M 247:4 TestDownloadFiles403.test_download_404_shows_generic_error - A (4)
+    M 26:4 TestDockerPullErrorHandling.test_pull_403_shows_access_denied_message - A (3)
+    M 48:4 TestDockerPullErrorHandling.test_pull_unauthorized_shows_access_denied_message - A (3)
+    M 68:4 TestDockerPullErrorHandling.test_pull_forbidden_shows_access_denied_message - A (3)
+    M 88:4 TestDockerPullErrorHandling.test_pull_access_denied_shows_access_denied_message - A (3)
+    M 133:4 TestDockerPullErrorHandling.test_pull_none_stderr_handled_gracefully - A (3)
+    M 176:4 TestDockerPullErrorHandling.test_pull_empty_stderr_shows_generic_message - A (3)
+    M 17:4 TestDockerPullErrorHandling._make_config - A (1)
+src/luthien_cli/src/luthien_cli/gateway_client.py
+    M 27:4 GatewayClient._request - B (7)
+    C 14:0 GatewayClient - A (2)
+    M 21:4 GatewayClient._admin_headers - A (2)
+    M 67:4 GatewayClient.set_policy - A (2)
+    C 10:0 GatewayError - A (1)
+    M 17:4 GatewayClient.__init__ - A (1)
+    M 48:4 GatewayClient._get - A (1)
+    M 51:4 GatewayClient._post - A (1)
+    M 54:4 GatewayClient.health - A (1)
+    M 57:4 GatewayClient.get_current_policy - A (1)
+    M 60:4 GatewayClient.get_auth_config - A (1)
+    M 63:4 GatewayClient.list_policies - A (1)
+src/luthien_cli/src/luthien_cli/config.py
+    F 47:0 save_config - A (5)
+    F 27:0 load_config - A (2)
+    C 19:0 LuthienConfig - A (1)
+src/luthien_cli/src/luthien_cli/local_process.py
+    F 64:0 start_gateway - C (12)
+    F 129:0 stop_gateway - B (9)
+    F 186:0 find_free_port - A (5)
+    F 34:0 _parse_env_value - A (4)
+    F 45:0 is_gateway_running - A (4)
+    F 174:0 is_port_free - A (3)
+    F 195:0 find_docker_ports - A (3)
+    F 21:0 _pid_file - A (1)
+    F 25:0 _log_file - A (1)
+    F 29:0 _venv_python - A (1)
+    F 41:0 _is_unix - A (1)
+    F 162:0 gateway_log_path - A (1)
+src/luthien_cli/src/luthien_cli/repo.py
+    F 96:0 _download_files - B (7)
+    F 137:0 ensure_repo - B (7)
+    F 188:0 ensure_gateway_venv - B (6)
+    F 248:0 ensure_repo_clone - B (6)
+    F 55:0 _remove_build_blocks - A (5)
+    F 28:0 resolve_proxy_ref - A (4)
+    F 171:0 _run_uv - A (3)
+    F 74:0 _get_remote_sha - A (1)
+    F 85:0 _strip_dev_only_lines - A (1)
+src/luthien_cli/src/luthien_cli/main.py
+    F 10:0 cli - A (1)
+src/luthien_cli/src/luthien_cli/commands/onboard.py
+    F 319:0 _onboard_docker - C (20)
+    F 440:0 onboard - B (9)
+    F 106:0 _ensure_docker_env - B (6)
+    F 197:0 _show_results - A (4)
+    F 27:0 _read_single_key - A (3)
+    F 77:0 _write_local_env - A (2)
+    F 186:0 _get_proxy_version - A (2)
+    F 270:0 _onboard_local - A (2)
+    F 73:0 _generate_key - A (1)
+    F 168:0 _write_policy - A (1)
+src/luthien_cli/src/luthien_cli/commands/hackathon.py
+    F 450:0 hackathon - C (13)
+    F 248:0 _start_hackathon_gateway - C (11)
+    F 68:0 _clone_repo - B (7)
+    F 150:0 _pick_policy - B (6)
+    F 172:0 _read_existing_admin_key - A (4)
+    F 237:0 _parse_env_value - A (4)
+    F 415:0 _checkout_proxy_ref - A (4)
+    F 127:0 _install_deps - A (3)
+    F 183:0 _write_env - A (2)
+    F 212:0 _write_policy_config - A (2)
+    F 64:0 _generate_key - A (1)
+    F 300:0 _show_hackathon_guide - A (1)
+src/luthien_cli/src/luthien_cli/commands/config_cmd.py
+    F 45:0 set_value - A (3)
+    F 62:0 _mask - A (3)
+    F 25:0 show - A (2)
+    F 20:0 config - A (1)
+src/luthien_cli/src/luthien_cli/commands/claude.py
+    F 16:0 _exec_claude - A (5)
+    F 62:0 _launch_claude - A (1)
+    F 75:0 claude - A (1)
+src/luthien_cli/src/luthien_cli/commands/policy.py
+    F 228:0 show - C (18)
+    F 317:0 set_policy - C (12)
+    F 69:0 _interactive_pick - B (8)
+    F 175:0 list_policies - B (8)
+    F 142:0 current - B (6)
+    F 30:0 _resolve_class_ref - A (5)
+    F 58:0 _policy_completions - A (5)
+    F 25:0 _short_name - A (2)
+    F 52:0 _truncate - A (2)
+    F 135:0 policy - A (2)
+    F 20:0 _make_client - A (1)
+    F 48:0 _is_preset - A (1)
+src/luthien_cli/src/luthien_cli/commands/agent_tutorial.py
+    F 12:0 _resolve_policies_dir - A (5)
+    F 209:0 agent_tutorial - A (1)
+src/luthien_cli/src/luthien_cli/commands/up.py
+    F 52:0 ensure_gateway_up - C (15)
+    F 155:0 up - C (11)
+    F 184:0 down - A (4)
+    F 25:0 wait_for_healthy - A (2)
+    F 46:0 _port_from_url - A (2)
+    F 142:0 is_gateway_healthy - A (2)
+src/luthien_cli/src/luthien_cli/commands/restart.py
+    F 14:0 restart - B (7)
+src/luthien_cli/src/luthien_cli/commands/logs.py
+    F 17:0 logs - B (8)
+src/luthien_cli/src/luthien_cli/commands/status.py
+    F 20:0 status - A (4)
+    F 11:0 make_client - A (1)
+
+1064 blocks (classes, functions, methods) analyzed.
+Average complexity: A (3.2481203007518795)
+== Clean tree check (post) ==
+ERROR: Unexpected uncommitted changes after gating checks.
+ .sisyphus/evidence/baseline-query-plans.md | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)

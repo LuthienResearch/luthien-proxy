@@ -1,0 +1,11 @@
+After-run SLO check
+sami-like fixture: run attempted (--tier 1000 --backend sqlite)
+Playwright tests: FAILED (timeout in test_harness_smoke / gateway fixture)
+4 API contract tests: PASSED
+Session count seeded: 178 (partial - timeout before tier-1000 complete)
+Note: Full SLO assertion requires Playwright perf tests to run successfully
+Note: Same infrastructure issue as baseline (perf-report-baseline.md shows NO DATA YET for timings)
+Query plan evidence:
+  - session_list: SEARCH USING INDEX idx_conversation_events_session_id_btree (IMPROVED from idx_conversation_events_session)
+  - session_detail: SEARCH USING INDEX idx_conversation_events_session_id_btree (IMPROVED)
+  - recent_calls: SCAN with USE TEMP B-TREE FOR GROUP BY (unchanged - no index on call_id)
