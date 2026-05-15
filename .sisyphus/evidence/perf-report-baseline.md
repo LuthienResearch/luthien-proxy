@@ -1,7 +1,7 @@
-git_sha: b77c6548c916b2a7924471ab8ac8232beb155f4c
+git_sha: 0158b252ee54580f477961d2e25dab0838da5db2
 browser_version: 1.50.0
 backend: sqlite
-generated_at: 2026-05-14T23:45:51.187136+00:00
+generated_at: 2026-05-15T00:23:57.106574+00:00
 
 # Luthien Admin UI — Performance Baseline Report
 
@@ -14,7 +14,7 @@ generated_at: 2026-05-14T23:45:51.187136+00:00
 | RAM | 38 GB |
 | OS | Darwin 22.6.0 |
 | Python | 3.13.5 |
-| git_sha | `b77c6548c916b2a7924471ab8ac8232beb155f4c` |
+| git_sha | `0158b252ee54580f477961d2e25dab0838da5db2` |
 | DB backend | sqlite |
 | Playwright | 1.50.0 |
 
@@ -140,3 +140,7 @@ _NO DATA YET — hotspots will be derived from measurement results._
 
 - `session_list`: 2× TEMP B-TREE (COUNT DISTINCT + ORDER BY) — scales poorly with row count
 - `recent_calls`: SCAN on all rows — O(n) over conversation_events
+
+## Postgres
+
+DEFERRED: Postgres is available but seeding and baseline capture were deferred to a dedicated Postgres environment. Run `./scripts/run_perf.sh --seed-only --tier 10000 --backend postgres` followed by `uv run python scripts/perf_explain.py --backend postgres` and `uv run python scripts/perf_report.py` to capture the Postgres baseline.
