@@ -19,6 +19,7 @@ from luthien_proxy.dependencies import get_admin_key, get_db_pool, get_event_pub
 from luthien_proxy.history.service import _fetch_session_turns_page, _fetch_sessions_page
 from luthien_proxy.observability.event_publisher import EventPublisherProtocol
 from luthien_proxy.perf.cursor import decode_cursor
+from luthien_proxy.perf.timing_middleware import time_phase
 from luthien_proxy.utils.db import DatabasePool
 
 router = APIRouter(prefix="", tags=["ui"])
@@ -246,7 +247,8 @@ async def fragment_session_turns(
         raise HTTPException(status_code=503, detail="Database not available")
 
     result = await _fetch_session_turns_page(session_id, cursor, limit, db_pool)
-    html = _render_turns_fragment(result["turns"], result["next_cursor"])  # type: ignore[arg-type]
+    with time_phase("render"):
+        html = _render_turns_fragment(result["turns"], result["next_cursor"])  # type: ignore[arg-type]
     return HTMLResponse(content=html, media_type="text/html; charset=utf-8")
 
 
@@ -279,7 +281,8 @@ async def fragment_sessions(
         raise HTTPException(status_code=503, detail="Database not available")
 
     result = await _fetch_sessions_page(cursor, limit, db_pool, q=q)
-    html = _render_sessions_fragment(result["sessions"], result["next_cursor"])  # type: ignore[arg-type]
+    with time_phase("render"):
+        html = _render_sessions_fragment(result["sessions"], result["next_cursor"])  # type: ignore[arg-type]
     return HTMLResponse(content=html, media_type="text/html; charset=utf-8")
 
 
