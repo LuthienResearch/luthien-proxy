@@ -9,18 +9,29 @@ from __future__ import annotations
 import os
 from html import escape as html_escape
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from luthien_proxy.auth import check_auth_or_redirect, get_base_url, verify_admin_token
-from luthien_proxy.dependencies import get_admin_key, get_event_publisher
+from luthien_proxy.dependencies import get_admin_key, get_db_pool, get_event_publisher
+from luthien_proxy.history.service import _fetch_session_turns_page, _fetch_sessions_page
 from luthien_proxy.observability.event_publisher import EventPublisherProtocol
+from luthien_proxy.perf.cursor import decode_cursor
+from luthien_proxy.utils.db import DatabasePool
 
 router = APIRouter(prefix="", tags=["ui"])
 
 # Static directory is relative to this module
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+
+# Template directory and Jinja2 environment
+TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates")
+_jinja_env = Environment(
+    loader=FileSystemLoader(TEMPLATES_DIR),
+    autoescape=select_autoescape(["html"]),
+)
 
 
 @router.get("/api/activity/stream")
@@ -204,6 +215,72 @@ async def client_setup(request: Request):
 async def deprecated_admin_redirect(path: str):
     """Redirect old admin paths to new API location."""
     return RedirectResponse(url=f"/api/admin/{path}", status_code=301)
+
+
+def _render_turns_fragment(turns: list[dict], next_cursor: str | None) -> str:
+    """Render turns HTML fragment using Jinja2 template."""
+    tpl = _jinja_env.get_template("fragments/turns.html")
+    return tpl.render(turns=turns, next_cursor=next_cursor)
+
+
+@router.get("/ui/fragments/sessions/{session_id}/turns")
+async def fragment_session_turns(
+    session_id: str,
+    request: Request,
+    limit: int = Query(default=10, ge=1, le=50),
+    cursor: str | None = Query(default=None),
+    admin_key: str | None = Depends(get_admin_key),
+    db_pool: DatabasePool | None = Depends(get_db_pool),
+):
+    redirect = check_auth_or_redirect(request, admin_key)
+    if redirect:
+        return redirect
+
+    if cursor is not None:
+        try:
+            decode_cursor(cursor)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid cursor: {e}")
+
+    if db_pool is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    result = await _fetch_session_turns_page(session_id, cursor, limit, db_pool)
+    html = _render_turns_fragment(result["turns"], result["next_cursor"])  # type: ignore[arg-type]
+    return HTMLResponse(content=html, media_type="text/html; charset=utf-8")
+
+
+def _render_sessions_fragment(sessions: list[dict], next_cursor: str | None) -> str:
+    """Render session list HTML fragment using Jinja2 template."""
+    tpl = _jinja_env.get_template("fragments/sessions.html")
+    return tpl.render(sessions=sessions, next_cursor=next_cursor)
+
+
+@router.get("/ui/fragments/sessions")
+async def fragment_sessions(
+    request: Request,
+    limit: int = Query(default=20, ge=1, le=100),
+    cursor: str | None = Query(default=None),
+    q: str | None = Query(default=None),
+    admin_key: str | None = Depends(get_admin_key),
+    db_pool: DatabasePool | None = Depends(get_db_pool),
+):
+    redirect = check_auth_or_redirect(request, admin_key)
+    if redirect:
+        return redirect
+
+    if cursor is not None:
+        try:
+            decode_cursor(cursor)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid cursor: {e}")
+
+    if db_pool is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    result = await _fetch_sessions_page(cursor, limit, db_pool, q=q)
+    html = _render_sessions_fragment(result["sessions"], result["next_cursor"])  # type: ignore[arg-type]
+    return HTMLResponse(content=html, media_type="text/html; charset=utf-8")
 
 
 __all__ = ["router"]
