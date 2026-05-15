@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import importlib.metadata
 import json
 import platform
 import subprocess
@@ -43,8 +44,6 @@ def _git_sha(repo_root: Path | None = None) -> str:
 
 def _playwright_version() -> str:
     try:
-        import importlib.metadata
-
         return importlib.metadata.version("playwright")
     except Exception:
         return "unknown"
