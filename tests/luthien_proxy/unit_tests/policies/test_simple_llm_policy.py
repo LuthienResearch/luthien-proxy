@@ -17,7 +17,6 @@ from anthropic.types import (
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
     RawMessageDeltaEvent,
-    TextBlock,
     TextDelta,
     ThinkingBlock,
     ToolUseBlock,
@@ -147,42 +146,47 @@ class TestToolBlockStreaming:
 
     @pytest.mark.asyncio
     async def test_tool_pass_through(self):
-        """Tool block judged 'pass' emits: start + delta + stop."""
+        """Tool block judged 'pass' buffers; the start+delta+stop emit at message_delta.
+
+        The builder buffers tool_use blocks so they always trail any text/warning
+        content (Anthropic 400s on next turn if anything follows a tool_use — #708).
+        """
         policy = _make_policy()
         ctx = _make_context()
 
         with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
             mock_judge.return_value = JudgeAction(action="pass")
 
-            # Start is suppressed (buffered for judge)
-            start_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
-            assert start_events == []
-
-            # Delta is buffered
-            delta_events = await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, tool_delta('{"command":"echo hi"}', 0)), ctx
+            # Start, delta, stop all buffered — nothing emits until message_delta
+            assert await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx) == []
+            assert (
+                await policy.on_anthropic_stream_event(
+                    cast(MessageStreamEvent, tool_delta('{"command":"echo hi"}', 0)), ctx
+                )
+                == []
             )
-            assert delta_events == []
+            assert await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx) == []
 
-            # Stop triggers judge, emits full tool block
-            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-            assert event_types(stop_events) == [
-                "content_block_start",
-                "content_block_delta",
-                "content_block_stop",
+            # message_delta flushes the buffered tool
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+            tool_starts = [
+                e
+                for e in msg_events
+                if isinstance(e, RawContentBlockStartEvent) and isinstance(e.content_block, ToolUseBlock)
             ]
-            # Verify reconstructed tool block
-            start = stop_events[0]
-            assert isinstance(start, RawContentBlockStartEvent)
-            assert isinstance(start.content_block, ToolUseBlock)
-            assert start.content_block.name == "Bash"
+            assert len(tool_starts) == 1
+            assert tool_starts[0].content_block.name == "Bash"
 
     @pytest.mark.asyncio
     async def test_tool_blocked_no_orphaned_stop(self):
-        """BUG FIX: Tool block judged 'block' must emit nothing — start was suppressed.
+        """Blocked tool: emission is deferred to message_delta — block_stop must be silent.
 
-        Before the fix, this returned [content_block_stop] without a preceding
-        content_block_start, violating the Anthropic streaming protocol.
+        The consolidated blocked-tools marker is emitted at message_delta so it
+        can list every blocked / truncated tool in one text block. Verify
+        block_stop emits nothing (and never a content_block_stop without a
+        matching start, which would violate the Anthropic streaming protocol).
         """
         policy = _make_policy()
         ctx = _make_context()
@@ -190,31 +194,35 @@ class TestToolBlockStreaming:
         with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
             mock_judge.return_value = JudgeAction(action="block")
 
-            # Start suppressed
             start_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
             assert start_events == []
 
-            # Delta buffered
             await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, tool_delta('{"command":"rm -rf /"}', 0)), ctx
             )
 
-            # Stop: blocked tool emits a text block explaining the block
             stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-            assert event_types(stop_events) == [
-                "content_block_start",
-                "content_block_delta",
-                "content_block_stop",
-            ], f"Blocked tool_use should emit explanatory text block, got: {event_types(stop_events)}"
-            # Verify the text explains what was blocked
-            delta = [e for e in stop_events if isinstance(e, RawContentBlockDeltaEvent)][0]
-            assert isinstance(delta.delta, TextDelta)
-            assert "Bash" in delta.delta.text
-            assert "blocked" in delta.delta.text
+            assert stop_events == [], (
+                f"Blocked tool's block_stop must defer to message_delta, got: {event_types(stop_events)}"
+            )
+
+            # Marker is emitted at message_delta.
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+            delta = [e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent)]
+            assert delta, f"Expected a text delta emitted at message_delta, got: {event_types(msg_events)}"
+            text_deltas = [d for d in delta if isinstance(d.delta, TextDelta)]
+            assert text_deltas and "Bash" in text_deltas[0].delta.text
+            assert "blocked" in text_deltas[0].delta.text
 
     @pytest.mark.asyncio
     async def test_tool_replaced_with_text(self):
-        """Tool block judged 'replace' with text emits text block events."""
+        """Tool replacement with text: replacement event emitted at message_delta.
+
+        Tool judges run concurrently — the decision (replace) is applied
+        when the orchestrator collects results in `_handle_message_delta`.
+        """
         policy = _make_policy()
         ctx = _make_context()
 
@@ -226,17 +234,14 @@ class TestToolBlockStreaming:
             await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, tool_delta('{"command":"echo hi"}', 0)), ctx
             )
+            assert await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx) == []
 
-            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-            assert event_types(stop_events) == [
-                "content_block_start",
-                "content_block_delta",
-                "content_block_stop",
-            ]
-            # Verify it's a text replacement, not tool_use
-            start = stop_events[0]
-            assert isinstance(start, RawContentBlockStartEvent)
-            assert isinstance(start.content_block, TextBlock)
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+        assert [type(s.content_block).__name__ for s in starts] == ["TextBlock"]
 
 
 # ============================================================================
@@ -265,19 +270,21 @@ class TestMultiBlockStreaming:
             text_stop = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
             assert event_types(text_stop) == ["content_block_start", "content_block_delta", "content_block_stop"]
 
-            # Tool block at index 1 — blocked, emits explanatory text
+            # Tool block at index 1 — blocked, marker deferred to message_delta
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(1)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta("{}", 1)), ctx)
             tool_stop = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
-            assert event_types(tool_stop) == [
-                "content_block_start",
-                "content_block_delta",
-                "content_block_stop",
-            ]
+            assert tool_stop == [], (
+                f"Blocked tool's block_stop must defer marker emission, got: {event_types(tool_stop)}"
+            )
 
-            # stop_reason should be end_turn (no tool_use passed through)
+            # message_delta emits the marker AND corrects stop_reason
             msg_events = await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+            marker_starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+            assert len(marker_starts) == 1, (
+                f"Expected one marker block at message_delta, got: {event_types(msg_events)}"
             )
             delta_event = [e for e in msg_events if isinstance(e, RawMessageDeltaEvent)][0]
             assert delta_event.delta.stop_reason == "end_turn"
@@ -293,7 +300,7 @@ class TestJudgeFailure:
 
     @pytest.mark.asyncio
     async def test_judge_failure_block_tool_suppressed(self):
-        """on_error='block' + judge failure on tool_use: nothing emitted."""
+        """on_error='block' + judge failure on tool_use: marker emitted at message_delta."""
         policy = _make_policy(on_error="block")
         ctx = _make_context()
 
@@ -304,48 +311,61 @@ class TestJudgeFailure:
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"cmd":"x"}', 0)), ctx)
 
             stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-            # Blocked tool emits explanatory text block
-            assert event_types(stop_events) == [
-                "content_block_start",
-                "content_block_delta",
-                "content_block_stop",
+            # Marker emission is deferred until message_delta.
+            assert stop_events == [], f"block_stop must defer marker, got: {event_types(stop_events)}"
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+            text_deltas = [
+                e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
             ]
+            assert text_deltas, f"Expected marker text emitted at message_delta, got: {event_types(msg_events)}"
+            assert "policy evaluation unavailable" in text_deltas[0].delta.text
 
     @pytest.mark.asyncio
     async def test_judge_failure_pass_tool_emitted_with_warning(self):
-        """on_error='pass' + judge failure on tool_use: tool passes through, warning injected at message_delta."""
+        """on_error='pass' + judge failure on tool_use: warning emitted BEFORE the
+        tool_use so the assistant message ends with the tool_use block.
+
+        Anthropic 400s on the next turn if any content follows a tool_use within
+        the assistant message ("tool_use ids were found without tool_result blocks
+        immediately after"). See issue #708.
+        """
         policy = _make_policy(on_error="pass")
         ctx = _make_context()
 
         with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
             mock_judge.return_value = JudgeAction(action="pass", judge_failed=True)
 
+            # Tool buffers; nothing emits at block_stop.
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"cmd":"echo"}', 0)), ctx)
+            assert await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx) == []
 
-            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
-            # Tool is passed through
-            assert event_types(stop_events) == [
+            # message_delta flushes: warning text block, then buffered tool, then message_delta.
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+            assert event_types(msg_events) == [
                 "content_block_start",
                 "content_block_delta",
                 "content_block_stop",
-            ]
+                "content_block_start",
+                "content_block_delta",
+                "content_block_stop",
+                "message_delta",
+            ], event_types(msg_events)
 
-            # Warning is injected before message_delta
-            msg_delta_events = await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, message_delta("tool_use")), ctx
-            )
-            types = event_types(msg_delta_events)
-            assert "content_block_start" in types, "Warning block should be injected before message_delta"
-            assert types[-1] == "message_delta", "message_delta should be last"
-
-            # Find the warning text
+            # Warning text in the first emitted block.
             warning_deltas = [
-                e
-                for e in msg_delta_events
-                if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+                e for e in msg_events[:3] if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
             ]
             assert any(JUDGE_UNAVAILABLE_WARNING in d.delta.text for d in warning_deltas)
+
+            # Last content_block_start is the tool_use — the #708 invariant.
+            last_start = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)][-1]
+            assert last_start.content_block.type == "tool_use"
 
 
 # ============================================================================
@@ -479,7 +499,7 @@ class TestJudgeFailedBlockedToolStreaming:
 
     @pytest.mark.asyncio
     async def test_tool_blocked_judge_failed_streaming(self):
-        """on_error='block' + judge failure on tool_use: blocked text says judge unavailable."""
+        """on_error='block' + judge failure: marker at message_delta uses judge-failed phrasing."""
         policy = _make_policy(on_error="block")
         ctx = _make_context()
 
@@ -490,23 +510,22 @@ class TestJudgeFailedBlockedToolStreaming:
             await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, tool_delta('{"command":"echo hi"}', 0)), ctx
             )
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
 
-            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
 
-        # Should emit a text block with the judge-failed message
-        assert event_types(stop_events) == [
-            "content_block_start",
-            "content_block_delta",
-            "content_block_stop",
+        text_deltas = [
+            e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
         ]
-        delta = [e for e in stop_events if isinstance(e, RawContentBlockDeltaEvent)][0]
-        assert isinstance(delta.delta, TextDelta)
-        assert "Bash" in delta.delta.text
-        assert "policy evaluation unavailable" in delta.delta.text
+        assert text_deltas
+        assert "Bash" in text_deltas[0].delta.text
+        assert "policy evaluation unavailable" in text_deltas[0].delta.text
 
     @pytest.mark.asyncio
     async def test_tool_blocked_intentional_uses_standard_message(self):
-        """Intentional block (no judge failure) uses the standard blocked message."""
+        """Intentional block (no judge failure): marker uses the standard blocked phrasing."""
         policy = _make_policy(on_error="block")
         ctx = _make_context()
 
@@ -517,13 +536,18 @@ class TestJudgeFailedBlockedToolStreaming:
             await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, tool_delta('{"command":"rm -rf /"}', 0)), ctx
             )
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
 
-            stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
 
-        delta = [e for e in stop_events if isinstance(e, RawContentBlockDeltaEvent)][0]
-        assert isinstance(delta.delta, TextDelta)
-        assert "blocked by policy" in delta.delta.text
-        assert "policy evaluation unavailable" not in delta.delta.text
+        text_deltas = [
+            e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+        ]
+        assert text_deltas
+        assert "blocked by policy" in text_deltas[0].delta.text
+        assert "policy evaluation unavailable" not in text_deltas[0].delta.text
 
 
 # ============================================================================
@@ -859,3 +883,423 @@ class TestMultiBlockReplacementIndices:
             snapshot = accumulate_event(event=ev, current_snapshot=snapshot)
         assert snapshot is not None
         assert len(snapshot.content) == 3, f"SDK accumulator should see 3 blocks, got {len(snapshot.content)}"
+
+
+# ============================================================================
+# Tool_use-trailing invariant + block-truncation (#708)
+# ============================================================================
+#
+# Anthropic empirically rejects any non-tool_use content following the first
+# tool_use in a single assistant message (live-API probe at
+# tests/luthien_proxy/e2e_tests/real_anthropic/probe_tool_use_invariant.py).
+# Two related behaviours are tested here:
+#
+# 1. Text emission after a tool_use is dropped from every emission site
+#    (streaming pass / replace / block, non-streaming).
+# 2. Once a tool is blocked, all subsequent tools in the same response are
+#    dropped without judging — partial intervention has no clean way to
+#    communicate (the "[Tool X was blocked]" marker can't follow a prior
+#    tool_use either).
+
+
+class TestToolUseTrailingStreaming:
+    """Streaming: nothing follows the first tool_use except more tool_uses (#708)."""
+
+    @pytest.mark.asyncio
+    async def test_text_after_tool_emits_with_tool_trailing(self):
+        """`[tool_pass, text_pass]` upstream → wire ends with `tool_use`.
+
+        With concurrent tool dispatch, the text's judge runs (synchronously)
+        before the tool's judge has resolved, so text commits to the wire
+        immediately. The tool's buffered emission lands at message_delta.
+        Either way the wire is `[..., text, tool]` — tool last, invariant ✓.
+        """
+        policy = _make_policy(on_error="pass")
+        ctx = _make_context()
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="pass")
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
+            tool_stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("after tool", 1)), ctx)
+            text_stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        all_events = tool_stop_events + text_stop_events + msg_events
+        starts = [e for e in all_events if isinstance(e, RawContentBlockStartEvent)]
+        assert [type(s.content_block).__name__ for s in starts] == ["TextBlock", "ToolUseBlock"]
+
+    @pytest.mark.asyncio
+    async def test_text_replacement_after_tool_emits_with_tool_trailing(self):
+        """Replacement text after a tool: replacement emits inline; tool flushes at finalize.
+
+        Wire ends `[replaced, tool]` — tool last.
+        """
+        policy = _make_policy(on_error="pass")
+        ctx = _make_context()
+
+        # Branch by descriptor type — concurrent dispatch means a list-style
+        # side_effect would be consumed in await order (text first, tool second),
+        # not call order, swapping the actions.
+        async def judge_by_type(descriptor, prev, ctx):
+            if descriptor.type == "tool_use":
+                return JudgeAction(action="pass")
+            return JudgeAction(action="replace", blocks=(ReplacementBlock(type="text", text="replaced"),))
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = judge_by_type
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
+            tool_stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("orig", 1)), ctx)
+            text_stop_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        all_events = tool_stop_events + text_stop_events + msg_events
+        starts = [e for e in all_events if isinstance(e, RawContentBlockStartEvent)]
+        assert [type(s.content_block).__name__ for s in starts] == ["TextBlock", "ToolUseBlock"]
+        text_deltas = [
+            e for e in all_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+        ]
+        assert any("replaced" in d.delta.text for d in text_deltas)
+
+    @pytest.mark.asyncio
+    async def test_judge_failure_after_buffered_tool_emits_warning_before_tool(self):
+        """Judge fails on text emitted AFTER a tool was buffered → warning still lands.
+
+        With the builder buffering tool_use until message_delta, a late judge
+        failure on a post-tool text block can still surface the warning *before*
+        the tool flush, satisfying the #708 invariant. Wire order ends up
+        [text, warning, tool_use] — tool_use last, warning visible to the user.
+        """
+        policy = _make_policy(on_error="pass")
+        ctx = _make_context()
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = [
+                JudgeAction(action="pass"),  # tool_use passes
+                JudgeAction(action="pass", judge_failed=True),  # later text fails judge
+            ]
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("after", 1)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        # Final content_block_start must be the tool_use (#708).
+        starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+        assert starts[-1].content_block.type == "tool_use"
+
+        # Warning text appears somewhere before the tool_use start.
+        text_deltas = [
+            e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+        ]
+        assert any(JUDGE_UNAVAILABLE_WARNING in d.delta.text for d in text_deltas)
+
+    @pytest.mark.asyncio
+    async def test_text_replaced_with_tool_then_passthrough_text(self):
+        """Regression: text→tool_use replacement followed by a passing text.
+
+        The replaced tool buffers until finalize; the subsequent pass-text
+        emits live at its block_stop. Total wire ends `[text, tool]` —
+        tool_use trails the live text, satisfying #708 by caller discipline.
+        """
+        policy = _make_policy(on_error="pass")
+        ctx = _make_context()
+        all_events: list[MessageStreamEvent] = []
+
+        async def feed(event: MessageStreamEvent) -> None:
+            all_events.extend(await policy.on_anthropic_stream_event(event, ctx))
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = [
+                JudgeAction(
+                    action="replace",
+                    blocks=(ReplacementBlock(type="tool_use", name="Bash", input={"cmd": "ls"}),),
+                ),
+                JudgeAction(action="pass"),
+            ]
+
+            await feed(cast(MessageStreamEvent, text_start(0)))
+            await feed(cast(MessageStreamEvent, text_delta("orig", 0)))
+            await feed(cast(MessageStreamEvent, block_stop(0)))
+
+            await feed(cast(MessageStreamEvent, text_start(1)))
+            await feed(cast(MessageStreamEvent, text_delta("after", 1)))
+            await feed(cast(MessageStreamEvent, block_stop(1)))
+
+            await feed(cast(MessageStreamEvent, message_delta("tool_use")))
+
+        starts = [e for e in all_events if isinstance(e, RawContentBlockStartEvent)]
+        assert [type(s.content_block).__name__ for s in starts] == ["TextBlock", "ToolUseBlock"]
+
+
+class TestConcurrentToolJudgingWithBail:
+    """Tool judges dispatched concurrently at block_stop; collected at message_delta.
+
+    The first `block` decision (in submission order) cancels every still-pending
+    tool judge. Bailed tools surface in the consolidated blocked-tools marker
+    so the next turn can see what was attempted.
+    """
+
+    @pytest.mark.asyncio
+    async def test_block_bails_subsequent_tools(self):
+        """`[A_pass, B_block, C_slow_pass]` upstream → wire: `[marker(B,C), A]`.
+
+        B's block fires before C completes. C is still pending when bail
+        triggers, so it gets cancelled and surfaces as Bailed. The marker
+        names both blocked B and bailed C.
+        """
+        import asyncio
+
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+        call_count = 0
+
+        async def judge_side_effect(_descriptor, _prev, _ctx):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return JudgeAction(action="pass")
+            if call_count == 2:
+                return JudgeAction(action="block")
+            await asyncio.sleep(10)  # cancelled by bail
+            return JudgeAction(action="pass")
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = judge_side_effect
+
+            for idx in (0, 1, 2):
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(idx)), ctx)
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta("{}", idx)), ctx)
+                assert await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(idx)), ctx) == []
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+        assert [type(s.content_block).__name__ for s in starts] == ["TextBlock", "ToolUseBlock"]
+
+        text_deltas = [
+            e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+        ]
+        marker = text_deltas[0].delta.text
+        assert "Tool calls" in marker
+        assert marker.count("Bash") == 2
+
+    @pytest.mark.asyncio
+    async def test_first_block_bails_everything_after(self):
+        """`[A_block, B_slow_block, C_slow_pass]` upstream → wire: `[marker]` only.
+
+        A blocks immediately; B and C are pending when bail fires, both
+        cancelled. No tool_use survives.
+        """
+        import asyncio
+
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+        call_count = 0
+
+        async def judge_side_effect(_descriptor, _prev, _ctx):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return JudgeAction(action="block")
+            await asyncio.sleep(10)  # cancelled by bail
+            return JudgeAction(action="pass" if call_count == 3 else "block")
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = judge_side_effect
+
+            for idx in (0, 1, 2):
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(idx)), ctx)
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta("{}", idx)), ctx)
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(idx)), ctx)
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+        assert [type(s.content_block).__name__ for s in starts] == ["TextBlock"]
+
+    @pytest.mark.asyncio
+    async def test_concurrent_dispatch_skips_judges_after_bail(self):
+        """When a block fires early, subsequent tools' judges are cancelled.
+
+        Without cancellation, all N judges would always complete. With it, we
+        save real latency once a block decision arrives.
+        """
+        import asyncio
+
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+
+        completed = 0
+        call_count = 0
+
+        async def judge_side_effect(descriptor, prev, ctx_):
+            nonlocal completed, call_count
+            call_count += 1
+            if call_count == 1:
+                # First tool blocks. Returns immediately so bail fires before
+                # the slow judges below can complete.
+                completed += 1
+                return JudgeAction(action="block")
+            # Subsequent tools: take a long time. Cancellation must abort.
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                raise
+            completed += 1
+            return JudgeAction(action="pass")
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = judge_side_effect
+
+            for idx in (0, 1, 2):
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(idx)), ctx)
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta("{}", idx)), ctx)
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(idx)), ctx)
+
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
+
+        assert completed == 1, f"Only the blocking judge should complete; got {completed}"
+
+
+class TestToolUseTrailingNonStreaming:
+    """Non-streaming: assistant content list must satisfy the invariant after processing."""
+
+    @pytest.mark.asyncio
+    async def test_text_after_tool_use_reordered_before_tool(self):
+        """`[tool, text]` upstream → `[text, tool]` downstream. Text is preserved, just reordered."""
+        policy = _make_policy(on_error="pass")
+        ctx = _make_context()
+
+        response: dict[str, Any] = {
+            "content": [
+                {"type": "tool_use", "id": "toolu_a", "name": "Bash", "input": {"x": 1}},
+                {"type": "text", "text": "trailing"},
+            ],
+            "stop_reason": "tool_use",
+        }
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="pass")
+            result = await policy.on_anthropic_response(response, ctx)
+
+        types = [b.get("type") for b in result["content"]]
+        assert types == ["text", "tool_use"], f"Text must be reordered before tool, got: {types}"
+
+    @pytest.mark.asyncio
+    async def test_text_between_tools_reordered_before_tools(self):
+        """`[tool_A, text, tool_B]` → `[text, tool_A, tool_B]`. Text preserved, tools trail."""
+        policy = _make_policy(on_error="pass")
+        ctx = _make_context()
+
+        response: dict[str, Any] = {
+            "content": [
+                {"type": "tool_use", "id": "toolu_a", "name": "Bash", "input": {"a": 1}},
+                {"type": "text", "text": "between"},
+                {"type": "tool_use", "id": "toolu_b", "name": "Bash", "input": {"b": 2}},
+            ],
+            "stop_reason": "tool_use",
+        }
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="pass")
+            result = await policy.on_anthropic_response(response, ctx)
+
+        types = [b.get("type") for b in result["content"]]
+        assert types == ["text", "tool_use", "tool_use"], f"Text must move before tools, got: {types}"
+
+    @pytest.mark.asyncio
+    async def test_marker_lists_all_blocked_tool_names(self):
+        """Multiple distinct tools blocked: the consolidated marker lists every name.
+
+        Each tool is judged independently; blocked ones accumulate into a single
+        marker text block emitted in the pre-tool slot.
+        """
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+
+        def _tool_start_named(idx: int, name: str) -> Any:
+            from anthropic.types import ToolUseBlock as _TUB
+
+            return cast(
+                MessageStreamEvent,
+                RawContentBlockStartEvent(
+                    type="content_block_start",
+                    index=idx,
+                    content_block=_TUB(type="tool_use", id=f"toolu_{idx}", name=name, input={}),
+                ),
+            )
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="block")
+
+            for idx, name in [(0, "Bash"), (1, "Read"), (2, "Edit")]:
+                await policy.on_anthropic_stream_event(_tool_start_named(idx, name), ctx)
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta("{}", idx)), ctx)
+                await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(idx)), ctx)
+
+            msg_events = await policy.on_anthropic_stream_event(
+                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+            )
+
+        text_deltas = [
+            e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
+        ]
+        assert text_deltas, f"Expected a marker block, got: {event_types(msg_events)}"
+        marker_text = text_deltas[0].delta.text
+        for name in ("Bash", "Read", "Edit"):
+            assert name in marker_text
+        assert "Tool calls" in marker_text
+
+    @pytest.mark.asyncio
+    async def test_block_in_middle_judges_all_tools_non_streaming(self):
+        """`[A_pass, B_block, C_pass]` → `[marker(B), A, C]`. Each tool judged independently."""
+        policy = _make_policy(on_error="block")
+        ctx = _make_context()
+
+        response: dict[str, Any] = {
+            "content": [
+                {"type": "tool_use", "id": "toolu_a", "name": "Bash", "input": {"a": 1}},
+                {"type": "tool_use", "id": "toolu_b", "name": "Bash", "input": {"b": 2}},
+                {"type": "tool_use", "id": "toolu_c", "name": "Bash", "input": {"c": 3}},
+            ],
+            "stop_reason": "tool_use",
+        }
+
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.side_effect = [
+                JudgeAction(action="pass"),
+                JudgeAction(action="block"),
+                JudgeAction(action="pass"),
+            ]
+            result = await policy.on_anthropic_response(response, ctx)
+
+        types = [b.get("type") for b in result["content"]]
+        assert types == ["text", "tool_use", "tool_use"], f"Got: {types}"
+        assert mock_judge.call_count == 3

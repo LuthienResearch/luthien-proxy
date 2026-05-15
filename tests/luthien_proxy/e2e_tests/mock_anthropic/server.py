@@ -373,11 +373,32 @@ class MockAnthropicServer:
                 },
             },
         )
+        tool_index = 0
+        if mock.text_preamble:
+            await emit(
+                "content_block_start",
+                {
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {"type": "text", "text": ""},
+                },
+            )
+            await emit(
+                "content_block_delta",
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": mock.text_preamble},
+                },
+            )
+            await emit("content_block_stop", {"type": "content_block_stop", "index": 0})
+            tool_index = 1
+
         await emit(
             "content_block_start",
             {
                 "type": "content_block_start",
-                "index": 0,
+                "index": tool_index,
                 "content_block": {
                     "type": "tool_use",
                     "id": tool_id,
@@ -396,12 +417,12 @@ class MockAnthropicServer:
                 "content_block_delta",
                 {
                     "type": "content_block_delta",
-                    "index": 0,
+                    "index": tool_index,
                     "delta": {"type": "input_json_delta", "partial_json": partial},
                 },
             )
 
-        await emit("content_block_stop", {"type": "content_block_stop", "index": 0})
+        await emit("content_block_stop", {"type": "content_block_stop", "index": tool_index})
         await emit(
             "message_delta",
             {

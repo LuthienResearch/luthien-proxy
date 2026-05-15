@@ -15,12 +15,6 @@ from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicPolicyEmission,
 )
 from luthien_proxy.policy_core.anthropic_hook_policy import AnthropicHookPolicy
-from luthien_proxy.policy_core.anthropic_tool_call_buffer import (
-    BufferedToolCall,
-    ToolCallStreamBuffer,
-    ToolCallTransform,
-    transform_anthropic_response,
-)
 from luthien_proxy.policy_core.base_policy import (
     BasePolicy,
     CatalogBadge,
@@ -40,11 +34,6 @@ __all__ = [
     "PolicyContext",
     # Text modifier base class
     "TextModifierPolicy",
-    # Tool-call buffer (policy-agnostic tool_use rewrite primitive)
-    "BufferedToolCall",
-    "ToolCallStreamBuffer",
-    "ToolCallTransform",
-    "transform_anthropic_response",
     # UI catalog metadata (no runtime effect)
     "UIMetadata",
     "Category",

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 from luthien_proxy.llm.types.anthropic import JSONObject
 from luthien_proxy.policies.tool_call_judge_utils import parse_judge_response
+from luthien_proxy.policy_core.block_descriptor import BlockDescriptor
 
 logger = logging.getLogger(__name__)
 
@@ -72,14 +73,6 @@ class SimpleLLMJudgeConfig(BaseModel):
     )
 
     model_config = {"frozen": True}
-
-
-@dataclass(frozen=True)
-class BlockDescriptor:
-    """Describes a content block from the LLM response."""
-
-    type: str
-    content: str
 
 
 @dataclass(frozen=True)
