@@ -1020,14 +1020,16 @@ class TestToolUseTrailingStreaming:
     async def test_text_replaced_with_tool_then_passthrough_text(self):
         """Regression: text→tool_use replacement followed by a passing text.
 
-        Devil round 2 found this case in the previous design: replacement
-        path didn't set the tool_use_emitted flag, so a subsequent passing
-        text emitted as a sibling of the new tool_use → `[tool, text]` → 400.
-        With the builder, the replacement-emitted tool is buffered and the
-        late text queues to pending_text. Wire ends `[text, tool]`.
+        The replaced tool buffers until finalize; the subsequent pass-text
+        emits live at its block_stop. Total wire ends `[text, tool]` —
+        tool_use trails the live text, satisfying #708 by caller discipline.
         """
         policy = _make_policy(on_error="pass")
         ctx = _make_context()
+        all_events: list[MessageStreamEvent] = []
+
+        async def feed(event: MessageStreamEvent) -> None:
+            all_events.extend(await policy.on_anthropic_stream_event(event, ctx))
 
         with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
             mock_judge.side_effect = [
@@ -1035,22 +1037,20 @@ class TestToolUseTrailingStreaming:
                     action="replace",
                     blocks=(ReplacementBlock(type="tool_use", name="Bash", input={"cmd": "ls"}),),
                 ),
-                JudgeAction(action="pass"),  # subsequent text passes
+                JudgeAction(action="pass"),
             ]
 
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(0)), ctx)
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("orig", 0)), ctx)
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            await feed(cast(MessageStreamEvent, text_start(0)))
+            await feed(cast(MessageStreamEvent, text_delta("orig", 0)))
+            await feed(cast(MessageStreamEvent, block_stop(0)))
 
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(1)), ctx)
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("after", 1)), ctx)
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(1)), ctx)
+            await feed(cast(MessageStreamEvent, text_start(1)))
+            await feed(cast(MessageStreamEvent, text_delta("after", 1)))
+            await feed(cast(MessageStreamEvent, block_stop(1)))
 
-            msg_events = await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, message_delta("tool_use")), ctx
-            )
+            await feed(cast(MessageStreamEvent, message_delta("tool_use")))
 
-        starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
+        starts = [e for e in all_events if isinstance(e, RawContentBlockStartEvent)]
         assert [type(s.content_block).__name__ for s in starts] == ["TextBlock", "ToolUseBlock"]
 
 
@@ -1064,21 +1064,30 @@ class TestConcurrentToolJudgingWithBail:
 
     @pytest.mark.asyncio
     async def test_block_bails_subsequent_tools(self):
-        """`[A_pass, B_block, C_pass]` upstream → wire: `[marker(B,C), A]`.
+        """`[A_pass, B_block, C_slow_pass]` upstream → wire: `[marker(B,C), A]`.
 
-        Tool A's judge returns pass (it's first in submission order).
-        Tool B's judge returns block — bail predicate fires.
-        Tool C's judge is cancelled; C surfaces as Bailed and joins the marker.
+        B's block fires before C completes. C is still pending when bail
+        triggers, so it gets cancelled and surfaces as Bailed. The marker
+        names both blocked B and bailed C.
         """
+        import asyncio
+
         policy = _make_policy(on_error="block")
         ctx = _make_context()
+        call_count = 0
+
+        async def judge_side_effect(_descriptor, _prev, _ctx):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return JudgeAction(action="pass")
+            if call_count == 2:
+                return JudgeAction(action="block")
+            await asyncio.sleep(10)  # cancelled by bail
+            return JudgeAction(action="pass")
 
         with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
-            mock_judge.side_effect = [
-                JudgeAction(action="pass"),
-                JudgeAction(action="block"),
-                JudgeAction(action="pass"),
-            ]
+            mock_judge.side_effect = judge_side_effect
 
             for idx in (0, 1, 2):
                 await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(idx)), ctx)
@@ -1089,33 +1098,39 @@ class TestConcurrentToolJudgingWithBail:
                 cast(MessageStreamEvent, message_delta("tool_use")), ctx
             )
 
-        # Wire order: one marker text block, then tool A only. tool_use last.
         starts = [e for e in msg_events if isinstance(e, RawContentBlockStartEvent)]
         assert [type(s.content_block).__name__ for s in starts] == ["TextBlock", "ToolUseBlock"]
 
-        # Marker uses plural and lists both blocked + bailed tools.
         text_deltas = [
             e for e in msg_events if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, TextDelta)
         ]
         marker = text_deltas[0].delta.text
-        assert "Tool calls" in marker  # plural
-        assert marker.count("Bash") == 2  # B and C both named Bash
+        assert "Tool calls" in marker
+        assert marker.count("Bash") == 2
 
     @pytest.mark.asyncio
     async def test_first_block_bails_everything_after(self):
-        """`[A_block, B_block, C_pass]` upstream → wire: `[marker]` only.
+        """`[A_block, B_slow_block, C_slow_pass]` upstream → wire: `[marker]` only.
 
-        A blocks first → B and C both bail. No tool_use survives.
+        A blocks immediately; B and C are pending when bail fires, both
+        cancelled. No tool_use survives.
         """
+        import asyncio
+
         policy = _make_policy(on_error="block")
         ctx = _make_context()
+        call_count = 0
+
+        async def judge_side_effect(_descriptor, _prev, _ctx):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return JudgeAction(action="block")
+            await asyncio.sleep(10)  # cancelled by bail
+            return JudgeAction(action="pass" if call_count == 3 else "block")
 
         with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
-            mock_judge.side_effect = [
-                JudgeAction(action="block"),
-                JudgeAction(action="block"),
-                JudgeAction(action="pass"),
-            ]
+            mock_judge.side_effect = judge_side_effect
 
             for idx in (0, 1, 2):
                 await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(idx)), ctx)

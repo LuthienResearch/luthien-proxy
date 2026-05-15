@@ -25,7 +25,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Generic, TypeVar
 
@@ -39,8 +38,8 @@ ResultT = TypeVar("ResultT")
 class Bailed:
     """Sentinel returned by `JudgeOrchestrator.collect()` for cancelled items.
 
-    Items whose dispatch was cancelled because an earlier submission triggered
-    the bail predicate are reported as `Bailed()` instead of a real result.
+    Items whose dispatch was cancelled because the bail predicate fired on
+    a peer task are reported as `Bailed()` instead of a real result.
     Distinguishable from a real `ResultT` via `isinstance`.
     """
 
@@ -56,12 +55,12 @@ class JudgeOrchestrator(Generic[TagT, ResultT]):
     of the response to receive `[(tag, result_or_Bailed), ...]` in
     submission order.
 
-    `bail_predicate` is consulted on each non-bailed result; the first
-    result for which it returns True cancels every later task. Cancellation
-    propagates as `asyncio.CancelledError` into the underlying coroutine —
-    HTTP libraries built on `asyncio` (httpx, aiohttp) abort in-flight
-    requests cleanly, so cancellation is a real perf win, not just a
-    bookkeeping change.
+    `bail_predicate` is consulted on each result as it completes (not in
+    submission order). The first result for which it returns True cancels
+    every still-pending task immediately — results already in hand at that
+    moment keep their real value. Cancellation propagates as
+    `asyncio.CancelledError` into the underlying coroutine; HTTP libraries
+    built on `asyncio` (httpx, aiohttp) abort in-flight requests cleanly.
     """
 
     bail_predicate: Callable[[ResultT], bool] | None = None
@@ -81,38 +80,52 @@ class JudgeOrchestrator(Generic[TagT, ResultT]):
         self._items.append((tag, task))
 
     async def collect(self) -> list[tuple[TagT, ResultT | Bailed]]:
-        """Await all submitted tasks in submission order, applying the bail rule.
+        """Wait for tasks as they finish, bailing immediately on the first match.
 
-        Returns one `(tag, result_or_Bailed)` per `submit()` call, in the
-        order they were submitted. Idempotent within a single
-        orchestrator: calling twice raises `RuntimeError`.
+        Returns one `(tag, result_or_Bailed)` per `submit()` call, in
+        submission order. Tasks that resolved before the bail trigger keep
+        their real result; tasks still pending at the bail moment are
+        cancelled and surface as `Bailed()`. Calling twice raises.
         """
         if self._collected:
             raise RuntimeError("JudgeOrchestrator.collect called twice")
         self._collected = True
 
-        results: list[tuple[TagT, ResultT | Bailed]] = []
+        if not self._items:
+            return []
+
+        task_meta: dict[asyncio.Task[ResultT], tuple[int, TagT]] = {
+            task: (i, tag) for i, (tag, task) in enumerate(self._items)
+        }
+        results: list[tuple[TagT, ResultT | Bailed] | None] = [None] * len(self._items)
+        pending: set[asyncio.Task[ResultT]] = {task for _, task in self._items}
         bailed = False
 
-        for tag, task in self._items:
-            if bailed:
-                task.cancel()
-                with suppress(asyncio.CancelledError, Exception):
-                    await task
-                results.append((tag, Bailed()))
-                continue
-
-            try:
-                result = await task
-            except asyncio.CancelledError:
-                results.append((tag, Bailed()))
-                continue
-
-            results.append((tag, result))
-            if self.bail_predicate is not None and self.bail_predicate(result):
+        while pending:
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            triggered = False
+            for task in done:
+                idx, tag = task_meta[task]
+                if task.cancelled():
+                    results[idx] = (tag, Bailed())
+                    continue
+                exc = task.exception()
+                if exc is not None:
+                    logger.warning(
+                        "JudgeOrchestrator: task raised %s; recording as Bailed", type(exc).__name__, exc_info=exc
+                    )
+                    results[idx] = (tag, Bailed())
+                    continue
+                result = task.result()
+                results[idx] = (tag, result)
+                if not bailed and self.bail_predicate is not None and self.bail_predicate(result):
+                    triggered = True
+            if triggered and not bailed:
                 bailed = True
+                for task in pending:
+                    task.cancel()
 
-        return results
+        return [r for r in results if r is not None]
 
 
 __all__ = ["JudgeOrchestrator", "Bailed"]
