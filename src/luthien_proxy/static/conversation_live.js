@@ -90,11 +90,16 @@ function conversationViewer() {
         },
 
         async loadInitial() {
+            window.__sessionId = this.conversationId;
+            const container = document.getElementById('conversation-container');
+            if (!container) return;
+
             try {
-                const resp = await fetch(
-                    `/api/history/sessions/${encodeURIComponent(this.conversationId)}`,
-                    { headers: { 'Accept': 'application/json' } }
-                );
+                const resp = await fetch(`/ui/fragments/sessions/${this.conversationId}/turns?limit=10`, {
+                    headers: { 
+                        'Accept': 'text/html',
+                     }
+                });
 
                 if (!resp.ok) {
                     if (resp.status === 403) {
@@ -105,13 +110,31 @@ function conversationViewer() {
                     if (resp.status === 404) throw new Error('Conversation not found');
                     throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
                 }
+                
+                const html = await resp.text();
 
-                const data = await resp.json();
-                this.processTurns(data);
-                this.updateStats(data);
+                const loadingState = container.querySelector('.loading-state');
+                if (loadingState) {
+                    loadingState.remove();
+                }
+                
+                container.insertAdjacentHTML('beforeend', html);
+                
+                const sentinel = container.querySelector('.load-more-sentinel[data-cursor]');
+                if (sentinel) {
+                    window.__turnsCursor = sentinel.dataset.cursor;
+                    sentinel.remove();
+                } else {
+                    window.__turnsCursor = null;
+                }
+
+                // Manually trigger Alpine to initialize the new content
+                if (window.Alpine) {
+                    window.Alpine.initTree(container);
+                }
+
                 this.updateTimestamp();
-                this.renderTurns();
-                this.$nextTick(() => this.autoScrollToBottom());
+
             } catch (err) {
                 this.showError(`Failed to load: ${err.message}`);
             }
@@ -171,80 +194,46 @@ function conversationViewer() {
                 data: event
             });
 
+            // Cap rawEvents per callId at 50 to prevent memory leak from unbounded growth
+            if (this.rawEvents[callId].length > 50) {
+                this.rawEvents[callId].splice(0, this.rawEvents[callId].length - 50);
+            }
+
             this.stats.events++;
 
             const shouldRefresh = eventType.includes('request_recorded') ||
-                                eventType.includes('response_recorded') ||
-                                eventType.includes('policy.');
-
+                                 eventType.includes('response_recorded') ||
+                                 eventType.includes('policy.');
+ 
             if (shouldRefresh) {
-                this.debouncedRefresh();
+                this.refreshTurns(callId, this.rawEvents[callId] || []);
             }
         },
 
-        debouncedRefresh() {
-            if (this.refreshTimer) clearTimeout(this.refreshTimer);
-            this.refreshTimer = setTimeout(() => this.refreshTurns(), 1000);
-        },
+        refreshTurns(callId, events) {
+            const existingTurn = document.querySelector(`[data-event-id="${callId}"]`);
 
-        async refreshTurns() {
-            try {
-                const resp = await fetch(
-                    `/api/history/sessions/${encodeURIComponent(this.conversationId)}`,
-                    { headers: { 'Accept': 'application/json' } }
-                );
-                if (!resp.ok) return;
-                const data = await resp.json();
-                const rawTurns = data.turns || [];
-                const newTurns = this.presentTurns(rawTurns);
-                if (rawTurns.length !== newTurns.length) {
-                    console.error('presentTurns must map 1:1 with rawTurns');
-                }
-                this._rawTurns = rawTurns;
-                this.turns = newTurns;
-
-                this.updateStats(data);
-                this.updateTimestamp();
-
-                const container = document.getElementById('conversation-container');
-
-                // Remove empty/loading state if present
-                const emptyState = container.querySelector('.empty-state, .loading-state');
-                if (emptyState) emptyState.remove();
-
-                const savedState = this.snapshotExpandState();
-
-                // Update existing turns only if their server data changed
-                // (e.g. response arrived, late policy annotation).
-                // Fingerprint raw server data, not derived presentation state.
-                // rawTurns[i] and newTurns[i] are aligned because presentTurns
-                // maps 1:1 without filtering.
-                for (let i = 0; i < newTurns.length; i++) {
-                    const turn = newTurns[i];
-                    const fp = JSON.stringify(rawTurns[i]);
-                    if (this.renderedCallIds.has(turn.call_id)) {
-                        if (fp !== this.turnFingerprints[turn.call_id]) {
-                            const existing = container.querySelector(`[data-call-id="${CSS.escape(turn.call_id)}"]`);
-                            if (existing) {
-                                existing.outerHTML = this.renderTurn(turn, i + 1);
-                            }
-                            this.turnFingerprints[turn.call_id] = fp;
-                        }
-                    } else {
-                        // New turn — append
-                        this.renderedCallIds.add(turn.call_id);
-                        this.turnFingerprints[turn.call_id] = fp;
-                        const html = this.renderTurn(turn, i + 1);
-                        container.insertAdjacentHTML('beforeend', html);
-                        const newEl = container.lastElementChild;
-                        if (newEl) newEl.classList.add('new-turn');
+            if (existingTurn) {
+                const latestEvent = events[events.length - 1];
+                if (latestEvent) {
+                    const preview = existingTurn.querySelector('.event-preview');
+                    if (preview) {
+                        preview.textContent = JSON.stringify(latestEvent.data).substring(0, 200);
                     }
+                    existingTurn.dataset.lastEventId = latestEvent.data.id;
+                    existingTurn.dataset.createdAt = latestEvent.timestamp;
                 }
-
-                this.restoreExpandState(savedState);
-                this.autoScrollToBottom();
-            } catch (err) {
-                console.error('Failed to refresh turns:', err);
+            } else {
+                const container = document.getElementById('conversation-container');
+                if (container) {
+                    const turnDiv = document.createElement('div');
+                    turnDiv.className = 'turn-row';
+                    turnDiv.dataset.eventId = callId;
+                    turnDiv.dataset.lastEventId = callId;
+                    turnDiv.dataset.createdAt = new Date().toISOString();
+                    turnDiv.innerHTML = `<span class="event-type">active</span><span class="event-preview">${callId}</span>`;
+                    container.appendChild(turnDiv);
+                }
             }
         },
 
@@ -743,6 +732,31 @@ function conversationViewer() {
                     </div>
                 </div>
             `;
+        },
+
+        async loadMoreTurns() {
+            if (!window.__turnsCursor) return;
+            const cursor = window.__turnsCursor;
+            window.__turnsCursor = null;
+            
+            const sessionId = window.__sessionId;
+            const resp = await fetch(`/ui/fragments/sessions/${sessionId}/turns?limit=10&cursor=${encodeURIComponent(cursor)}`, {
+                headers: { 'Accept': 'text/html' }
+            });
+            const html = await resp.text();
+            const container = document.getElementById('conversation-container');
+            const loadMoreElement = document.getElementById('turns-load-more');
+            loadMoreElement.insertAdjacentHTML('beforebegin', html);
+            
+            const sentinel = container.querySelector('.load-more-sentinel[data-cursor]');
+            if (sentinel) {
+                window.__turnsCursor = sentinel.dataset.cursor;
+                sentinel.remove();
+            }
+
+            if (window.Alpine) {
+                window.Alpine.initTree(container);
+            }
         },
 
         renderDiffPanels(label, originalMsgs, finalMsgs) {

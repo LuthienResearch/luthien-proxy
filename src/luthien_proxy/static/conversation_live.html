@@ -917,15 +917,22 @@
         </div>
 
         <div id="conversation-container" class="timeline">
-            <div class="loading-state">
-                <div class="spinner"></div>
-                <div>Loading conversation...</div>
-            </div>
+        </div>
+
+        <div 
+            id="turns-load-more"
+            x-data="{ cursor: null }"
+            x-intersect.once="$data.loadMoreTurns()"
+            x-show="window.__turnsCursor !== null"
+            >
+            Loading more turns...
         </div>
 
         <div class="update-indicator" x-text="lastUpdated"></div>
     </div>
 
+    <script defer src="/static/vendor/alpine-intersect-3.15.12.min.js"></script>
+    <script defer src="/static/vendor/alpine-ajax-0.12.7.min.js"></script>
     <script defer src="/static/vendor/alpine.min.js"></script>
     <script src="/static/nav.js"></script>
     <script src="/static/conversation_live.js"></script>
