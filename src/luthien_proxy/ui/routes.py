@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 
 from luthien_proxy.auth import check_auth_or_redirect, get_base_url, verify_admin_token
-from luthien_proxy.dependencies import get_admin_key, get_event_publisher
+from luthien_proxy.dependencies import get_admin_key, get_api_key, get_event_publisher
 from luthien_proxy.observability.event_publisher import EventPublisherProtocol
 
 router = APIRouter(prefix="", tags=["ui"])
@@ -67,13 +67,14 @@ async def landing_page():
 async def debug_activity_monitor(
     request: Request,
     admin_key: str | None = Depends(get_admin_key),
+    client_api_key: str | None = Depends(get_api_key),
 ):
     """Raw SSE event stream viewer for debugging.
 
     Low-level view of all gateway events. For normal use, see /history
     and /conversation/live/{id} instead.
     """
-    redirect = check_auth_or_redirect(request, admin_key)
+    redirect = check_auth_or_redirect(request, admin_key, client_api_key=client_api_key)
     if redirect:
         return redirect
     return FileResponse(os.path.join(STATIC_DIR, "activity_monitor.html"))
@@ -83,13 +84,14 @@ async def debug_activity_monitor(
 async def diff_viewer(
     request: Request,
     admin_key: str | None = Depends(get_admin_key),
+    client_api_key: str | None = Depends(get_api_key),
 ):
     """Diff viewer UI.
 
     Returns the HTML page for viewing policy diffs with side-by-side comparison.
     Requires admin authentication.
     """
-    redirect = check_auth_or_redirect(request, admin_key)
+    redirect = check_auth_or_redirect(request, admin_key, client_api_key=client_api_key)
     if redirect:
         return redirect
     return FileResponse(os.path.join(STATIC_DIR, "diff_viewer.html"))
@@ -99,6 +101,7 @@ async def diff_viewer(
 async def policy_config(
     request: Request,
     admin_key: str | None = Depends(get_admin_key),
+    client_api_key: str | None = Depends(get_api_key),
 ):
     """Policy configuration UI.
 
@@ -106,7 +109,7 @@ async def policy_config(
     through a guided wizard interface.
     Requires admin authentication.
     """
-    redirect = check_auth_or_redirect(request, admin_key)
+    redirect = check_auth_or_redirect(request, admin_key, client_api_key=client_api_key)
     if redirect:
         return redirect
     return FileResponse(os.path.join(STATIC_DIR, "policy_config.html"))
@@ -116,9 +119,10 @@ async def policy_config(
 async def config_dashboard(
     request: Request,
     admin_key: str | None = Depends(get_admin_key),
+    client_api_key: str | None = Depends(get_api_key),
 ):
     """Config dashboard — unified view of all gateway configuration with provenance."""
-    redirect = check_auth_or_redirect(request, admin_key)
+    redirect = check_auth_or_redirect(request, admin_key, client_api_key=client_api_key)
     if redirect:
         return redirect
     return FileResponse(os.path.join(STATIC_DIR, "config_dashboard.html"))
@@ -128,9 +132,10 @@ async def config_dashboard(
 async def credentials_page(
     request: Request,
     admin_key: str | None = Depends(get_admin_key),
+    client_api_key: str | None = Depends(get_api_key),
 ):
     """Credentials and auth configuration management UI."""
-    redirect = check_auth_or_redirect(request, admin_key)
+    redirect = check_auth_or_redirect(request, admin_key, client_api_key=client_api_key)
     if redirect:
         return redirect
     return FileResponse(os.path.join(STATIC_DIR, "credentials.html"))
@@ -152,13 +157,14 @@ async def inference_providers_page(
 async def request_logs_viewer(
     request: Request,
     admin_key: str | None = Depends(get_admin_key),
+    client_api_key: str | None = Depends(get_api_key),
 ):
     """Request/response logs viewer UI.
 
     Returns the HTML page for browsing and inspecting HTTP-level request logs.
     Requires admin authentication.
     """
-    redirect = check_auth_or_redirect(request, admin_key)
+    redirect = check_auth_or_redirect(request, admin_key, client_api_key=client_api_key)
     if redirect:
         return redirect
     return FileResponse(os.path.join(STATIC_DIR, "request_logs.html"))
@@ -169,6 +175,7 @@ async def conversation_live_view(
     request: Request,
     conversation_id: str,  # noqa: ARG001 - path param required by FastAPI
     admin_key: str | None = Depends(get_admin_key),
+    client_api_key: str | None = Depends(get_api_key),
 ):
     """Live conversation viewer.
 
@@ -176,7 +183,7 @@ async def conversation_live_view(
     message timeline, tool calls, and policy divergence diffs.
     Requires admin authentication.
     """
-    redirect = check_auth_or_redirect(request, admin_key)
+    redirect = check_auth_or_redirect(request, admin_key, client_api_key=client_api_key)
     if redirect:
         return redirect
     return FileResponse(os.path.join(STATIC_DIR, "conversation_live.html"))
