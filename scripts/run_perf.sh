@@ -10,7 +10,6 @@
 #   DATABASE_URL must be set explicitly and must not reference local.db.
 #
 # ABOUTME: Performance test runner for admin UI latency and payload SLOs.
-# ABOUTME: Runs Playwright-based perf tests against an isolated perf database.
 
 set -euo pipefail
 

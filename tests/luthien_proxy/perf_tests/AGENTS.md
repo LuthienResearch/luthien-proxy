@@ -54,10 +54,10 @@ uv run pytest tests/luthien_proxy/unit_tests
 
 Perf tests use Playwright for browser automation and timing measurement. Fixtures are defined in `conftest.py`:
 
-- **Browser fixtures**: `browser`, `page` — Chromium browser instance and page context
-- **Gateway fixtures**: `perf_gateway_url`, `perf_admin_api_key` — isolated perf test gateway
-- **Timing fixtures**: `measure_time()` — context manager for latency measurement
-- **Database fixtures**: `perf_db_path` — isolated SQLite database for perf tests (never touches dev DB)
+- **Browser fixtures**: `playwright_browser`, `playwright_page` — Chromium browser instance and page context
+- **Gateway fixtures**: `perf_gateway_url`, `admin_headers` — isolated perf test gateway and admin auth headers
+- **Timing helpers**: `measure_page_load(page, url, headers)` — measures TTFP and Navigation Timing
+- **Database fixtures**: `perf_db_url` — isolated SQLite database URL for perf tests (never touches dev DB)
 
 ## SLO Definitions
 
@@ -76,13 +76,6 @@ Performance targets are measured on a local network with sami-like fixture data 
 
 - **Local network**: < 1 second
 - **Throttled**: < 5 seconds
-
-### Scroll Performance SLO
-
-**Metric**: frame rate during transcript scroll (p95 frame time)
-
-- **Local network**: < 33ms per frame (p95)
-- **Throttled**: < 100ms per frame (p95)
 
 ### Payload Size SLO
 

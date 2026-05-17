@@ -1,9 +1,20 @@
-"""JSON API contract snapshot tests for 4 endpoints.
+"""JSON API contract snapshot tests.
 
 These tests capture the response shape (keys + types, not values) and fail if the shape changes.
 Snapshots are stored in tests/luthien_proxy/perf_tests/snapshots/ and can be regenerated with --update-snapshots.
 
 Marked with @pytest.mark.perf and @pytest.mark.contract for selective execution.
+
+Covered endpoints (4):
+  GET /api/history/sessions
+  GET /api/history/sessions/{id}
+  GET /api/debug/calls
+  GET /api/debug/calls/{id}
+
+Not covered (2) — these return pre-built Response objects that bypass response_model validation;
+drift would be silent until a caller notices:
+  GET /api/debug/calls/{id}/events  (CallEventsResponse shape)
+  GET /api/debug/calls/{id}/diff    (CallDiffResponse shape)
 """
 
 from __future__ import annotations
@@ -22,7 +33,6 @@ from luthien_proxy.perf.seeding import seed_sessions
 def seeded_perf_db(perf_db_url: str) -> None:
     """Seed the perf DB with test data once per session."""
     import sqlite3
-    from pathlib import Path
 
     db_path = Path.home() / ".luthien" / "perf.db"
     conn = sqlite3.connect(str(db_path))

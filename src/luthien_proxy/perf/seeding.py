@@ -270,6 +270,15 @@ def seed_sessions(
     Returns:
         SeedingReport with insertion statistics.
     """
+    if tier >= 10_000:
+        import warnings  # noqa: PLC0415
+
+        warnings.warn(
+            f"seed_sessions(tier={tier}) seeds ~{tier * 25 // 1000} GB on disk "
+            "and allocates a 128 MB SQLite cache. Ensure sufficient disk/RAM.",
+            stacklevel=2,
+        )
+
     url = get_perf_db_url(backend)
     ensure_perf_isolation(url)
     migrate_perf_db(backend)

@@ -153,7 +153,7 @@ def timed_json_response(model: object) -> Response:
         A pre-serialized JSON ``Response``.
     """
     with time_phase("serialize"):
-        body: str | bytes = model.model_dump_json()  # type: ignore[attr-defined]
+        body: str = model.model_dump_json()  # type: ignore[attr-defined]
     return Response(content=body, media_type="application/json")
 
 
