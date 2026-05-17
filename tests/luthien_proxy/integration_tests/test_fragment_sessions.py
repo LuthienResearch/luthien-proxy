@@ -161,7 +161,7 @@ async def test_fragment_sessions_pagination(gateway_url, auth_headers):
         resp1 = await client.get("/ui/fragments/sessions", params={"limit": 2})
 
     assert resp1.status_code == 200
-    assert "session-row" in resp1.text
+    assert "session-card" in resp1.text
     assert "load-more-sentinel" in resp1.text
 
     match = re.search(r'data-cursor="([^"]+)"', resp1.text)
@@ -172,7 +172,7 @@ async def test_fragment_sessions_pagination(gateway_url, auth_headers):
         resp2 = await client.get("/ui/fragments/sessions", params={"limit": 2, "cursor": cursor})
 
     assert resp2.status_code == 200
-    assert "session-row" in resp2.text
+    assert "session-card" in resp2.text
     assert resp2.text != resp1.text
 
 
@@ -198,7 +198,7 @@ async def test_filter_q(gateway_url, auth_headers):
         )
 
     assert resp.status_code == 200
-    assert "session-row" in resp.text
+    assert "session-card" in resp.text
     assert "sess-alpha" in resp.text
     assert "sess-beta" not in resp.text
 
@@ -209,7 +209,7 @@ async def test_filter_q_with_cursor(gateway_url, auth_headers):
         resp1 = await client.get("/ui/fragments/sessions", params={"q": "sess", "limit": 2})
 
     assert resp1.status_code == 200
-    assert "session-row" in resp1.text
+    assert "session-card" in resp1.text
     assert "load-more-sentinel" in resp1.text
 
     match = re.search(r'data-cursor="([^"]+)"', resp1.text)
@@ -223,7 +223,7 @@ async def test_filter_q_with_cursor(gateway_url, auth_headers):
         resp2 = await client.get("/ui/fragments/sessions", params={"q": "sess", "limit": 2, "cursor": cursor})
 
     assert resp2.status_code == 200
-    assert "session-row" in resp2.text
+    assert "session-card" in resp2.text
 
     ids2 = set(re.findall(r'data-session-id="([^"]+)"', resp2.text))
     assert ids1.isdisjoint(ids2), "Page 2 returned sessions already shown on page 1"

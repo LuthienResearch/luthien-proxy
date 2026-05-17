@@ -264,6 +264,7 @@ async def fragment_sessions(
     limit: int = Query(default=20, ge=1, le=100),
     cursor: str | None = Query(default=None),
     q: str | None = Query(default=None),
+    filter: str | None = Query(default=None),
     admin_key: str | None = Depends(get_admin_key),
     db_pool: DatabasePool | None = Depends(get_db_pool),
 ):
@@ -280,7 +281,7 @@ async def fragment_sessions(
     if db_pool is None:
         raise HTTPException(status_code=503, detail="Database not available")
 
-    result = await _fetch_sessions_page(cursor, limit, db_pool, q=q)
+    result = await _fetch_sessions_page(cursor, limit, db_pool, q=q, filter=filter)
     with time_phase("render"):
         html = _render_sessions_fragment(result["sessions"], result["next_cursor"])  # type: ignore[arg-type]
     return HTMLResponse(content=html, media_type="text/html; charset=utf-8")

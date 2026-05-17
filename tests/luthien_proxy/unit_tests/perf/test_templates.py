@@ -17,23 +17,36 @@ def env():
     )
 
 
+def _make_session(**kwargs) -> dict:
+    base = {
+        "session_id": "test-123",
+        "first_ts": "2025-01-01T10:00:00",
+        "last_ts": "2025-01-01T11:00:00",
+        "last_ts_formatted": "1y ago",
+        "preview": "hello",
+        "turn_count": 3,
+        "models_used": ["claude-3"],
+        "policy_interventions": 0,
+    }
+    base.update(kwargs)
+    return base
+
+
 def test_sessions_template_renders(env):
-    """Test that sessions template renders with data."""
     tpl = env.get_template("fragments/sessions.html")
-    out = tpl.render(
-        sessions=[{"session_id": "test-123", "last_ts": "2025-01-01", "preview": "hello"}],
-        next_cursor="abc123",
-    )
+    out = tpl.render(sessions=[_make_session()], next_cursor="abc123")
     assert "test-123" in out
     assert 'data-cursor="abc123"' in out
     assert "load-more-sentinel" in out
+    assert "session-card" in out
+    assert "3 turns" in out
+    assert "claude-3" in out
 
 
 def test_sessions_template_xss_safe(env):
-    """Test that sessions template escapes user content."""
     tpl = env.get_template("fragments/sessions.html")
     out = tpl.render(
-        sessions=[{"session_id": "<script>alert(1)</script>", "last_ts": "", "preview": ""}],
+        sessions=[_make_session(session_id="<script>alert(1)</script>", preview="")],
         next_cursor=None,
     )
     assert "<script>" not in out
