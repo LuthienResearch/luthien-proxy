@@ -239,6 +239,8 @@ export PERF_BACKEND="$BACKEND"
 
 if $ASSERT_SLO; then
     export PERF_ASSERT_SLO=1
+    export PERF_THROTTLE_BASELINE=1
+    export PERF_ASSERT_MEMORY=1
     info "SLO assertion enabled -- tests fail if thresholds exceeded"
 fi
 

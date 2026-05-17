@@ -100,6 +100,18 @@ def _find_result(results: list[dict], type_: str) -> dict | None:
     return None
 
 
+def _page_timing_records(results: list[dict]) -> list[dict]:
+    return [r for r in results if "scenarios" in r]
+
+
+def _throttled_records(results: list[dict]) -> list[dict]:
+    return [r for r in results if "route" in r and "runs_ms" in r]
+
+
+def _sse_memory_records(results: list[dict]) -> list[dict]:
+    return [r for r in results if "heap_growth_pct" in r]
+
+
 def _section_hardware(git_sha: str, playwright_ver: str, ram: str, backend: str = "sqlite") -> str:
     rows = [
         ("Machine", platform.machine()),
@@ -118,27 +130,38 @@ def _section_hardware(git_sha: str, playwright_ver: str, ram: str, backend: str 
 
 def _section_per_page_timings(results: list[dict]) -> str:
     header = "## Per-Page Timings"
-    r = _find_result(results, "page_timings")
-    if not r:
+    records = _page_timing_records(results)
+    if not records:
         return "\n".join([header, "", "_NO DATA YET — run `scripts/run_perf.sh` to populate._", ""])
 
-    data = r.get("data", {})
-    pages = sorted(data.keys())
+    data: dict[str, dict[str, dict]] = {}
     fixtures: set[str] = set()
-    for page_data in data.values():
-        fixtures.update(page_data.keys())
-    fixture_list = sorted(fixtures)
+    for rec in records:
+        fixture = rec.get("fixture", "unknown")
+        fixtures.add(fixture)
+        for scenario in rec.get("scenarios", []):
+            page = scenario.get("page", "?")
+            data.setdefault(page, {})[fixture] = {
+                "cold_ms": scenario.get("cold_ms"),
+                "median_ms": scenario.get("median_ms"),
+                "p95_ms": scenario.get("p95_ms"),
+                "ttfb_ms": scenario.get("ttfb_ms"),
+                "transfer_bytes": scenario.get("transfer_bytes"),
+            }
 
-    col_header = " | ".join(f"{f} median_ms | {f} p95_ms" for f in fixture_list)
-    col_sep = " | ".join("--- | ---" for _ in fixture_list)
+    pages = sorted(data.keys())
+    fixture_list = sorted(fixtures)
+    col_header = " | ".join(f"{f} cold_ms | {f} median_ms | {f} p95_ms" for f in fixture_list)
+    col_sep = " | ".join("--- | --- | ---" for _ in fixture_list)
     lines = [header, "", f"| Page | {col_header} |", f"|------| {col_sep} |"]
 
     for page in pages:
         cells: list[str] = []
         for fixture in fixture_list:
             fdata = data[page].get(fixture, {})
-            cells.append(str(fdata.get("median_ms", "—")))
-            cells.append(str(fdata.get("p95_ms", "—")))
+            cells.append(str(round(fdata["cold_ms"], 0)) if fdata.get("cold_ms") is not None else "—")
+            cells.append(str(round(fdata["median_ms"], 0)) if fdata.get("median_ms") is not None else "—")
+            cells.append(str(round(fdata["p95_ms"], 0)) if fdata.get("p95_ms") is not None else "—")
         lines.append(f"| {page} | " + " | ".join(cells) + " |")
 
     lines.append("")
@@ -147,17 +170,26 @@ def _section_per_page_timings(results: list[dict]) -> str:
 
 def _section_throttled(results: list[dict]) -> str:
     header = "## Throttled (sami-like)"
-    r = _find_result(results, "throttled")
-    if not r:
+    records = _throttled_records(results)
+    if not records:
         return "\n".join([header, "", "_NO DATA YET_", ""])
 
-    data = r.get("data", {})
-    lines = [header, "", "| Page | Fixture | Median ms | P95 ms |", "|------|---------|-----------|--------|"]
-    for page in sorted(data.keys()):
-        for fixture, fdata in sorted(data[page].items()):
-            median = fdata.get("median_ms", "—")
-            p95 = fdata.get("p95_ms", "—")
-            lines.append(f"| {page} | {fixture} | {median} | {p95} |")
+    lines = [
+        header,
+        "",
+        "| Route | Fixture | N runs | Median ms | Config |",
+        "|-------|---------|--------|-----------|--------|",
+    ]
+    for rec in sorted(records, key=lambda r: r.get("route", "")):
+        route = rec.get("route", "?")
+        fixture = rec.get("fixture", "?")
+        n_runs = rec.get("n_runs", "?")
+        median = rec.get("median_ms")
+        cfg = rec.get("throttle_config", {})
+        cfg_str = f"{cfg.get('download_bps', '?')} bps / {cfg.get('latency_ms', '?')} ms RTT"
+        lines.append(
+            f"| {route} | {fixture} | {n_runs} | {round(median, 0) if median is not None else '—'} | {cfg_str} |"
+        )
     lines.append("")
     return "\n".join(lines)
 
@@ -182,18 +214,24 @@ def _section_transcript_open(results: list[dict]) -> str:
 
 def _section_sse_memory(results: list[dict]) -> str:
     header = "## SSE Memory Growth"
-    r = _find_result(results, "sse_memory")
-    if not r:
+    records = _sse_memory_records(results)
+    if not records:
         return "\n".join([header, "", "_NO DATA YET_", ""])
 
-    data = r.get("data", {})
+    rec = records[-1]
+    heap_first_mb = round(rec.get("heap_first_bytes", 0) / (1024 * 1024), 1)
+    heap_last_mb = round(rec.get("heap_last_bytes", 0) / (1024 * 1024), 1)
+    growth_pct = round(rec.get("heap_growth_pct", 0), 1)
+    hold_s = rec.get("hold_seconds", "?")
     lines = [
         header,
         "",
         "| Metric | Value |",
         "|--------|-------|",
-        f"| heap_growth_mb | {data.get('heap_growth_mb', '—')} |",
-        f"| events_count | {data.get('events_count', '—')} |",
+        f"| heap_first_mb | {heap_first_mb} |",
+        f"| heap_last_mb | {heap_last_mb} |",
+        f"| heap_growth_pct | {growth_pct}% |",
+        f"| hold_seconds | {hold_s} |",
         "",
     ]
     return "\n".join(lines)
@@ -233,9 +271,7 @@ def _section_query_plans(query_plans: str) -> str:
 
 def _section_top_hotspots(results: list[dict]) -> str:
     header = "## Top Hotspots"
-    has_data = any(
-        r.get("type") in ("page_timings", "throttled", "server_timing", "payload_size", "sse_memory") for r in results
-    )
+    has_data = bool(_page_timing_records(results) or _throttled_records(results) or _sse_memory_records(results))
 
     if not has_data:
         lines = [
@@ -261,26 +297,18 @@ def _section_top_hotspots(results: list[dict]) -> str:
 
     hotspots: list[str] = []
 
-    r_page = _find_result(results, "page_timings")
-    if r_page:
-        for page, fixtures in r_page.get("data", {}).items():
-            for fixture, stats in fixtures.items():
-                p95 = stats.get("p95_ms", 0)
-                if isinstance(p95, (int, float)) and p95 > 1000:
-                    hotspots.append(f"`{page}` ({fixture}) p95={p95}ms — exceeds 1s SLO")
+    for rec in _page_timing_records(results):
+        fixture = rec.get("fixture", "?")
+        for scenario in rec.get("scenarios", []):
+            page = scenario.get("page", "?")
+            p95 = scenario.get("p95_ms", 0)
+            if isinstance(p95, (int, float)) and p95 > 1000:
+                hotspots.append(f"`{page}` ({fixture}) p95={p95:.0f}ms — exceeds 1s SLO")
 
-    r_payload = _find_result(results, "payload_size")
-    if r_payload:
-        for endpoint, stats in r_payload.get("data", {}).items():
-            bytes_ = stats.get("bytes", 0)
-            if isinstance(bytes_, int) and bytes_ > 50_000:
-                hotspots.append(f"`{endpoint}` payload={bytes_ // 1024}KB — exceeds 50KB budget")
-
-    r_sse = _find_result(results, "sse_memory")
-    if r_sse:
-        growth = r_sse.get("data", {}).get("heap_growth_mb", 0)
-        if isinstance(growth, (int, float)) and growth > 10:
-            hotspots.append(f"SSE heap growth={growth}MB over session — unbounded accumulation risk")
+    for rec in _sse_memory_records(results):
+        growth_pct = rec.get("heap_growth_pct", 0)
+        if isinstance(growth_pct, (int, float)) and growth_pct > 50:
+            hotspots.append(f"SSE heap growth={growth_pct:.1f}% over session — possible unbounded accumulation")
 
     lines = [header, ""]
     if hotspots:

@@ -37,6 +37,9 @@ _TIMED_PREFIXES: tuple[str, ...] = (
     "/api/history/",
     "/api/debug/",
     "/ui/fragments/",
+    # /api/activity/stream and other SSE endpoints are intentionally excluded:
+    # long-lived connections collect phases for the full stream duration,
+    # making the Server-Timing header meaningless as a request-level metric.
 )
 
 # Per-request phase list: list of (name, elapsed_ms) tuples.
@@ -165,7 +168,7 @@ def _make_send_with_timing(
 
     async def send_with_timing(message: Message) -> None:
         if message["type"] == "http.response.start" and phases:
-            headers = list(message.get("headers", []))
+            headers = [h for h in message.get("headers", []) if h[0].lower() != b"server-timing"]
             headers.append((b"server-timing", format_phases(phases).encode()))
             message = {**message, "headers": headers}
         await send(message)

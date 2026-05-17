@@ -23,8 +23,8 @@ from typing import Literal
 from luthien_proxy.perf.db import ensure_perf_isolation, get_perf_db_url, migrate_perf_db
 
 _MODEL = "claude-haiku-4-5"
-_BASE_TS = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-_BATCH_SIZE = 5000
+_BASE_TS = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=60)
+_BATCH_SIZE = 5000  # ~125 MB in-memory per batch at ~25 KB/payload; reduce if RSS is a concern
 
 _CALLS_INSERT = (
     "INSERT INTO conversation_calls"
@@ -273,8 +273,9 @@ def seed_sessions(
     if tier >= 10_000:
         import warnings  # noqa: PLC0415
 
+        gb_estimate = max(1, tier * 25 * 25 // 1_000_000)
         warnings.warn(
-            f"seed_sessions(tier={tier}) seeds ~{tier * 25 // 1000} GB on disk "
+            f"seed_sessions(tier={tier}) seeds ~{gb_estimate} GB on disk "
             "and allocates a 128 MB SQLite cache. Ensure sufficient disk/RAM.",
             stacklevel=2,
         )

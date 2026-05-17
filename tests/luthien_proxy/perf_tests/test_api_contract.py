@@ -72,7 +72,7 @@ def _extract_shape(obj: Any) -> Any:
         return "str"
     if isinstance(obj, list):
         if not obj:
-            return "list[unknown]"
+            return []
         return [_extract_shape(obj[0])]
     if isinstance(obj, dict):
         return {k: _extract_shape(v) for k, v in obj.items()}
