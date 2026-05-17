@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from luthien_proxy.perf.cursor import cursor_where_clause, decode_cursor, encode_cursor
+from luthien_proxy.utils.cursor import cursor_where_clause, decode_cursor, encode_cursor
 
 _TS = datetime(2025, 5, 14, 12, 0, 0, tzinfo=timezone.utc)
 _SID = "perf-seed-100-0042"

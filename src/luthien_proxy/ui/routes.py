@@ -18,8 +18,8 @@ from luthien_proxy.auth import check_auth_or_redirect, get_base_url, verify_admi
 from luthien_proxy.dependencies import get_admin_key, get_db_pool, get_event_publisher
 from luthien_proxy.history.service import _fetch_session_turns_page, _fetch_sessions_page
 from luthien_proxy.observability.event_publisher import EventPublisherProtocol
-from luthien_proxy.perf.cursor import decode_cursor
 from luthien_proxy.perf.timing_middleware import time_phase
+from luthien_proxy.utils.cursor import decode_cursor
 from luthien_proxy.utils.db import DatabasePool
 
 router = APIRouter(prefix="", tags=["ui"])

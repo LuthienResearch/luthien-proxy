@@ -14,8 +14,8 @@ import re
 from datetime import datetime
 from typing import Any, TypedDict, cast
 
-from luthien_proxy.perf.cursor import cursor_where_clause, decode_cursor, encode_cursor
 from luthien_proxy.perf.timing_middleware import time_phase
+from luthien_proxy.utils.cursor import cursor_where_clause, decode_cursor, encode_cursor
 from luthien_proxy.utils.db import DatabasePool, parse_db_ts
 
 from .models import (
