@@ -138,6 +138,25 @@ def test_time_phase_outside_request_context_does_not_raise():
 
 
 @pytest.mark.asyncio
+async def test_time_phase_records_elapsed_even_when_block_raises():
+    from luthien_proxy.perf.timing_middleware import _phases_var
+
+    phases: list[tuple[str, float]] = []
+    token = _phases_var.set(phases)
+    try:
+        with pytest.raises(ValueError):
+            with time_phase("failing-phase"):
+                raise ValueError("boom")
+    finally:
+        _phases_var.reset(token)
+
+    assert len(phases) == 1
+    name, elapsed_ms = phases[0]
+    assert name == "failing-phase"
+    assert elapsed_ms >= 0
+
+
+@pytest.mark.asyncio
 async def test_static_cache_middleware_replaces_not_appends():
     from fastapi.testclient import TestClient
     from starlette.responses import Response as StarletteResponse

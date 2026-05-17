@@ -6,10 +6,12 @@ Provides endpoints for:
 - Exporting sessions to markdown
 - HTML UI pages
 
-Serialization pattern: API handlers return Response(content=model.model_dump_json(), ...)
+WARNING — serialization pattern: API handlers return Response(content=model.model_dump_json(), ...)
 with response_model= kept on the decorator for OpenAPI schema generation only.
 FastAPI skips response validation when the handler returns a pre-built Response —
-this is intentional to avoid double-serialization (Pydantic→dict→json→bytes twice).
+this is intentional to avoid double-serialization (Pydantic→dict→json twice).
+Do NOT copy this pattern to new routes without also adding a contract snapshot test;
+FastAPI's response_model validation will be silently disabled.
 The API contract snapshot tests (test_api_contract.py) provide regression coverage.
 """
 

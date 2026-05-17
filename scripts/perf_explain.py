@@ -139,6 +139,9 @@ def explain_sqlite(db_path: str) -> None:
         ).fetchone()[0]
 
         if row_count == 0:
+            # Side effect: seeds the DB to have data to EXPLAIN against.
+            # Pass --seed-if-empty explicitly to make this intent visible,
+            # or pre-seed with seed_sessions() / run_perf.sh --seed-only first.
             print("Perf DB is empty — seeding with tier=100...", file=sys.stderr)
             conn.close()
             seed_sessions("sqlite", tier=100)

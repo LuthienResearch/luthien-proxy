@@ -21,6 +21,7 @@ Usage::
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Awaitable, Callable, Generator
 from contextlib import contextmanager
@@ -29,6 +30,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 from starlette.responses import Response
+
+_PHASE_NAME_RE = re.compile(r"[A-Za-z0-9_-]+")
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -73,9 +76,7 @@ def time_phase(name: str) -> Generator[None, None, None]:
         with time_phase("db"):
             rows = await conn.fetch(query)
     """
-    import re as _re  # noqa: PLC0415
-
-    if not _re.fullmatch(r"[A-Za-z0-9_-]+", name):
+    if not _PHASE_NAME_RE.fullmatch(name):
         raise ValueError(f"time_phase name must be an RFC 8941 token ([A-Za-z0-9_-]+): {name!r}")
     start = time.perf_counter()
     try:

@@ -235,14 +235,6 @@ def _seed_sqlite(
         conn.execute("ROLLBACK")
         raise
     finally:
-        # Always recreate indexes so the DB remains usable even after a failed seed.
-        # With isolation_level=None the connection is in autocommit mode here, so
-        # CREATE INDEX persists immediately without a COMMIT.
-        for stmt in _INDEX_STMTS:
-            try:
-                conn.execute(stmt)
-            except Exception as _idx_err:
-                logger.warning("Failed to recreate index after seed error: %s", _idx_err)
         conn.close()
 
     elapsed = time.monotonic() - t0
