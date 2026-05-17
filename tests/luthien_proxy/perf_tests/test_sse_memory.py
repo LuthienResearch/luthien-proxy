@@ -28,7 +28,8 @@ from playwright.async_api import Page
 
 from luthien_proxy.perf.seeding import seed_sami_like
 
-EVIDENCE_DIR = Path(".sisyphus/evidence")
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+EVIDENCE_DIR = _REPO_ROOT / ".sisyphus" / "evidence"
 
 _HOLD_SECONDS: int = 60
 _SAMPLE_INTERVAL_S: int = 5

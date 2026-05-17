@@ -24,6 +24,7 @@ from luthien_proxy.utils.constants import (
 )
 from luthien_proxy.utils.db import DatabasePool
 
+from .models import SessionDetail, SessionListResponse
 from .service import export_session_jsonl, export_session_markdown, fetch_session_detail, fetch_session_list
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,7 @@ async def history_list_page(
 # --- JSON API Endpoints ---
 
 
-@api_router.get("/sessions")
+@api_router.get("/sessions", response_model=SessionListResponse)
 async def list_sessions(
     _: str = Depends(verify_admin_token),
     db_pool: DatabasePool = Depends(get_db_pool),
@@ -92,7 +93,7 @@ async def list_sessions(
     return JSONResponse(content=content)
 
 
-@api_router.get("/sessions/{session_id}")
+@api_router.get("/sessions/{session_id}", response_model=SessionDetail)
 async def get_session(
     session_id: str,
     _: str = Depends(verify_admin_token),

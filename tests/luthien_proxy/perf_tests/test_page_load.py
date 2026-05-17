@@ -27,7 +27,8 @@ from luthien_proxy.utils.db import DatabasePool
 
 from .conftest import measure_page_load, n_runs
 
-EVIDENCE_DIR = Path(".sisyphus/evidence")
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+EVIDENCE_DIR = _REPO_ROOT / ".sisyphus" / "evidence"
 TRACES_DIR = EVIDENCE_DIR / "traces"
 
 _TTFB_SLO_MS: float = 2_000.0

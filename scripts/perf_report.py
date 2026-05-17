@@ -100,7 +100,7 @@ def _find_result(results: list[dict], type_: str) -> dict | None:
     return None
 
 
-def _section_hardware(git_sha: str, playwright_ver: str, ram: str) -> str:
+def _section_hardware(git_sha: str, playwright_ver: str, ram: str, backend: str = "sqlite") -> str:
     rows = [
         ("Machine", platform.machine()),
         ("Processor", platform.processor() or platform.machine()),
@@ -108,7 +108,7 @@ def _section_hardware(git_sha: str, playwright_ver: str, ram: str) -> str:
         ("OS", f"{platform.system()} {platform.release()}"),
         ("Python", platform.python_version()),
         ("git_sha", f"`{git_sha}`"),
-        ("DB backend", "sqlite"),
+        ("DB backend", backend),
         ("Playwright", playwright_ver),
     ]
     table = ["| Field | Value |", "|-------|-------|"]
@@ -298,6 +298,7 @@ def generate_report(
     playwright_ver: str,
     generated_at: str | None = None,
     ram: str | None = None,
+    backend: str = "sqlite",
 ) -> str:
     timestamp = generated_at or datetime.now(timezone.utc).isoformat()
     ram_str = ram or _ram_info()
@@ -305,12 +306,12 @@ def generate_report(
     parts = [
         f"git_sha: {git_sha}",
         f"browser_version: {playwright_ver}",
-        "backend: sqlite",
+        f"backend: {backend}",
         f"generated_at: {timestamp}",
         "",
         "# Luthien Admin UI — Performance Baseline Report",
         "",
-        _section_hardware(git_sha, playwright_ver, ram_str),
+        _section_hardware(git_sha, playwright_ver, ram_str, backend=backend),
         _section_per_page_timings(results),
         _section_throttled(results),
         _section_transcript_open(results),
@@ -331,6 +332,11 @@ def main() -> None:
         action="store_true",
         help="Fix timestamp to epoch so output is byte-identical across runs (for reproducibility testing)",
     )
+    parser.add_argument(
+        "--backend",
+        default="sqlite",
+        help="DB backend label to embed in the report (default: sqlite)",
+    )
     args = parser.parse_args()
 
     results = load_results()
@@ -340,7 +346,7 @@ def main() -> None:
 
     generated_at = "2000-01-01T00:00:00+00:00" if args.deterministic_mode else None
 
-    report = generate_report(results, query_plans, sha, pw_ver, generated_at=generated_at)
+    report = generate_report(results, query_plans, sha, pw_ver, generated_at=generated_at, backend=args.backend)
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
