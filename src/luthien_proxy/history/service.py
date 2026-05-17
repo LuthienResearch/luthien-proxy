@@ -1073,33 +1073,34 @@ async def _fetch_session_turns_page(
         cursor_ts, cursor_event_id = decode_cursor(cursor_token)
 
     async with db_pool.connection() as conn:
-        if cursor_ts is None:
-            rows = await conn.fetch(
-                """
-                SELECT id, event_type, payload, created_at
-                FROM conversation_events
-                WHERE session_id = $1
-                ORDER BY created_at ASC, id ASC
-                LIMIT $2
-                """,
-                session_id,
-                limit + 1,
-            )
-        else:
-            rows = await conn.fetch(
-                """
-                SELECT id, event_type, payload, created_at
-                FROM conversation_events
-                WHERE session_id = $1
-                AND (created_at, id) > ($2, $3)
-                ORDER BY created_at ASC, id ASC
-                LIMIT $4
-                """,
-                session_id,
-                cursor_ts.isoformat(),
-                cursor_event_id,
-                limit + 1,
-            )
+        with time_phase("db"):
+            if cursor_ts is None:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, event_type, payload, created_at
+                    FROM conversation_events
+                    WHERE session_id = $1
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT $2
+                    """,
+                    session_id,
+                    limit + 1,
+                )
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, event_type, payload, created_at
+                    FROM conversation_events
+                    WHERE session_id = $1
+                    AND (created_at, id) > ($2, $3)
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT $4
+                    """,
+                    session_id,
+                    cursor_ts.isoformat(),
+                    cursor_event_id,
+                    limit + 1,
+                )
 
     has_more = len(rows) > limit
     page_rows = list(rows[:limit])
@@ -1208,48 +1209,49 @@ async def _fetch_sessions_page(
         """
 
     async with db_pool.connection() as conn:
-        rows = list(await conn.fetch(sessions_query, *query_args))
+        with time_phase("db"):
+            rows = list(await conn.fetch(sessions_query, *query_args))
 
-        has_more = len(rows) > limit
-        page_rows = rows[:limit]
+            has_more = len(rows) > limit
+            page_rows = rows[:limit]
 
-        if not page_rows:
-            return {"sessions": [], "next_cursor": None}
+            if not page_rows:
+                return {"sessions": [], "next_cursor": None}
 
-        session_ids = [str(r["session_id"]) for r in page_rows]
+            session_ids = [str(r["session_id"]) for r in page_rows]
 
-        if db_pool.is_sqlite:
-            placeholders = ", ".join("?" for _ in session_ids)
-            max_tokens_check = """
-            AND COALESCE(
-                CAST(json_extract(payload, '$.final_request.max_tokens') AS INTEGER),
-                2
-            ) > 1
-            """
-        else:
-            placeholders = ", ".join(f"${i + 1}" for i in range(len(session_ids)))
-            max_tokens_check = """
-            AND COALESCE((payload->'final_request'->>'max_tokens')::int, 2) > 1
-            """
+            if db_pool.is_sqlite:
+                placeholders = ", ".join("?" for _ in session_ids)
+                max_tokens_check = """
+                AND COALESCE(
+                    CAST(json_extract(payload, '$.final_request.max_tokens') AS INTEGER),
+                    2
+                ) > 1
+                """
+            else:
+                placeholders = ", ".join(f"${i + 1}" for i in range(len(session_ids)))
+                max_tokens_check = """
+                AND COALESCE((payload->'final_request'->>'max_tokens')::int, 2) > 1
+                """
 
-        preview_rows = await conn.fetch(
-            f"""
-            SELECT session_id, payload
-            FROM conversation_events
-            WHERE session_id IN ({placeholders})
-            AND event_type = 'transaction.request_recorded'
-            {max_tokens_check}
-            ORDER BY session_id, created_at ASC
-            """,
-            *session_ids,
-        )
+            preview_rows = await conn.fetch(
+                f"""
+                SELECT session_id, payload
+                FROM conversation_events
+                WHERE session_id IN ({placeholders})
+                AND event_type = 'transaction.request_recorded'
+                {max_tokens_check}
+                ORDER BY session_id, created_at ASC
+                """,
+                *session_ids,
+            )
 
-        previews: dict[str, str] = {}
-        for pr in preview_rows:
-            sid = str(pr["session_id"])
-            if sid not in previews:
-                raw = _extract_preview_message(cast(_PreviewPayload, pr["payload"]))
-                previews[sid] = (raw or "")[:100]
+            previews: dict[str, str] = {}
+            for pr in preview_rows:
+                sid = str(pr["session_id"])
+                if sid not in previews:
+                    raw = _extract_preview_message(cast(_PreviewPayload, pr["payload"]))
+                    previews[sid] = (raw or "")[:100]
 
     next_cursor: str | None = None
     if has_more:

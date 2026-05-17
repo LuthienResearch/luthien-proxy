@@ -23,8 +23,13 @@ def get_perf_db_url(backend: Literal["sqlite", "postgres"]) -> str:
         A database URL string for use with the migration runner.
 
     Raises:
+        ValueError: When backend is "postgres" (not yet implemented).
         RuntimeError: When backend is "postgres" and DATABASE_URL is unset.
     """
+    if backend == "postgres":
+        raise ValueError(
+            "Postgres backend is not yet implemented for the perf harness. Use --backend sqlite (the default)."
+        )
     if backend == "sqlite":
         return f"sqlite:///{Path.home()}/.luthien/perf.db"
     base_url = os.environ.get("DATABASE_URL", "")

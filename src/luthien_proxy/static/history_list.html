@@ -378,7 +378,13 @@
             <div x-show="loading" class="loading">Loading sessions...</div>
             <div x-show="error" class="error" x-text="error"></div>
             <div x-show="!loading && sessions.length === 0 && !error" class="empty-state">No sessions found</div>
-            <div x-intersect.once="loadNextPage()" x-show="cursor !== null" class="load-more-sentinel"></div>
+            <div 
+  x-intersect="!loading && cursor && loadNextPage()"
+  x-show="cursor !== null"
+  class="load-more-sentinel"
+>
+  <span x-show="loading">Loading...</span>
+</div>
         </div>
     </div>
 

@@ -920,13 +920,12 @@
         </div>
 
         <div 
-            id="turns-load-more"
-            x-data="{ cursor: null }"
-            x-intersect.once="$data.loadMoreTurns()"
-            x-show="window.__turnsCursor !== null"
-            >
-            Loading more turns...
-        </div>
+  x-intersect="loadMoreTurns()"
+  x-show="window.__turnsCursor !== null"
+  id="turns-load-more"
+>
+  Loading more turns...
+</div>
 
         <div class="update-indicator" x-text="lastUpdated"></div>
     </div>
