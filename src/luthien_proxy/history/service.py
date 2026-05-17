@@ -1140,19 +1140,18 @@ async def _fetch_sessions_page(
 ) -> dict[str, Any]:
     if db_pool.is_sqlite:
         sqlite_args: list[object] = []
+
+        q_filter = ""
+        if q:
+            sqlite_args.append(f"%{q}%")
+            q_filter = "AND session_id LIKE ?"
+
+        cursor_filter = ""
         if cursor_token is not None:
             cursor_ts, cursor_sid = decode_cursor(cursor_token)
             named_where = cursor_where_clause("sqlite", ts_col="last_ts", sid_col="session_id")
             cursor_filter = f"AND {named_where.replace(':cursor_ts', '?').replace(':cursor_sid', '?')}"
             sqlite_args.extend([cursor_ts.isoformat(), cursor_sid])
-        else:
-            cursor_filter = ""
-
-        # Add q filter for session_id matching (LIKE '%q%')
-        q_filter = ""
-        if q:
-            q_filter = "AND session_id LIKE ?"
-            sqlite_args.append(f"%{q}%")
 
         sqlite_args.append(limit + 1)
         query_args: list[object] = sqlite_args
@@ -1174,23 +1173,21 @@ async def _fetch_sessions_page(
         """
     else:
         query_args = [limit + 1]
+
+        q_filter = ""
+        if q:
+            query_args.append(f"%{q}%")
+            q_idx = len(query_args)
+            q_filter = f"AND session_id ILIKE ${q_idx}"
+
+        cursor_filter = ""
         if cursor_token is not None:
             cursor_ts, cursor_sid = decode_cursor(cursor_token)
-            named_where = cursor_where_clause("postgres", ts_col="last_ts", sid_col="session_id")
-            cursor_filter = f"AND {named_where.replace(':cursor_ts', '$2').replace(':cursor_sid', '$3')}"
-            query_args.extend([cursor_ts.isoformat(), cursor_sid])
-        else:
-            cursor_filter = ""
-
-        # Add q filter for session_id matching (ILIKE '%q%')
-        q_filter = ""
-        q_param_idx = 2
-        if q:
-            q_filter = f"AND session_id ILIKE ${q_param_idx}"
-            query_args.insert(1, f"%{q}%")
-            # Adjust cursor filter placeholders if needed
-            if cursor_token is not None:
-                cursor_filter = cursor_filter.replace("$2", "$3").replace("$3", "$4")
+            query_args.append(cursor_ts.isoformat())
+            ts_idx = len(query_args)
+            query_args.append(cursor_sid)
+            sid_idx = len(query_args)
+            cursor_filter = f"AND (last_ts, session_id) < (${ts_idx}, ${sid_idx})"
 
         sessions_query = f"""
         WITH sessions_agg AS (
