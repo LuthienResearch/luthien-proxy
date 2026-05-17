@@ -25,6 +25,7 @@ from luthien_proxy.perf.db import ensure_perf_isolation, get_perf_db_url, migrat
 _MODEL = "claude-haiku-4-5"
 _BASE_TS = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
 _BATCH_SIZE = 5000  # ~125 MB in-memory per batch at ~25 KB/payload; reduce if RSS is a concern
+_DETERMINISTIC_RNG_SEED = 0xABCDEF
 
 _CALLS_INSERT = (
     "INSERT INTO conversation_calls"
@@ -35,6 +36,15 @@ _EVENTS_INSERT = (
     "INSERT INTO conversation_events"
     " (id, call_id, event_type, payload, created_at, session_id)"
     " VALUES (?, ?, ?, ?, ?, ?)"
+)
+_INDEX_STMTS: tuple[str, ...] = (
+    "CREATE INDEX IF NOT EXISTS idx_conversation_events_type ON conversation_events(event_type)",
+    "CREATE INDEX IF NOT EXISTS idx_conversation_events_created ON conversation_events(created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_conversation_events_call_created ON conversation_events(call_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_conversation_events_session ON conversation_events(session_id) WHERE session_id IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_conversation_calls_created ON conversation_calls(created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_conversation_calls_session ON conversation_calls(session_id) WHERE session_id IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_conversation_calls_user ON conversation_calls(user_id) WHERE user_id IS NOT NULL",
 )
 
 # Pre-built JSON template fragments — content is pure ASCII, no escaping needed.
@@ -215,31 +225,21 @@ def _seed_sqlite(
         if events_batch:
             conn.executemany(_EVENTS_INSERT, events_batch)
 
-        # Recreate indexes after bulk insert.
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_events_type ON conversation_events(event_type)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_events_created ON conversation_events(created_at)")
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_conversation_events_call_created"
-            " ON conversation_events(call_id, created_at)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_conversation_events_session"
-            " ON conversation_events(session_id) WHERE session_id IS NOT NULL"
-        )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_calls_created ON conversation_calls(created_at)")
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_conversation_calls_session"
-            " ON conversation_calls(session_id) WHERE session_id IS NOT NULL"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_conversation_calls_user"
-            " ON conversation_calls(user_id) WHERE user_id IS NOT NULL"
-        )
+        for stmt in _INDEX_STMTS:
+            conn.execute(stmt)
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")
         raise
     finally:
+        # Always recreate indexes so the DB remains usable even after a failed seed.
+        # CREATE INDEX IF NOT EXISTS is idempotent — safe to run after ROLLBACK.
+        for stmt in _INDEX_STMTS:
+            try:
+                conn.execute(stmt)
+                conn.execute("COMMIT")
+            except Exception:
+                pass
         conn.close()
 
     elapsed = time.monotonic() - t0
@@ -267,6 +267,10 @@ def seed_sessions(
     All session_ids are prefixed with ``perf-seed-{tier}-``.
     IDs are fully deterministic — drop + re-seed produces identical data.
 
+    Note: calls ``migrate_perf_db`` which uses ``asyncio.run()`` internally.
+    Must be called from a synchronous context — will raise ``RuntimeError``
+    if called from within a running event loop (e.g. an async test fixture).
+
     Args:
         backend: "sqlite" or "postgres".
         tier: Number of sessions to insert (typically 100, 1_000, or 10_000).
@@ -277,7 +281,7 @@ def seed_sessions(
     if tier >= 10_000:
         import warnings  # noqa: PLC0415
 
-        gb_estimate = max(1, tier * 25 * 45 // 1_000_000)
+        gb_estimate = max(1, tier * 25 * 45 // 1_000_000)  # events/session × KB/event ÷ 1e6
         warnings.warn(
             f"seed_sessions(tier={tier}) seeds ~{gb_estimate} GB on disk "
             "(including SQLite overhead) and allocates a 128 MB cache. Ensure sufficient disk/RAM.",
@@ -316,7 +320,7 @@ def seed_sami_like(backend: Literal["sqlite", "postgres"]) -> SeedingReport:
     prefix = "perf-seed-sami-"
     big_session_id = f"{prefix}442msg"
 
-    rng = random.Random(0xABCDEF)
+    rng = random.Random(_DETERMINISTIC_RNG_SEED)
     other_plan: list[tuple[str, int]] = [(f"{prefix}{i:03d}", rng.randint(1, 187)) for i in range(77)]
     plan = [(big_session_id, 442)] + other_plan
 

@@ -210,12 +210,6 @@ def main() -> None:
         print(f"isolation refuse: {e}")
         sys.exit(1)
 
-    try:
-        ensure_perf_isolation(url)
-    except RuntimeError as e:
-        print(f"isolation refuse: {e}")
-        sys.exit(1)
-
     if args.backend == "sqlite":
         db_path = parse_sqlite_url(url)
         explain_sqlite(db_path)

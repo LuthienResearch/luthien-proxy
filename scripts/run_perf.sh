@@ -181,6 +181,13 @@ import os
 import sys
 
 try:
+    from luthien_proxy.perf.db import ensure_perf_isolation
+    ensure_perf_isolation(os.environ.get("DATABASE_URL", ""))
+except RuntimeError as e:
+    print(f"isolation refuse: {e}", file=sys.stderr)
+    sys.exit(1)
+
+try:
     import psycopg2  # type: ignore[import-untyped]
 except ImportError:
     print("psycopg2 not installed; run: uv add psycopg2-binary", file=sys.stderr)

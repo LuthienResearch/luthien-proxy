@@ -67,9 +67,7 @@ async def apply_sqlite_migrations(
     Handles upgrade from snapshot-era databases by detecting existing tables
     with no migration tracking and seeding _migrations.
 
-    Public API: intentionally exported without a leading underscore so that
-    perf/db.py and test infrastructure can call it directly without reaching
-    into a private symbol.
+    Public API — intentionally exported for use by perf/db.py and tests.
     """
     if migrations_dir is None:
         migrations_dir = _find_sqlite_migrations_dir()

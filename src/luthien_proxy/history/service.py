@@ -395,7 +395,7 @@ async def _fetch_session_list_pg(
     # touch conversation_calls in the hot CTE — user_ids come from a separate
     # post-query keyed on the page's session_ids (mirrors the SQLite pattern).
     async with db_pool.connection() as conn:
-        with time_phase("db_block"):
+        with time_phase("db"):
             if user_id is not None:
                 total_count = await conn.fetchval(
                     """
@@ -563,7 +563,7 @@ async def _fetch_session_list_sqlite(
     # SECURITY INVARIANT: user_id is bound as a query parameter, never
     # interpolated into the SQL string.
     async with db_pool.connection() as conn:
-        with time_phase("db_block"):
+        with time_phase("db"):
             if user_id is not None:
                 total_count = await conn.fetchval(
                     """
