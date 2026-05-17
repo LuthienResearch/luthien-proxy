@@ -10,8 +10,8 @@ import pytest
 
 from luthien_proxy.utils.db import DatabasePool
 from luthien_proxy.utils.migration_check import (
-    _apply_sqlite_migrations,
     _find_sqlite_migrations_dir,
+    apply_sqlite_migrations,
     check_migrations,
     compute_file_hash,
 )
@@ -331,7 +331,7 @@ class TestApplySqliteMigrations:
         (migrations_dir / "001_first.sql").write_text("CREATE TABLE t1 (id INTEGER PRIMARY KEY);")
         (migrations_dir / "002_second.sql").write_text("CREATE TABLE t2 (id INTEGER PRIMARY KEY);")
         pool = DatabasePool("sqlite://:memory:")
-        await _apply_sqlite_migrations(pool, migrations_dir)
+        await apply_sqlite_migrations(pool, migrations_dir)
 
         async with pool.connection() as conn:
             rows = await conn.fetch("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
@@ -346,15 +346,15 @@ class TestApplySqliteMigrations:
         """Should not re-apply migrations that are already recorded."""
         (migrations_dir / "001_first.sql").write_text("CREATE TABLE t1 (id INTEGER PRIMARY KEY);")
         pool = DatabasePool("sqlite://:memory:")
-        await _apply_sqlite_migrations(pool, migrations_dir)
-        await _apply_sqlite_migrations(pool, migrations_dir)
+        await apply_sqlite_migrations(pool, migrations_dir)
+        await apply_sqlite_migrations(pool, migrations_dir)
 
     @pytest.mark.asyncio
     async def test_handles_comment_only_files(self, migrations_dir: Path) -> None:
         """Should handle no-op migration files (comments only)."""
         (migrations_dir / "000_init.sql").write_text("-- No-op: SQLite needs no database initialization.\n")
         pool = DatabasePool("sqlite://:memory:")
-        await _apply_sqlite_migrations(pool, migrations_dir)
+        await apply_sqlite_migrations(pool, migrations_dir)
 
         async with pool.connection() as conn:
             tracked = await conn.fetch("SELECT filename FROM _migrations")
@@ -366,10 +366,10 @@ class TestApplySqliteMigrations:
         """Should raise RuntimeError if a recorded migration's hash doesn't match."""
         (migrations_dir / "001_first.sql").write_text("CREATE TABLE t1 (id INTEGER PRIMARY KEY);")
         pool = DatabasePool("sqlite://:memory:")
-        await _apply_sqlite_migrations(pool, migrations_dir)
+        await apply_sqlite_migrations(pool, migrations_dir)
         (migrations_dir / "001_first.sql").write_text("CREATE TABLE t1_modified (id INTEGER PRIMARY KEY);")
         with pytest.raises(RuntimeError, match="HASH MISMATCH"):
-            await _apply_sqlite_migrations(pool, migrations_dir)
+            await apply_sqlite_migrations(pool, migrations_dir)
 
     @pytest.mark.asyncio
     async def test_bootstrap_snapshot_era_database(self, migrations_dir: Path) -> None:
@@ -386,7 +386,7 @@ class TestApplySqliteMigrations:
         (migrations_dir / "001_first.sql").write_text("CREATE TABLE current_policy (id INTEGER PRIMARY KEY);")
         # 010 is beyond bootstrap range — should be applied as a new migration
         (migrations_dir / "010_new_feature.sql").write_text("CREATE TABLE new_feature (id INTEGER PRIMARY KEY);")
-        await _apply_sqlite_migrations(pool, migrations_dir)
+        await apply_sqlite_migrations(pool, migrations_dir)
         async with pool.connection() as conn:
             tracked = await conn.fetch("SELECT filename FROM _migrations ORDER BY filename")
             filenames = [r["filename"] for r in tracked]

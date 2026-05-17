@@ -49,7 +49,8 @@ def time_phase(name: str) -> Generator[None, None, None]:
 
     The elapsed milliseconds are appended to the current request's phase list
     (stored in a ``ContextVar``).  If called outside a ``ServerTimingMiddleware``
-    request context the phase is silently discarded.
+    request context the phase is silently discarded.  Phases are recorded even
+    when the block raises — the ``finally`` clause always appends the elapsed time.
 
     Args:
         name: Short identifier for the phase (e.g. ``"db"``, ``"serialize"``).

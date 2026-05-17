@@ -61,10 +61,10 @@ async def test_path_filter_includes_history(history_app):
 
 @pytest.mark.asyncio
 async def test_path_filter_includes_debug():
-    app = _make_app("/api/debug/events")
+    app = _make_app("/api/debug/calls")
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get("/api/debug/events")
+        response = await client.get("/api/debug/calls")
     assert "Server-Timing" in response.headers
 
 

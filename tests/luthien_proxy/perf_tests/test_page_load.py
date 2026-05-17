@@ -39,11 +39,10 @@ N_RUNS: int = 5
 
 
 def _discover_html_routes() -> list[str]:
-    db_pool = DatabasePool(get_perf_db_url("sqlite"))
     app = create_app(
         api_key="x",
         admin_key="x",
-        db_pool=db_pool,
+        db_pool=DatabasePool(get_perf_db_url("sqlite")),  # lazy — no connection opened
         redis_client=None,
         startup_policy_path=None,
     )

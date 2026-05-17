@@ -38,8 +38,10 @@ _EVENTS_INSERT = (
 )
 
 # Pre-built JSON template fragments — content is pure ASCII, no escaping needed.
-_REQ_PAD = "A" * 50
-_RESP_PAD = "B" * 100
+# Pad sizes are chosen so that _req_payload produces ~5 KB and _resp_payload
+# produces ~20 KB, matching the docstring claims and production payload shapes.
+_REQ_PAD = "A" * 2368
+_RESP_PAD = "B" * 20202
 
 _REQ_HEAD = (
     '{"final_request": {"model": "' + _MODEL + '", "max_tokens": 1024,'

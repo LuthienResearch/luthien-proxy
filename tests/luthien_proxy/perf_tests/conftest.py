@@ -231,7 +231,6 @@ def perf_gateway_url(perf_db_url: str) -> Iterator[str]:
     """
     port = _free_port()
     db_pool = DatabasePool(perf_db_url)
-    cleanup_loop = asyncio.new_event_loop()
 
     saved_env: dict[str, str | None] = {k: os.environ.get(k) for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY")}
 
@@ -275,8 +274,7 @@ def perf_gateway_url(perf_db_url: str) -> Iterator[str]:
         thread.join(timeout=5)
         restore_env()
         clear_settings_cache()
-        cleanup_loop.run_until_complete(db_pool.close())
-        cleanup_loop.close()
+        asyncio.run(db_pool.close())
         raise RuntimeError("Perf gateway did not start within 10 s")
 
     yield f"http://127.0.0.1:{port}"
@@ -285,8 +283,7 @@ def perf_gateway_url(perf_db_url: str) -> Iterator[str]:
     thread.join(timeout=5)
     restore_env()
     clear_settings_cache()
-    cleanup_loop.run_until_complete(db_pool.close())
-    cleanup_loop.close()
+    asyncio.run(db_pool.close())
 
 
 @pytest.fixture(scope="session")

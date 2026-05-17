@@ -108,6 +108,46 @@ def test_sami_like_442_msg_session(isolated_home):
     assert n_calls == 442
 
 
+def test_payload_sizes():
+    from luthien_proxy.perf.seeding import _req_payload, _resp_payload
+
+    req = _req_payload("perf-seed-test-0001", 0)
+    resp = _resp_payload("perf-seed-test-0001", 0)
+    assert 4 * 1024 <= len(req) <= 6 * 1024, f"req payload {len(req)} bytes not in [4KB, 6KB]"
+    assert 18 * 1024 <= len(resp) <= 22 * 1024, f"resp payload {len(resp)} bytes not in [18KB, 22KB]"
+
+
+def test_seeded_db_has_same_indexes_as_migrated_db(isolated_home):
+    from luthien_proxy.perf.db import drop_perf_db, migrate_perf_db
+
+    migrate_perf_db("sqlite")
+    conn = _db(isolated_home)
+    try:
+        migrated_indexes = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'")
+        }
+    finally:
+        conn.close()
+
+    drop_perf_db("sqlite")
+    seed_sessions("sqlite", tier=10)
+    conn = _db(isolated_home)
+    try:
+        seeded_indexes = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'")
+        }
+    finally:
+        conn.close()
+
+    assert seeded_indexes == migrated_indexes, (
+        f"Seeded DB indexes differ from migrated DB.\n"
+        f"Missing after reseed: {migrated_indexes - seeded_indexes}\n"
+        f"Extra after reseed: {seeded_indexes - migrated_indexes}"
+    )
+
+
 def test_seeding_refuses_dev_db(tmp_path):
     with patch(
         "luthien_proxy.perf.seeding.get_perf_db_url",

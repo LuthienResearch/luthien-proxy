@@ -68,11 +68,11 @@ Environment:
                  SQLite example: sqlite:///$HOME/.luthien/perf.db
 
 Examples:
-  DATABASE_URL=sqlite://$HOME/.luthien/perf.db ./scripts/run_perf.sh --tier 100
-  DATABASE_URL=sqlite://$HOME/.luthien/perf.db ./scripts/run_perf.sh --tier 100 --assert-slo
-  DATABASE_URL=sqlite://$HOME/.luthien/perf.db ./scripts/run_perf.sh --tier 100 --throttled
+  DATABASE_URL=sqlite:///$HOME/.luthien/perf.db ./scripts/run_perf.sh --tier 100
+  DATABASE_URL=sqlite:///$HOME/.luthien/perf.db ./scripts/run_perf.sh --tier 100 --assert-slo
+  DATABASE_URL=sqlite:///$HOME/.luthien/perf.db ./scripts/run_perf.sh --tier 100 --throttled
   ./scripts/run_perf.sh --clean
-  DATABASE_URL=sqlite://$HOME/.luthien/perf.db ./scripts/run_perf.sh --seed-only --tier 1000
+  DATABASE_URL=sqlite:///$HOME/.luthien/perf.db ./scripts/run_perf.sh --seed-only --tier 1000
 
 Postgres --clean note:
   For Postgres, --clean executes DROP SCHEMA perf_test CASCADE.

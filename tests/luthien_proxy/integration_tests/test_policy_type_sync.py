@@ -20,7 +20,7 @@ import pytest
 from luthien_proxy.policy_core.base_policy import BasePolicy
 from luthien_proxy.policy_types import REGISTERED_BUILTINS, sync_policy_types
 from luthien_proxy.utils.db import DatabasePool
-from luthien_proxy.utils.migration_check import _apply_sqlite_migrations
+from luthien_proxy.utils.migration_check import apply_sqlite_migrations
 
 
 @pytest.fixture
@@ -28,7 +28,7 @@ async def db_pool_with_migrations() -> AsyncIterator[DatabasePool]:
     """Create a fresh in-memory SQLite DatabasePool with all migrations applied."""
     db_pool = DatabasePool("sqlite://:memory:")
     migrations_dir = Path(__file__).resolve().parents[3] / "src" / "luthien_proxy" / "utils" / "sqlite_migrations"
-    await _apply_sqlite_migrations(db_pool, migrations_dir=migrations_dir)
+    await apply_sqlite_migrations(db_pool, migrations_dir=migrations_dir)
     yield db_pool
     await db_pool.close()
 
