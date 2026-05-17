@@ -115,19 +115,43 @@ def migrate_perf_db(backend: Literal["sqlite", "postgres"]) -> None:
         )
 
 
-def _migrate_sqlite(url: str) -> None:
+async def migrate_perf_db_async(backend: Literal["sqlite", "postgres"]) -> None:
+    """Apply all migrations to the perf database.
+
+    Async variant of :func:`migrate_perf_db`.  Safe to call from async
+    fixtures and handlers.  See :func:`migrate_perf_db` for full docs.
+
+    Args:
+        backend: "sqlite" or "postgres".
+
+    Raises:
+        RuntimeError: If isolation check fails or migrations fail.
+        NotImplementedError: For the "postgres" backend (not yet implemented).
+    """
+    url = get_perf_db_url(backend)
+    ensure_perf_isolation(url)
+
+    if backend == "sqlite":
+        await _migrate_sqlite_async(url)
+    else:
+        raise NotImplementedError(
+            "Postgres perf migration is not yet implemented. Implement alongside _seed_postgres in seeding.py."
+        )
+
+
+async def _migrate_sqlite_async(url: str) -> None:
     from luthien_proxy.utils.db import DatabasePool  # noqa: PLC0415
     from luthien_proxy.utils.db_sqlite import parse_sqlite_url  # noqa: PLC0415
     from luthien_proxy.utils.migration_check import apply_sqlite_migrations  # noqa: PLC0415
 
     db_path = Path(parse_sqlite_url(url))
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_pool = DatabasePool(url)
+    try:
+        await apply_sqlite_migrations(db_pool)
+    finally:
+        await db_pool.close()
 
-    async def _run() -> None:
-        db_pool = DatabasePool(url)
-        try:
-            await apply_sqlite_migrations(db_pool)
-        finally:
-            await db_pool.close()
 
-    asyncio.run(_run())
+def _migrate_sqlite(url: str) -> None:
+    asyncio.run(_migrate_sqlite_async(url))

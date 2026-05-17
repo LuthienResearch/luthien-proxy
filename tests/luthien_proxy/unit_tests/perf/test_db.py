@@ -42,6 +42,11 @@ def test_drop_perf_db_idempotent(tmp_path):
         drop_perf_db("sqlite")
 
 
+def test_ensure_perf_isolation_rejects_unrecognized_scheme():
+    with pytest.raises(RuntimeError, match="isolation"):
+        ensure_perf_isolation("mysql://user:pass@localhost/luthien")
+
+
 def test_migrate_perf_db_creates_tables(tmp_path):
     with patch("pathlib.Path.home", return_value=tmp_path):
         migrate_perf_db("sqlite")

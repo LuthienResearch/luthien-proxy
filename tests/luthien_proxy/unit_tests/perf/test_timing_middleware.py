@@ -135,3 +135,36 @@ async def test_concurrent_isolation():
 def test_time_phase_outside_request_context_does_not_raise():
     with time_phase("orphan"):
         pass
+
+
+@pytest.mark.asyncio
+async def test_static_cache_middleware_replaces_not_appends():
+    from fastapi.testclient import TestClient
+    from starlette.responses import Response as StarletteResponse
+
+    from luthien_proxy.main import create_app
+    from luthien_proxy.utils.db import DatabasePool
+
+    db_pool = DatabasePool("sqlite:///:memory:")
+    app = create_app(
+        api_key=None,
+        admin_key="test",
+        db_pool=db_pool,
+        redis_client=None,
+        startup_policy_path=None,
+        policy_source="file",
+    )
+
+    @app.get("/api/test-cache")
+    def _route():
+        return StarletteResponse(
+            content="ok",
+            headers={"Cache-Control": "no-cache"},
+        )
+
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.get("/api/test-cache")
+    await db_pool.close()
+
+    cache_headers = [v for k, v in response.headers.items() if k.lower() == "cache-control"]
+    assert len(cache_headers) == 1, f"Expected exactly one Cache-Control header, got: {cache_headers}"

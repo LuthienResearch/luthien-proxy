@@ -216,6 +216,7 @@ def main() -> None:
     else:
         print("SKIPPED: Postgres backend not available in this environment.", file=sys.stderr)
         print("# SKIPPED: Postgres not available", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

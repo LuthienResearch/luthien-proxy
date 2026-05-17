@@ -73,8 +73,10 @@ def time_phase(name: str) -> Generator[None, None, None]:
         with time_phase("db"):
             rows = await conn.fetch(query)
     """
-    if "\r" in name or "\n" in name:
-        raise ValueError(f"time_phase name must not contain \\r or \\n: {name!r}")
+    import re as _re  # noqa: PLC0415
+
+    if not _re.fullmatch(r"[A-Za-z0-9_-]+", name):
+        raise ValueError(f"time_phase name must be an RFC 8941 token ([A-Za-z0-9_-]+): {name!r}")
     start = time.perf_counter()
     try:
         yield

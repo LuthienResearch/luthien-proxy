@@ -148,6 +148,47 @@ def test_seeded_db_has_same_indexes_as_migrated_db(isolated_home):
     )
 
 
+def test_seed_sqlite_recreates_indexes_after_rollback(isolated_home):
+    import sqlite3 as _sqlite3
+
+    from luthien_proxy.perf.db import get_perf_db_url, migrate_perf_db
+    from luthien_proxy.perf.seeding import _INDEX_STMTS, _sqlite_path
+
+    migrate_perf_db("sqlite")
+    db_path = _sqlite_path(get_perf_db_url("sqlite"))
+
+    conn = _sqlite3.connect(str(db_path), isolation_level=None)
+    try:
+        for idx in (
+            "idx_conversation_events_type",
+            "idx_conversation_events_created",
+            "idx_conversation_events_call_created",
+        ):
+            conn.execute(f"DROP INDEX IF EXISTS {idx}")
+
+        for stmt in _INDEX_STMTS:
+            conn.execute(stmt)
+    finally:
+        conn.close()
+
+    after = _sqlite3.connect(str(db_path))
+    try:
+        indexes = {
+            row[0]
+            for row in after.execute("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'")
+        }
+    finally:
+        after.close()
+
+    assert len(indexes) >= len(_INDEX_STMTS), "All indexes should be recreated"
+
+
+def test_seed_sessions_raises_if_rows_already_exist(isolated_home):
+    seed_sessions("sqlite", tier=10)
+    with pytest.raises(RuntimeError, match="already exist"):
+        seed_sessions("sqlite", tier=10)
+
+
 def test_seeding_refuses_dev_db(tmp_path):
     with patch(
         "luthien_proxy.perf.seeding.get_perf_db_url",

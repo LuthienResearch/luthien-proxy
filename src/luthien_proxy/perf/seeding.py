@@ -12,9 +12,12 @@ FK ordering: conversation_calls rows are inserted before conversation_events row
 
 from __future__ import annotations
 
+import logging
 import random
 import sqlite3
 import time
+
+logger = logging.getLogger(__name__)
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -79,7 +82,7 @@ _RESP_TAIL = '"}]}}'
 class SeedingReport:
     """Report returned by seeding functions with metrics about the seeding run."""
 
-    tier: int | str
+    label: str
     total_sessions: int
     total_rows: int
     total_bytes: int
@@ -132,7 +135,7 @@ def _sqlite_path(url: str) -> Path:
 def _seed_sqlite(
     db_path: Path,
     plan: list[tuple[str, int]],
-    tier: int | str,
+    label: str,
     backend: str = "sqlite",
 ) -> SeedingReport:
     """Bulk-insert plan into SQLite via executemany.
@@ -238,8 +241,8 @@ def _seed_sqlite(
         for stmt in _INDEX_STMTS:
             try:
                 conn.execute(stmt)
-            except Exception:
-                pass
+            except Exception as _idx_err:
+                logger.warning("Failed to recreate index after seed error: %s", _idx_err)
         conn.close()
 
     elapsed = time.monotonic() - t0
@@ -247,7 +250,7 @@ def _seed_sqlite(
     total_rows = 3 * n_calls_total  # 1 calls row + 2 events rows per call
 
     return SeedingReport(
-        tier=tier,
+        label=label,
         total_sessions=len(plan),
         total_rows=total_rows,
         total_bytes=total_bytes,
@@ -255,6 +258,22 @@ def _seed_sqlite(
         backend=backend,
         biggest_session_message_count=biggest,
     )
+
+
+def _assert_no_existing_rows(db_path: Path, prefix: str) -> None:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM conversation_calls WHERE session_id LIKE ?",
+            (f"{prefix}%",),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    if count > 0:
+        raise RuntimeError(
+            f"seed_sessions: {count} rows with prefix '{prefix}' already exist. "
+            "Call drop_perf_db(backend) before re-seeding to ensure a clean state."
+        )
 
 
 def seed_sessions(
@@ -265,7 +284,10 @@ def seed_sessions(
 
     Calls ensure_perf_isolation and migrate_perf_db before inserting.
     All session_ids are prefixed with ``perf-seed-{tier}-``.
-    IDs are fully deterministic — drop + re-seed produces identical data.
+    IDs are fully deterministic — the same tier produces identical rows on
+    every run.  Callers MUST call ``drop_perf_db(backend)`` first if the DB
+    already contains rows for this tier; seed_sessions will raise if existing
+    rows are detected (to prevent silent row accumulation across tiers).
 
     Note: calls ``migrate_perf_db`` which uses ``asyncio.run()`` internally.
     Must be called from a synchronous context — will raise ``RuntimeError``
@@ -294,10 +316,11 @@ def seed_sessions(
     migrate_perf_db(backend)
 
     prefix = f"perf-seed-{tier}-"
-    plan = [(f"{prefix}{i:04d}", _call_count(i, rng_seed=tier)) for i in range(tier)]
 
     if backend == "sqlite":
-        return _seed_sqlite(_sqlite_path(url), plan, tier=tier, backend=backend)
+        _assert_no_existing_rows(_sqlite_path(url), prefix)
+        plan = [(f"{prefix}{i:04d}", _call_count(i, rng_seed=tier)) for i in range(tier)]
+        return _seed_sqlite(_sqlite_path(url), plan, label=str(tier), backend=backend)
     raise NotImplementedError(f"backend {backend!r} not yet implemented")
 
 
@@ -326,5 +349,5 @@ def seed_sami_like(backend: Literal["sqlite", "postgres"]) -> SeedingReport:
     plan = [(big_session_id, 442)] + other_plan
 
     if backend == "sqlite":
-        return _seed_sqlite(_sqlite_path(url), plan, tier="sami", backend=backend)
+        return _seed_sqlite(_sqlite_path(url), plan, label="sami", backend=backend)
     raise NotImplementedError(f"backend {backend!r} not yet implemented")
