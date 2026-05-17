@@ -441,8 +441,9 @@ def create_app(
 
     app.add_middleware(StaticCacheMiddleware)
 
-    # Add ServerTimingMiddleware as the last (innermost) middleware
-    # so it captures actual handler latency
+    # Add ServerTimingMiddleware as the outermost middleware (add_middleware stacks
+    # outermost-last) so it sees the full pipeline duration — the closest approximation
+    # to what the client measures.
     app.add_middleware(ServerTimingMiddleware)
 
     # Include routers

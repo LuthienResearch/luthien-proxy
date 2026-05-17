@@ -16,8 +16,8 @@ def test_ensure_perf_isolation_rejects_local_db():
         ensure_perf_isolation("sqlite:///~/.luthien/local.db")
 
 
-def test_ensure_perf_isolation_accepts_perf_db():
-    ensure_perf_isolation("sqlite:////Users/test/.luthien/perf.db")
+def test_ensure_perf_isolation_accepts_perf_db(tmp_path):
+    ensure_perf_isolation(f"sqlite:///{tmp_path}/.luthien/perf.db")
 
 
 def test_ensure_perf_isolation_rejects_postgres_without_perf_test():

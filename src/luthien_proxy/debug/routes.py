@@ -17,6 +17,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from luthien_proxy.auth import verify_admin_token
 from luthien_proxy.dependencies import get_db_pool
@@ -24,7 +25,7 @@ from luthien_proxy.perf.timing_middleware import time_phase
 from luthien_proxy.settings import client_error_detail
 from luthien_proxy.utils.constants import DEBUG_CALLS_DEFAULT_LIMIT, DEBUG_CALLS_MAX_LIMIT
 
-from .models import CallDiffResponse, CallEventsResponse, CallListResponse
+from .models import CallDiffResponse
 from .service import fetch_call_diff, fetch_call_events, fetch_recent_calls
 
 if TYPE_CHECKING:
@@ -35,12 +36,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/debug", tags=["debug"])
 
 
-@router.get("/calls/{call_id}", response_model=CallEventsResponse)
+@router.get("/calls/{call_id}")
 async def get_call_events(
     call_id: str,
     _: str = Depends(verify_admin_token),
     db_pool: db.DatabasePool | None = Depends(get_db_pool),
-) -> CallEventsResponse:
+) -> JSONResponse:
     """Retrieve all conversation events for a specific call_id.
 
     Args:
@@ -59,9 +60,8 @@ async def get_call_events(
     try:
         result = await fetch_call_events(call_id, db_pool)
         with time_phase("serialize"):
-            # Trigger model serialization for Server-Timing measurement
-            result.model_dump()
-        return result
+            content = result.model_dump(mode="json")
+        return JSONResponse(content=content)
     except ValueError as exc:
         # No events found
         raise HTTPException(status_code=404, detail=str(exc))
@@ -101,12 +101,12 @@ async def get_call_diff(
         raise HTTPException(status_code=500, detail=client_error_detail(f"Database error: {exc}"))
 
 
-@router.get("/calls", response_model=CallListResponse)
+@router.get("/calls")
 async def list_recent_calls(
     limit: int = Query(default=DEBUG_CALLS_DEFAULT_LIMIT, ge=1, le=DEBUG_CALLS_MAX_LIMIT),
     _: str = Depends(verify_admin_token),
     db_pool: db.DatabasePool | None = Depends(get_db_pool),
-) -> CallListResponse:
+) -> JSONResponse:
     """List recent calls with event counts.
 
     Args:
@@ -125,9 +125,8 @@ async def list_recent_calls(
     try:
         result = await fetch_recent_calls(limit, db_pool)
         with time_phase("serialize"):
-            # Trigger model serialization for Server-Timing measurement
-            result.model_dump()
-        return result
+            content = result.model_dump(mode="json")
+        return JSONResponse(content=content)
     except Exception as exc:
         logger.error(f"Failed to list recent calls: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=client_error_detail(f"Database error: {exc}"))

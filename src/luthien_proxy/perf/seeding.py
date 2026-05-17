@@ -140,7 +140,7 @@ def _seed_sqlite(
 
     conn = sqlite3.connect(str(db_path))
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=OFF")
+    conn.execute("PRAGMA synchronous=OFF")  # intentionally unsafe — perf DB is disposable
     conn.execute("PRAGMA cache_size=-131072")
     conn.execute("PRAGMA temp_store=MEMORY")
 

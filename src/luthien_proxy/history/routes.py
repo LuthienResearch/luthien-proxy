@@ -13,7 +13,7 @@ import logging
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from luthien_proxy.auth import check_auth_or_redirect, verify_admin_token
 from luthien_proxy.dependencies import get_admin_key, get_db_pool
@@ -24,7 +24,6 @@ from luthien_proxy.utils.constants import (
 )
 from luthien_proxy.utils.db import DatabasePool
 
-from .models import SessionDetail, SessionListResponse
 from .service import export_session_jsonl, export_session_markdown, fetch_session_detail, fetch_session_list
 
 logger = logging.getLogger(__name__)
@@ -58,7 +57,7 @@ async def history_list_page(
 # --- JSON API Endpoints ---
 
 
-@api_router.get("/sessions", response_model=SessionListResponse)
+@api_router.get("/sessions")
 async def list_sessions(
     _: str = Depends(verify_admin_token),
     db_pool: DatabasePool = Depends(get_db_pool),
@@ -80,7 +79,7 @@ async def list_sessions(
             "X-Luthien-User-Id header (when TRUST_USER_ID_HEADER=true) or JWT sub claim."
         ),
     ),
-) -> SessionListResponse:
+) -> JSONResponse:
     """List recent sessions with summaries.
 
     Returns a list of session summaries ordered by most recent activity,
@@ -89,17 +88,16 @@ async def list_sessions(
     """
     result = await fetch_session_list(limit, db_pool, offset, user_id=user_id)
     with time_phase("serialize"):
-        # Trigger model serialization for Server-Timing measurement
-        result.model_dump()
-    return result
+        content = result.model_dump(mode="json")
+    return JSONResponse(content=content)
 
 
-@api_router.get("/sessions/{session_id}", response_model=SessionDetail)
+@api_router.get("/sessions/{session_id}")
 async def get_session(
     session_id: str,
     _: str = Depends(verify_admin_token),
     db_pool: DatabasePool = Depends(get_db_pool),
-) -> SessionDetail:
+) -> JSONResponse:
     """Get full session detail with conversation turns.
 
     Returns the complete conversation history for a session,
@@ -108,9 +106,8 @@ async def get_session(
     try:
         result = await fetch_session_detail(session_id, db_pool)
         with time_phase("serialize"):
-            # Trigger model serialization for Server-Timing measurement
-            result.model_dump()
-        return result
+            content = result.model_dump(mode="json")
+        return JSONResponse(content=content)
     except ValueError as e:
         logger.warning(f"Session not found: {repr(e)}")
         raise HTTPException(status_code=404, detail="Session not found.") from None

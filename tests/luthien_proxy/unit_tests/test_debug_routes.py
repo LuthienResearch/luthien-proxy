@@ -12,17 +12,15 @@ Note: All debug routes require admin authentication. Tests pass an auth token
 directly since they call handlers without going through FastAPI's Depends().
 """
 
+import json
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
+from fastapi.responses import JSONResponse
 
-from luthien_proxy.debug.models import (
-    CallDiffResponse,
-    CallEventsResponse,
-    CallListResponse,
-)
+from luthien_proxy.debug.models import CallDiffResponse
 from luthien_proxy.debug.routes import (
     get_call_diff,
     get_call_events,
@@ -79,9 +77,10 @@ class TestGetCallEventsRoute:
 
         result = await get_call_events("test-call-id", _=AUTH_TOKEN, db_pool=mock_pool)
 
-        assert isinstance(result, CallEventsResponse)
-        assert result.call_id == "test-call-id"
-        assert len(result.events) == 1
+        assert isinstance(result, JSONResponse)
+        body = json.loads(bytes(result.body))
+        assert body["call_id"] == "test-call-id"
+        assert len(body["events"]) == 1
 
     @pytest.mark.asyncio
     async def test_database_error(self):
@@ -211,9 +210,10 @@ class TestListRecentCallsRoute:
 
         result = await list_recent_calls(limit=10, _=AUTH_TOKEN, db_pool=mock_pool)
 
-        assert isinstance(result, CallListResponse)
-        assert result.total == 0
-        assert result.calls == []
+        assert isinstance(result, JSONResponse)
+        body = json.loads(bytes(result.body))
+        assert body["total"] == 0
+        assert body["calls"] == []
 
     @pytest.mark.asyncio
     async def test_successful_response(self):
@@ -239,9 +239,10 @@ class TestListRecentCallsRoute:
 
         result = await list_recent_calls(limit=10, _=AUTH_TOKEN, db_pool=mock_pool)
 
-        assert isinstance(result, CallListResponse)
-        assert result.total == 2
-        assert len(result.calls) == 2
+        assert isinstance(result, JSONResponse)
+        body = json.loads(bytes(result.body))
+        assert body["total"] == 2
+        assert len(body["calls"]) == 2
 
     @pytest.mark.asyncio
     async def test_database_error(self):
