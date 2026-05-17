@@ -37,6 +37,15 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    if config.pluginmanager.has_plugin("xdist"):
+        raise pytest.UsageError(
+            "Perf tests cannot run under pytest-xdist: the session-scoped "
+            "perf_gateway_url fixture mutates os.environ, which would race "
+            "across workers. Run perf tests with: ./scripts/run_perf.sh"
+        )
+
+
 _ADMIN_KEY = "admin-dev-key"
 _API_KEY = "sk-perf-test-key"
 

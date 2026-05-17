@@ -5,6 +5,12 @@ Provides endpoints for:
 - Viewing session details
 - Exporting sessions to markdown
 - HTML UI pages
+
+Serialization pattern: API handlers return Response(content=model.model_dump_json(), ...)
+with response_model= kept on the decorator for OpenAPI schema generation only.
+FastAPI skips response validation when the handler returns a pre-built Response —
+this is intentional to avoid double-serialization (Pydantic→dict→json→bytes twice).
+The API contract snapshot tests (test_api_contract.py) provide regression coverage.
 """
 
 from __future__ import annotations

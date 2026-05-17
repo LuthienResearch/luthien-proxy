@@ -20,7 +20,6 @@ import pytest
 from fastapi import HTTPException
 from starlette.responses import Response
 
-from luthien_proxy.debug.models import CallDiffResponse
 from luthien_proxy.debug.routes import (
     get_call_diff,
     get_call_events,
@@ -166,8 +165,9 @@ class TestGetCallDiffRoute:
 
         result = await get_call_diff("test-call-id", _=AUTH_TOKEN, db_pool=mock_pool)
 
-        assert isinstance(result, CallDiffResponse)
-        assert result.call_id == "test-call-id"
+        assert isinstance(result, Response)
+        body = json.loads(bytes(result.body))
+        assert body["call_id"] == "test-call-id"
 
     @pytest.mark.asyncio
     async def test_database_error(self):

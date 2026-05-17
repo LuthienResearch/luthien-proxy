@@ -207,6 +207,7 @@ fi
 
 if [[ "$TIER" == "10000" ]]; then
     warn "Tier-10000 seeds ~250k events × ~25 KB payload ≈ 7–8 GB on disk. Ensure sufficient free space."
+    warn "Seeding also allocates a 128 MB SQLite cache; ensure sufficient RAM."
 fi
 
 # ── Pre-flight ────────────────────────────────────────────────────────────────

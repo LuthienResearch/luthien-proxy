@@ -9,6 +9,12 @@ Route handlers are thin wrappers that handle HTTP concerns (dependency injection
 error responses) and delegate business logic to the service layer.
 
 All debug endpoints require admin authentication (same as /admin routes).
+
+Serialization pattern: handlers return Response(content=model.model_dump_json(), ...)
+with response_model= kept on the decorator for OpenAPI schema generation only.
+FastAPI skips response validation when the handler returns a pre-built Response —
+this is intentional to avoid double-serialization (Pydantic→dict→json→bytes twice).
+The API contract snapshot tests (test_api_contract.py) provide regression coverage.
 """
 
 from __future__ import annotations
@@ -75,7 +81,7 @@ async def get_call_diff(
     call_id: str,
     _: str = Depends(verify_admin_token),
     db_pool: db.DatabasePool | None = Depends(get_db_pool),
-) -> CallDiffResponse:
+) -> Response:
     """Compute diff between original and final request/response for a call.
 
     Args:
@@ -92,7 +98,10 @@ async def get_call_diff(
         raise HTTPException(status_code=503, detail="Database not configured")
 
     try:
-        return await fetch_call_diff(call_id, db_pool)
+        result = await fetch_call_diff(call_id, db_pool)
+        with time_phase("serialize"):
+            body = result.model_dump_json()
+        return Response(content=body, media_type="application/json")
     except ValueError as exc:
         # No events found
         raise HTTPException(status_code=404, detail=str(exc))
