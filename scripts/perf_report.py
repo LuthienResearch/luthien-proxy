@@ -245,7 +245,7 @@ def _section_server_timing(results: list[dict]) -> str:
 
     data = r.get("data", {})
     lines = [header, "", "| Phase | Median ms |", "|-------|-----------|"]
-    for phase in ("db", "serialize", "render"):
+    for phase in ("db", "serialize"):
         lines.append(f"| {phase} | {data.get(f'{phase}_ms', '—')} |")
     lines.append("")
     return "\n".join(lines)

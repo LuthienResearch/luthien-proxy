@@ -47,17 +47,22 @@ def ensure_perf_isolation(url: str) -> None:
             or if it is a Postgres URL without the "perf_test" schema override.
             The message always contains the word "isolation".
     """
-    if "local.db" in url:
-        raise RuntimeError(
-            "Perf DB isolation violation: URL contains 'local.db' — "
-            "refusing to use the dev database as the perf database. "
-            "Use get_perf_db_url() to obtain the correct perf DB URL."
-        )
-    if url.startswith(("postgresql://", "postgres://")) and "perf_test" not in url:
-        raise RuntimeError(
-            f"Perf DB isolation violation: Postgres URL must include "
-            f"'perf_test' schema (add ?options=-csearch_path=perf_test). Got: {url!r}"
-        )
+    if url.startswith(("sqlite://", "sqlite+aiosqlite://")):
+        from pathlib import Path as _Path  # noqa: PLC0415
+
+        path_str = url.split("///", 1)[-1] if "///" in url else url.split("//", 1)[-1]
+        if _Path(path_str).name == "local.db":
+            raise RuntimeError(
+                "Perf DB isolation violation: URL resolves to local.db — "
+                "refusing to use the dev database as the perf database. "
+                "Use get_perf_db_url() to obtain the correct perf DB URL."
+            )
+    elif url.startswith(("postgresql://", "postgres://")):
+        if "options=-csearch_path=perf_test" not in url:
+            raise RuntimeError(
+                f"Perf DB isolation violation: Postgres URL must include "
+                f"'options=-csearch_path=perf_test' (use get_perf_db_url('postgres')). Got: {url!r}"
+            )
 
 
 def drop_perf_db(backend: Literal["sqlite", "postgres"]) -> None:
@@ -101,7 +106,9 @@ def migrate_perf_db(backend: Literal["sqlite", "postgres"]) -> None:
     if backend == "sqlite":
         _migrate_sqlite(url)
     else:
-        raise NotImplementedError("Postgres perf migration is not yet implemented")
+        raise NotImplementedError(
+            "Postgres perf migration is not yet implemented. Implement alongside _seed_postgres in seeding.py."
+        )
 
 
 def _migrate_sqlite(url: str) -> None:

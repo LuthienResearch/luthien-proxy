@@ -117,6 +117,16 @@ class ServerTimingMiddleware:
     Timing phases are recorded by calling ``time_phase(name)`` anywhere in the
     request/response call stack.  Context isolation is guaranteed by
     ``contextvars.ContextVar``: each request gets its own fresh phase list.
+
+    ContextVar constraint: if any ``BaseHTTPMiddleware`` sits between this
+    middleware and the route handler (e.g. ``StaticCacheMiddleware`` in
+    ``main.py``), ContextVar propagation may silently break for streaming
+    responses on that path.  Do not call ``time_phase`` from inside a
+    ``StreamingResponse`` body generator — the phase will be lost.
+
+    Phases after ``http.response.start``: the ``Server-Timing`` header is
+    finalized at response-start time.  Any ``time_phase`` block that runs
+    during body streaming (e.g. in a generator) will not appear in the header.
     """
 
     def __init__(self, app: ASGIApp) -> None:  # noqa: D107

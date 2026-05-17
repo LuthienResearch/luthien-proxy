@@ -23,7 +23,7 @@ from typing import Literal
 from luthien_proxy.perf.db import ensure_perf_isolation, get_perf_db_url, migrate_perf_db
 
 _MODEL = "claude-haiku-4-5"
-_BASE_TS = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=60)
+_BASE_TS = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
 _BATCH_SIZE = 5000  # ~125 MB in-memory per batch at ~25 KB/payload; reduce if RSS is a concern
 
 _CALLS_INSERT = (
@@ -140,13 +140,14 @@ def _seed_sqlite(
     total_bytes = 0
     biggest = 0
 
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), isolation_level=None)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=OFF")  # intentionally unsafe — perf DB is disposable
     conn.execute("PRAGMA cache_size=-131072")
     conn.execute("PRAGMA temp_store=MEMORY")
 
     try:
+        conn.execute("BEGIN EXCLUSIVE")
         # Drop indexes before bulk insert — dramatically reduces write amplification.
         # Indexes are recreated after all rows are inserted.
         for idx in (
@@ -234,13 +235,16 @@ def _seed_sqlite(
             "CREATE INDEX IF NOT EXISTS idx_conversation_calls_user"
             " ON conversation_calls(user_id) WHERE user_id IS NOT NULL"
         )
-        conn.commit()
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
     finally:
         conn.close()
 
     elapsed = time.monotonic() - t0
     n_calls_total = sum(n for _, n in plan)
-    total_rows = n_calls_total + 2 * n_calls_total  # calls + 2 events per call
+    total_rows = 3 * n_calls_total  # 1 calls row + 2 events rows per call
 
     return SeedingReport(
         tier=tier,
@@ -273,10 +277,10 @@ def seed_sessions(
     if tier >= 10_000:
         import warnings  # noqa: PLC0415
 
-        gb_estimate = max(1, tier * 25 * 25 // 1_000_000)
+        gb_estimate = max(1, tier * 25 * 45 // 1_000_000)
         warnings.warn(
             f"seed_sessions(tier={tier}) seeds ~{gb_estimate} GB on disk "
-            "and allocates a 128 MB SQLite cache. Ensure sufficient disk/RAM.",
+            "(including SQLite overhead) and allocates a 128 MB cache. Ensure sufficient disk/RAM.",
             stacklevel=2,
         )
 

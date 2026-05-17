@@ -5,14 +5,11 @@ Snapshots are stored in tests/luthien_proxy/perf_tests/snapshots/ and can be reg
 
 Marked with @pytest.mark.perf and @pytest.mark.contract for selective execution.
 
-Covered endpoints (4):
+Covered endpoints (6):
   GET /api/history/sessions
   GET /api/history/sessions/{id}
   GET /api/debug/calls
   GET /api/debug/calls/{id}
-
-Not covered (2) — these return pre-built Response objects that bypass response_model validation;
-drift would be silent until a caller notices:
   GET /api/debug/calls/{id}/events  (CallEventsResponse shape)
   GET /api/debug/calls/{id}/diff    (CallDiffResponse shape)
 """
@@ -231,6 +228,76 @@ async def test_sessions_list_contract(
         _save_snapshot("sessions_list", shape)
     else:
         expected = _load_snapshot("sessions_list")
+        assert shape == expected, (
+            f"Shape mismatch:\nGot: {json.dumps(shape, indent=2)}\nExpected: {json.dumps(expected, indent=2)}"
+        )
+
+
+@pytest.mark.perf
+@pytest.mark.contract
+@pytest.mark.timeout(30)
+async def test_call_events_contract(
+    perf_gateway_url: str,
+    admin_headers: dict[str, str],
+    perf_db_url: str,
+    update_snapshots: bool,
+    seeded_perf_db: None,
+) -> None:
+    """Test /api/debug/calls/{call_id} (events) response shape."""
+    async with httpx.AsyncClient(base_url=perf_gateway_url) as client:
+        list_response = await client.get("/api/debug/calls?limit=1", headers=admin_headers)
+
+    assert list_response.status_code == 200
+    calls = list_response.json()["calls"]
+    assert len(calls) > 0, "No calls found in database"
+    call_id = calls[0]["call_id"]
+
+    async with httpx.AsyncClient(base_url=perf_gateway_url) as client:
+        response = await client.get(f"/api/debug/calls/{call_id}", headers=admin_headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    shape = _extract_shape(data)
+
+    if update_snapshots:
+        _save_snapshot("call_events", shape)
+    else:
+        expected = _load_snapshot("call_events")
+        assert shape == expected, (
+            f"Shape mismatch:\nGot: {json.dumps(shape, indent=2)}\nExpected: {json.dumps(expected, indent=2)}"
+        )
+
+
+@pytest.mark.perf
+@pytest.mark.contract
+@pytest.mark.timeout(30)
+async def test_call_diff_contract(
+    perf_gateway_url: str,
+    admin_headers: dict[str, str],
+    perf_db_url: str,
+    update_snapshots: bool,
+    seeded_perf_db: None,
+) -> None:
+    """Test /api/debug/calls/{call_id}/diff response shape."""
+    async with httpx.AsyncClient(base_url=perf_gateway_url) as client:
+        list_response = await client.get("/api/debug/calls?limit=1", headers=admin_headers)
+
+    assert list_response.status_code == 200
+    calls = list_response.json()["calls"]
+    assert len(calls) > 0, "No calls found in database"
+    call_id = calls[0]["call_id"]
+
+    async with httpx.AsyncClient(base_url=perf_gateway_url) as client:
+        response = await client.get(f"/api/debug/calls/{call_id}/diff", headers=admin_headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    shape = _extract_shape(data)
+
+    if update_snapshots:
+        _save_snapshot("call_diff", shape)
+    else:
+        expected = _load_snapshot("call_diff")
         assert shape == expected, (
             f"Shape mismatch:\nGot: {json.dumps(shape, indent=2)}\nExpected: {json.dumps(expected, indent=2)}"
         )
