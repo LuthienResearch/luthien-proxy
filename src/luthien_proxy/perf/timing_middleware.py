@@ -114,10 +114,10 @@ class ServerTimingMiddleware:
     ``contextvars.ContextVar``: each request gets its own fresh phase list.
     """
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp) -> None:  # noqa: D107
         self.app = app
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # noqa: D102
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
