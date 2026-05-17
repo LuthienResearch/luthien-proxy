@@ -16,14 +16,14 @@ import logging
 import random
 import sqlite3
 import time
-
-logger = logging.getLogger(__name__)
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
 from luthien_proxy.perf.db import ensure_perf_isolation, get_perf_db_url, migrate_perf_db
+
+logger = logging.getLogger(__name__)
 
 _MODEL = "claude-haiku-4-5"
 _BASE_TS = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
@@ -143,7 +143,7 @@ def _seed_sqlite(
     Args:
         db_path: Path to the SQLite database file.
         plan: List of (session_id, n_calls) pairs.
-        tier: Tier label for the report.
+        label: Tier label for the report (e.g. ``"100"``, ``"sami"``).
         backend: Backend label for the report.
 
     Returns:
