@@ -447,7 +447,7 @@ def create_app(
 
             async def send_with_cache(message: Message) -> None:
                 if message["type"] == "http.response.start" and cache_value:
-                    headers = list(message.get("headers", []))
+                    headers = [h for h in message.get("headers", []) if h[0].lower() != b"cache-control"]
                     headers.append((b"cache-control", cache_value.encode()))
                     message = {**message, "headers": headers}
                 await send(message)

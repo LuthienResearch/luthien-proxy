@@ -63,6 +63,10 @@ def ensure_perf_isolation(url: str) -> None:
                 f"Perf DB isolation violation: Postgres URL must include "
                 f"'options=-csearch_path=perf_test' (use get_perf_db_url('postgres')). Got: {url!r}"
             )
+    else:
+        raise RuntimeError(
+            f"Perf DB isolation violation: unrecognized URL scheme — cannot verify isolation for: {url!r}"
+        )
 
 
 def drop_perf_db(backend: Literal["sqlite", "postgres"]) -> None:

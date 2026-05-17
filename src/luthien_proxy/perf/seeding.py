@@ -233,11 +233,11 @@ def _seed_sqlite(
         raise
     finally:
         # Always recreate indexes so the DB remains usable even after a failed seed.
-        # CREATE INDEX IF NOT EXISTS is idempotent — safe to run after ROLLBACK.
+        # With isolation_level=None the connection is in autocommit mode here, so
+        # CREATE INDEX persists immediately without a COMMIT.
         for stmt in _INDEX_STMTS:
             try:
                 conn.execute(stmt)
-                conn.execute("COMMIT")
             except Exception:
                 pass
         conn.close()
@@ -281,10 +281,11 @@ def seed_sessions(
     if tier >= 10_000:
         import warnings  # noqa: PLC0415
 
-        gb_estimate = max(1, tier * 25 * 45 // 1_000_000)  # events/session × KB/event ÷ 1e6
+        gb_rough = max(1, tier * 25 * 45 // 1_000_000)  # rough: events/session × KB/event ÷ 1e6
         warnings.warn(
-            f"seed_sessions(tier={tier}) seeds ~{gb_estimate} GB on disk "
-            "(including SQLite overhead) and allocates a 128 MB cache. Ensure sufficient disk/RAM.",
+            f"seed_sessions(tier={tier}) seeds roughly {gb_rough} GB on disk "
+            "(estimate; actual varies with SQLite overhead and call distribution). "
+            "Ensure sufficient disk space and 128 MB RAM for the SQLite cache.",
             stacklevel=2,
         )
 

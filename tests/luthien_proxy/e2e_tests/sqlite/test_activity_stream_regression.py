@@ -62,6 +62,7 @@ async def test_activity_stream_events_flow_in_order(gateway_url, mock_server):
 
     sse_events: list[dict] = []
     requests_done = asyncio.Event()
+    sse_ready = asyncio.Event()
 
     async def collect_sse():
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -72,6 +73,7 @@ async def test_activity_stream_events_flow_in_order(gateway_url, mock_server):
             ) as response:
                 assert response.status_code == 200
                 assert "text/event-stream" in response.headers.get("content-type", "")
+                sse_ready.set()
 
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
@@ -86,7 +88,7 @@ async def test_activity_stream_events_flow_in_order(gateway_url, mock_server):
                         return
 
     async def send_synthetic_requests():
-        await asyncio.sleep(0.3)  # let SSE connection establish
+        await asyncio.wait_for(sse_ready.wait(), timeout=10.0)
         async with httpx.AsyncClient(timeout=15.0) as client:
             for i in range(_NUM_SYNTHETIC_EVENTS):
                 response = await client.post(

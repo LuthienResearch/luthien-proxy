@@ -68,6 +68,8 @@ async def apply_sqlite_migrations(
     with no migration tracking and seeding _migrations.
 
     Public API — intentionally exported for use by perf/db.py and tests.
+    Intended as the sole writer to the ``_migrations`` tracking table; calling
+    it concurrently from multiple processes against the same database is unsafe.
     """
     if migrations_dir is None:
         migrations_dir = _find_sqlite_migrations_dir()

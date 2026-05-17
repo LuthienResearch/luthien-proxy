@@ -27,6 +27,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
+from pydantic import BaseModel
 from starlette.responses import Response
 
 if TYPE_CHECKING:
@@ -152,7 +153,7 @@ class ServerTimingMiddleware:
             _phases_var.reset(token)
 
 
-def timed_json_response(model: object) -> Response:
+def timed_json_response(model: BaseModel) -> Response:
     """Serialize a Pydantic model to a JSON Response, recording serialize time.
 
     Wraps ``model.model_dump_json()`` in a ``time_phase("serialize")`` block and
@@ -162,13 +163,13 @@ def timed_json_response(model: object) -> Response:
     return value (Pydantic→dict→json twice).
 
     Args:
-        model: Any Pydantic model instance (must have ``.model_dump_json()``).
+        model: A ``pydantic.BaseModel`` instance.
 
     Returns:
         A pre-serialized JSON ``Response``.
     """
     with time_phase("serialize"):
-        body: str = model.model_dump_json()  # type: ignore[attr-defined]
+        body: str = model.model_dump_json()
     return Response(content=body, media_type="application/json")
 
 
