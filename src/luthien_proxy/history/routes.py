@@ -24,7 +24,7 @@ from starlette.responses import Response
 
 from luthien_proxy.auth import check_auth_or_redirect, verify_admin_token
 from luthien_proxy.dependencies import get_admin_key, get_db_pool
-from luthien_proxy.perf.timing_middleware import time_phase
+from luthien_proxy.perf.timing_middleware import timed_json_response
 from luthien_proxy.utils.constants import (
     HISTORY_SESSIONS_DEFAULT_LIMIT,
     HISTORY_SESSIONS_MAX_LIMIT,
@@ -95,9 +95,7 @@ async def list_sessions(
     Supports pagination via limit and offset parameters.
     """
     result = await fetch_session_list(limit, db_pool, offset, user_id=user_id)
-    with time_phase("serialize"):
-        body = result.model_dump_json()
-    return Response(content=body, media_type="application/json")
+    return timed_json_response(result)
 
 
 @api_router.get("/sessions/{session_id}", response_model=SessionDetail)
@@ -113,9 +111,7 @@ async def get_session(
     """
     try:
         result = await fetch_session_detail(session_id, db_pool)
-        with time_phase("serialize"):
-            body = result.model_dump_json()
-        return Response(content=body, media_type="application/json")
+        return timed_json_response(result)
     except ValueError as e:
         logger.warning(f"Session not found: {repr(e)}")
         raise HTTPException(status_code=404, detail="Session not found.") from None

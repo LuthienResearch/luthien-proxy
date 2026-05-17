@@ -6,6 +6,8 @@ and absent from gateway paths like /v1/messages.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -18,14 +20,7 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 def app_with_db():
     """Create an in-process app with SQLite for testing."""
-    import asyncio
-
-    async def _setup():
-        db_pool = db.DatabasePool("sqlite:///:memory:")
-        await db_pool.get_pool()
-        return db_pool
-
-    db_pool = asyncio.run(_setup())
+    db_pool = db.DatabasePool("sqlite:///:memory:")
 
     app = create_app(
         api_key=None,
@@ -61,3 +56,25 @@ def test_server_timing_header_absent_on_health(app_with_db):
     response = client.get("/health")
     assert response.status_code == 200
     assert "Server-Timing" not in response.headers
+
+
+def test_server_timing_header_present_on_timed_path():
+    """Server-Timing header should be present on paths matching the timed prefixes."""
+    from fastapi import FastAPI
+
+    from luthien_proxy.perf.timing_middleware import ServerTimingMiddleware, time_phase
+
+    mini_app = FastAPI()
+    mini_app.add_middleware(ServerTimingMiddleware)
+
+    @mini_app.get("/api/history/sessions")
+    def sessions():
+        with time_phase("handler"):
+            pass
+        return {}
+
+    client = TestClient(mini_app)
+    response = client.get("/api/history/sessions")
+    assert response.status_code == 200
+    assert "Server-Timing" in response.headers
+    assert "handler" in response.headers["Server-Timing"]

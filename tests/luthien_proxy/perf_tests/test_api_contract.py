@@ -44,6 +44,11 @@ def _extract_shape(obj: Any) -> Any:
     - None → "null"
     - [1, 2] → ["int"] (first element's type)
     - {"a": 1} → {"a": "int"}
+
+    Note: for lists, only the first element is inspected. Heterogeneous lists
+    (e.g. discriminated union event payloads) will not have shape drift detected
+    past index 0. This is acceptable for API contract testing — the snapshot
+    captures the common element shape, not exhaustive coverage of every variant.
     """
     if obj is None:
         return "null"

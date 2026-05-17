@@ -27,6 +27,8 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
+from starlette.responses import Response
+
 if TYPE_CHECKING:
     from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -135,6 +137,26 @@ class ServerTimingMiddleware:
             _phases_var.reset(token)
 
 
+def timed_json_response(model: object) -> Response:
+    """Serialize a Pydantic model to a JSON Response, recording serialize time.
+
+    Wraps ``model.model_dump_json()`` in a ``time_phase("serialize")`` block and
+    returns a ``starlette.responses.Response`` with ``media_type="application/json"``.
+    Use in route handlers instead of returning the model directly to avoid the
+    double-serialization that occurs when FastAPI validates a ``response_model``
+    return value (Pydantic→dict→json twice).
+
+    Args:
+        model: Any Pydantic model instance (must have ``.model_dump_json()``).
+
+    Returns:
+        A pre-serialized JSON ``Response``.
+    """
+    with time_phase("serialize"):
+        body: str | bytes = model.model_dump_json()  # type: ignore[attr-defined]
+    return Response(content=body, media_type="application/json")
+
+
 def _make_send_with_timing(
     send: Send,
     phases: list[tuple[str, float]],
@@ -155,4 +177,5 @@ __all__ = [
     "ServerTimingMiddleware",
     "time_phase",
     "format_phases",
+    "timed_json_response",
 ]

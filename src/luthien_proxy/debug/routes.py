@@ -27,7 +27,7 @@ from starlette.responses import Response
 
 from luthien_proxy.auth import verify_admin_token
 from luthien_proxy.dependencies import get_db_pool
-from luthien_proxy.perf.timing_middleware import time_phase
+from luthien_proxy.perf.timing_middleware import timed_json_response
 from luthien_proxy.settings import client_error_detail
 from luthien_proxy.utils.constants import DEBUG_CALLS_DEFAULT_LIMIT, DEBUG_CALLS_MAX_LIMIT
 
@@ -65,9 +65,7 @@ async def get_call_events(
 
     try:
         result = await fetch_call_events(call_id, db_pool)
-        with time_phase("serialize"):
-            body = result.model_dump_json()
-        return Response(content=body, media_type="application/json")
+        return timed_json_response(result)
     except ValueError as exc:
         # No events found
         raise HTTPException(status_code=404, detail=str(exc))
@@ -99,9 +97,7 @@ async def get_call_diff(
 
     try:
         result = await fetch_call_diff(call_id, db_pool)
-        with time_phase("serialize"):
-            body = result.model_dump_json()
-        return Response(content=body, media_type="application/json")
+        return timed_json_response(result)
     except ValueError as exc:
         # No events found
         raise HTTPException(status_code=404, detail=str(exc))
@@ -133,9 +129,7 @@ async def list_recent_calls(
 
     try:
         result = await fetch_recent_calls(limit, db_pool)
-        with time_phase("serialize"):
-            body = result.model_dump_json()
-        return Response(content=body, media_type="application/json")
+        return timed_json_response(result)
     except Exception as exc:
         logger.error(f"Failed to list recent calls: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=client_error_detail(f"Database error: {exc}"))
