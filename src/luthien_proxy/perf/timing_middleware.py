@@ -22,13 +22,13 @@ Usage::
 from __future__ import annotations
 
 import time
-from collections.abc import Generator
+from collections.abc import Awaitable, Callable, Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from typing import TYPE_CHECKING
 
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
+if TYPE_CHECKING:
+    from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 # Paths where Server-Timing is emitted.  /v1/messages is deliberately excluded.
 _TIMED_PREFIXES: tuple[str, ...] = (
@@ -51,6 +51,10 @@ def time_phase(name: str) -> Generator[None, None, None]:
     (stored in a ``ContextVar``).  If called outside a ``ServerTimingMiddleware``
     request context the phase is silently discarded.  Phases are recorded even
     when the block raises — the ``finally`` clause always appends the elapsed time.
+
+    Public API: intentionally exported without a leading underscore so that
+    perf/db.py and test infrastructure can call it directly without reaching
+    into a private symbol.
 
     Args:
         name: Short identifier for the phase (e.g. ``"db"``, ``"serialize"``).
@@ -91,37 +95,60 @@ def format_phases(phases: list[tuple[str, float]]) -> str:
     return ", ".join(f"{name};dur={elapsed_ms:.1f}" for name, elapsed_ms in phases)
 
 
-class ServerTimingMiddleware(BaseHTTPMiddleware):
-    """ASGI middleware that adds a ``Server-Timing`` header to filtered responses.
+class ServerTimingMiddleware:
+    """Pure-ASGI middleware that adds a ``Server-Timing`` header to filtered responses.
+
+    Implemented as a plain ASGI callable (not ``BaseHTTPMiddleware``) to avoid
+    Starlette's pipe-buffering wrapper around ``call_next``, which materialises
+    streaming responses in memory and breaks ContextVar propagation in some
+    Starlette versions.  This implementation wraps only ``send`` — the inner app
+    runs unmodified and streaming chunks pass through untouched.
 
     Only paths starting with ``/api/history/``, ``/api/debug/``, or
     ``/ui/fragments/`` receive the header.  All other paths (including the hot
     ``/v1/messages`` path) pass through with zero overhead beyond a single
-    ``str.startswith`` check.
+    ``str.startswith`` check on the ASGI scope.
 
     Timing phases are recorded by calling ``time_phase(name)`` anywhere in the
     request/response call stack.  Context isolation is guaranteed by
     ``contextvars.ContextVar``: each request gets its own fresh phase list.
     """
 
-    async def dispatch(self, request: Request, call_next) -> Response:  # noqa: D102
-        path = request.url.path
-        should_time = path.startswith(_TIMED_PREFIXES)
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
 
-        if not should_time:
-            return await call_next(request)
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path: str = scope.get("path", "")
+        if not path.startswith(_TIMED_PREFIXES):
+            await self.app(scope, receive, send)
+            return
 
         phases: list[tuple[str, float]] = []
         token = _phases_var.set(phases)
         try:
-            response = await call_next(request)
+            await self.app(scope, receive, _make_send_with_timing(send, phases))
         finally:
             _phases_var.reset(token)
 
-        if phases:
-            response.headers["Server-Timing"] = format_phases(phases)
 
-        return response
+def _make_send_with_timing(
+    send: Send,
+    phases: list[tuple[str, float]],
+) -> Callable[[Message], Awaitable[None]]:
+    """Return a wrapped ``send`` that injects Server-Timing on http.response.start."""
+
+    async def send_with_timing(message: Message) -> None:
+        if message["type"] == "http.response.start" and phases:
+            headers = list(message.get("headers", []))
+            headers.append((b"server-timing", format_phases(phases).encode()))
+            message = {**message, "headers": headers}
+        await send(message)
+
+    return send_with_timing
 
 
 __all__ = [

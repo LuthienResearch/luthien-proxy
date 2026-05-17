@@ -203,6 +203,12 @@ PYEOF
     exit 0
 fi
 
+# ── Tier-10000 disk warning ───────────────────────────────────────────────────
+
+if [[ "$TIER" == "10000" ]]; then
+    warn "Tier-10000 seeds ~250k events × ~25 KB payload ≈ 7–8 GB on disk. Ensure sufficient free space."
+fi
+
 # ── Pre-flight ────────────────────────────────────────────────────────────────
 
 header "Pre-flight Checks"

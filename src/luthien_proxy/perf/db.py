@@ -72,19 +72,9 @@ def drop_perf_db(backend: Literal["sqlite", "postgres"]) -> None:
         perf_path.unlink(missing_ok=True)
         return
 
-    # TODO: untested — implement alongside _seed_postgres in seeding.py
-    url = get_perf_db_url("postgres")
-
-    async def _drop() -> None:
-        import asyncpg  # type: ignore[import-untyped]  # noqa: PLC0415
-
-        conn = await asyncpg.connect(url)
-        try:
-            await conn.execute("DROP SCHEMA IF EXISTS perf_test CASCADE")
-        finally:
-            await conn.close()
-
-    asyncio.run(_drop())
+    raise NotImplementedError(
+        "Postgres perf drop is not yet implemented. Implement alongside _seed_postgres in seeding.py."
+    )
 
 
 def migrate_perf_db(backend: Literal["sqlite", "postgres"]) -> None:
@@ -93,6 +83,10 @@ def migrate_perf_db(backend: Literal["sqlite", "postgres"]) -> None:
     Calls ensure_perf_isolation before touching the database. For SQLite,
     creates ~/.luthien/ if needed and runs the bundled migration scripts
     via the standard migration runner.
+
+    Note: Must be called from a synchronous context — internally uses
+    asyncio.run() and cannot be called from within a running event loop
+    (e.g. from an async test fixture or FastAPI handler).
 
     Args:
         backend: "sqlite" or "postgres".

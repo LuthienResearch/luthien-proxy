@@ -130,3 +130,8 @@ async def test_concurrent_isolation():
     assert "phase-a" not in header_b, f"phase-a leaked into request-b header: {header_b}"
     assert "phase-a" in header_a
     assert "phase-b" in header_b
+
+
+def test_time_phase_outside_request_context_does_not_raise():
+    with time_phase("orphan"):
+        pass

@@ -232,6 +232,8 @@ def perf_gateway_url(perf_db_url: str) -> Iterator[str]:
     port = _free_port()
     db_pool = DatabasePool(perf_db_url)
 
+    # NOTE: perf tests must run in a dedicated pytest session (run_perf.sh enforces this).
+    # Under pytest-xdist or parallel sessions this os.environ mutation would race.
     saved_env: dict[str, str | None] = {k: os.environ.get(k) for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY")}
 
     def restore_env() -> None:

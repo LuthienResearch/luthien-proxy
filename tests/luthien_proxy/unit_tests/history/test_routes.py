@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
-from fastapi.responses import JSONResponse
+from starlette.responses import Response
 
 from luthien_proxy.history.models import (
     ConversationMessage,
@@ -61,7 +61,7 @@ class TestListSessionsRoute:
         ) as mock_fetch:
             result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=0, user_id=None)
 
-            assert isinstance(result, JSONResponse)
+            assert isinstance(result, Response)
             body = json.loads(bytes(result.body))
             assert body["total"] == 100
             assert body["offset"] == 0
@@ -157,7 +157,7 @@ class TestGetSessionRoute:
         ) as mock_fetch:
             result = await get_session(session_id="test-session", _=AUTH_TOKEN, db_pool=mock_db_pool)
 
-            assert isinstance(result, JSONResponse)
+            assert isinstance(result, Response)
             body = json.loads(bytes(result.body))
             assert body["session_id"] == "test-session"
             assert len(body["turns"]) == 1

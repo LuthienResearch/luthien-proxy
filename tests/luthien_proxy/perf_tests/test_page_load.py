@@ -73,9 +73,6 @@ def _discover_html_routes() -> list[str]:
     return sorted(routes)
 
 
-_ADMIN_ROUTES: list[str] = _discover_html_routes()
-
-
 def _live_conversation_id(fixture_name: str) -> str:
     if fixture_name == "sami-like":
         return "perf-seed-sami-442msg"
@@ -133,12 +130,17 @@ def perf_results_store() -> Iterator[dict[str, list[dict[str, Any]]]]:
             json.dump(result, f, indent=2)
 
 
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    if "fixture_name" in metafunc.fixturenames and "route_path" in metafunc.fixturenames:
+        admin_routes = _discover_html_routes()
+        metafunc.parametrize(
+            "fixture_name,route_path",
+            [(f, p) for f in FIXTURE_NAMES for p in admin_routes],
+        )
+
+
 @pytest.mark.perf
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "fixture_name,route_path",
-    [(f, p) for f in FIXTURE_NAMES for p in _ADMIN_ROUTES],
-)
 async def test_page_load(
     fixture_name: str,
     route_path: str,

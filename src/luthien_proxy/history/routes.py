@@ -13,7 +13,8 @@ import logging
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse
+from starlette.responses import Response
 
 from luthien_proxy.auth import check_auth_or_redirect, verify_admin_token
 from luthien_proxy.dependencies import get_admin_key, get_db_pool
@@ -80,7 +81,7 @@ async def list_sessions(
             "X-Luthien-User-Id header (when TRUST_USER_ID_HEADER=true) or JWT sub claim."
         ),
     ),
-) -> JSONResponse:
+) -> Response:
     """List recent sessions with summaries.
 
     Returns a list of session summaries ordered by most recent activity,
@@ -89,8 +90,8 @@ async def list_sessions(
     """
     result = await fetch_session_list(limit, db_pool, offset, user_id=user_id)
     with time_phase("serialize"):
-        content = result.model_dump(mode="json")
-    return JSONResponse(content=content)
+        body = result.model_dump_json()
+    return Response(content=body, media_type="application/json")
 
 
 @api_router.get("/sessions/{session_id}", response_model=SessionDetail)
@@ -98,7 +99,7 @@ async def get_session(
     session_id: str,
     _: str = Depends(verify_admin_token),
     db_pool: DatabasePool = Depends(get_db_pool),
-) -> JSONResponse:
+) -> Response:
     """Get full session detail with conversation turns.
 
     Returns the complete conversation history for a session,
@@ -107,8 +108,8 @@ async def get_session(
     try:
         result = await fetch_session_detail(session_id, db_pool)
         with time_phase("serialize"):
-            content = result.model_dump(mode="json")
-        return JSONResponse(content=content)
+            body = result.model_dump_json()
+        return Response(content=body, media_type="application/json")
     except ValueError as e:
         logger.warning(f"Session not found: {repr(e)}")
         raise HTTPException(status_code=404, detail="Session not found.") from None

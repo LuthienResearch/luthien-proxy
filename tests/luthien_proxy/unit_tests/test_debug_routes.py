@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
-from fastapi.responses import JSONResponse
+from starlette.responses import Response
 
 from luthien_proxy.debug.models import CallDiffResponse
 from luthien_proxy.debug.routes import (
@@ -77,7 +77,7 @@ class TestGetCallEventsRoute:
 
         result = await get_call_events("test-call-id", _=AUTH_TOKEN, db_pool=mock_pool)
 
-        assert isinstance(result, JSONResponse)
+        assert isinstance(result, Response)
         body = json.loads(bytes(result.body))
         assert body["call_id"] == "test-call-id"
         assert len(body["events"]) == 1
@@ -210,7 +210,7 @@ class TestListRecentCallsRoute:
 
         result = await list_recent_calls(limit=10, _=AUTH_TOKEN, db_pool=mock_pool)
 
-        assert isinstance(result, JSONResponse)
+        assert isinstance(result, Response)
         body = json.loads(bytes(result.body))
         assert body["total"] == 0
         assert body["calls"] == []
@@ -239,7 +239,7 @@ class TestListRecentCallsRoute:
 
         result = await list_recent_calls(limit=10, _=AUTH_TOKEN, db_pool=mock_pool)
 
-        assert isinstance(result, JSONResponse)
+        assert isinstance(result, Response)
         body = json.loads(bytes(result.body))
         assert body["total"] == 2
         assert len(body["calls"]) == 2

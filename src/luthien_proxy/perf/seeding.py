@@ -38,8 +38,8 @@ _EVENTS_INSERT = (
 )
 
 # Pre-built JSON template fragments — content is pure ASCII, no escaping needed.
-# Pad sizes are chosen so that _req_payload produces ~5 KB and _resp_payload
-# produces ~20 KB, matching the docstring claims and production payload shapes.
+# Pad sizes produce ~5 KB req / ~20 KB resp payloads (see test_payload_sizes for
+# the size invariant; update that test if _REQ_HEAD/_REQ_MID/_REQ_TAIL change).
 _REQ_PAD = "A" * 2368
 _RESP_PAD = "B" * 20202
 
