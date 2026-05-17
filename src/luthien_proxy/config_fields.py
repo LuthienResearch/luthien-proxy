@@ -187,6 +187,11 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         "Fernet key for encrypting server credentials at rest",
         sensitive=True, category="security",
     ),
+    ConfigFieldMeta(
+        "cursor_hmac_key", "CURSOR_HMAC_KEY", str, "luthien-perf-cursor-key-dev",
+        "HMAC key for signing pagination cursors. Set to a random secret in production.",
+        sensitive=True, category="security",
+    ),
 
     # ── observability ─────────────────────────────────────────────────────
     ConfigFieldMeta(

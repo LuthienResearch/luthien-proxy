@@ -13,8 +13,14 @@ import json
 from datetime import datetime
 from typing import Literal
 
-# HMAC key — fixed dev key; in production this should come from settings
-_CURSOR_HMAC_KEY = b"luthien-perf-cursor-key-dev"
+from luthien_proxy.settings import get_settings
+
+
+def _get_hmac_key() -> bytes:
+    key = get_settings().cursor_hmac_key
+    if not key:
+        raise ValueError("CURSOR_HMAC_KEY must be set")
+    return key.encode() if isinstance(key, str) else key
 
 
 def encode_cursor(last_ts: datetime, last_session_id: str) -> str:
@@ -32,7 +38,7 @@ def encode_cursor(last_ts: datetime, last_session_id: str) -> str:
         separators=(",", ":"),
     ).encode()
 
-    sig = hmac.new(_CURSOR_HMAC_KEY, payload, hashlib.sha256).digest()[:8]
+    sig = hmac.new(_get_hmac_key(), payload, hashlib.sha256).digest()[:8]
     token = base64.urlsafe_b64encode(payload + sig).rstrip(b"=").decode()
     return token
 
@@ -61,7 +67,7 @@ def decode_cursor(token: str) -> tuple[datetime, str]:
     payload = raw[:-8]
     sig = raw[-8:]
 
-    expected_sig = hmac.new(_CURSOR_HMAC_KEY, payload, hashlib.sha256).digest()[:8]
+    expected_sig = hmac.new(_get_hmac_key(), payload, hashlib.sha256).digest()[:8]
     if not hmac.compare_digest(sig, expected_sig):
         raise ValueError("Invalid cursor: signature mismatch (tampered)")
 
