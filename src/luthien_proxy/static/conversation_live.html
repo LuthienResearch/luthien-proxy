@@ -917,6 +917,10 @@
         </div>
 
         <div id="conversation-container" class="timeline">
+            <div class="loading-state" x-show="!initialLoaded">
+                <div class="spinner"></div>
+                <div>Loading conversation...</div>
+            </div>
         </div>
 
         <div 
