@@ -195,6 +195,14 @@ def create_app(
         await _config_registry.initialize()
         logger.info("Config registry initialized")
 
+        _CURSOR_HMAC_DEV_SENTINEL = "luthien-perf-cursor-key-dev"
+        if settings.cursor_hmac_key == _CURSOR_HMAC_DEV_SENTINEL:
+            logger.warning(
+                "CURSOR_HMAC_KEY is set to the public dev default. "
+                "Pagination cursors can be forged by anyone who has read this source. "
+                "Set CURSOR_HMAC_KEY to a random secret before deploying to production."
+            )
+
         # Fail fast on UPSTREAM_HEADERS misconfiguration rather than silently
         # disabling the integration on first request.
         validate_upstream_headers_at_startup()

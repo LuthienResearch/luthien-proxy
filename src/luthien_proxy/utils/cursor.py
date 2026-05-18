@@ -18,8 +18,6 @@ from luthien_proxy.settings import get_settings
 
 def _get_hmac_key() -> bytes:
     key = get_settings().cursor_hmac_key
-    if not key:
-        raise ValueError("CURSOR_HMAC_KEY must be set")
     return key.encode() if isinstance(key, str) else key
 
 
@@ -38,6 +36,10 @@ def encode_cursor(last_ts: datetime, last_session_id: str) -> str:
         separators=(",", ":"),
     ).encode()
 
+    # 8 bytes (64 bits) is sufficient for pagination integrity: the threat model
+    # is accidental corruption and casual tampering, not a dedicated adversary
+    # with offline brute-force capability. Cursors are admin-auth-gated and
+    # encode only a pagination position, not access-control decisions.
     sig = hmac.new(_get_hmac_key(), payload, hashlib.sha256).digest()[:8]
     token = base64.urlsafe_b64encode(payload + sig).rstrip(b"=").decode()
     return token
