@@ -197,10 +197,9 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 **Decision**: Keep technical implementation docs in public `luthien-proxy` repo; move planning, strategy, and user stories to private `luthien-org` repo.
 
 **What stays in luthien-proxy (public)**:
-- Architecture docs (REQUEST_PROCESSING_ARCHITECTURE.md, observability.md)
-- Developer guides (VIEWING_TRACES_GUIDE.md, event_driven_policy_guide.md)
-- Context files (gotchas.md, decisions.md, codebase_learnings.md)
-- Active tracking (OBJECTIVE.md, NOTES.md; TODOs tracked on [Trello](https://trello.com/b/ehoxykPf/luthien?filter=label:luthien-proxy%20TODO))
+- Architecture docs (`ARCHITECTURE.md`, `dev/context/request_processing.md`)
+- Context files (`dev/context/gotchas.md`, `decisions.md`, `codebase_learnings.md`, `otel-conventions.md`)
+- Active tracking: gitignored scratch at `dev/scratch/` (OBJECTIVE/NOTES); TODOs tracked on [Trello](https://trello.com/b/ehoxykPf/luthien?filter=label:luthien-proxy%20TODO)
 - CHANGELOG.md
 
 **What goes in luthien-org (private)**:
@@ -328,6 +327,23 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 - Position-based guards ("only classify early turns") were removed because Claude Code sends probes at any position in the session.
 
 **Trade-off**: If Claude Code changes its probe structure (e.g., `max_tokens=2`), the classification silently stops working. The allowlisted `max_tokens` field in `request_params` makes this debuggable from the frontend.
+
+---
+
+## Upstream Header Injection Trust Model (2026-05-07)
+
+**Decision**: `UPSTREAM_HEADERS` (PR #716) treats the operator and clients as trusted. The feature does not defend against:
+- Hostile operators — they own the env, they can already do anything.
+- Hostile clients — CRLF in `session_id` is malformed input, not an attack.
+- "Exfiltration" of the operator's own secrets to a destination they configured.
+
+**What is in scope**: input hygiene (CRLF/NUL stripping, RFC 7230 token validation, hop-by-hop blocklist). Failures fail loud at startup; misconfiguration cannot silently disable the integration.
+
+**Explicitly rejected** (from PR #595's stack):
+- **Sensitive-env-var blocklist** (`*KEY`, `*SECRET`, etc.). Paternalistic and breaks the canonical `HELICONE_API_KEY` use case.
+- **`Authorization` / `X-Api-Key` blocklist**. Operator may legitimately want to override these on the way upstream (e.g., a proxy that uses standard `Authorization` instead of `Helicone-Auth`).
+
+**Canonical reference**: `src/luthien_proxy/pipeline/upstream_headers.py` module docstring. Re-derive from there if the trust boundaries shift.
 
 ---
 

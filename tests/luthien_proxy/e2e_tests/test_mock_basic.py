@@ -1,6 +1,6 @@
 """Basic mock e2e tests — verifies gateway pipeline without real Anthropic calls.
 
-Mock server auto-started by the mock_anthropic fixture (port 18888).
+Mock server auto-started by the mock_anthropic fixture.
 
 Run:
     ./scripts/run_e2e.sh mock

@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inference Providers - Luthien Proxy</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/nav.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: #0a0a0a;
+            color: #e5e5e5;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 32px;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: #888;
+        }
+
+        .section {
+            background: #141414;
+            border: 1px solid #262626;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+
+        .section h2 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: #e5e5e5;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: #e5e5e5;
+            margin-bottom: 6px;
+        }
+
+        .form-group .hint {
+            display: block;
+            font-size: 11px;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        .text-input,
+        .select-input,
+        .textarea-input {
+            width: 100%;
+            max-width: 480px;
+            padding: 8px 12px;
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #e5e5e5;
+            font-size: 13px;
+            font-family: inherit;
+        }
+
+        .textarea-input {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 12px;
+            min-height: 100px;
+            max-width: 100%;
+            resize: vertical;
+        }
+
+        .text-input:focus,
+        .select-input:focus,
+        .textarea-input:focus {
+            outline: none;
+            border-color: #2563eb;
+        }
+
+        button {
+            padding: 8px 16px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #e5e5e5;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        button:hover:not(:disabled) {
+            border-color: #4ade80;
+            background: #141414;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        button.primary {
+            background: #2563eb;
+            border-color: #2563eb;
+            color: white;
+        }
+
+        button.primary:hover:not(:disabled) {
+            background: #1d4ed8;
+            border-color: #1d4ed8;
+        }
+
+        button.danger {
+            border-color: #f87171;
+            color: #fca5a5;
+        }
+
+        button.danger:hover:not(:disabled) {
+            background: #3d0a0a;
+        }
+
+        .button-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .status-message {
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-top: 16px;
+            display: none;
+        }
+
+        .status-message.visible {
+            display: block;
+        }
+
+        .status-message.success {
+            background: #0a3d0a;
+            border: 1px solid #4ade80;
+            color: #4ade80;
+        }
+
+        .status-message.error {
+            background: #3d0a0a;
+            border: 1px solid #f87171;
+            color: #fca5a5;
+        }
+
+        .providers-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .providers-table th {
+            text-align: left;
+            padding: 10px 12px;
+            border-bottom: 1px solid #333;
+            color: #888;
+            font-weight: 500;
+            font-size: 12px;
+        }
+
+        .providers-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #1a1a1a;
+            color: #e5e5e5;
+            vertical-align: top;
+        }
+
+        .providers-table tr:hover td {
+            background: #161616;
+        }
+
+        .providers-table .mono {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .table-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .table-actions .count {
+            font-size: 13px;
+            color: #888;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .spinner {
+            display: inline-block;
+            animation: spin 1s linear infinite;
+        }
+    </style>
+</head>
+<body>
+    <nav x-data="luthienNav" class="luthien-nav">
+        <a href="/" class="nav-brand">Luthien</a>
+        <div class="nav-right">
+            <template x-for="link in links" :key="link.href">
+                <a :href="link.href" class="nav-link" :class="{ active: isActive(link.href) }" x-text="link.label"></a>
+            </template>
+            <template x-if="isAuthenticated()">
+                <a href="/auth/logout" class="nav-signout">Sign Out</a>
+            </template>
+        </div>
+    </nav>
+
+    <div class="container">
+        <header>
+            <div>
+                <h1>Inference Providers</h1>
+                <p class="subtitle">
+                    Named server-side inference backends (judges, policy tests). Credentials come from
+                    <a href="/credentials" style="color:#6b9eff">Credentials</a>.
+                </p>
+            </div>
+        </header>
+
+        <!-- Providers list -->
+        <div class="section" id="providers-section">
+            <h2>Configured Providers</h2>
+            <div class="table-actions">
+                <span class="count" id="providers-count"></span>
+                <div class="button-row">
+                    <button id="refresh-btn">Refresh</button>
+                </div>
+            </div>
+            <div id="providers-loading" class="loading"><span class="spinner">&#x23F3;</span> Loading providers...</div>
+            <div id="providers-content" style="display: none;"></div>
+            <div class="status-message" id="providers-status"></div>
+        </div>
+
+        <!-- Create / update -->
+        <div class="section" id="form-section">
+            <h2>Create or Update Provider</h2>
+            <p class="subtitle" style="margin-bottom: 16px;">
+                Submitting with an existing name updates that provider.
+            </p>
+
+            <div class="form-group">
+                <label for="field-name">Name</label>
+                <input type="text" class="text-input" id="field-name" placeholder="judge-subscription" maxlength="128">
+                <span class="hint">Letters, digits, underscore, hyphen. Max 128 chars.</span>
+            </div>
+
+            <div class="form-group">
+                <label for="field-backend">Backend type</label>
+                <select class="select-input" id="field-backend" data-known="true">
+                    <option value="claude_code">claude_code</option>
+                    <option value="direct_api">direct_api</option>
+                </select>
+                <span class="hint">claude_code spawns the Claude CLI; direct_api calls the provider HTTP API.</span>
+                <div id="unknown-backend-warning" class="status-message error" style="display:none;margin-top:8px"></div>
+            </div>
+
+            <div class="form-group">
+                <label for="field-credential">Credential</label>
+                <select class="select-input" id="field-credential">
+                    <option value="">(none — direct_api only, per-request credential override)</option>
+                </select>
+                <span class="hint">Must exist in <a href="/credentials" style="color:#6b9eff">Credentials</a>. Required for claude_code.</span>
+            </div>
+
+            <div class="form-group">
+                <label for="field-model">Default model</label>
+                <input type="text" class="text-input" id="field-model" placeholder="claude-sonnet-4-6" maxlength="256">
+                <span class="hint">Model name passed to the backend by default.</span>
+            </div>
+
+            <div class="form-group">
+                <label for="field-config">Config (JSON)</label>
+                <textarea class="textarea-input" id="field-config" placeholder='{"timeout_seconds": 120}'>{}</textarea>
+                <span class="hint">Backend-specific. claude_code accepts <code>timeout_seconds</code>; direct_api accepts <code>api_base</code>.</span>
+            </div>
+
+            <div class="button-row">
+                <button class="primary" id="submit-btn">Save Provider</button>
+                <button id="reset-btn">Reset</button>
+            </div>
+            <div class="status-message" id="form-status"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api/admin';
+
+        function fetchApi(path, options = {}) {
+            return fetch(API_BASE + path, {
+                credentials: 'same-origin',
+                ...options,
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(options.headers || {}),
+                },
+            });
+        }
+
+        function showStatus(elementId, message, type) {
+            const el = document.getElementById(elementId);
+            el.textContent = message;
+            el.className = 'status-message visible ' + type;
+            setTimeout(() => { el.className = 'status-message'; }, 5000);
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            })[c]);
+        }
+
+        // Known backend types learned from the last list response.
+        // Used so the create/edit dropdown reflects what the gateway can
+        // actually construct (not a hardcoded JS constant).
+        let knownBackendTypes = ['claude_code', 'direct_api'];
+
+        // Last-seen list, keyed by name. Lets `editProvider(name)` look up
+        // the row without embedding JSON in the HTML.
+        // TODO(post-merge): refactor row buttons to `addEventListener` +
+        // dataset; inline `onclick` works today because `escapeHtml` covers
+        // the name regex but is still the wrong idiom.
+        const providersByName = Object.create(null);
+
+        function populateBackendDropdown(types, selected) {
+            const select = document.getElementById('field-backend');
+            const current = selected !== undefined ? selected : select.value;
+            select.innerHTML = '';
+            for (const t of types) {
+                const opt = document.createElement('option');
+                opt.value = t;
+                opt.textContent = t;
+                select.appendChild(opt);
+            }
+            // If the current value isn't in the known set, preserve it
+            // with an "(unknown)" label so editing doesn't silently
+            // rewrite the row to the first registered backend.
+            let known;
+            if (current && !types.includes(current)) {
+                const opt = document.createElement('option');
+                opt.value = current;
+                opt.textContent = current + ' (unknown in this build)';
+                opt.selected = true;
+                select.appendChild(opt);
+                known = false;
+            } else if (current) {
+                select.value = current;
+                known = types.includes(current);
+            } else {
+                known = true;
+            }
+            // Data attribute so CSS / JS consumers can observe without
+            // re-deriving. Also drives the Save-disabled trap below.
+            select.setAttribute('data-known', known ? 'true' : 'false');
+            updateSaveEnabled();
+        }
+
+        // Save is disabled whenever the selected backend_type isn't
+        // registered in this gateway. registry.put() would reject with
+        // 400 anyway; disabling at the UI avoids a submit that the
+        // operator has no way to satisfy.
+        function updateSaveEnabled() {
+            const select = document.getElementById('field-backend');
+            const submit = document.getElementById('submit-btn');
+            const warnBox = document.getElementById('unknown-backend-warning');
+            const known = select.getAttribute('data-known') !== 'false';
+            submit.disabled = !known;
+            if (!known) {
+                submit.title = 'Backend type is not registered in this build.';
+                if (warnBox) {
+                    warnBox.style.display = 'block';
+                    warnBox.textContent =
+                        'Backend type "' + select.value + '" is not registered in this build; ' +
+                        'the gateway would reject any save. Contact the operator to register ' +
+                        'this backend, or pick a registered value from the dropdown.';
+                }
+            } else {
+                submit.title = '';
+                if (warnBox) warnBox.style.display = 'none';
+            }
+        }
+
+        async function loadProviders() {
+            try {
+                const resp = await fetchApi('/inference-providers');
+                if (!resp.ok) throw new Error(await resp.text());
+                const data = await resp.json();
+
+                if (Array.isArray(data.known_backend_types) && data.known_backend_types.length > 0) {
+                    knownBackendTypes = data.known_backend_types;
+                    populateBackendDropdown(knownBackendTypes);
+                }
+
+                document.getElementById('providers-count').textContent =
+                    data.count + ' provider' + (data.count !== 1 ? 's' : '');
+
+                // Rebuild lookup table.
+                for (const k of Object.keys(providersByName)) delete providersByName[k];
+                for (const p of data.providers) providersByName[p.name] = p;
+
+                const content = document.getElementById('providers-content');
+                if (data.count === 0) {
+                    content.innerHTML = '<div class="empty-state">No providers configured</div>';
+                } else {
+                    let html = '<table class="providers-table"><thead><tr>';
+                    html += '<th>Name</th><th>Backend</th><th>Credential</th><th>Default model</th><th>Config</th><th></th>';
+                    html += '</tr></thead><tbody>';
+                    for (const p of data.providers) {
+                        const backendLabel = p.known_backend
+                            ? escapeHtml(p.backend_type)
+                            : escapeHtml(p.backend_type) + ' <span style="color:#fca5a5;font-size:11px;border:1px solid #f87171;padding:1px 4px;border-radius:3px">unknown</span>';
+                        const editAttrs = p.known_backend
+                            ? ''
+                            : ' disabled title="Backend type is not registered in this build — edit would coerce it to a registered type."';
+                        html += '<tr>';
+                        html += '<td class="mono">' + escapeHtml(p.name) + '</td>';
+                        html += '<td>' + backendLabel + '</td>';
+                        html += '<td>' + (p.credential_name ? escapeHtml(p.credential_name) : '<span style="color:#666">—</span>') + '</td>';
+                        html += '<td class="mono">' + escapeHtml(p.default_model) + '</td>';
+                        html += '<td class="mono">' + escapeHtml(JSON.stringify(p.config)) + '</td>';
+                        html += '<td><div class="button-row">';
+                        html += '<button onclick="editProvider(\'' + escapeHtml(p.name) + '\')"' + editAttrs + '>Edit</button>';
+                        html += '<button class="danger" onclick="deleteProvider(\'' + escapeHtml(p.name) + '\')">Delete</button>';
+                        html += '</div></td>';
+                        html += '</tr>';
+                    }
+                    html += '</tbody></table>';
+                    content.innerHTML = html;
+                }
+
+                document.getElementById('providers-loading').style.display = 'none';
+                content.style.display = 'block';
+            } catch (e) {
+                document.getElementById('providers-loading').innerHTML =
+                    '<span style="color: #fca5a5;">Failed to load providers: ' + escapeHtml(e.message) + '</span>';
+            }
+        }
+
+        async function loadCredentialOptions() {
+            try {
+                const resp = await fetchApi('/credentials');
+                if (!resp.ok) return;
+                const data = await resp.json();
+                const select = document.getElementById('field-credential');
+                // Preserve the "(none)" sentinel option
+                while (select.options.length > 1) select.remove(1);
+                for (const name of data.credentials || []) {
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    opt.textContent = name;
+                    select.appendChild(opt);
+                }
+            } catch (e) {
+                // Non-fatal — operator can type the name manually via the API.
+                console.warn('Could not load credentials for dropdown:', e);
+            }
+        }
+
+        function editProvider(name) {
+            const p = providersByName[name];
+            if (!p) return;
+            document.getElementById('field-name').value = p.name;
+            // populateBackendDropdown preserves the current value with an
+            // "(unknown)" label if it's not in the known set, so editing
+            // a row with a removed backend doesn't silently rewrite it.
+            populateBackendDropdown(knownBackendTypes, p.backend_type);
+            document.getElementById('field-credential').value = p.credential_name || '';
+            document.getElementById('field-model').value = p.default_model;
+            document.getElementById('field-config').value = JSON.stringify(p.config, null, 2);
+            document.getElementById('form-section').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        async function deleteProvider(name) {
+            if (!confirm('Delete provider "' + name + '"? This cannot be undone.')) return;
+            try {
+                const resp = await fetchApi('/inference-providers/' + encodeURIComponent(name), { method: 'DELETE' });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+                    throw new Error(err.detail || resp.statusText);
+                }
+                showStatus('providers-status', 'Provider "' + name + '" deleted.', 'success');
+                loadProviders();
+            } catch (e) {
+                showStatus('providers-status', 'Failed: ' + e.message, 'error');
+            }
+        }
+
+        document.getElementById('field-config').addEventListener('blur', (e) => {
+            const val = e.target.value.trim();
+            if (!val) {
+                e.target.value = '{}';
+                return;
+            }
+            try {
+                JSON.parse(val);
+                e.target.style.borderColor = '';
+            } catch {
+                e.target.style.borderColor = '#f87171';
+            }
+        });
+
+        // Re-evaluate save-enabled state when the backend changes so
+        // typing an unknown value manually (or switching away from one)
+        // updates the button without a full reload.
+        document.getElementById('field-backend').addEventListener('change', (e) => {
+            const known = knownBackendTypes.includes(e.target.value);
+            e.target.setAttribute('data-known', known ? 'true' : 'false');
+            updateSaveEnabled();
+        });
+
+        async function submitProvider() {
+            const btn = document.getElementById('submit-btn');
+            btn.disabled = true;
+            btn.textContent = 'Saving...';
+
+            try {
+                const name = document.getElementById('field-name').value.trim();
+                const backend = document.getElementById('field-backend').value;
+                const credentialName = document.getElementById('field-credential').value;
+                const model = document.getElementById('field-model').value.trim();
+                const configRaw = document.getElementById('field-config').value.trim() || '{}';
+
+                let config;
+                try {
+                    config = JSON.parse(configRaw);
+                } catch (e) {
+                    throw new Error('Config is not valid JSON: ' + e.message);
+                }
+
+                const body = {
+                    name,
+                    backend_type: backend,
+                    credential_name: credentialName || null,
+                    default_model: model,
+                    config,
+                };
+
+                const resp = await fetchApi('/inference-providers', {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+                    throw new Error(err.detail || resp.statusText);
+                }
+
+                showStatus('form-status', 'Provider "' + name + '" saved.', 'success');
+                loadProviders();
+            } catch (e) {
+                showStatus('form-status', 'Failed: ' + e.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Save Provider';
+            }
+        }
+
+        function resetForm() {
+            document.getElementById('field-name').value = '';
+            populateBackendDropdown(knownBackendTypes, 'claude_code');
+            document.getElementById('field-credential').value = '';
+            document.getElementById('field-model').value = '';
+            document.getElementById('field-config').value = '{}';
+            document.getElementById('field-config').style.borderColor = '';
+        }
+
+        document.getElementById('submit-btn').addEventListener('click', submitProvider);
+        document.getElementById('reset-btn').addEventListener('click', resetForm);
+        document.getElementById('refresh-btn').addEventListener('click', () => {
+            loadProviders();
+            loadCredentialOptions();
+        });
+
+        loadProviders();
+        loadCredentialOptions();
+    </script>
+
+    <script defer src="/static/vendor/alpine.min.js"></script>
+    <script src="/static/nav.js"></script>
+</body>
+</html>

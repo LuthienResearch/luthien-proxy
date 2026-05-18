@@ -73,7 +73,7 @@ docker compose ps tempo
 **No traces appearing:**
 - Check app has `OTEL_ENABLED=true` (default)
 - Verify Tempo is healthy: `docker compose ps tempo`
-- Check gateway can reach Tempo: `docker compose exec gateway curl -v http://tempo:4317`
+- Check gateway can reach Tempo: `docker compose exec gateway curl -v http://tempo:4318` (HTTP/protobuf default)
 
 **Disk space issues:**
 - Clean old data: `./scripts/observability.sh clean`

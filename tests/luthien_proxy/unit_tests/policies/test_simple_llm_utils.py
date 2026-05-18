@@ -9,11 +9,11 @@ Tests for the utility functions used by SimpleLLMPolicy:
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from litellm.types.utils import ModelResponse
 
+from luthien_proxy.credentials.credential import Credential, CredentialType
 from luthien_proxy.policies.simple_llm_utils import (
     BlockDescriptor,
     SimpleLLMJudgeConfig,
@@ -23,30 +23,45 @@ from luthien_proxy.policies.simple_llm_utils import (
 )
 
 
+def _make_credential(value: str = "test-api-key") -> Credential:
+    return Credential(value=value, credential_type=CredentialType.API_KEY)
+
+
+def _make_config(**overrides) -> SimpleLLMJudgeConfig:
+    """Build a config with the now-required auth_provider already set."""
+    overrides.setdefault("instructions", "Be safe")
+    overrides.setdefault("auth_provider", "user_credentials")
+    return SimpleLLMJudgeConfig(**overrides)
+
+
 class TestSimpleLLMJudgeConfig:
     """Test config model validation and defaults."""
 
     def test_defaults(self):
-        config = SimpleLLMJudgeConfig(instructions="Be safe")
+        config = _make_config()
         assert config.model == "claude-haiku-4-5"
         assert config.api_base is None
-        assert config.api_key is None
         assert config.temperature == 0.0
         assert config.max_tokens == 4096
         assert config.on_error == "pass"
         assert config.max_retries == 2
         assert config.retry_delay == 0.5
 
+    def test_auth_provider_required(self):
+        """Building a config without auth_provider now raises a validation error."""
+        with pytest.raises(Exception):
+            SimpleLLMJudgeConfig(instructions="Be safe")  # type: ignore[call-arg]
+
     def test_frozen(self):
-        config = SimpleLLMJudgeConfig(instructions="Be safe")
+        config = _make_config()
         with pytest.raises(Exception):
             config.model = "other"  # type: ignore[misc]
 
     def test_on_error_validation(self):
-        SimpleLLMJudgeConfig(instructions="x", on_error="pass")
-        SimpleLLMJudgeConfig(instructions="x", on_error="block")
+        _make_config(on_error="pass")
+        _make_config(on_error="block")
         with pytest.raises(Exception):
-            SimpleLLMJudgeConfig(instructions="x", on_error="ignore")
+            _make_config(on_error="ignore")
 
 
 class TestBlockDescriptor:
@@ -234,50 +249,32 @@ class TestBuildJudgePrompt:
 
 
 class TestCallSimpleLLMJudge:
-    """Test the judge calling function."""
+    """Tests for call_simple_llm_judge via the credential-based judge path.
+
+    The function mocks luthien_proxy.policies.simple_llm_utils.judge_completion
+    (the credential-aware wrapper around LiteLLM acompletion).
+    """
 
     @pytest.mark.asyncio
     async def test_pass_result(self):
-        config = SimpleLLMJudgeConfig(
-            instructions="Be safe",
-            model="test-model",
-        )
-
-        mock_response = ModelResponse(
-            id="test",
-            object="chat.completion",
-            created=123,
-            model="test",
-            choices=[
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": '{"action": "pass"}',
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-        )
+        config = _make_config(model="test-model")
 
         with patch(
-            "luthien_proxy.policies.simple_llm_utils.acompletion",
-            return_value=mock_response,
+            "luthien_proxy.policies.simple_llm_utils.judge_completion",
+            new=AsyncMock(return_value='{"action": "pass"}'),
         ):
             result = await call_simple_llm_judge(
                 config=config,
                 current_block=BlockDescriptor(type="text", content="hello"),
                 previous_blocks=(),
+                credential=_make_credential(),
             )
 
         assert result.action == "pass"
 
     @pytest.mark.asyncio
     async def test_replace_result(self):
-        config = SimpleLLMJudgeConfig(
-            instructions="Be safe",
-            model="test-model",
-        )
+        config = _make_config(model="test-model")
 
         response_data = json.dumps(
             {
@@ -286,31 +283,15 @@ class TestCallSimpleLLMJudge:
             }
         )
 
-        mock_response = ModelResponse(
-            id="test",
-            object="chat.completion",
-            created=123,
-            model="test",
-            choices=[
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": response_data,
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-        )
-
         with patch(
-            "luthien_proxy.policies.simple_llm_utils.acompletion",
-            return_value=mock_response,
+            "luthien_proxy.policies.simple_llm_utils.judge_completion",
+            new=AsyncMock(return_value=response_data),
         ):
             result = await call_simple_llm_judge(
                 config=config,
                 current_block=BlockDescriptor(type="text", content="bad"),
                 previous_blocks=(),
+                credential=_make_credential(),
             )
 
         assert result.action == "replace"
@@ -319,230 +300,94 @@ class TestCallSimpleLLMJudge:
 
     @pytest.mark.asyncio
     async def test_uses_json_response_format(self):
-        config = SimpleLLMJudgeConfig(
-            instructions="Be safe",
-            model="test-model",
-        )
+        """judge_completion is called with response_format={'type': 'json_object'}."""
+        config = _make_config(model="test-model")
+        mock_jc = AsyncMock(return_value='{"action": "pass"}')
 
-        mock_response = ModelResponse(
-            id="test",
-            object="chat.completion",
-            created=123,
-            model="test",
-            choices=[
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": '{"action": "pass"}',
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-        )
-
-        with patch(
-            "luthien_proxy.policies.simple_llm_utils.acompletion",
-            return_value=mock_response,
-        ) as mock_acompletion:
+        with patch("luthien_proxy.policies.simple_llm_utils.judge_completion", new=mock_jc):
             await call_simple_llm_judge(
                 config=config,
                 current_block=BlockDescriptor(type="text", content="hello"),
                 previous_blocks=(),
+                credential=_make_credential(),
             )
 
-        call_kwargs = mock_acompletion.call_args[1]
+        call_kwargs = mock_jc.call_args.kwargs
         assert call_kwargs["response_format"] == {"type": "json_object"}
 
     @pytest.mark.asyncio
-    async def test_uses_config_api_key(self):
-        config = SimpleLLMJudgeConfig(
-            instructions="Be safe",
-            model="test-model",
-            api_key="my-key",
-        )
+    async def test_forwards_credential_and_model_args(self):
+        config = _make_config(model="test-model", api_base="http://localhost:8080")
+        mock_jc = AsyncMock(return_value='{"action": "pass"}')
+        credential = _make_credential("my-key")
 
-        mock_response = ModelResponse(
-            id="test",
-            object="chat.completion",
-            created=123,
-            model="test",
-            choices=[
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": '{"action": "pass"}',
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-        )
-
-        with patch(
-            "luthien_proxy.policies.simple_llm_utils.acompletion",
-            return_value=mock_response,
-        ) as mock_acompletion:
+        with patch("luthien_proxy.policies.simple_llm_utils.judge_completion", new=mock_jc):
             await call_simple_llm_judge(
                 config=config,
                 current_block=BlockDescriptor(type="text", content="hello"),
                 previous_blocks=(),
+                credential=credential,
             )
 
-        call_kwargs = mock_acompletion.call_args[1]
-        assert call_kwargs["api_key"] == "my-key"
-
-    @pytest.mark.asyncio
-    async def test_no_api_key_omits_kwarg(self):
-        """When config has no api_key, the kwarg is not passed to acompletion."""
-        config = SimpleLLMJudgeConfig(
-            instructions="Be safe",
-            model="test-model",
-        )
-
-        mock_response = ModelResponse(
-            id="test",
-            object="chat.completion",
-            created=123,
-            model="test",
-            choices=[
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": '{"action": "pass"}',
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-        )
-
-        with patch(
-            "luthien_proxy.policies.simple_llm_utils.acompletion",
-            return_value=mock_response,
-        ) as mock_acompletion:
-            await call_simple_llm_judge(
-                config=config,
-                current_block=BlockDescriptor(type="text", content="hello"),
-                previous_blocks=(),
-            )
-
-        call_kwargs = mock_acompletion.call_args[1]
-        assert "api_key" not in call_kwargs
+        args, kwargs = mock_jc.call_args
+        assert args[0] is credential
+        assert kwargs["model"] == "test-model"
+        assert kwargs["api_base"] == "http://localhost:8080"
 
     @pytest.mark.asyncio
     async def test_error_propagation_after_retries(self):
         """All attempts fail → raises the last exception."""
-        config = SimpleLLMJudgeConfig(
-            instructions="Be safe",
-            model="test-model",
-            max_retries=2,
-            retry_delay=0,
-        )
+        config = _make_config(model="test-model", max_retries=2, retry_delay=0)
 
-        with patch(
-            "luthien_proxy.policies.simple_llm_utils.acompletion",
-            side_effect=RuntimeError("LLM failed"),
-        ) as mock_acompletion:
+        mock_jc = AsyncMock(side_effect=RuntimeError("LLM failed"))
+        with patch("luthien_proxy.policies.simple_llm_utils.judge_completion", new=mock_jc):
             with pytest.raises(RuntimeError, match="LLM failed"):
                 await call_simple_llm_judge(
                     config=config,
                     current_block=BlockDescriptor(type="text", content="hello"),
                     previous_blocks=(),
+                    credential=_make_credential(),
                 )
-            assert mock_acompletion.call_count == 3  # 1 initial + 2 retries
+            assert mock_jc.call_count == 3  # 1 initial + 2 retries
 
     @pytest.mark.asyncio
     async def test_no_retries_when_max_retries_zero(self):
-        config = SimpleLLMJudgeConfig(
-            instructions="Be safe",
-            model="test-model",
-            max_retries=0,
-            retry_delay=0,
-        )
+        config = _make_config(model="test-model", max_retries=0, retry_delay=0)
 
-        with patch(
-            "luthien_proxy.policies.simple_llm_utils.acompletion",
-            side_effect=RuntimeError("LLM failed"),
-        ) as mock_acompletion:
+        mock_jc = AsyncMock(side_effect=RuntimeError("LLM failed"))
+        with patch("luthien_proxy.policies.simple_llm_utils.judge_completion", new=mock_jc):
             with pytest.raises(RuntimeError, match="LLM failed"):
                 await call_simple_llm_judge(
                     config=config,
                     current_block=BlockDescriptor(type="text", content="hello"),
                     previous_blocks=(),
+                    credential=_make_credential(),
                 )
-            assert mock_acompletion.call_count == 1
+            assert mock_jc.call_count == 1
 
     @pytest.mark.asyncio
     async def test_retry_succeeds_on_second_attempt(self):
-        config = SimpleLLMJudgeConfig(
-            instructions="Be safe",
-            model="test-model",
-            max_retries=2,
-            retry_delay=0,
-        )
+        config = _make_config(model="test-model", max_retries=2, retry_delay=0)
 
-        mock_response = ModelResponse(
-            id="test",
-            object="chat.completion",
-            created=123,
-            model="test",
-            choices=[
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": '{"action": "pass"}',
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-        )
-
-        with patch(
-            "luthien_proxy.policies.simple_llm_utils.acompletion",
-            side_effect=[RuntimeError("transient"), mock_response],
-        ) as mock_acompletion:
+        mock_jc = AsyncMock(side_effect=[RuntimeError("transient"), '{"action": "pass"}'])
+        with patch("luthien_proxy.policies.simple_llm_utils.judge_completion", new=mock_jc):
             result = await call_simple_llm_judge(
                 config=config,
                 current_block=BlockDescriptor(type="text", content="hello"),
                 previous_blocks=(),
+                credential=_make_credential(),
             )
 
         assert result.action == "pass"
-        assert mock_acompletion.call_count == 2
+        assert mock_jc.call_count == 2
 
     @pytest.mark.asyncio
     async def test_retry_delay_is_applied(self):
-        config = SimpleLLMJudgeConfig(
-            instructions="Be safe",
-            model="test-model",
-            max_retries=1,
-            retry_delay=0.5,
-        )
+        config = _make_config(model="test-model", max_retries=1, retry_delay=0.5)
 
-        mock_response = ModelResponse(
-            id="test",
-            object="chat.completion",
-            created=123,
-            model="test",
-            choices=[
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": '{"action": "pass"}',
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-        )
-
+        mock_jc = AsyncMock(side_effect=[RuntimeError("transient"), '{"action": "pass"}'])
         with (
-            patch(
-                "luthien_proxy.policies.simple_llm_utils.acompletion",
-                side_effect=[RuntimeError("transient"), mock_response],
-            ),
+            patch("luthien_proxy.policies.simple_llm_utils.judge_completion", new=mock_jc),
             patch(
                 "luthien_proxy.policies.simple_llm_utils.asyncio.sleep",
                 return_value=None,
@@ -552,6 +397,7 @@ class TestCallSimpleLLMJudge:
                 config=config,
                 current_block=BlockDescriptor(type="text", content="hello"),
                 previous_blocks=(),
+                credential=_make_credential(),
             )
 
         assert result.action == "pass"
@@ -560,54 +406,15 @@ class TestCallSimpleLLMJudge:
     @pytest.mark.asyncio
     async def test_retry_on_parse_failure(self):
         """Parse failure on first attempt, valid response on retry."""
-        config = SimpleLLMJudgeConfig(
-            instructions="Be safe",
-            model="test-model",
-            max_retries=1,
-            retry_delay=0,
-        )
+        config = _make_config(model="test-model", max_retries=1, retry_delay=0)
 
-        bad_response = ModelResponse(
-            id="test",
-            object="chat.completion",
-            created=123,
-            model="test",
-            choices=[
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": "not valid json",
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-        )
-        good_response = ModelResponse(
-            id="test",
-            object="chat.completion",
-            created=123,
-            model="test",
-            choices=[
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": '{"action": "pass"}',
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-        )
-
-        with patch(
-            "luthien_proxy.policies.simple_llm_utils.acompletion",
-            side_effect=[bad_response, good_response],
-        ):
+        mock_jc = AsyncMock(side_effect=["not valid json", '{"action": "pass"}'])
+        with patch("luthien_proxy.policies.simple_llm_utils.judge_completion", new=mock_jc):
             result = await call_simple_llm_judge(
                 config=config,
                 current_block=BlockDescriptor(type="text", content="hello"),
                 previous_blocks=(),
+                credential=_make_credential(),
             )
 
         assert result.action == "pass"

@@ -42,7 +42,7 @@ POLICY_CONFIGS = [
     ),
     pytest.param(
         "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy",
-        {"probability_threshold": 0.5},
+        {"probability_threshold": 0.5, "auth_provider": "user_credentials"},
         id="ToolCallJudgePolicy",
     ),
 ]

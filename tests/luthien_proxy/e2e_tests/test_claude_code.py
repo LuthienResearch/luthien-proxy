@@ -489,6 +489,7 @@ async def test_claude_code_with_tool_judge_high_threshold(
             "probability_threshold": 0.99,  # Very high - should allow most calls
             "temperature": 0.0,
             "max_tokens": 256,
+            "auth_provider": "user_credentials",
         },
         gateway_url=gateway_url,
         admin_api_key=admin_api_key,
@@ -535,6 +536,7 @@ async def test_claude_code_with_tool_judge_low_threshold(
             "temperature": 0.0,
             "max_tokens": 256,
             "blocked_message_template": "⛔ TEST_BLOCK: Tool '{tool_name}' rejected by judge",
+            "auth_provider": "user_credentials",
         },
         gateway_url=gateway_url,
         admin_api_key=admin_api_key,

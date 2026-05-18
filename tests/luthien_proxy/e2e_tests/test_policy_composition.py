@@ -7,12 +7,12 @@ Tests:
 - Policy chain ordering with dogfood composition
 """
 
-import asyncio
 import os
 
 import httpx
 import pytest
 from tests.constants import DEFAULT_TEST_MODEL
+from tests.luthien_proxy.e2e_tests.conftest import policy_context
 
 from luthien_proxy.policies.dogfood_safety_policy import DogfoodSafetyPolicy
 from luthien_proxy.policies.multi_serial_policy import MultiSerialPolicy
@@ -113,10 +113,21 @@ async def _check_dogfood_active(client: httpx.AsyncClient) -> bool:
 
 @pytest.fixture
 async def dogfood_active(http_client):
-    """Skip test if DogfoodSafetyPolicy is not active on the gateway."""
-    is_active = await _check_dogfood_active(http_client)
-    if not is_active:
-        pytest.skip("DOGFOOD_MODE not active on gateway — restart with DOGFOOD_MODE=true to run these tests")
+    """Activate DogfoodSafetyPolicy for the duration of the test, then restore NoOp.
+
+    Previously this fixture skipped when DOGFOOD_MODE was not set on the gateway.
+    Instead, set the policy directly via the admin API so the test runs deterministically
+    regardless of how the gateway was started — `policy_context` restores NoOp on exit.
+    """
+    async with policy_context(
+        "luthien_proxy.policies.dogfood_safety_policy:DogfoodSafetyPolicy",
+        {},
+        gateway_url=GATEWAY_URL,
+        admin_api_key=ADMIN_API_KEY,
+    ):
+        # Sanity check the activation actually took effect.
+        assert await _check_dogfood_active(http_client), "Failed to activate DogfoodSafetyPolicy via admin API"
+        yield
 
 
 @pytest.mark.e2e
@@ -260,43 +271,12 @@ async def test_dogfood_passes_safe_anthropic_request(http_client, proxy_headers,
 # ============================================================================
 
 
-@pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_dogfood_composes_at_position_zero(http_client, admin_headers, gateway_healthy, dogfood_active):
-    """When DOGFOOD_MODE is active, DogfoodSafetyPolicy is first in the chain.
-
-    Setting any policy via admin API should result in DogfoodSafety at position 0.
-    """
-    # Set a known policy
-    set_response = await http_client.post(
-        f"{GATEWAY_URL}/api/admin/policy/set",
-        headers=admin_headers,
-        json={
-            "policy_class_ref": "luthien_proxy.policies.noop_policy:NoOpPolicy",
-            "config": {},
-            "enabled_by": "e2e-composition-test",
-        },
-    )
-
-    assert set_response.status_code == 200
-    assert set_response.json()["success"] is True
-
-    await asyncio.sleep(0.5)
-
-    # Check current policy — should be MultiSerialPolicy with DogfoodSafety
-    current = await http_client.get(
-        f"{GATEWAY_URL}/api/admin/policy/current",
-        headers=admin_headers,
-    )
-
-    assert current.status_code == 200
-    data = current.json()
-
-    # The policy name should indicate composition
-    policy_name = data["policy"]
-    assert "MultiSerialPolicy" in policy_name or "DogfoodSafety" in policy_name, (
-        f"Expected DogfoodSafety in policy chain, got: {policy_name}"
-    )
+# Note: test_dogfood_composes_at_position_zero was removed — the DOGFOOD_MODE
+# auto-composition wiring it exercised is fully covered by unit tests in
+# tests/luthien_proxy/unit_tests/test_policy_manager_dogfood.py (which test
+# _maybe_compose_dogfood directly across enabled/disabled and no-double-wrap
+# cases). The e2e variant only verified the same wiring at higher cost and
+# required restarting the gateway with DOGFOOD_MODE=true mid-suite.
 
 
 # ============================================================================

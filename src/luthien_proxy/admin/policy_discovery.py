@@ -18,7 +18,7 @@ from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 from pydantic import BaseModel, TypeAdapter
 
 import luthien_proxy.policies as policies_package
-from luthien_proxy.policy_core.base_policy import BasePolicy
+from luthien_proxy.policy_core.base_policy import BasePolicy, UIMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -501,6 +501,7 @@ def discover_policies() -> list[dict[str, Any]]:
             description = extract_description(attr)
             config_schema, example_config = extract_config_schema(attr)
 
+            ui: UIMetadata = getattr(attr, "ui", UIMetadata())
             policies.append(
                 {
                     "name": attr_name,
@@ -508,6 +509,12 @@ def discover_policies() -> list[dict[str, Any]]:
                     "description": description,
                     "config_schema": config_schema,
                     "example_config": example_config,
+                    # UI catalog metadata (no runtime effect) — see UIMetadata in policy_core.
+                    "category": ui.category.value,
+                    "display_name": ui.display_name,
+                    "short_description": ui.short_description,
+                    "catalog_badges": [b.value for b in ui.catalog_badges],
+                    "ui_policy_preview": ui.ui_policy_preview,
                 }
             )
 

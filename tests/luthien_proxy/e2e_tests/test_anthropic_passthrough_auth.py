@@ -1,25 +1,24 @@
 """E2E tests for Anthropic passthrough authentication.
 
-Tests the passthrough authentication feature in three modes:
+Covers two passthrough paths:
 
 1. **x-anthropic-api-key header** (works in any auth_mode):
-   Client passes their Anthropic key via x-anthropic-api-key header while
-   authenticating to the proxy with CLIENT_API_KEY via Authorization header.
+   Client authenticates to the proxy with CLIENT_API_KEY via Authorization,
+   and forwards an Anthropic API key for upstream calls via x-anthropic-api-key.
 
-2. **Auth mode passthrough** (requires AUTH_MODE=both or AUTH_MODE=passthrough):
-   Client authenticates directly with their Anthropic key as the Bearer token.
-   The proxy validates it via the free count_tokens endpoint and uses it for
-   upstream API calls.
+2. **OAuth passthrough via Claude Code** (requires AUTH_MODE=both or passthrough):
+   Claude Code uses its OAuth credentials as the Bearer token. The proxy
+   validates them and uses them for upstream Anthropic calls.
 
-3. **OAuth passthrough via Claude Code** (requires AUTH_MODE=both):
-   Claude Code uses its OAuth credentials to authenticate through the proxy
-   without ANTHROPIC_API_KEY being set. The proxy validates the OAuth token
-   and uses it for upstream Anthropic calls.
+Direct API-key-as-Bearer tests are deliberately *not* covered here: Anthropic
+only accepts API keys via x-api-key, and Bearer tokens are reserved for OAuth
+credentials whose automated use Anthropic forbids. The OAuth path is therefore
+exercised only via Claude Code, never via raw HTTP calls from this suite.
 
 Prerequisites:
 - Gateway must be running (docker compose up)
 - ANTHROPIC_API_KEY env var for header passthrough tests
-- AUTH_MODE=both for passthrough mode and OAuth tests
+- AUTH_MODE=both (or passthrough) on the gateway for the Claude Code OAuth test
 - Claude CLI installed + logged in via OAuth for Claude Code tests
 """
 
@@ -50,28 +49,29 @@ def anthropic_key():
 
 
 @pytest.fixture
-async def passthrough_mode(http_client, gateway_healthy, gateway_url, api_key):
-    """Verify gateway supports passthrough auth mode.
+async def gateway_passthrough_mode(http_client, gateway_healthy, gateway_url, admin_api_key):
+    """Confirm the gateway is in an auth_mode that accepts passthrough (both or passthrough).
 
-    Sends a real Anthropic key as the Bearer token (not via x-anthropic-api-key).
-    This only succeeds when AUTH_MODE is 'both' or 'passthrough'.
+    Reads auth_config from the admin API instead of probing /v1/messages with a
+    bearer token — Anthropic forbids automated use of OAuth credentials, so we
+    must not exercise OAuth via direct API tests. Tests that need a real bearer
+    flow run Claude Code instead (see ``test_claude_code_oauth_passthrough``).
     """
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not anthropic_key:
-        pytest.skip("ANTHROPIC_API_KEY not set (needed for passthrough mode tests)")
-
-    response = await http_client.post(
-        f"{gateway_url}/v1/messages",
-        json={
-            "model": ANTHROPIC_MODEL,
-            "messages": [{"role": "user", "content": "hi"}],
-            "max_tokens": 5,
-        },
-        headers={"Authorization": f"Bearer {anthropic_key}"},
+    response = await http_client.get(
+        f"{gateway_url}/api/admin/auth/config",
+        headers={"Authorization": f"Bearer {admin_api_key}"},
     )
-    if response.status_code == 401:
-        pytest.skip("Gateway not in passthrough/both auth mode (set AUTH_MODE=both to enable these tests)")
-    return anthropic_key
+    # Surface server-side regressions; only treat genuine auth/availability
+    # responses as skip-worthy prereq misses.
+    if response.status_code >= 500:
+        response.raise_for_status()
+    if response.status_code in (401, 403, 404):
+        pytest.skip(f"Admin auth config not accessible: HTTP {response.status_code}")
+    assert response.status_code == 200, f"Unexpected status reading admin auth config: {response.status_code}"
+    mode = response.json().get("auth_mode")
+    if mode not in ("both", "passthrough"):
+        pytest.skip(f"Gateway auth_mode={mode!r}; passthrough tests require 'both' or 'passthrough'")
+    yield
 
 
 # === x-anthropic-api-key header passthrough (works in any auth_mode) ===
@@ -216,78 +216,12 @@ async def test_proxy_auth_still_required_with_client_key(gateway_healthy, http_c
     assert response.status_code == 401
 
 
-# === Passthrough auth mode (requires AUTH_MODE=both or AUTH_MODE=passthrough) ===
-
-
-@pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_passthrough_mode_direct_auth(http_client, passthrough_mode, gateway_url):
-    """In passthrough/both mode, client's Anthropic key works as the Bearer token."""
-    response = await http_client.post(
-        f"{gateway_url}/v1/messages",
-        json={
-            "model": ANTHROPIC_MODEL,
-            "messages": [{"role": "user", "content": "Say 'hello'"}],
-            "max_tokens": 10,
-        },
-        headers={"Authorization": f"Bearer {passthrough_mode}"},
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["type"] == "message"
-    assert len(data["content"]) > 0
-
-
-@pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_passthrough_mode_invalid_key_rejected(http_client, passthrough_mode, gateway_url):
-    """In passthrough/both mode, invalid Anthropic key is rejected."""
-    response = await http_client.post(
-        f"{gateway_url}/v1/messages",
-        json={
-            "model": ANTHROPIC_MODEL,
-            "messages": [{"role": "user", "content": "Say 'hello'"}],
-            "max_tokens": 10,
-        },
-        headers={"Authorization": "Bearer sk-ant-invalid-key-00000"},
-    )
-
-    assert response.status_code == 401
-
-
-@pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_passthrough_mode_streaming(passthrough_mode, gateway_url):
-    """In passthrough/both mode, streaming works with client's key as Bearer token."""
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        async with client.stream(
-            "POST",
-            f"{gateway_url}/v1/messages",
-            json={
-                "model": ANTHROPIC_MODEL,
-                "messages": [{"role": "user", "content": "Say 'hello'"}],
-                "max_tokens": 10,
-                "stream": True,
-            },
-            headers={"Authorization": f"Bearer {passthrough_mode}"},
-        ) as response:
-            assert response.status_code == 200
-
-            raw_events = []
-            async for line in response.aiter_lines():
-                if line.startswith("data: "):
-                    raw_events.append(line[6:])
-
-    assert len(raw_events) > 0
-    event_types = []
-    for raw in raw_events:
-        try:
-            event_types.append(json.loads(raw).get("type"))
-        except json.JSONDecodeError:
-            continue
-    assert "message_start" in event_types
-    assert "message_stop" in event_types
+# === Passthrough auth mode ===
+#
+# Note: Bearer-token passthrough only legitimately exercises OAuth credentials
+# (sk-ant- API keys must use x-api-key per Anthropic's API). Anthropic forbids
+# automated use of OAuth tokens, so OAuth flows are tested through Claude Code
+# below — never by direct API calls from this suite.
 
 
 # === OAuth passthrough via Claude Code ===
@@ -362,7 +296,7 @@ async def run_claude_code_oauth(
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_claude_code_oauth_passthrough(claude_available, passthrough_mode, gateway_url):
+async def test_claude_code_oauth_passthrough(claude_available, gateway_passthrough_mode, gateway_url):
     """Claude Code authenticates through the proxy using OAuth credentials.
 
     Requires:

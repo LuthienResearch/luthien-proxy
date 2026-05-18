@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from anthropic.lib.streaming import MessageStreamEvent
@@ -32,7 +32,6 @@ from anthropic.types import (
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
     RawMessageDeltaEvent,
-    TextBlock,
     TextDelta,
     ToolUseBlock,
 )
@@ -41,59 +40,74 @@ from luthien_proxy.credentials import AuthProvider, parse_auth_provider
 from luthien_proxy.policies.simple_llm_utils import (
     BlockDescriptor,
     JudgeAction,
-    ReplacementBlock,
     SimpleLLMJudgeConfig,
     call_simple_llm_judge,
 )
 from luthien_proxy.policy_core import (
     AnthropicHookPolicy,
     BasePolicy,
+    CatalogBadge,
+    Category,
+    UIMetadata,
 )
+from luthien_proxy.policy_core.anthropic_message_builder import (
+    AnthropicMessageBuilder,
+    BufferedTool,
+)
+from luthien_proxy.policy_core.judge_orchestrator import Bailed, JudgeOrchestrator
 from luthien_proxy.settings import get_settings
 
 if TYPE_CHECKING:
-    from luthien_proxy.llm.types.anthropic import (
-        AnthropicContentBlock,
-        AnthropicResponse,
-        AnthropicTextBlock,
-        JSONObject,
-    )
+    from luthien_proxy.llm.types.anthropic import AnthropicResponse
     from luthien_proxy.policy_core.policy_context import PolicyContext
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class _BufferedToolUse:
-    id: str
-    name: str
-    input_json: str = ""
-
-
-JUDGE_UNAVAILABLE_WARNING = (
-    "\u26a0\ufe0f Safety judge unavailable \u2014 this response was not evaluated by the safety policy."
-)
+JUDGE_UNAVAILABLE_WARNING = "⚠️ Safety judge unavailable — this response was not evaluated by the safety policy."
 
 JUDGE_ERROR_BLOCKED_MESSAGE = (
-    "\u274c Response blocked: the safety judge encountered an error and the policy requires blocking on failure."
+    "❌ Response blocked: the safety judge encountered an error and the policy requires blocking on failure."
 )
 
 
-def _blocked_tool_message(name: str) -> str:
-    return f"[Tool call `{name}` was blocked by policy]"
+@dataclass(frozen=True)
+class _PendingTool:
+    """Tag attached to a concurrently-dispatched tool judge."""
+
+    tool: BufferedTool
 
 
-def _blocked_tool_judge_failed_message(name: str) -> str:
-    return f"[Tool call `{name}` blocked: policy evaluation unavailable]"
+def _bail_on_block(action: JudgeAction) -> bool:
+    """Bail predicate: a `block` decision cancels every later tool judge."""
+    return action.action == "block"
 
 
 @dataclass
 class _SimpleLLMAnthropicState:
-    text_buffer: dict[int, str] = field(default_factory=dict)
-    tool_buffer: dict[int, _BufferedToolUse] = field(default_factory=dict)
-    pending_text_start: dict[int, MessageStreamEvent] = field(default_factory=dict)
-    emitted_blocks: list[BlockDescriptor] = field(default_factory=list)
-    original_had_tool_use: bool = False
+    """Per-request state.
+
+    The builder owns Anthropic-streaming concerns (upstream buffering, wire
+    ordering, indices, invariants). The orchestrator owns concurrent tool
+    judging and the early-bail rule. The only policy-specific scalar is
+    `judge_error_occurred`, consulted at message_delta to decide whether
+    to ask the builder for a warning or fallback message.
+
+    Tool judges run concurrently — every tool's `block_stop` dispatches
+    its judge as a task and returns immediately. Results are collected in
+    submission order at `message_delta`. The first `block` cancels every
+    pending tool judge; subsequent tools surface as `Bailed` and are
+    recorded as blocked (their judges never ran).
+
+    Text judges stay serial (await inline at text `block_stop`) so text
+    can commit to the wire incrementally — deferring the text judge would
+    cost the streaming property of the entire pre-tool region.
+    """
+
+    builder: AnthropicMessageBuilder = field(default_factory=AnthropicMessageBuilder)
+    tool_judge: JudgeOrchestrator[_PendingTool, JudgeAction] = field(
+        default_factory=lambda: JudgeOrchestrator(bail_predicate=_bail_on_block)
+    )
     judge_error_occurred: bool = False
 
 
@@ -113,33 +127,40 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         max_tokens: Max output tokens for judge (default: 4096)
     """
 
+    ui = UIMetadata(
+        display_name="LLM-as-Judge",
+        short_description="Apply plain-English instructions to evaluate and rewrite responses.",
+        category=Category.ACTIVE_MONITORING,
+        catalog_badges=(CatalogBadge.JUDGE,),
+    )
+
     @property
     def short_policy_name(self) -> str:
         """Short human-readable name for the policy."""
         return "SimpleLLM"
 
     def __init__(self, config: SimpleLLMJudgeConfig | None = None):
-        """Initialize with judge config."""
+        """Initialize with judge config.
+
+        Note: config=None will fail at runtime with ValidationError since auth_provider is required.
+        Pass an explicit SimpleLLMJudgeConfig with auth_provider set.
+        """
         parsed = self._init_config(config, SimpleLLMJudgeConfig)
 
         settings = get_settings()
         self._config = SimpleLLMJudgeConfig(
             model=settings.llm_judge_model or parsed.model,
             api_base=settings.llm_judge_api_base or parsed.api_base,
-            api_key=parsed.api_key,  # explicit per-policy override only
             instructions=parsed.instructions,
             temperature=parsed.temperature,
             max_tokens=parsed.max_tokens,
             on_error=parsed.on_error,
+            max_retries=parsed.max_retries,
+            retry_delay=parsed.retry_delay,
+            auth_provider=parsed.auth_provider,
         )
 
-        # Auth provider (new path) — when set, replaces the legacy key resolution
-        self._auth_provider: AuthProvider | None = None
-        if parsed.auth_provider is not None:
-            self._auth_provider = parse_auth_provider(parsed.auth_provider)
-
-        # DEPRECATED(Step 5b): legacy key fallback — remove when auth_provider is mandatory
-        self._fallback_api_key = settings.llm_judge_api_key or settings.litellm_master_key or None
+        self._auth_provider: AuthProvider = parse_auth_provider(parsed.auth_provider)
 
         if self._config.on_error == "pass":
             logger.warning(
@@ -159,33 +180,10 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
     # Shared helpers
     # ========================================================================
 
-    def _block_descriptor_from_text(self, text: str) -> BlockDescriptor:
-        return BlockDescriptor(type="text", content=text)
-
-    def _block_descriptor_from_tool(self, name: str, input_data: "JSONObject | str") -> BlockDescriptor:
-        input_str = json.dumps(input_data) if not isinstance(input_data, str) else input_data
-        return BlockDescriptor(type="tool_use", content=f"{name}({input_str})")
-
-    def _block_descriptor_from_replacement(self, block: ReplacementBlock) -> BlockDescriptor:
-        if block.type == "tool_use":
-            input_str = json.dumps(block.input or {})
-            return BlockDescriptor(type="tool_use", content=f"{block.name}({input_str})")
-        return BlockDescriptor(type="text", content=block.text or "")
-
-    def _replacement_to_anthropic_block(self, block: ReplacementBlock) -> "AnthropicContentBlock":
-        if block.type == "tool_use":
-            return {
-                "type": "tool_use",
-                "id": f"toolu_{uuid4().hex[:24]}",
-                "name": block.name or "",
-                "input": block.input or {},
-            }
-        return {"type": "text", "text": block.text or ""}
-
     async def _judge_block(
         self,
         descriptor: BlockDescriptor,
-        emitted_blocks: list[BlockDescriptor],
+        previous_blocks: tuple[BlockDescriptor, ...],
         context: "PolicyContext",
     ) -> JudgeAction:
         """Call the judge LLM.
@@ -194,22 +192,13 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         (returning "pass" or "block") so callers never handle None.
         """
         try:
-            if self._auth_provider is not None:
-                credential = await context.credential_manager.resolve(self._auth_provider, context)
-                result = await call_simple_llm_judge(
-                    self._config,
-                    descriptor,
-                    tuple(emitted_blocks),
-                    credential=credential,
-                )
-            else:
-                # DEPRECATED(Step 5b): legacy path — remove when auth_provider is mandatory
-                result = await call_simple_llm_judge(
-                    self._config,
-                    descriptor,
-                    tuple(emitted_blocks),
-                    api_key=self._resolve_judge_api_key(context, self._config.api_key, self._fallback_api_key),
-                )
+            credential = await context.credential_manager.resolve(self._auth_provider, context)
+            result = await call_simple_llm_judge(
+                self._config,
+                descriptor,
+                previous_blocks,
+                credential=credential,
+            )
             context.record_event(
                 "policy.simple_llm.judge_result",
                 {
@@ -231,80 +220,101 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             )
             return JudgeAction(action=self._config.on_error, judge_failed=True)
 
-    def _correct_anthropic_stop_reason(
-        self, response: "AnthropicResponse", content: list["AnthropicContentBlock"]
-    ) -> "AnthropicResponse":
-        has_tool_use = any(b.get("type") == "tool_use" for b in content)
-        expected = "tool_use" if has_tool_use else "end_turn"
-        if response.get("stop_reason") != expected:
-            response = cast("AnthropicResponse", dict(response))  # shallow copy preserves TypedDict shape
-            response["stop_reason"] = expected
-        return response
+    def _apply_replacement_to_builder(
+        self,
+        builder: AnthropicMessageBuilder,
+        action: JudgeAction,
+    ) -> list[MessageStreamEvent]:
+        """Translate a judge `replace` action into builder commits.
+
+        Text replacements emit immediately (or queue post-tool-buffer);
+        tool_use replacements buffer for the tool flush. The builder
+        guarantees the wire ordering invariant regardless of the order in
+        which replacement blocks are emitted. Returns the streaming events
+        emitted by `commit_text`; non-streaming callers ignore the result.
+        """
+        events: list[MessageStreamEvent] = []
+        for rblock in action.blocks or ():
+            if rblock.type == "text":
+                events.extend(builder.commit_text(rblock.text or ""))
+            elif rblock.type == "tool_use":
+                tool_id = f"toolu_{uuid4().hex[:24]}"
+                input_json = json.dumps(rblock.input or {})
+                builder.buffer_tool(id=tool_id, name=rblock.name or "", input_json=input_json)
+            else:
+                logger.warning(
+                    "SimpleLLMPolicy: unknown replacement block type %r — skipping",
+                    rblock.type,
+                )
+        return events
 
     # ========================================================================
-    # Anthropic hooks (via AnthropicHookPolicy)
+    # Anthropic non-streaming
     # ========================================================================
 
     async def on_anthropic_response(
         self, response: "AnthropicResponse", context: "PolicyContext"
     ) -> "AnthropicResponse":
-        """Judge each content block and apply replacements."""
+        """Judge each content block via the shared builder and compose a wire-correct response.
+
+        Routes per-block decisions through the same primitives the streaming
+        path uses (`commit_text`, `buffer_tool`, `record_blocked_tool`,
+        `note_judge_unavailable`, `set_fallback_text`) and then asks the
+        builder for the finalized response. The trailing-tool_use invariant
+        (#708) is enforced by the builder, not by per-policy reconstruction.
+        """
         content = response.get("content", [])
         if not content:
             return response
 
-        emitted_blocks: list[BlockDescriptor] = []
-        new_content: list["AnthropicContentBlock"] = []
+        builder = AnthropicMessageBuilder()
         judge_error_occurred = False
 
         for block in content:
             if not isinstance(block, dict):
-                new_content.append(block)
+                builder.commit_raw_block(block)
                 continue
 
             block_type = block.get("type")
-
             if block_type == "text":
-                descriptor = self._block_descriptor_from_text(block.get("text", ""))
+                descriptor = BlockDescriptor(type="text", content=block.get("text", ""))
             elif block_type == "tool_use":
-                descriptor = self._block_descriptor_from_tool(
-                    block.get("name", ""),
-                    block.get("input", {}),
+                descriptor = BlockDescriptor(
+                    type="tool_use",
+                    content=f"{block.get('name', '')}({json.dumps(block.get('input', {}))})",
                 )
             else:
-                new_content.append(block)
+                builder.commit_raw_block(block)
                 continue
 
-            action = await self._judge_block(descriptor, emitted_blocks, context)
+            action = await self._judge_block(descriptor, builder.committed_descriptors, context)
             if action.judge_failed:
                 judge_error_occurred = True
 
             if action.action == "pass":
-                new_content.append(block)
-                emitted_blocks.append(descriptor)
-            elif action.action == "replace":
-                for rblock in action.blocks or ():
-                    emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
-                    new_content.append(self._replacement_to_anthropic_block(rblock))
-            elif action.action == "block" and block_type == "tool_use":
-                if action.judge_failed:
-                    blocked_text = _blocked_tool_judge_failed_message(block.get("name", ""))
+                if block_type == "tool_use":
+                    builder.buffer_tool(
+                        id=str(block.get("id", "")),
+                        name=str(block.get("name", "")),
+                        input_json=json.dumps(block.get("input", {})),
+                    )
                 else:
-                    blocked_text = _blocked_tool_message(block.get("name", ""))
-                emitted_blocks.append(self._block_descriptor_from_text(blocked_text))
-                blocked_block: AnthropicTextBlock = {"type": "text", "text": blocked_text}
-                new_content.append(blocked_block)
+                    builder.commit_text(block.get("text", ""))
+            elif action.action == "replace":
+                self._apply_replacement_to_builder(builder, action)
+            elif action.action == "block" and block_type == "tool_use":
+                builder.record_blocked_tool(
+                    str(block.get("name", "") or ""),
+                    judge_failed=action.judge_failed,
+                )
 
-        if judge_error_occurred and self._config.on_error == "pass":
-            warning_block: AnthropicTextBlock = {"type": "text", "text": JUDGE_UNAVAILABLE_WARNING}
-            new_content.append(warning_block)
-        elif judge_error_occurred and not new_content:
-            error_block: AnthropicTextBlock = {"type": "text", "text": JUDGE_ERROR_BLOCKED_MESSAGE}
-            new_content.append(error_block)
+        if judge_error_occurred:
+            if self._config.on_error == "pass":
+                builder.note_judge_unavailable(JUDGE_UNAVAILABLE_WARNING)
+            else:
+                builder.set_fallback_text(JUDGE_ERROR_BLOCKED_MESSAGE)
 
-        modified_response = cast("AnthropicResponse", dict(response))
-        modified_response["content"] = new_content
-        return self._correct_anthropic_stop_reason(modified_response, new_content)
+        return builder.to_anthropic_response(response)
 
     # ========================================================================
     # Anthropic streaming
@@ -324,242 +334,150 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             return await self._handle_block_stop(event, context)
 
         if isinstance(event, RawMessageDeltaEvent):
-            return self._handle_message_delta(event, context)
+            return await self._handle_message_delta(event, context)
 
         return [event]
 
     def _handle_block_start(
         self, event: RawContentBlockStartEvent, context: "PolicyContext"
     ) -> list[MessageStreamEvent]:
-        state = self._anthropic_state(context)
-        index = event.index
+        builder = self._anthropic_state(context).builder
         cb = event.content_block
 
         if isinstance(cb, ToolUseBlock):
-            state.tool_buffer[index] = _BufferedToolUse(id=cb.id, name=cb.name)
-            state.original_had_tool_use = True
-            return []  # suppress start until judge decides
-
-        if hasattr(cb, "type") and cb.type == "text":
-            state.text_buffer[index] = ""
-            # Buffer the start — don't emit yet. Claude sometimes sends a text
-            # block start immediately followed by a stop with no deltas (empty
-            # text block before tool_use). Emitting the start now then closing
-            # it with no delta produces an empty text block in the client's
-            # conversation history, which the Anthropic API rejects with 400
-            # ("text content blocks must be non-empty"). We emit start+delta+stop
-            # together in _handle_block_stop once we know the text is non-empty.
-            state.pending_text_start[index] = cast(MessageStreamEvent, event)
+            builder.begin_tool_buffer(event.index, id=cb.id, name=cb.name)
             return []
 
-        return [event]
+        if hasattr(cb, "type") and cb.type == "text":
+            builder.begin_text_buffer(event.index)
+            return []
+
+        # Passthrough (thinking, redacted_thinking, future block types).
+        return builder.passthrough_start(event)
 
     def _handle_block_delta(
         self, event: RawContentBlockDeltaEvent, context: "PolicyContext"
     ) -> list[MessageStreamEvent]:
-        state = self._anthropic_state(context)
-        index = event.index
+        builder = self._anthropic_state(context).builder
         delta = event.delta
 
-        if isinstance(delta, TextDelta) and index in state.text_buffer:
-            state.text_buffer[index] += delta.text
-            return []  # buffer
+        if isinstance(delta, TextDelta) and builder.append_text_delta(event.index, delta.text):
+            return []
+        if isinstance(delta, InputJSONDelta) and builder.append_tool_delta(event.index, delta.partial_json):
+            return []
 
-        if isinstance(delta, InputJSONDelta) and index in state.tool_buffer:
-            state.tool_buffer[index].input_json += delta.partial_json
-            return []  # buffer
-
-        return [event]
+        return builder.passthrough_delta(event)
 
     async def _handle_block_stop(
         self, event: RawContentBlockStopEvent, context: "PolicyContext"
     ) -> list[MessageStreamEvent]:
         state = self._anthropic_state(context)
-        index = event.index
+        builder = state.builder
 
-        # Text block stop
-        if index in state.text_buffer:
-            text = state.text_buffer.pop(index)
-            pending_start = state.pending_text_start.pop(index, None)
+        text = builder.take_text(event.index)
+        if text is not None:
+            return await self._handle_text_stop(state, text, context)
 
-            # Suppress entirely if the text is empty — emitting an empty text
-            # block (start + stop with no content) produces {"type":"text","text":""}
-            # in the client's conversation history, which Anthropic rejects with
-            # 400 "text content blocks must be non-empty" on the next turn.
-            if not text:
-                return []
+        tool = builder.take_tool(event.index)
+        if tool is not None:
+            return await self._handle_tool_stop(state, tool, context)
 
-            descriptor = self._block_descriptor_from_text(text)
-            action = await self._judge_block(descriptor, state.emitted_blocks, context)
-            if action.judge_failed:
-                state.judge_error_occurred = True
+        return builder.passthrough_stop(event)
 
-            if action.action == "pass":
-                state.emitted_blocks.append(descriptor)
-                events: list[MessageStreamEvent] = []
-                if pending_start is not None:
-                    events.append(pending_start)
-                events.extend(self._emit_anthropic_text_events(index, text, event))
-                return events
-            elif action.action == "replace":
-                return self._emit_anthropic_replacement_events(index, action, state, event)
-            # Judge blocked the text block — suppress entirely (pending_start was
-            # never emitted, so there's nothing to close).
+    async def _handle_text_stop(
+        self,
+        state: _SimpleLLMAnthropicState,
+        text: str,
+        context: "PolicyContext",
+    ) -> list[MessageStreamEvent]:
+        if not text:
+            # Empty text block — Anthropic rejects on next turn. Suppress.
             return []
 
-        # Tool block stop
-        if index in state.tool_buffer:
-            buffered = state.tool_buffer.pop(index)
-            try:
-                input_data: "JSONObject | str" = (
-                    json.loads(buffered.input_json) if buffered.input_json else {}
-                )  # tool inputs are always objects in practice
-            except json.JSONDecodeError:
-                logger.warning(f"Malformed tool input JSON for '{buffered.name}', using raw string")
-                input_data = {"_raw": buffered.input_json}
-            descriptor = self._block_descriptor_from_tool(buffered.name, input_data)
-            action = await self._judge_block(descriptor, state.emitted_blocks, context)
-            if action.judge_failed:
-                state.judge_error_occurred = True
+        descriptor = BlockDescriptor(type="text", content=text)
+        action = await self._judge_block(descriptor, state.builder.committed_descriptors, context)
+        if action.judge_failed:
+            state.judge_error_occurred = True
 
-            if action.action == "pass":
-                state.emitted_blocks.append(descriptor)
-                return self._emit_anthropic_tool_events(index, buffered, event)
-            elif action.action == "replace":
-                return self._emit_anthropic_replacement_events(index, action, state, event)
-            # Tool start was suppressed — emit a text block so the client
-            # knows the tool call was blocked and can continue the conversation.
-            if action.judge_failed:
-                blocked_text = _blocked_tool_judge_failed_message(buffered.name)
-            else:
-                blocked_text = _blocked_tool_message(buffered.name)
-            state.emitted_blocks.append(self._block_descriptor_from_text(blocked_text))
-            return self._make_anthropic_text_block_events(index, blocked_text)
+        if action.action == "pass":
+            return state.builder.commit_text(text)
+        if action.action == "replace":
+            return self._apply_replacement_to_builder(state.builder, action)
+        return []  # blocked text — suppress
 
-        return [cast(MessageStreamEvent, event)]
+    async def _handle_tool_stop(
+        self,
+        state: _SimpleLLMAnthropicState,
+        tool: BufferedTool,
+        context: "PolicyContext",
+    ) -> list[MessageStreamEvent]:
+        """Dispatch the judge concurrently; the decision is applied at message_delta.
 
-    def _handle_message_delta(self, event: RawMessageDeltaEvent, context: "PolicyContext") -> list[MessageStreamEvent]:
-        """Handle message_delta event: inject warning and correct stop_reason.
+        Tools all buffer until finalize anyway, so awaiting the judge here
+        would just serialize N round-trips for no incremental wire gain.
+        Submitting to the orchestrator returns immediately; the actual
+        coroutine starts on the next event-loop tick and runs alongside
+        sibling tool judges. Order-preserving collection happens in
+        `_handle_message_delta`.
+        """
+        descriptor = BlockDescriptor(type="tool_use", content=f"{tool.name}({json.dumps(tool.parsed_input)})")
+        coro = self._judge_block(descriptor, state.builder.committed_descriptors, context)
+        state.tool_judge.submit(_PendingTool(tool=tool), coro)
+        return []
 
-        The message_delta event carries stop_reason and usage, and comes after
-        all content blocks but before message_stop. Warning text blocks must be
-        inserted BEFORE this event to maintain valid Anthropic streaming order
-        (content blocks after message_delta violate the protocol and can corrupt
-        the client's conversation history).
+    async def _handle_message_delta(
+        self, event: RawMessageDeltaEvent, context: "PolicyContext"
+    ) -> list[MessageStreamEvent]:
+        """Collect concurrent tool-judge results, apply decisions, then flush.
+
+        Walks the orchestrator's results in submission order. A `Bailed`
+        item — a tool whose judge was cancelled because an earlier tool
+        was blocked — is recorded as blocked in the consolidated marker.
+        Each non-bailed `pass` becomes `builder.buffer_tool`, `replace`
+        becomes the appropriate commit chain, `block` becomes
+        `record_blocked_tool`. Any judge failure flips
+        `judge_error_occurred`, which surfaces as the warning (on_error
+        pass) or fallback (on_error block) at finalize time.
         """
         state = self._anthropic_state(context)
+
         events: list[MessageStreamEvent] = []
+        for item, result in await state.tool_judge.collect():
+            events.extend(self._apply_tool_decision(state, item.tool, result))
 
-        # Inject judge-unavailable warning as a content block before message_delta
-        if state.judge_error_occurred and self._config.on_error == "pass":
-            warning_index = len(state.emitted_blocks)
-            events.extend(self._make_anthropic_warning_events(warning_index))
-        elif state.judge_error_occurred and not state.emitted_blocks:
-            events.extend(self._make_anthropic_text_block_events(0, JUDGE_ERROR_BLOCKED_MESSAGE))
+        if state.judge_error_occurred:
+            if self._config.on_error == "pass":
+                state.builder.note_judge_unavailable(JUDGE_UNAVAILABLE_WARNING)
+            else:
+                state.builder.set_fallback_text(JUDGE_ERROR_BLOCKED_MESSAGE)
 
-        # Correct stop_reason if the emitted block types differ from the original
-        has_emitted_tool = any(b.type == "tool_use" for b in state.emitted_blocks)
-        expected_stop = "tool_use" if has_emitted_tool else "end_turn"
-        if event.delta.stop_reason != expected_stop:
-            event = RawMessageDeltaEvent.model_construct(
-                type="message_delta",
-                delta=event.delta.model_copy(update={"stop_reason": expected_stop}),
-                usage=event.usage,
-            )
-
-        events.append(cast(MessageStreamEvent, event))
+        events.extend(state.builder.finalize(event))
         return events
 
-    def _emit_anthropic_text_events(
+    def _apply_tool_decision(
         self,
-        index: int,
-        text: str,
-        stop_event: RawContentBlockStopEvent,
-    ) -> list[MessageStreamEvent]:
-        """Emit buffered text as a single delta + stop."""
-        text_delta = TextDelta.model_construct(type="text_delta", text=text)
-        delta_event = RawContentBlockDeltaEvent.model_construct(
-            type="content_block_delta", index=index, delta=text_delta
-        )
-        return [cast(MessageStreamEvent, delta_event), cast(MessageStreamEvent, stop_event)]
-
-    def _emit_anthropic_tool_events(
-        self,
-        index: int,
-        buffered: _BufferedToolUse,
-        stop_event: RawContentBlockStopEvent,
-    ) -> list[MessageStreamEvent]:
-        """Reconstruct tool_use block events: start + json delta + stop."""
-        tool_block = ToolUseBlock(type="tool_use", id=buffered.id, name=buffered.name, input={})
-        start_event = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=tool_block)
-        json_delta = InputJSONDelta(type="input_json_delta", partial_json=buffered.input_json or "{}")
-        delta_event = RawContentBlockDeltaEvent(type="content_block_delta", index=index, delta=json_delta)
-        return [
-            cast(MessageStreamEvent, start_event),
-            cast(MessageStreamEvent, delta_event),
-            cast(MessageStreamEvent, stop_event),
-        ]
-
-    def _make_anthropic_text_block_events(self, index: int, text: str) -> list[MessageStreamEvent]:
-        """Emit a complete text block (start + delta + stop) with the given text."""
-        text_block = TextBlock(type="text", text="")
-        start = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=text_block)
-        text_delta = TextDelta.model_construct(type="text_delta", text=text)
-        delta = RawContentBlockDeltaEvent.model_construct(type="content_block_delta", index=index, delta=text_delta)
-        stop = RawContentBlockStopEvent(type="content_block_stop", index=index)
-        return [
-            cast(MessageStreamEvent, start),
-            cast(MessageStreamEvent, delta),
-            cast(MessageStreamEvent, stop),
-        ]
-
-    def _make_anthropic_warning_events(self, index: int) -> list[MessageStreamEvent]:
-        """Emit a warning text block for judge-unavailable notification."""
-        return self._make_anthropic_text_block_events(index, JUDGE_UNAVAILABLE_WARNING)
-
-    def _emit_anthropic_replacement_events(
-        self,
-        index: int,
-        action: JudgeAction,
         state: _SimpleLLMAnthropicState,
-        stop_event: RawContentBlockStopEvent,
+        tool: BufferedTool,
+        result: JudgeAction | Bailed,
     ) -> list[MessageStreamEvent]:
-        """Emit replacement block events."""
-        events: list[MessageStreamEvent] = []
+        if isinstance(result, Bailed):
+            # An earlier tool was blocked; this one's judge was cancelled
+            # before completing. Surface in the consolidated marker so the
+            # next turn can see what was attempted.
+            state.builder.record_blocked_tool(tool.name, judge_failed=False)
+            return []
 
-        for rblock in action.blocks or ():
-            state.emitted_blocks.append(self._block_descriptor_from_replacement(rblock))
+        if result.judge_failed:
+            state.judge_error_occurred = True
 
-            if rblock.type == "text":
-                text_block = TextBlock(type="text", text="")
-                start = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=text_block)
-                text_delta = TextDelta.model_construct(type="text_delta", text=rblock.text or "")
-                delta = RawContentBlockDeltaEvent.model_construct(
-                    type="content_block_delta", index=index, delta=text_delta
-                )
-                events.extend(
-                    [
-                        cast(MessageStreamEvent, start),
-                        cast(MessageStreamEvent, delta),
-                    ]
-                )
-
-            elif rblock.type == "tool_use":
-                tool_id = f"toolu_{uuid4().hex[:24]}"
-                tool_block = ToolUseBlock(type="tool_use", id=tool_id, name=rblock.name or "", input={})
-                start = RawContentBlockStartEvent(type="content_block_start", index=index, content_block=tool_block)
-                json_str = json.dumps(rblock.input or {})
-                json_delta = InputJSONDelta(type="input_json_delta", partial_json=json_str)
-                delta = RawContentBlockDeltaEvent(type="content_block_delta", index=index, delta=json_delta)
-                events.extend(
-                    [
-                        cast(MessageStreamEvent, start),
-                        cast(MessageStreamEvent, delta),
-                    ]
-                )
-
-        events.append(cast(MessageStreamEvent, stop_event))
-        return events
+        if result.action == "pass":
+            state.builder.buffer_tool(id=tool.id, name=tool.name, input_json=tool.input_json)
+            return []
+        if result.action == "replace":
+            return self._apply_replacement_to_builder(state.builder, result)
+        # "block"
+        state.builder.record_blocked_tool(tool.name, judge_failed=result.judge_failed)
+        return []
 
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
         """Clean up per-request Anthropic state."""

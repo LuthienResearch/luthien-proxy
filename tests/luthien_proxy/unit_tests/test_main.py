@@ -3,6 +3,7 @@
 
 """Tests for V2 main FastAPI application."""
 
+import asyncio
 import os
 import tempfile
 from pathlib import Path
@@ -397,7 +398,13 @@ class TestCreateApp:
         assert "/v1/messages" in routes or any("/v1/messages" in str(r) for r in routes if r)
 
     def test_create_app_health_endpoint(self, policy_config_file, mock_db_pool, mock_redis_client):
-        """Test health endpoint returns correct response shape."""
+        """Test health endpoint returns the minimal liveness shape only.
+
+        /health is unauthenticated, so it must not leak auth_mode or recent
+        credential activity (those would let a probe attacker fingerprint
+        the gateway). Billing-mode signals live on
+        /api/admin/billing-status instead.
+        """
         mock_redis_client.get = AsyncMock(return_value=None)
         app = create_app(
             api_key="test-key",
@@ -411,18 +418,33 @@ class TestCreateApp:
             response = client.get("/health")
             assert response.status_code == 200
             data = response.json()
-            assert data["status"] == "healthy"
+            assert data == {"status": "healthy", "version": data["version"]}
             assert data["version"] and data["version"] != "unknown"
-            assert data["auth_mode"] in ("client_key", "both", "passthrough", None)
-            assert "last_credential_type" in data
-            assert "last_credential_at" in data
+            assert "auth_mode" not in data
+            assert "last_credential_type" not in data
+            assert "last_credential_at" not in data
 
-    def test_create_app_health_endpoint_client_key_mode(self, policy_config_file, mock_db_pool, mock_redis_client):
-        """Health endpoint reports auth_mode=client_key when configured."""
+    def test_billing_status_returns_403_without_auth(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Billing status is gated by admin auth — unauthenticated callers get 403."""
         mock_redis_client.get = AsyncMock(return_value=None)
         app = create_app(
             api_key="test-key",
-            admin_key=None,
+            admin_key="test-admin-key",
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            response = client.get("/api/admin/billing-status")
+            assert response.status_code == 403
+
+    def test_billing_status_reports_auth_mode_client_key(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Billing status reports auth_mode=client_key when configured."""
+        mock_redis_client.get = AsyncMock(return_value=None)
+        app = create_app(
+            api_key="test-key",
+            admin_key="test-admin-key",
             db_pool=mock_db_pool,
             redis_client=mock_redis_client,
             startup_policy_path=policy_config_file,
@@ -430,15 +452,19 @@ class TestCreateApp:
         )
 
         with TestClient(app) as client:
-            response = client.get("/health")
+            response = client.get(
+                "/api/admin/billing-status",
+                headers={"Authorization": "Bearer test-admin-key"},
+            )
+            assert response.status_code == 200
             assert response.json()["auth_mode"] == "client_key"
 
-    def test_create_app_health_endpoint_both_mode(self, policy_config_file, mock_db_pool, mock_redis_client):
-        """Health endpoint reports auth_mode=both when configured."""
+    def test_billing_status_reports_auth_mode_both(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Billing status reports auth_mode=both when configured."""
         mock_redis_client.get = AsyncMock(return_value=None)
         app = create_app(
             api_key="test-key",
-            admin_key=None,
+            admin_key="test-admin-key",
             db_pool=mock_db_pool,
             redis_client=mock_redis_client,
             startup_policy_path=policy_config_file,
@@ -446,15 +472,18 @@ class TestCreateApp:
         )
 
         with TestClient(app) as client:
-            response = client.get("/health")
+            response = client.get(
+                "/api/admin/billing-status",
+                headers={"Authorization": "Bearer test-admin-key"},
+            )
             assert response.json()["auth_mode"] == "both"
 
-    def test_create_app_health_endpoint_passthrough_mode(self, policy_config_file, mock_db_pool, mock_redis_client):
-        """Health endpoint reports auth_mode=passthrough when configured."""
+    def test_billing_status_reports_auth_mode_passthrough(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Billing status reports auth_mode=passthrough when configured."""
         mock_redis_client.get = AsyncMock(return_value=None)
         app = create_app(
             api_key="test-key",
-            admin_key=None,
+            admin_key="test-admin-key",
             db_pool=mock_db_pool,
             redis_client=mock_redis_client,
             startup_policy_path=policy_config_file,
@@ -462,8 +491,193 @@ class TestCreateApp:
         )
 
         with TestClient(app) as client:
-            response = client.get("/health")
+            response = client.get(
+                "/api/admin/billing-status",
+                headers={"Authorization": "Bearer test-admin-key"},
+            )
             assert response.json()["auth_mode"] == "passthrough"
+
+    def test_billing_status_carries_last_credential_info_when_set(
+        self, policy_config_file, mock_db_pool, mock_redis_client
+    ):
+        """Billing status surfaces last_credential_type/at when populated."""
+        mock_redis_client.get = AsyncMock(return_value=None)
+        app = create_app(
+            api_key="test-key",
+            admin_key="test-admin-key",
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            app.state.dependencies.last_credential_info = {  # type: ignore[attr-defined]
+                "type": "user_api_key",
+                "timestamp": 1700000000.5,
+            }
+            response = client.get(
+                "/api/admin/billing-status",
+                headers={"Authorization": "Bearer test-admin-key"},
+            )
+            assert response.status_code == 200
+            body = response.json()
+            assert body["last_credential_type"] == "user_api_key"
+            assert body["last_credential_at"] == 1700000000.5
+
+    def test_billing_status_handles_no_credential_manager(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Billing status returns auth_mode=None when credential_manager is unset."""
+        mock_redis_client.get = AsyncMock(return_value=None)
+        app = create_app(
+            api_key="test-key",
+            admin_key="test-admin-key",
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            app.state.dependencies.credential_manager = None  # type: ignore[attr-defined]
+            response = client.get(
+                "/api/admin/billing-status",
+                headers={"Authorization": "Bearer test-admin-key"},
+            )
+            assert response.status_code == 200
+            assert response.json()["auth_mode"] is None
+
+    def test_billing_status_response_is_not_cacheable(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """Billing status must not be cached — it can change at any time.
+
+        The Cache-Control header comes from StaticCacheMiddleware's /api/*
+        allowlist, not from the route itself. This test guards against a
+        future refactor that moves the route off /api/* without re-adding
+        the cache-control intent (or that drops the middleware allowlist).
+        """
+        mock_redis_client.get = AsyncMock(return_value=None)
+        app = create_app(
+            api_key="test-key",
+            admin_key="test-admin-key",
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/admin/billing-status",
+                headers={"Authorization": "Bearer test-admin-key"},
+            )
+            assert response.status_code == 200
+            assert response.headers["cache-control"] == "no-store, no-cache, must-revalidate"
+
+    def test_ready_endpoint_returns_200_with_real_sqlite_pool(self, policy_config_file, mock_redis_client):
+        """/ready returns 200 against a real SqlitePool — exercises the actual DB API.
+
+        Uses an in-memory SqliteDatabasePool so the probe goes through the real
+        `connection().fetchval` path. A mock-only test would not catch the case
+        where the production code calls a method that does not exist on
+        SqlitePool.
+        """
+        from luthien_proxy.utils import db as db_module
+
+        real_pool = db_module.DatabasePool("sqlite://:memory:")
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=real_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            response = client.get("/ready")
+            assert response.status_code == 200
+            assert response.json() == {"status": "ready"}
+            assert response.headers["cache-control"] == "no-store, no-cache, must-revalidate"
+
+    def test_ready_endpoint_returns_503_when_db_unreachable(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """/ready returns 503 with sanitized reason when the connection raises.
+
+        No raw exception text or connection details may leak to unauthenticated
+        callers.
+        """
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def failing_connection():
+            raise ConnectionRefusedError("conn refused: db.internal.example.com:5432")
+            yield  # unreachable, required by @asynccontextmanager
+
+        mock_db_pool.connection = failing_connection
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            response = client.get("/ready")
+            assert response.status_code == 503
+            body = response.json()
+            assert body["status"] == "not_ready"
+            assert body["reason"] == "database unreachable"
+            assert "db.internal.example.com" not in response.text
+
+    def test_ready_endpoint_returns_503_when_db_probe_times_out(
+        self, policy_config_file, mock_db_pool, mock_redis_client, monkeypatch
+    ):
+        """/ready returns 503 when the probe exceeds the bounded timeout.
+
+        A slow DB must not tarpit probe workers — the entire probe (pool
+        acquisition + query) is bounded by asyncio.wait_for.
+        """
+        from contextlib import asynccontextmanager
+
+        from luthien_proxy import main as main_module
+
+        monkeypatch.setattr(main_module, "READY_DB_PROBE_TIMEOUT_SECONDS", 0.05)
+
+        @asynccontextmanager
+        async def hanging_connection():
+            await asyncio.sleep(1.0)
+            yield  # unreachable under the patched timeout
+
+        mock_db_pool.connection = hanging_connection
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            response = client.get("/ready")
+            assert response.status_code == 503
+            body = response.json()
+            assert body["status"] == "not_ready"
+            assert body["reason"] == "database probe timed out"
+
+    def test_ready_endpoint_returns_503_when_dependencies_not_initialized(
+        self, policy_config_file, mock_db_pool, mock_redis_client
+    ):
+        """/ready returns 503 when app.state.dependencies is missing post-startup."""
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            app.state.dependencies = None  # type: ignore[attr-defined]
+            response = client.get("/ready")
+            assert response.status_code == 503
+            body = response.json()
+            assert body["status"] == "not_ready"
+            assert body["reason"] == "dependencies not initialized"
 
     def test_create_app_root_endpoint(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Test root endpoint returns HTML landing page."""

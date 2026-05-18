@@ -96,10 +96,7 @@ The gateway is a single FastAPI application:
 **Documentation**:
 
 - **Architecture overview**: [ARCHITECTURE.md](ARCHITECTURE.md) - How the codebase is structured, how requests flow, where to find things
-- Request processing architecture: [dev/REQUEST_PROCESSING_ARCHITECTURE.md](dev/REQUEST_PROCESSING_ARCHITECTURE.md) - How requests flow through the system
-- Live policy updates: [dev/LIVE_POLICY_DEMO.md](dev/LIVE_POLICY_DEMO.md) - Switching policies without restart in Claude Code
-- Observability: [dev/observability.md](dev/observability.md) - Tracing and monitoring
-- Viewing traces: [dev/VIEWING_TRACES_GUIDE.md](dev/VIEWING_TRACES_GUIDE.md) - Using Tempo
+- Request processing: [dev/context/request_processing.md](dev/context/request_processing.md) - How requests flow through the pipeline
 - Context files: [dev/context/](dev/context/) - Architectural patterns, decisions, and gotchas
 
 ## Endpoints
@@ -109,7 +106,8 @@ The gateway is a single FastAPI application:
 **API Endpoints:**
 
 - `POST /v1/messages` - Anthropic Messages API (streaming and non-streaming)
-- `GET /health` - Health check
+- `GET /health` - Liveness check (always 200 if the process is responsive)
+- `GET /ready` - Readiness probe (503 when DB is unreachable, probe times out, or dependencies are not initialized)
 
 **UI Endpoints:**
 
@@ -263,15 +261,15 @@ The observability stack is completely optional and does not affect core function
 OpenTelemetry is configured via the standard config system (see Configuration section above). OTel is disabled by default (`OTEL_ENABLED=false`). Key env vars:
 
 ```bash
-OTEL_ENABLED=true                           # Enable tracing
-OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+OTEL_ENABLED=true                                       # Enable tracing
+OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318/v1/traces # HTTP/protobuf path
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf               # or 'grpc'
 SERVICE_NAME=luthien-proxy
 ENVIRONMENT=development
 ```
 
 ### Documentation
 
-- **Usage guide:** [dev/observability.md](dev/observability.md)
 - **Conventions:** [dev/context/otel-conventions.md](dev/context/otel-conventions.md)
 
 ### Services

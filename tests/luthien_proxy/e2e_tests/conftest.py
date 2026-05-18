@@ -20,7 +20,7 @@ import httpx
 import pytest
 from dotenv import load_dotenv
 from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import text_response as _text_response
-from tests.luthien_proxy.e2e_tests.mock_anthropic.server import DEFAULT_MOCK_PORT, MockAnthropicServer
+from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
 # === Repository Root Finding ===
 
@@ -103,11 +103,14 @@ def mock_anthropic():
     Shared across all e2e test files. Use ``mock_anthropic.enqueue(response)``
     before each test to control what the mock returns.
 
-    Port is configurable via MOCK_ANTHROPIC_PORT env var (default: 18888).
-    For Docker-based tests, the gateway must be configured with
-    ANTHROPIC_BASE_URL pointing at this port.
+    Port behavior: an unused port is auto-allocated by default so multiple
+    test runs (e.g. parallel CI shards, maintenance job alongside dev stack)
+    don't collide. Override with the MOCK_ANTHROPIC_PORT env var when a
+    fixed port is needed (e.g. Docker tests where the gateway's
+    ANTHROPIC_BASE_URL is wired up out of band).
     """
-    port = int(os.getenv("MOCK_ANTHROPIC_PORT", str(DEFAULT_MOCK_PORT)))
+    port_env = os.getenv("MOCK_ANTHROPIC_PORT")
+    port = int(port_env) if port_env else 0
     server = MockAnthropicServer(port=port)
     server.start()
     yield server
@@ -392,12 +395,11 @@ class FailureCapture:
         input_messages: list[dict] | None = None,
     ) -> None:
         """Append one observation. Call before the assertion; persisted only on flush()."""
-        safe_config = {k: v for k, v in policy_config.items() if k != "api_key"}
         self._entries.append(
             {
                 "test_name": self._test_name,
                 "scenario": scenario,
-                "policy_config": safe_config,
+                "policy_config": policy_config,
                 "expected": expected,
                 "actual_response": actual_response,
                 "input_messages": input_messages or [],
@@ -455,6 +457,47 @@ BASE_REQUEST: dict = {
     "max_tokens": 100,
     "stream": False,
 }
+
+
+async def _wait_for_session(
+    client: httpx.AsyncClient,
+    *,
+    gateway_url: str,
+    admin_api_key: str,
+    session_id: str,
+    expected_turns: int = 1,
+    timeout: float = 5.0,
+    poll_interval: float = 0.05,
+) -> dict:
+    """Poll ``GET /api/history/sessions/{session_id}`` until persisted with N turns.
+
+    Replaces fixed ``await asyncio.sleep(...)`` calls in mock_e2e tests.
+    Persistence happens asynchronously after the gateway returns the response,
+    so a fixed sleep either over-waits (slow tests) or under-waits (flake).
+    Polling waits exactly as long as needed.
+
+    Raises TimeoutError with the last observed status + turn count to make
+    flakes diagnosable. Returns the JSON body (a ``SessionDetail`` dict).
+    """
+    gw = gateway_url.rstrip("/")
+    headers = {"Authorization": f"Bearer {admin_api_key}"}
+    deadline = time.monotonic() + timeout
+    last_status: int | None = None
+    last_turn_count = 0
+    while True:
+        resp = await client.get(f"{gw}/api/history/sessions/{session_id}", headers=headers)
+        last_status = resp.status_code
+        if resp.status_code == 200:
+            data = resp.json()
+            last_turn_count = len(data.get("turns", []))
+            if last_turn_count >= expected_turns:
+                return data
+        if time.monotonic() > deadline:
+            raise TimeoutError(
+                f"Session {session_id!r} did not reach {expected_turns} turn(s) within {timeout}s; "
+                f"last status={last_status}, last turn count={last_turn_count}"
+            )
+        await asyncio.sleep(poll_interval)
 
 
 async def collect_sse_text(response: "httpx.Response") -> str:
@@ -515,6 +558,7 @@ PII_REDACTION_CONFIG: dict = {
     "on_error": "block",
     "temperature": 0.0,
     "max_tokens": 4096,
+    "auth_provider": "user_credentials",
 }
 
 INJECTION_DETECTION_CONFIG: dict = {
@@ -533,4 +577,5 @@ INJECTION_DETECTION_CONFIG: dict = {
     "on_error": "block",
     "temperature": 0.0,
     "max_tokens": 4096,
+    "auth_provider": "user_credentials",
 }

@@ -1,0 +1,10 @@
+[Unit]
+Description=Scheduled run of luthien-proxy automated maintenance
+
+[Timer]
+OnCalendar=__ONCALENDAR__
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

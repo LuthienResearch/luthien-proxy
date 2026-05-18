@@ -1,6 +1,6 @@
 """Mock e2e tests for OnboardingPolicy — first turn gets welcome, subsequent turns pass through.
 
-Mock server auto-started by the mock_anthropic fixture (port 18888).
+Mock server auto-started by the mock_anthropic fixture.
 
 Run:
     ./scripts/run_e2e.sh mock

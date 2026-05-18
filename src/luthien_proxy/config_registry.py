@@ -79,6 +79,33 @@ class ConfigRegistry:
         self._db_values: dict[str, str] = {}
         self._resolved: dict[str, ResolvedValue] = {}
         self._lock = asyncio.Lock()
+        # Snapshot env-layer values up front, before any DB/CLI resolution can
+        # push values back into Settings via `_sync_one`. Re-deriving the ENV
+        # layer from a mutated Settings later would falsely report a .env-file
+        # origin for DB-set values and make DELETE "stick" at the DB value.
+        self._env_values: dict[str, Any] = self._snapshot_env_values(settings)
+
+    @staticmethod
+    def _snapshot_env_values(settings: Settings) -> dict[str, Any]:
+        """Record, per field, the env/dotenv-provided value (if any).
+
+        Captured once at construction — before `_sync_one` can overwrite
+        `settings` attributes with resolved DB/CLI values. A field is
+        considered env-sourced when its env var is present in ``os.environ``
+        OR its Settings value diverges from the field default (the only way
+        a pydantic-settings .env-file value surfaces without populating
+        ``os.environ``).
+        """
+        captured: dict[str, Any] = {}
+        for meta in CONFIG_FIELDS:
+            if not hasattr(settings, meta.name):
+                continue
+            settings_val = getattr(settings, meta.name)
+            env_explicitly_set = os.environ.get(meta.env_var) is not None
+            env_from_dotenv = not env_explicitly_set and settings_val != meta.default
+            if env_explicitly_set or env_from_dotenv:
+                captured[meta.name] = settings_val
+        return captured
 
     async def initialize(self) -> None:
         """Load DB values and resolve all fields."""
@@ -131,14 +158,12 @@ class ConfigRegistry:
         if cli_val is not None:
             layers[ConfigSource.CLI] = cli_val
 
-        # ENV layer — counts if the env var is explicitly set OR the .env file
-        # provided a value (detected by comparing Settings value to the field default).
-        # pydantic-settings reads .env files directly without injecting into os.environ.
-        settings_val = getattr(self._settings, meta.name, meta.default)
-        env_explicitly_set = os.environ.get(meta.env_var) is not None
-        env_from_dotenv = not env_explicitly_set and settings_val != meta.default
-        if env_explicitly_set or env_from_dotenv:
-            layers[ConfigSource.ENV] = settings_val
+        # ENV layer — consult the startup snapshot rather than the live
+        # `_settings` object. `_sync_one` rewrites Settings attributes when
+        # DB/CLI overrides land, so a live derivation would mistake every
+        # DB-set value for a dotenv-provided one and block fallback on DELETE.
+        if meta.name in self._env_values:
+            layers[ConfigSource.ENV] = self._env_values[meta.name]
 
         # DB layer — only for db_settable fields
         if meta.db_settable and meta.name in self._db_values:

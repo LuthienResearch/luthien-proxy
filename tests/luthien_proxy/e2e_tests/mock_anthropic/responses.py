@@ -69,6 +69,10 @@ class MockToolResponse:
     stop_reason: str = "tool_use"
     input_tokens: int = 10
     output_tokens: int = 20
+    # Optional text preamble emitted as block index 0 before the tool_use
+    # block (which becomes index 1). Matches Claude's common "I'll do X..."
+    # then tool_use pattern.
+    text_preamble: str = ""
 
 
 def text_response(text: str, **kwargs) -> MockResponse:

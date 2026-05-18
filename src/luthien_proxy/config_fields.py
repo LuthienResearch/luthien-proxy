@@ -75,6 +75,11 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         "Include internal details in client-facing error responses",
         category="server", db_settable=True, restart_required=False,
     ),
+    ConfigFieldMeta(
+        "trust_user_id_header", "TRUST_USER_ID_HEADER", bool, False,
+        "Trust the X-Luthien-User-Id request header for user attribution. Disabled by default — only enable when clients are trusted (e.g., behind an authenticated reverse proxy).",
+        category="server", db_settable=True, restart_required=False,
+    ),
 
     # ── auth ──────────────────────────────────────────────────────────────
     ConfigFieldMeta(
@@ -96,6 +101,18 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         "localhost_auth_bypass", "LOCALHOST_AUTH_BYPASS", bool, True,
         "Skip admin-route authentication for requests from localhost (proxy /v1/messages auth is unaffected; disable behind a same-host reverse proxy)",
         category="auth", db_settable=True, restart_required=False,
+    ),
+
+    # ── rate limiting ─────────────────────────────────────────────────────────
+    ConfigFieldMeta(
+        "rate_limit_rpm", "RATE_LIMIT_RPM", int, 0,
+        "Per-key request rate limit (requests per minute). 0 disables rate limiting. Keyed on the auth credential — in CLIENT_KEY mode all users share one bucket.",
+        category="rate_limiting", restart_required=True,
+    ),
+    ConfigFieldMeta(
+        "rate_limit_burst", "RATE_LIMIT_BURST", int, 0,
+        "Per-key burst capacity (absolute token bucket cap). 0 defaults to RPM value. Must be >= 1 if set.",
+        category="rate_limiting", restart_required=True,
     ),
 
     # ── policy ────────────────────────────────────────────────────────────
@@ -149,11 +166,6 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         sensitive=True, category="llm",
     ),
     ConfigFieldMeta(
-        "litellm_master_key", "LITELLM_MASTER_KEY", str, None,
-        "LiteLLM master key for multi-tenant deployments",
-        sensitive=True, category="llm",
-    ),
-    ConfigFieldMeta(
         "llm_judge_model", "LLM_JUDGE_MODEL", str, None,
         "Model ID for the LLM judge policy",
         category="llm",
@@ -162,11 +174,6 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         "llm_judge_api_base", "LLM_JUDGE_API_BASE", str, None,
         "Custom API base URL for the judge model",
         category="llm",
-    ),
-    ConfigFieldMeta(
-        "llm_judge_api_key", "LLM_JUDGE_API_KEY", str, None,
-        "API key for the judge model",
-        sensitive=True, category="llm",
     ),
     ConfigFieldMeta(
         "anthropic_client_cache_size", "ANTHROPIC_CLIENT_CACHE_SIZE", int, 16,
@@ -188,8 +195,13 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         category="observability",
     ),
     ConfigFieldMeta(
-        "otel_exporter_otlp_endpoint", "OTEL_EXPORTER_OTLP_ENDPOINT", str, "http://tempo:4317",
-        "OTLP exporter endpoint for traces",
+        "otel_exporter_otlp_endpoint", "OTEL_EXPORTER_OTLP_ENDPOINT", str, "http://tempo:4318/v1/traces",
+        "OTLP exporter endpoint for traces (default targets the HTTP/protobuf receiver on tempo:4318)",
+        category="observability",
+    ),
+    ConfigFieldMeta(
+        "otel_exporter_otlp_protocol", "OTEL_EXPORTER_OTLP_PROTOCOL", str, "http/protobuf",
+        "OTLP exporter protocol: 'http/protobuf' (default) or 'grpc'",
         category="observability",
     ),
     ConfigFieldMeta(
@@ -237,6 +249,88 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         category="telemetry",
     ),
 
+    # ── retention ─────────────────────────────────────────────────────────
+    ConfigFieldMeta(
+        "conversation_retention_days", "CONVERSATION_RETENTION_DAYS", int, None,
+        "Delete conversation_calls older than this many days. "
+        "Unset (None), 0, or any non-positive value disables the purger entirely. "
+        "There is no 'purge everything immediately' shortcut — set a small positive "
+        "value (e.g. 1) and wait for the scheduled run if you want fast cleanup.",
+        category="retention",
+    ),
+    ConfigFieldMeta(
+        "archive_s3_bucket", "ARCHIVE_S3_BUCKET", str, None,
+        "S3 bucket for archiving conversations before purge (None = no archival)",
+        category="retention",
+    ),
+    ConfigFieldMeta(
+        "archive_s3_prefix", "ARCHIVE_S3_PREFIX", str, "luthien-archive/",
+        "S3 key prefix for archived conversation JSONL files",
+        category="retention",
+    ),
+    ConfigFieldMeta(
+        "retention_archive_batch_size", "RETENTION_ARCHIVE_BATCH_SIZE", int, 100,
+        "Calls processed per archive-then-delete batch (only used when "
+        "ARCHIVE_S3_BUCKET is set; the no-archive path uses an internal "
+        "DELETE-chunk size). Each call's events, policy_events, and "
+        "judge_decisions are fetched together — judge decisions in "
+        "particular hold large JSONB blobs (judge_prompt, stream_chunks), "
+        "so 100 keeps a single batch under typical memory limits even with "
+        "rich payloads",
+        category="retention",
+    ),
+    ConfigFieldMeta(
+        "retention_s3_encryption", "RETENTION_S3_ENCRYPTION", str, "AES256",
+        "S3 server-side encryption: AES256, aws:kms, or 'bucket-default' to omit "
+        "the SSE header and let bucket policy apply (use this if your bucket "
+        "policy mandates a specific encryption mode that conflicts with AES256)",
+        category="retention",
+    ),
+    ConfigFieldMeta(
+        "retention_s3_kms_key_id", "RETENTION_S3_KMS_KEY_ID", str, "",
+        "KMS key ID for aws:kms encryption (required when RETENTION_S3_ENCRYPTION=aws:kms)",
+        category="retention",
+    ),
+
+    # ── webhook ───────────────────────────────────────────────────────────
+    # NOTE: webhook_url is intentionally NOT db_settable=True (defaults to False).
+    # sensitive=True only affects how the value is masked in logs/dashboards,
+    # not whether it can be set via PUT /api/admin/config. Restart-required
+    # is intentional: WebhookSender isn't reconstructible mid-process, and
+    # admin-token compromise → arbitrary URL exfil would be a nasty escalation.
+    # If you flip this to db_settable=True, also wire a hot-reload hook on
+    # the sender and revisit the SSRF Trello card (https://trello.com/c/sBefPP2C).
+    ConfigFieldMeta(
+        "webhook_url", "WEBHOOK_URL", str, "",
+        "Endpoint URL to POST conversation completion events to (leave empty to disable). At-most-once delivery: failures after retries are dropped, shutdown drains then cancels, process crashes lose in-flight events. Not suitable for systems that require at-least-once / durable delivery. **Treated as operator-trusted** — the value is not subjected to SSRF protection (private IPs and localhost are reachable), so only set this from a trusted config source. **If you ever wire this to user-controllable input, add SSRF protection FIRST.** **Privacy**: payloads include session_id (which may be a stable user identifier) — treat the receiver as a PII sink, same posture as conversation logs.",
+        sensitive=True, category="webhook",
+    ),
+    ConfigFieldMeta(
+        "webhook_max_retries", "WEBHOOK_MAX_RETRIES", int, 3,
+        "Number of retry attempts for failed webhook deliveries",
+        category="webhook",
+    ),
+    ConfigFieldMeta(
+        "webhook_retry_delay_seconds", "WEBHOOK_RETRY_DELAY_SECONDS", float, 1.0,
+        "Base delay in seconds between webhook retry attempts (doubles each retry)",
+        category="webhook",
+    ),
+    ConfigFieldMeta(
+        "webhook_max_pending_tasks", "WEBHOOK_MAX_PENDING_TASKS", int, 1000,
+        "Maximum number of in-flight webhook delivery tasks **per uvicorn worker**. With N workers the effective gateway-wide cap is N × this value — divide accordingly when sizing. When exceeded, new webhooks are dropped and logged. A single delivery can hold a slot for ~(WEBHOOK_SEND_TIMEOUT_SECONDS × (1+WEBHOOK_MAX_RETRIES)) + (WEBHOOK_MAX_RETRIES × MAX_RETRY_DELAY_SECONDS) — defaults give ~210s.",
+        category="webhook",
+    ),
+    ConfigFieldMeta(
+        "webhook_send_timeout_seconds", "WEBHOOK_SEND_TIMEOUT_SECONDS", float, 10.0,
+        "Per-attempt HTTP timeout for webhook deliveries. Receivers that do synchronous downstream work before acknowledging (e.g. write to BigQuery before returning 200) may need a higher value than the 10s default.",
+        category="webhook",
+    ),
+    ConfigFieldMeta(
+        "webhook_shutdown_drain_seconds", "WEBHOOK_SHUTDOWN_DRAIN_SECONDS", float, 5.0,
+        "On gateway shutdown, wait up to this many seconds for in-flight webhook deliveries to finish before cancelling them. Set to 0 for immediate cancel.",
+        category="webhook",
+    ),
+
     # ── sentry ────────────────────────────────────────────────────────────
     ConfigFieldMeta(
         "sentry_enabled", "SENTRY_ENABLED", bool, False,
@@ -269,12 +363,15 @@ CONFIG_FIELDS_BY_NAME: dict[str, ConfigFieldMeta] = {f.name: f for f in CONFIG_F
 CONFIG_CATEGORIES: tuple[str, ...] = (
     "server",
     "auth",
+    "rate_limiting",
     "policy",
     "database",
     "llm",
     "security",
     "observability",
     "telemetry",
+    "retention",
+    "webhook",
     "sentry",
 )
 

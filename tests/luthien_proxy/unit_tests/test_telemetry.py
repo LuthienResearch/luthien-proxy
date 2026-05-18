@@ -9,9 +9,27 @@ from unittest.mock import Mock, patch
 import pytest
 from opentelemetry import trace
 from opentelemetry.context import Context
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+    OTLPSpanExporter as GrpcSpanExporter,
+)
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+    OTLPSpanExporter as HttpSpanExporter,
+)
 
 from luthien_proxy import telemetry
+from luthien_proxy.settings import Settings
 from luthien_proxy.telemetry import restore_context
+
+
+# Six-tuple shape of telemetry._get_otel_config():
+#   (otel_enabled, endpoint, service_name, service_version, environment, protocol)
+def _config(
+    *,
+    enabled: bool = True,
+    endpoint: str = "http://tempo:4318/v1/traces",
+    protocol: str = "http/protobuf",
+) -> tuple[bool, str, str, str, str, str]:
+    return (enabled, endpoint, "svc", "1.0", "dev", protocol)
 
 
 class TestSilenceOtelLoggers:
@@ -23,6 +41,7 @@ class TestSilenceOtelLoggers:
 
         for name in (
             "opentelemetry.exporter.otlp.proto.grpc.exporter",
+            "opentelemetry.exporter.otlp.proto.http.trace_exporter",
             "opentelemetry.sdk.trace.export",
             "grpc._channel",
             "grpc._plugin_wrapping",
@@ -43,7 +62,7 @@ class TestConfigureTracing:
     @patch("luthien_proxy.telemetry._silence_otel_loggers")
     def test_disabled_silences_loggers(self, mock_silence, mock_config):
         """When OTel is disabled, noisy loggers are silenced."""
-        mock_config.return_value = (False, "", "svc", "1.0", "dev")
+        mock_config.return_value = _config(enabled=False, endpoint="")
         telemetry.configure_tracing()
         mock_silence.assert_called_once()
 
@@ -51,18 +70,71 @@ class TestConfigureTracing:
     @patch("luthien_proxy.telemetry._silence_otel_loggers")
     def test_enabled_does_not_silence_loggers(self, mock_silence, mock_config):
         """When OTel is enabled, loggers are NOT silenced — connection errors should be visible."""
-        mock_config.return_value = (True, "http://localhost:4317", "svc", "1.0", "dev")
+        mock_config.return_value = _config()
         telemetry.configure_tracing()
         mock_silence.assert_not_called()
 
     @patch("luthien_proxy.telemetry._get_otel_config")
     def test_disabled_logs_at_debug_not_info(self, mock_config):
         """When OTel is disabled, the message should be DEBUG, not INFO."""
-        mock_config.return_value = (False, "", "svc", "1.0", "dev")
+        mock_config.return_value = _config(enabled=False, endpoint="")
         with patch.object(telemetry.logger, "debug") as mock_debug, patch.object(telemetry.logger, "info") as mock_info:
             telemetry.configure_tracing()
             mock_debug.assert_called_once()
             mock_info.assert_not_called()
+
+
+class TestBuildOtlpExporter:
+    """Test exporter dispatch on the protocol setting."""
+
+    def test_default_protocol_returns_http_exporter(self):
+        """Default protocol (http/protobuf) builds the HTTP exporter."""
+        exporter = telemetry._build_otlp_exporter("http/protobuf", "http://tempo:4318/v1/traces")
+        assert isinstance(exporter, HttpSpanExporter)
+
+    def test_grpc_protocol_returns_grpc_exporter(self):
+        """Explicit grpc protocol builds the gRPC exporter."""
+        exporter = telemetry._build_otlp_exporter("grpc", "http://tempo:4317")
+        assert isinstance(exporter, GrpcSpanExporter)
+
+    @pytest.mark.parametrize("bad_value", ["", "http", "HTTP/PROTOBUF", "tcp", "rest"])
+    def test_unknown_protocol_raises_value_error(self, bad_value):
+        """Unknown protocol values fail loud at startup — never silently fall back."""
+        with pytest.raises(ValueError, match="OTEL_EXPORTER_OTLP_PROTOCOL"):
+            telemetry._build_otlp_exporter(bad_value, "http://tempo:4318/v1/traces")
+
+    @patch("luthien_proxy.telemetry._get_otel_config")
+    def test_configure_tracing_propagates_unknown_protocol_error(self, mock_config):
+        """An invalid protocol surfaces as ValueError from configure_tracing."""
+        mock_config.return_value = _config(protocol="not-a-real-protocol")
+        with pytest.raises(ValueError):
+            telemetry.configure_tracing()
+
+
+class TestProtocolEnvVarBinding:
+    """Guard that the OTEL_EXPORTER_OTLP_PROTOCOL env var is actually wired up.
+
+    Regression guard: an earlier version of this PR named the field
+    ``otel_exporter_protocol``, which auto-derives to
+    ``OTEL_EXPORTER_PROTOCOL`` — silently breaking the documented
+    ``OTEL_EXPORTER_OTLP_PROTOCOL`` escape hatch.
+    """
+
+    def test_env_var_overrides_default(self, monkeypatch):
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+        settings = Settings(_env_file=None)
+        assert settings.otel_exporter_otlp_protocol == "grpc"
+
+    def test_default_is_http_protobuf(self, monkeypatch):
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_PROTOCOL", raising=False)
+        settings = Settings(_env_file=None)
+        assert settings.otel_exporter_otlp_protocol == "http/protobuf"
+
+    def test_default_endpoint_targets_http_port_with_v1_traces_path(self, monkeypatch):
+        """Default endpoint must match the default HTTP/protobuf protocol."""
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+        settings = Settings(_env_file=None)
+        assert settings.otel_exporter_otlp_endpoint == "http://tempo:4318/v1/traces"
 
 
 class TestInstrumentApp:

@@ -152,11 +152,10 @@ There is no `llm/litellm_client.py` — the gateway no longer proxies via LiteLL
 | `credentials/auth_provider.py` | `AuthProvider` base + `ServerKey`, `UserCredentials`, `UserThenServer` resolvers used by policies that need an outbound credential. |
 | `credentials/store.py` | `CredentialStore` — DB-backed server credential storage (`server_credentials` table) with optional Fernet encryption. |
 
-### Storage & Observability
+### Observability
 
 | Module | Responsibility |
 |--------|---------------|
-| `storage/events.py` | `reconstruct_full_response_from_chunks` — reassembles streamed chunks into a full response dict for history. |
 | `observability/emitter.py` | `EventEmitter` — fire-and-forget multi-sink recorder (stdout + `conversation_calls`/`conversation_events` DB rows + `EventPublisher` + current OTel span as span events). Defines `EventEmitterProtocol` + `NullEventEmitter`. |
 | `observability/event_publisher.py` | `EventPublisherProtocol`, `InProcessEventPublisher` — the SSE activity stream transport. |
 | `observability/redis_event_publisher.py` | `RedisEventPublisher` — Redis pub/sub implementation of the SSE activity stream. |
@@ -169,9 +168,9 @@ There is no `llm/litellm_client.py` — the gateway no longer proxies via LiteLL
 
 | Module | Responsibility |
 |--------|---------------|
-| `admin/routes.py` | `/api/admin/*` — policy current/set/list, `/models`, `/test/chat`, auth config, cached credentials management, server credentials CRUD, telemetry config, gateway settings (deprecated), unified config get/put/delete |
+| `admin/routes.py` | `/api/admin/*` — policy current/set/list, `/models`, `/test/chat`, auth config, cached credentials management, server credentials CRUD, telemetry config, unified config get/put/delete |
 | `admin/policy_discovery.py` | Discovers installed policy classes for the admin UI dropdown. |
-| `ui/routes.py` | HTML pages and the SSE activity stream. Routes: `/` (landing), `/activity/monitor` (301 → `/history`), `/debug/activity` (raw SSE viewer), `/diffs`, `/policy-config`, `/config` (config dashboard), `/credentials`, `/request-logs/viewer`, `/conversation/live/{id}`, `/client-setup`, and the `GET /api/activity/stream` SSE endpoint. Also redirects deprecated `/debug/diff` and `/admin/*` paths. |
+| `ui/routes.py` | HTML pages and the SSE activity stream. Routes: `/` (landing), `/debug/activity` (raw SSE viewer), `/diffs`, `/policy-config`, `/config` (config dashboard), `/credentials`, `/request-logs/viewer`, `/conversation/live/{id}`, `/client-setup`, and the `GET /api/activity/stream` SSE endpoint. Also redirects deprecated `/admin/*` paths to `/api/admin/*`. |
 | `history/routes.py` | `/history` (list sessions), `/history/session/{id}` (session detail); `/api/history/*` JSON API. |
 | `history/service.py` | Session list + detail query builders, turn reconstruction, markdown/JSONL export. |
 | `history/models.py` | Pydantic models for session list/detail responses. |
@@ -277,7 +276,7 @@ All policies inherit from `BasePolicy`. It provides:
 - `active_policy_names()` returning this policy's leaf names (multi-policies recurse; `NoOpPolicy` returns `[]`).
 - `get_config()` auto-extracts configuration from Pydantic-model instance attributes.
 - `freeze_configured_state()` — load-time check that rejects mutable container attributes on the instance (policies are singletons shared across concurrent requests).
-- `_resolve_judge_api_key()` — priority chain (explicit → passthrough → server fallback) for policies that make their own backend calls.
+- Policies that make their own backend calls (judges) declare an `auth_provider` in config (`user_credentials`, `{"server_key": ...}`, or `{"user_then_server": ...}`) and resolve it via `CredentialManager.resolve(provider, context)` at call time.
 
 ### AnthropicExecutionInterface
 

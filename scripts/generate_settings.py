@@ -63,8 +63,6 @@ def _collect_imports(fields):
 
 def generate() -> str:
     extra_imports = _collect_imports(CONFIG_FIELDS)
-    # The legacy-AUTH_MODE tolerance validator needs parse_auth_mode alongside AuthMode.
-    extra_imports.setdefault("luthien_proxy.credential_manager", set()).add("parse_auth_mode")
 
     fields_by_cat: dict[str, list] = {}
     for meta in CONFIG_FIELDS:
@@ -86,7 +84,7 @@ def generate() -> str:
     lines.append("")
     lines.append("from functools import lru_cache")
     lines.append("")
-    lines.append("from pydantic import field_validator, model_validator")
+    lines.append("from pydantic import model_validator")
     lines.append("from pydantic_settings import BaseSettings, SettingsConfigDict")
     if extra_imports:
         lines.append("")
@@ -113,23 +111,6 @@ def generate() -> str:
     lines.append('        if railway and env == "development":')
     lines.append('            object.__setattr__(self, "environment", railway)')
     lines.append("        return self")
-    lines.append("")
-    # Legacy AUTH_MODE tolerance: intercept pre-#524 values (e.g. 'proxy_key')
-    # BEFORE pydantic's enum coercer raises a ValidationError. Runs at module-
-    # import time via get_settings(), so the gateway boots with a warning
-    # instead of crash-looping on the old value. See parse_auth_mode for the
-    # removal tracker.
-    lines.append('    @field_validator("auth_mode", mode="before", check_fields=False)')
-    lines.append("    @classmethod")
-    lines.append("    def _coerce_legacy_auth_mode(cls, raw: object) -> object:")
-    lines.append('        """Coerce pre-PR-#535 AUTH_MODE aliases (e.g. \'proxy_key\') before enum validation."""')
-    lines.append("        if isinstance(raw, str):")
-    lines.append("            try:")
-    lines.append('                return parse_auth_mode(raw, source="AUTH_MODE env var").value')
-    lines.append("            except ValueError:")
-    lines.append("                # Let pydantic's enum validator produce the canonical error message.")
-    lines.append("                return raw")
-    lines.append("        return raw")
     lines.append("")
     lines.append("")
 

@@ -4,7 +4,8 @@
 set -uo pipefail
 
 # Only act on Python files that are staged (Added, Modified, Copied, Renamed)
-mapfile -t staged_py < <(git diff --cached --name-only --diff-filter=ACMR -- '*.py')
+staged_py=()
+while IFS= read -r line; do [[ -n "$line" ]] && staged_py+=("$line"); done < <(git diff --cached --name-only --diff-filter=ACMR -- '*.py')
 [ "${#staged_py[@]}" -eq 0 ] && exit 0
 
 echo "pre-commit: formatting ${#staged_py[@]} staged Python file(s)..."

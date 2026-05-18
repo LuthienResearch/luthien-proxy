@@ -9,7 +9,7 @@ E2E tests verify the gateway behavior by making real HTTP requests through the r
 ## Quick Start
 
 ```bash
-# Run all available tiers (sqlite + mock; real requires ANTHROPIC_API_KEY)
+# Run all available tiers (sqlite + mock; real runs if Docker is available)
 ./scripts/run_e2e.sh
 
 # Run specific tiers

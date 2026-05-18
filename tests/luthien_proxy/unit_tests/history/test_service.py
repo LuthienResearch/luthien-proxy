@@ -22,6 +22,7 @@ from luthien_proxy.history.service import (
     _build_turn,
     _extract_preview_message,
     _extract_tool_calls,
+    _get_event_summary,
     _parse_request_messages,
     _parse_response_messages,
     _safe_parse_json,
@@ -31,6 +32,44 @@ from luthien_proxy.history.service import (
     fetch_session_detail,
     fetch_session_list,
 )
+
+
+class TestGetEventSummary:
+    """Test friendly-text fallback for known policy event types."""
+
+    @pytest.mark.parametrize(
+        "event_type,expected",
+        [
+            (
+                "policy.string_replacement.request_modified",
+                "Request modified by string replacement",
+            ),
+            (
+                "policy.string_replacement.response_modified",
+                "Response modified by string replacement",
+            ),
+            ("policy.judge.tool_call_blocked", "Tool call blocked"),
+        ],
+    )
+    def test_falls_back_to_event_type_description(self, event_type, expected):
+        """When payload has no `summary`, use the dict-based description."""
+        assert _get_event_summary(event_type, None) == expected
+        assert _get_event_summary(event_type, {}) == expected
+        assert _get_event_summary(event_type, {"summary": ""}) == expected
+
+    def test_payload_summary_takes_precedence(self):
+        """A non-empty payload `summary` wins over the fallback dict."""
+        assert (
+            _get_event_summary(
+                "policy.string_replacement.response_modified",
+                {"summary": "Replaced 'foo' with 'bar'"},
+            )
+            == "Replaced 'foo' with 'bar'"
+        )
+
+    def test_unknown_event_type_returns_raw(self):
+        """Unknown event types fall through to the raw event_type string."""
+        assert _get_event_summary("policy.unknown.event", None) == "policy.unknown.event"
 
 
 class TestExtractTextContent:
@@ -109,10 +148,34 @@ class TestExtractPreviewMessage:
         payload_str = json.dumps(payload_dict)
         assert _extract_preview_message(payload_str) == "From JSON"
 
-    def test_falls_back_to_original_request(self):
-        """Test fallback to original_request when final_request missing."""
-        payload = {"original_request": {"messages": [{"role": "user", "content": "Fallback message"}]}}
-        assert _extract_preview_message(payload) == "Fallback message"
+    def test_prefers_original_request_over_final_request(self):
+        """Preview reflects what the user typed, not gateway-injected content.
+
+        When inject_policy_awareness_anthropic (or any future injection) modifies
+        the first user message in final_request, the preview must still show the
+        user's original text — otherwise every session looks identical.
+        """
+        payload = {
+            "original_request": {"messages": [{"role": "user", "content": "What is the capital of France?"}]},
+            "final_request": {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": (
+                            "<policy-context>Your responses may be modified by the following active "
+                            "policies before reaching the user: TestPolicy.</policy-context>\n\n"
+                            "What is the capital of France?"
+                        ),
+                    }
+                ]
+            },
+        }
+        assert _extract_preview_message(payload) == "What is the capital of France?"
+
+    def test_falls_back_to_final_request_when_original_missing(self):
+        """Older payloads (recorded before original_request was stored) still produce a preview."""
+        payload = {"final_request": {"messages": [{"role": "user", "content": "Legacy payload"}]}}
+        assert _extract_preview_message(payload) == "Legacy payload"
 
     @pytest.mark.parametrize(
         "probe_content",
@@ -930,7 +993,8 @@ class TestFetchSessionList:
 
         mock_conn = AsyncMock()
         mock_conn.fetchval.return_value = 1  # Total count
-        mock_conn.fetch.return_value = mock_rows
+        # First fetch() = main session aggregation; second = user_ids lookup.
+        mock_conn.fetch.side_effect = [mock_rows, []]
 
         mock_pool = MagicMock()
         mock_pool.is_sqlite = False
@@ -947,6 +1011,7 @@ class TestFetchSessionList:
         assert result.sessions[0].policy_interventions == 1
         assert "gpt-4" in result.sessions[0].models_used
         assert result.sessions[0].preview_message == "Hello world"
+        assert result.sessions[0].user_ids == []
 
     @pytest.mark.asyncio
     async def test_fetch_with_offset(self):
@@ -966,7 +1031,7 @@ class TestFetchSessionList:
 
         mock_conn = AsyncMock()
         mock_conn.fetchval.return_value = 100  # Total count
-        mock_conn.fetch.return_value = mock_rows
+        mock_conn.fetch.side_effect = [mock_rows, []]
 
         mock_pool = MagicMock()
         mock_pool.is_sqlite = False

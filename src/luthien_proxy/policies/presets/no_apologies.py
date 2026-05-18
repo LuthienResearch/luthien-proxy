@@ -1,6 +1,7 @@
 """Policy that removes excessive apologetic language from responses."""
 
 from luthien_proxy.policies.simple_llm_policy import SimpleLLMJudgeConfig, SimpleLLMPolicy
+from luthien_proxy.policy_core import Category, UIMetadata
 
 
 class NoApologiesPolicy(SimpleLLMPolicy):
@@ -9,6 +10,12 @@ class NoApologiesPolicy(SimpleLLMPolicy):
     Strips common apologetic phrases that add no value, keeping the response
     direct and focused on the actual content.
     """
+
+    ui = UIMetadata(
+        display_name="No Apologies",
+        short_description="Removes 'I apologize', 'I'm sorry', and other apologetic filler.",
+        category=Category.FUN_AND_GOOFY,
+    )
 
     def __init__(self) -> None:
         """Initialize with hardcoded preset config."""
@@ -28,5 +35,6 @@ class NoApologiesPolicy(SimpleLLMPolicy):
                 temperature=0.0,
                 max_tokens=4096,
                 on_error="pass",
+                auth_provider="user_credentials",
             )
         )

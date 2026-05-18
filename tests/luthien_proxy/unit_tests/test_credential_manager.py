@@ -1,7 +1,6 @@
 """Unit tests for credential manager."""
 
 import json
-import logging
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,45 +11,7 @@ from luthien_proxy.credential_manager import (
     AuthMode,
     CredentialManager,
     hash_credential,
-    parse_auth_mode,
 )
-
-
-class TestParseAuthMode:
-    """Direct unit tests for the parse_auth_mode helper.
-
-    Previously only exercised through CredentialManager.initialize() integration
-    paths. Reviewing PR #535 flagged the lack of direct coverage; these tests
-    make the legacy-alias contract explicit.
-    """
-
-    @pytest.mark.parametrize(
-        ("raw", "expected"),
-        [
-            ("client_key", AuthMode.CLIENT_KEY),
-            ("passthrough", AuthMode.PASSTHROUGH),
-            ("both", AuthMode.BOTH),
-        ],
-    )
-    def test_current_values_round_trip(self, raw, expected):
-        assert parse_auth_mode(raw) is expected
-
-    def test_legacy_proxy_key_alias(self, caplog):
-        with caplog.at_level("WARNING", logger="luthien_proxy.credential_manager"):
-            result = parse_auth_mode("proxy_key", source="test source")
-        assert result is AuthMode.CLIENT_KEY
-        warnings = [
-            r for r in caplog.records if r.name == "luthien_proxy.credential_manager" and r.levelno == logging.WARNING
-        ]
-        assert warnings, "expected a warning when a legacy alias is parsed"
-        # The `source` argument must be plumbed through so operators can
-        # distinguish DB-row warnings from env-var warnings.
-        assert any("test source" in r.getMessage() for r in warnings)
-
-    @pytest.mark.parametrize("raw", ["", "not_a_mode", "CLIENT_KEY", "CLIENT-KEY"])
-    def test_unknown_value_raises(self, raw):
-        with pytest.raises(ValueError):
-            parse_auth_mode(raw)
 
 
 class TestHashCredential:
@@ -136,38 +97,8 @@ class TestCredentialManagerInitialize:
         assert manager.config.auth_mode == AuthMode.CLIENT_KEY
 
     @pytest.mark.asyncio
-    async def test_tolerates_legacy_proxy_key_row(self, caplog):
-        """Regression guard: a pre-#524 'proxy_key' row does not crash startup.
-
-        Postgres migrations run in a separate service from the gateway. If the
-        gateway restarts before migration 013 has applied, the DB still holds
-        'proxy_key' — which is no longer a valid AuthMode value. We tolerate
-        it with a warning so the gateway can still serve traffic.
-        """
-        mock_pool = AsyncMock()
-        mock_pool.fetchrow.return_value = {
-            "auth_mode": "proxy_key",
-            "validate_credentials": True,
-            "valid_cache_ttl_seconds": 3600,
-            "invalid_cache_ttl_seconds": 300,
-            "updated_at": None,
-            "updated_by": None,
-        }
-        mock_db = AsyncMock()
-        mock_db.get_pool.return_value = mock_pool
-
-        manager = CredentialManager(db_pool=mock_db, cache=None)
-        with caplog.at_level("WARNING", logger="luthien_proxy.credential_manager"):
-            await manager.initialize()
-        assert manager.config.auth_mode == AuthMode.CLIENT_KEY
-        warnings = [
-            r for r in caplog.records if r.name == "luthien_proxy.credential_manager" and r.levelno == logging.WARNING
-        ]
-        assert warnings, "expected a warning when a legacy auth_mode row is read"
-
-    @pytest.mark.asyncio
     async def test_rejects_unknown_auth_mode_row(self):
-        """An auth_mode value that is neither current nor a legacy alias should still raise."""
+        """An unknown auth_mode value in the DB row should raise on initialize."""
         mock_pool = AsyncMock()
         mock_pool.fetchrow.return_value = {
             "auth_mode": "not_a_real_mode",
@@ -543,13 +474,7 @@ class TestUpdateConfig:
 
     @pytest.mark.asyncio
     async def test_update_rejects_legacy_proxy_key(self):
-        """Write path stays strict — tolerating 'proxy_key' here would undo migration 013.
-
-        The read path (`parse_auth_mode`) accepts the legacy alias with a
-        warning, but `update_config` must not: writing the alias back into
-        the `auth_config` row would re-introduce the value migration 013 is
-        supposed to eliminate.
-        """
+        """Pre-PR-#535 'proxy_key' is no longer a valid AuthMode value."""
         manager = CredentialManager(db_pool=None, cache=None)
         with pytest.raises(ValueError):
             await manager.update_config(auth_mode="proxy_key")

@@ -21,29 +21,26 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from anthropic.lib.streaming import MessageStreamEvent
-from anthropic.types import (
-    InputJSONDelta,
-    RawContentBlockDeltaEvent,
-    RawContentBlockStartEvent,
-    RawContentBlockStopEvent,
-    TextBlock,
-    TextDelta,
-    ToolUseBlock,
-)
 from pydantic import BaseModel, Field
 
 from luthien_proxy.policy_core import (
     AnthropicHookPolicy,
     BasePolicy,
+    CatalogBadge,
+    Category,
+    UIMetadata,
+)
+from luthien_proxy.policy_core.anthropic_message_builder import (
+    AnthropicMessageBuilder,
+    BufferedTool,
+    compose_tool_only_response,
 )
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import (
-        AnthropicContentBlock,
         AnthropicResponse,
         JSONObject,
     )
@@ -67,18 +64,6 @@ DEFAULT_DANGEROUS_PATTERNS = [
 ]
 
 DEFAULT_TOOL_NAMES = ["Bash", "bash", "shell", "terminal", "execute", "run_command"]
-
-
-@dataclass
-class _BufferedAnthropicToolUse:
-    id: str
-    name: str
-    input_json: str = ""
-
-
-@dataclass
-class _DogfoodAnthropicState:
-    buffered_tool_uses: dict[int, _BufferedAnthropicToolUse] = field(default_factory=dict)
 
 
 class DogfoodSafetyConfig(BaseModel):
@@ -109,6 +94,16 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
     Uses pure regex — zero latency, no LLM dependency, deterministic.
     """
 
+    # NOTE: ui_policy_preview is a UI hint only. The actual runtime block message
+    # is templated with dynamic data (the specific command being blocked).
+    ui = UIMetadata(
+        display_name="Dogfood Safety",
+        short_description="Blocks self-destructive commands during internal dogfooding.",
+        category=Category.ACTIVE_MONITORING,
+        catalog_badges=(CatalogBadge.BLOCKS,),
+        ui_policy_preview="⛔ Blocked: Self-destructive command detected. Blocked to protect the running gateway from being torn down.",
+    )
+
     @property
     def short_policy_name(self) -> str:
         """Policy display name."""
@@ -125,18 +120,6 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
             f"{len(self._compiled_patterns)} patterns, "
             f"tool_names={self.config.tool_names}"
         )
-
-    def _anthropic_state(self, context: "PolicyContext") -> _DogfoodAnthropicState:
-        """Get or create request-scoped Anthropic streaming state."""
-        return context.get_request_state(self, _DogfoodAnthropicState, _DogfoodAnthropicState)
-
-    def _anthropic_buffered_tool_uses(self, context: "PolicyContext") -> dict[int, _BufferedAnthropicToolUse]:
-        """Get request-scoped Anthropic tool_use buffers."""
-        return self._anthropic_state(context).buffered_tool_uses
-
-    # ========================================================================
-    # Core matching logic
-    # ========================================================================
 
     def _is_dangerous(self, tool_name: str, tool_input: "JSONObject | str") -> tuple[bool, str]:
         """Check if a tool call contains a dangerous command.
@@ -174,131 +157,69 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
         """Render blocked-message template with truncated command."""
         return self.config.blocked_message.format(command=command[:200], pattern="regex")
 
+    def _decide_tool(
+        self,
+        tool_name: str,
+        tool_input_json: str,
+        context: "PolicyContext",
+    ) -> tuple[bool, str]:
+        """Pattern-match a tool call; emit observability if blocked.
+
+        Returns `(is_blocked, command_preview)`. Fail-secure: if the buffered
+        input_json failed to parse, scans the raw text for dangerous patterns
+        anyway rather than treating the call as safe.
+        """
+        try:
+            parsed = json.loads(tool_input_json) if tool_input_json else {}
+        except json.JSONDecodeError:
+            parsed = None
+        scan_input: JSONObject | str = parsed if isinstance(parsed, dict) else tool_input_json
+
+        is_blocked, command = self._is_dangerous(tool_name, scan_input)
+        if is_blocked:
+            context.record_event(
+                "policy.dogfood_safety.blocked",
+                {"tool_name": tool_name, "command": command[:200]},
+            )
+            logger.warning(f"Blocked dangerous Anthropic tool_use: {command[:100]}")
+        return is_blocked, command
+
     # ========================================================================
-    # Anthropic hooks (via AnthropicHookPolicy)
+    # Anthropic hooks
     # ========================================================================
 
     async def on_anthropic_response(
         self, response: "AnthropicResponse", context: "PolicyContext"
     ) -> "AnthropicResponse":
         """Check non-streaming Anthropic tool_use blocks."""
-        content = response.get("content", [])
-        if not content:
-            return response
 
-        new_content: list[AnthropicContentBlock] = []
-        modified = False
-
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "tool_use":
-                name = str(block.get("name", ""))
-                input_data = block.get("input", {})
-                is_blocked, command = self._is_dangerous(name, input_data)
-
-                if is_blocked:
-                    msg = self._format_blocked_message(command)
-                    new_content.append({"type": "text", "text": msg})
-                    modified = True
-                    context.record_event(
-                        "policy.dogfood_safety.blocked",
-                        {"tool_name": name, "command": command[:200]},
-                    )
-                    logger.warning(f"Blocked dangerous Anthropic tool_use: {command[:100]}")
-                else:
-                    new_content.append(block)
+        async def on_tool(b: AnthropicMessageBuilder, tool: BufferedTool) -> None:
+            is_blocked, command = self._decide_tool(tool.name, tool.input_json, context)
+            if is_blocked:
+                b.commit_text(self._format_blocked_message(command))
             else:
-                new_content.append(block)
+                b.buffer_tool(id=tool.id, name=tool.name, input_json=tool.input_json)
 
-        if modified:
-            modified_response = dict(response)
-            modified_response["content"] = new_content
-            has_tool_use = any(isinstance(b, dict) and b.get("type") == "tool_use" for b in new_content)
-            if not has_tool_use and modified_response.get("stop_reason") == "tool_use":
-                modified_response["stop_reason"] = "end_turn"
-            return cast("AnthropicResponse", modified_response)
-
-        return response
+        return await compose_tool_only_response(response, on_tool)
 
     async def on_anthropic_stream_event(
         self, event: MessageStreamEvent, context: "PolicyContext"
     ) -> list[MessageStreamEvent]:
-        """Buffer tool_use blocks in streaming, evaluate on completion."""
-        buffered_tool_uses = self._anthropic_buffered_tool_uses(context)
+        """Buffer tool_use blocks; pattern-match each at block_stop via the builder."""
+        builder = context.get_request_state(self, AnthropicMessageBuilder, AnthropicMessageBuilder)
 
-        if isinstance(event, RawContentBlockStartEvent):
-            if isinstance(event.content_block, ToolUseBlock):
-                buffered_tool_uses[event.index] = _BufferedAnthropicToolUse(
-                    id=event.content_block.id,
-                    name=event.content_block.name,
-                )
-                return []
-            return [event]
-
-        if isinstance(event, RawContentBlockDeltaEvent):
-            if event.index in buffered_tool_uses and isinstance(event.delta, InputJSONDelta):
-                buffered_tool_uses[event.index].input_json += event.delta.partial_json
-                return []
-            return [event]
-
-        if isinstance(event, RawContentBlockStopEvent):
-            if event.index not in buffered_tool_uses:
-                return [cast(MessageStreamEvent, event)]
-
-            buffered = buffered_tool_uses.pop(event.index)
-            is_blocked, command = self._is_dangerous(buffered.name, buffered.input_json)
-
+        async def on_tool_stop(b: AnthropicMessageBuilder, tool: BufferedTool) -> list[MessageStreamEvent]:
+            is_blocked, command = self._decide_tool(tool.name, tool.input_json, context)
             if is_blocked:
-                msg = self._format_blocked_message(command)
-                context.record_event(
-                    "policy.dogfood_safety.blocked",
-                    {"tool_name": buffered.name, "command": command[:200]},
-                )
-                logger.warning(f"Blocked dangerous Anthropic streaming tool_use: {command[:100]}")
+                return b.commit_text(self._format_blocked_message(command))
+            b.buffer_tool(id=tool.id, name=tool.name, input_json=tool.input_json)
+            return []
 
-                text_block = TextBlock(type="text", text="")
-                start_event = RawContentBlockStartEvent(
-                    type="content_block_start",
-                    index=event.index,
-                    content_block=text_block,
-                )
-                delta_event = RawContentBlockDeltaEvent(
-                    type="content_block_delta",
-                    index=event.index,
-                    delta=TextDelta(type="text_delta", text=msg),
-                )
-                return [
-                    cast(MessageStreamEvent, start_event),
-                    cast(MessageStreamEvent, delta_event),
-                    cast(MessageStreamEvent, event),
-                ]
-
-            tool_use_block = ToolUseBlock(
-                type="tool_use",
-                id=buffered.id,
-                name=buffered.name,
-                input={},
-            )
-            start_event = RawContentBlockStartEvent(
-                type="content_block_start",
-                index=event.index,
-                content_block=tool_use_block,
-            )
-            delta_event = RawContentBlockDeltaEvent(
-                type="content_block_delta",
-                index=event.index,
-                delta=InputJSONDelta(type="input_json_delta", partial_json=buffered.input_json or "{}"),
-            )
-            return [
-                cast(MessageStreamEvent, start_event),
-                cast(MessageStreamEvent, delta_event),
-                cast(MessageStreamEvent, event),
-            ]
-
-        return [event]
+        return await builder.dispatch_tool_only(event, on_tool_stop)
 
     async def on_anthropic_streaming_policy_complete(self, context: "PolicyContext") -> None:
         """Clean up request-scoped Anthropic state."""
-        context.pop_request_state(self, _DogfoodAnthropicState)
+        context.pop_request_state(self, AnthropicMessageBuilder)
 
 
 __all__ = ["DogfoodSafetyPolicy", "DogfoodSafetyConfig"]

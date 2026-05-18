@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2317 # Functions called indirectly via "run_$tier" and trap
+# shellcheck disable=SC2317,SC2329 # Functions called indirectly via "run_$tier" and trap
 # ABOUTME: Orchestrates e2e test tiers with automatic setup and teardown.
 # ABOUTME: Handles sqlite_e2e (no infra), mock_e2e (in-process), and real e2e (Docker + API key).
 #
@@ -239,6 +239,16 @@ if [[ -f "$ENV_FILE" ]]; then
     set +a
 fi
 
+# Ensure the worktree has a .env at its root for the docker tier.
+# docker-compose.yaml uses `env_file: .env` which resolves relative to the
+# compose file's directory (the worktree root), independent of --env-file.
+# Without this, the docker tier silently fails to start the gateway and all
+# real-tier tests skip. Symlink to the main repo's .env when missing.
+if [[ ! -e "$REPO_ROOT/.env" && "$ENV_FILE" != "$REPO_ROOT/.env" && -f "$ENV_FILE" ]]; then
+    info "Linking $REPO_ROOT/.env -> $ENV_FILE (worktree needs .env for docker env_file)"
+    ln -s "$ENV_FILE" "$REPO_ROOT/.env"
+fi
+
 # --- Tier: sqlite ---
 
 run_sqlite() {
@@ -334,17 +344,16 @@ except (json.JSONDecodeError, KeyError) as e:
 run_real() {
     header "Real E2E Tests (Docker + Anthropic API)"
 
+    # Most real-tier tests work via OAuth/passthrough or self-skip when no key
+    # is set. Only the judge-policy tests truly require ANTHROPIC_API_KEY, and
+    # those use pytest.skip() at the test level. Don't gate the whole tier.
     if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-        echo ""
-        fail "╔══════════════════════════════════════════════════════════════╗"
-        fail "║  SKIPPING REAL E2E TIER: ANTHROPIC_API_KEY not set          ║"
-        fail "║                                                             ║"
-        fail "║  Set it in .env or export it to run real API tests.         ║"
-        fail "╚══════════════════════════════════════════════════════════════╝"
-        echo ""
-        _set_tier_result "real" "skipped"
-        return 2
+        info "ANTHROPIC_API_KEY not set — judge-policy tests will self-skip; the rest still run."
     fi
+
+    # Turn on request logging so test_request_logging.py has the gateway-side
+    # feature active. Substituted into docker-compose.yaml via ${VAR} expansion.
+    export ENABLE_REQUEST_LOGGING=true
 
     if ! check_docker; then
         echo ""
@@ -358,6 +367,10 @@ run_real() {
 
     docker_up docker-compose.yaml
 
+    # The real tier uses the keys from .env (CLIENT_API_KEY/ADMIN_API_KEY).
+    # Clear any E2E_* overrides leaked by an earlier mock tier so the real
+    # gateway's auth is consulted, not the mock gateway's test keys.
+    unset E2E_API_KEY E2E_ADMIN_API_KEY
     export E2E_GATEWAY_URL="http://localhost:${GATEWAY_PORT:-8000}"
 
     info "Running tests..."

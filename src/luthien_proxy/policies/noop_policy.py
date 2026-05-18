@@ -7,6 +7,8 @@ import logging
 from luthien_proxy.policy_core import (
     AnthropicHookPolicy,
     BasePolicy,
+    Category,
+    UIMetadata,
 )
 
 logger = logging.getLogger(__name__)
@@ -17,6 +19,12 @@ class NoOpPolicy(BasePolicy, AnthropicHookPolicy):
 
     Implements AnthropicHookPolicy. All hooks use default passthrough behavior.
     """
+
+    ui = UIMetadata(
+        display_name="Passthrough",
+        short_description="Passes through all data unchanged.",
+        category=Category.INTERNAL,
+    )
 
     @property
     def short_policy_name(self) -> str:

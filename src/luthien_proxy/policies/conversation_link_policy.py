@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from luthien_proxy.policies.onboarding_policy import is_first_turn
 from luthien_proxy.policies.simple_policy import SimplePolicy
+from luthien_proxy.policy_core import Category, UIMetadata
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import AnthropicRequest
@@ -52,9 +53,15 @@ class _ConversationLinkState:
 class ConversationLinkPolicy(SimplePolicy):
     """Injects a conversation viewer link into the first response of each conversation."""
 
-    def __init__(self, base_url: str = "http://localhost:8000", **kwargs: object) -> None:
-        """Initialize with base URL for building viewer links."""
-        self.config = ConversationLinkPolicyConfig(base_url=base_url)
+    ui = UIMetadata(
+        display_name="Conversation Link",
+        short_description="Adds a link to the conversation viewer in the first response.",
+        category=Category.SIMPLE_UTILITIES,
+    )
+
+    def __init__(self, config: ConversationLinkPolicyConfig | dict | None = None) -> None:
+        """Initialize with optional config. Accepts dict or Pydantic model."""
+        self.config = self._init_config(config, ConversationLinkPolicyConfig)
 
     @property
     def short_policy_name(self) -> str:

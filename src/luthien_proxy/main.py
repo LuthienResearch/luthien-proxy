@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import enum
 import logging
 import os
 import secrets
 from collections.abc import MutableMapping
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 import litellm
 import uvicorn
@@ -25,12 +25,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from luthien_proxy.admin import router as admin_router
 from luthien_proxy.config_fields import CONFIG_FIELDS, CONFIG_FIELDS_BY_NAME
 from luthien_proxy.config_registry import ConfigRegistry, coerce_value
-from luthien_proxy.credential_manager import AuthMode, CredentialManager, parse_auth_mode
+from luthien_proxy.credential_manager import AuthMode, CredentialManager
 from luthien_proxy.debug import router as debug_router
 from luthien_proxy.dependencies import Dependencies
 from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.gateway_routes import router as gateway_router
 from luthien_proxy.history import routes as history_routes
+from luthien_proxy.inference.registry import InferenceProviderRegistry
 from luthien_proxy.llm import anthropic_client_cache
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.observability.emitter import EventEmitter
@@ -40,8 +41,12 @@ from luthien_proxy.observability.event_publisher import (
 )
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.observability.sentry import init_sentry
+from luthien_proxy.pipeline.upstream_headers import validate_upstream_headers_at_startup
 from luthien_proxy.policy_manager import PolicyManager
+from luthien_proxy.rate_limit import TokenBucketRateLimiter
 from luthien_proxy.request_log import router as request_log_router
+from luthien_proxy.retention.archiver import S3ConversationArchiver
+from luthien_proxy.retention.purger import ConversationPurger
 from luthien_proxy.session import login_page_router
 from luthien_proxy.session import router as session_router
 from luthien_proxy.settings import Settings, clear_settings_cache, get_settings
@@ -65,6 +70,7 @@ from luthien_proxy.utils.credential_cache import (
 from luthien_proxy.utils.migration_check import check_migrations
 from luthien_proxy.utils.url import sanitize_url_for_logging
 from luthien_proxy.version import PROXY_DISPLAY_VERSION
+from luthien_proxy.webhook.sender import WebhookSender
 
 # Configure OpenTelemetry tracing and logging EARLY (before app creation)
 # This ensures the tracer provider is set up before any spans are created
@@ -75,6 +81,10 @@ instrument_redis()
 init_sentry()
 
 logger = logging.getLogger(__name__)
+
+# Bounded DB probe for /ready. Short enough that a slow DB does not tarpit
+# probe workers; long enough to absorb routine acquire/network jitter.
+READY_DB_PROBE_TIMEOUT_SECONDS = 2.0
 
 _HTTP_STATUS_TO_ANTHROPIC_ERROR_TYPE = {
     400: "invalid_request_error",
@@ -184,6 +194,10 @@ def create_app(
         await _config_registry.initialize()
         logger.info("Config registry initialized")
 
+        # Fail fast on UPSTREAM_HEADERS misconfiguration rather than silently
+        # disabling the integration on first request.
+        validate_upstream_headers_at_startup()
+
         # Configure litellm globally (moved from policy file to prevent import side effects)
         litellm.drop_params = True
         logger.info("Configured litellm: drop_params=True")
@@ -238,6 +252,14 @@ def create_app(
         _credential_manager = CredentialManager(db_pool=db_pool, cache=_credential_cache, encryption_key=encryption_key)
         await _credential_manager.initialize(default_auth_mode=auth_mode)
 
+        # Inference provider registry depends on the credential manager
+        # (it resolves `credential_name` on each lookup).
+        _inference_provider_registry = InferenceProviderRegistry(
+            db_pool=db_pool,
+            credential_manager=_credential_manager,
+        )
+        await _inference_provider_registry.initialize()
+
         _resolved_mode = _credential_manager.config.auth_mode.value
         if _resolved_mode == "client_key":
             logger.warning("Upstream auth mode: client_key — all requests billed to server ANTHROPIC_API_KEY.")
@@ -280,6 +302,66 @@ def create_app(
         else:
             logger.info("Usage telemetry disabled")
 
+        _rate_limiter: TokenBucketRateLimiter | None = None
+        if settings.rate_limit_rpm > 0:
+            _rate_limiter = TokenBucketRateLimiter(rpm=settings.rate_limit_rpm, burst=settings.rate_limit_burst)
+            logger.info(f"Rate limiting enabled: {settings.rate_limit_rpm} RPM, burst={int(_rate_limiter.burst)}")
+        else:
+            logger.info("Rate limiting disabled (RATE_LIMIT_RPM=0)")
+
+        _purger: ConversationPurger | None = None
+        _retention_days = settings.conversation_retention_days
+        if _retention_days is not None and _retention_days > 0:
+            _s3_bucket = settings.archive_s3_bucket
+            _archiver: S3ConversationArchiver | None = None
+            if _s3_bucket:
+                _s3_prefix = settings.archive_s3_prefix
+                _archiver = S3ConversationArchiver(
+                    bucket=_s3_bucket,
+                    prefix=_s3_prefix,
+                    batch_size=settings.retention_archive_batch_size,
+                    encryption_mode=settings.retention_s3_encryption,
+                    kms_key_id=settings.retention_s3_kms_key_id,
+                )
+                logger.info(
+                    "Conversation archival enabled: s3://%s/%s (encryption=%s)",
+                    _s3_bucket,
+                    _s3_prefix,
+                    settings.retention_s3_encryption,
+                )
+                if settings.retention_s3_encryption == "bucket-default":
+                    logger.warning(
+                        "RETENTION_S3_ENCRYPTION=bucket-default — archives rely on the bucket's "
+                        "default encryption policy. Verify s3://%s has a default encryption "
+                        "configuration; otherwise objects will be written unencrypted.",
+                        _s3_bucket,
+                    )
+            _purger = ConversationPurger(db_pool=db_pool, retention_days=_retention_days, archiver=_archiver)
+            _purger.start()
+        else:
+            if settings.archive_s3_bucket:
+                logger.warning(
+                    "ARCHIVE_S3_BUCKET=%s is set but CONVERSATION_RETENTION_DAYS is not — "
+                    "no archival will run. Set CONVERSATION_RETENTION_DAYS to enable.",
+                    settings.archive_s3_bucket,
+                )
+            logger.info("Conversation retention disabled (CONVERSATION_RETENTION_DAYS not set)")
+
+        # Initialize webhook sender
+        _webhook_url = settings.webhook_url or None
+        _webhook_sender = WebhookSender(
+            url=_webhook_url,
+            max_retries=settings.webhook_max_retries,
+            retry_delay_seconds=settings.webhook_retry_delay_seconds,
+            max_pending_tasks=settings.webhook_max_pending_tasks,
+            shutdown_drain_seconds=settings.webhook_shutdown_drain_seconds,
+            send_timeout_seconds=settings.webhook_send_timeout_seconds,
+        )
+        if _webhook_sender.enabled:
+            logger.info("Webhook event export enabled (url=%s)", _webhook_sender.safe_url)
+        else:
+            logger.info("Webhook event export disabled (set WEBHOOK_URL to enable)")
+
         # Create Dependencies container with all services
         _dependencies = Dependencies(
             db_pool=db_pool,
@@ -291,9 +373,12 @@ def create_app(
             anthropic_client=_anthropic_client,
             event_publisher=_event_publisher,
             credential_manager=_credential_manager,
+            inference_provider_registry=_inference_provider_registry,
             enable_request_logging=_enable_request_logging,
             usage_collector=_usage_collector,
             config_registry=_config_registry,
+            rate_limiter=_rate_limiter,
+            webhook_sender=_webhook_sender,
         )
 
         # Store dependencies container in app state
@@ -303,8 +388,20 @@ def create_app(
         yield
 
         # Shutdown
+        # Webhook sender goes first: stop() drains in-flight tasks within the
+        # configured window, then cancels survivors and aclose()s the httpx
+        # client. After this returns, _stopped=True silently no-ops any
+        # in-flight request that reaches fire_and_forget — this is the
+        # at-most-once semantics we documented. If you reorder this so
+        # webhook.stop() runs after anthropic_client_cache.close_all() or
+        # before request handling has fully drained, fire_and_forget calls
+        # could land against an already-closed httpx client.
+        await _webhook_sender.stop()
+        if _purger is not None:
+            await _purger.stop()
         if _telemetry_sender is not None:
             await _telemetry_sender.stop()
+        await _inference_provider_registry.close()
         await _credential_manager.close()
         await anthropic_client_cache.close_all()
         # Note: db_pool and redis_client are NOT closed here - they are owned by
@@ -330,7 +427,7 @@ def create_app(
     class StaticCacheMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
             response = await call_next(request)
-            if request.url.path.startswith("/api/") or request.url.path == "/health":
+            if request.url.path.startswith("/api/") or request.url.path in ("/health", "/ready"):
                 # Prevent CDN/edge caching of API and health responses (Railway, Cloudflare, etc.)
                 response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
             elif request.url.path.startswith("/static/"):
@@ -356,30 +453,57 @@ def create_app(
 
     # Simple utility endpoints
     @app.get("/health")
-    async def health(request: Request):
-        """Health check endpoint.
+    async def health():
+        """Liveness probe endpoint.
 
-        Returns gateway status, auth mode, and last observed credential type so
-        operators and the UI can surface billing mode warnings accurately.
+        Always returns HTTP 200 if the process is responsive. Kept minimal:
+        a probe attacker shouldn't be able to fingerprint the gateway's auth
+        mode or recent credential activity from this endpoint. The admin UI
+        gets billing-mode signals from /api/admin/billing-status instead.
         """
-        deps = getattr(request.app.state, "dependencies", None)
-        auth_mode = None
-        if deps and deps.credential_manager:
-            auth_mode = deps.credential_manager.config.auth_mode.value
-
-        last_credential_type = None
-        last_credential_at = None
-        if deps and deps.last_credential_info:
-            last_credential_type = deps.last_credential_info.get("type")
-            last_credential_at = deps.last_credential_info.get("timestamp")
-
         return {
             "status": "healthy",
             "version": PROXY_DISPLAY_VERSION,
-            "auth_mode": auth_mode,
-            "last_credential_type": last_credential_type,
-            "last_credential_at": last_credential_at,
         }
+
+    @app.get("/ready")
+    async def ready(request: Request):
+        """Readiness probe: 503 when the gateway cannot serve traffic.
+
+        Returns 200 when the DB pool answers a bounded `SELECT 1` within
+        READY_DB_PROBE_TIMEOUT_SECONDS. Returns 503 with a generic reason when
+        the probe fails, times out, or dependencies are not initialized.
+
+        Use this for ECS/k8s readiness probes so traffic is drained when
+        the DB becomes unreachable post-startup. Use /health for liveness.
+        """
+        deps = getattr(request.app.state, "dependencies", None)
+        if deps is None or deps.db_pool is None:
+            return JSONResponse(
+                status_code=503,
+                content={"status": "not_ready", "reason": "dependencies not initialized"},
+            )
+
+        async def _probe() -> None:
+            async with deps.db_pool.connection() as conn:
+                await conn.fetchval("SELECT 1")
+
+        try:
+            await asyncio.wait_for(_probe(), timeout=READY_DB_PROBE_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            logger.warning("Readiness probe timed out after %.1fs", READY_DB_PROBE_TIMEOUT_SECONDS)
+            return JSONResponse(
+                status_code=503,
+                content={"status": "not_ready", "reason": "database probe timed out"},
+            )
+        except Exception as exc:
+            logger.warning("Readiness probe DB error: %s", type(exc).__name__)
+            return JSONResponse(
+                status_code=503,
+                content={"status": "not_ready", "reason": "database unreachable"},
+            )
+
+        return {"status": "ready"}
 
     # Format HTTPExceptions and validation errors as Anthropic errors on /v1/messages paths
     app.add_exception_handler(FastAPIHTTPException, http_exception_handler)
@@ -458,36 +582,6 @@ async def connect_redis(redis_url: str) -> Redis:
         raise RuntimeError(f"Failed to connect to Redis: {exc}") from exc
 
 
-def _read_env_file_value(env_path: Path, key: str) -> str | None:
-    """Read a single key from a .env file without loading pydantic-settings.
-
-    Used for legacy-alias pre-coercion so an operator with `AUTH_MODE=proxy_key`
-    in `.env` (not in the shell env) still gets the same tolerance as an
-    operator who set it as a shell env var. Deliberately minimal: no variable
-    interpolation, no multi-line values — but we do strip a leading `export `
-    so that `.env` files sourced by shell scripts elsewhere still match.
-    """
-    if not env_path.exists():
-        return None
-    try:
-        for raw_line in env_path.read_text().splitlines():
-            line = raw_line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            name, _, value = line.partition("=")
-            name = name.strip()
-            if name.startswith("export "):
-                name = name[len("export ") :].strip()
-            if name == key:
-                value = value.strip()
-                if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-                    value = value[1:-1]
-                return value or None
-    except OSError:
-        return None
-    return None
-
-
 def load_config_from_env(settings: Settings | None = None) -> dict:
     """Load and validate configuration from environment variables.
 
@@ -507,27 +601,6 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
         ValueError: If required environment variables are missing or invalid.
     """
     errors: list[str] = []
-
-    # The legacy-AUTH_MODE tolerance lives in Settings._coerce_legacy_auth_mode
-    # (auto-generated field_validator). It must run at Settings construction
-    # time because this module itself triggers Settings() at import time via
-    # configure_tracing/configure_logging/init_sentry — if the coercion lived
-    # here, the import would crash before load_config_from_env is ever called.
-    # TODO(post-v0.2): remove legacy AUTH_MODE tolerance in settings.py once
-    # all deployments have migrated past PR #535.
-
-    # A leftover PROXY_API_KEY in the environment is silently dropped by
-    # pydantic (extra='ignore'), which would leave the gateway running on
-    # passthrough while the operator still thinks shared-key auth is active.
-    # Warn loudly and point at the new name. Check both the shell env and .env.
-    leftover_proxy_api_key = os.environ.get("PROXY_API_KEY") or _read_env_file_value(Path(".env"), "PROXY_API_KEY")
-    if leftover_proxy_api_key and not (
-        os.environ.get("CLIENT_API_KEY") or _read_env_file_value(Path(".env"), "CLIENT_API_KEY")
-    ):
-        logger.warning(
-            "PROXY_API_KEY is set in the environment but is no longer read. "
-            "Rename to CLIENT_API_KEY — see changelog for PR #535."
-        )
 
     try:
         if settings is None:
@@ -698,16 +771,6 @@ if __name__ == "__main__":
             else:
                 parser.add_argument(flag, type=str, default=None, help=field_meta.description)
         args = parser.parse_args()
-
-        # Pre-coerce a legacy `--auth-mode proxy_key` (pre-#524) with the same
-        # warning path as the env-var tolerance. Symmetry: if an operator who
-        # upgrades via shell env gets a clear message, an operator who upgrades
-        # via CLI flag should too. Removed in the same post-v0.2 cleanup.
-        if getattr(args, "auth_mode", None) is not None:
-            try:
-                args.auth_mode = parse_auth_mode(args.auth_mode, source="--auth-mode CLI flag").value
-            except ValueError:
-                pass  # fall through to coerce_value for the cryptic-but-informative error
 
         # Collect CLI overrides (only non-None values) through coerce_value so
         # invalid input (e.g. --dogfood-mode ture, --auth-mode bogus) fails loudly

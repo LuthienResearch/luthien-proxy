@@ -40,7 +40,10 @@ class StoredEvent(TypedDict):
 
 logger = logging.getLogger(__name__)
 
-# User-friendly descriptions for common policy event types
+# User-friendly descriptions for common policy event types.
+# Note: every current emitter writes a non-empty `summary` into the event
+# payload, and `_get_event_summary` returns that summary before consulting
+# this dict. So this is fallback for events stored without a summary.
 _EVENT_TYPE_DESCRIPTIONS: dict[str, str] = {
     # Judge policy events
     "policy.judge.tool_call_allowed": "Tool call approved",
@@ -57,6 +60,9 @@ _EVENT_TYPE_DESCRIPTIONS: dict[str, str] = {
     # Simple policy events
     "policy.simple_policy.content_complete_warning": "Content warning",
     "policy.simple_policy.tool_call_complete_warning": "Tool call warning",
+    # String replacement policy events
+    "policy.string_replacement.request_modified": "Request modified by string replacement",
+    "policy.string_replacement.response_modified": "Response modified by string replacement",
 }
 
 
@@ -294,7 +300,10 @@ def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None
     """Extract the first meaningful user message from a request payload for preview.
 
     Used to generate a session preview/title. Returns truncated text.
-    Skips system-reminders and other non-meaningful content to find actual user intent.
+    Reads from ``original_request`` so the preview reflects what the user typed,
+    not gateway-injected content (e.g. ``<policy-context>`` from
+    ``inject_policy_awareness_anthropic``). Falls back to ``final_request`` for
+    older payloads recorded before ``original_request`` was stored.
     """
     if not payload:
         return None
@@ -305,8 +314,7 @@ def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None
         if not payload:
             return None
 
-    # Get the final request (prefer this as it's what was actually sent)
-    request = payload.get("final_request") or payload.get("original_request") or {}
+    request = payload.get("original_request") or payload.get("final_request") or {}
 
     # Skip probe requests structurally: Claude Code sends internal probes
     # (token counting, quota checks) with max_tokens=1. No real conversation
@@ -344,70 +352,120 @@ def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None
     return None
 
 
-async def fetch_session_list(limit: int, db_pool: DatabasePool, offset: int = 0) -> SessionListResponse:
+async def fetch_session_list(
+    limit: int,
+    db_pool: DatabasePool,
+    offset: int = 0,
+    *,
+    user_id: str | None = None,
+) -> SessionListResponse:
     """Fetch list of recent sessions with summaries.
 
     Args:
         limit: Maximum number of sessions to return
         db_pool: Database connection pool
         offset: Number of sessions to skip for pagination
+        user_id: If provided, only return sessions whose conversation_calls
+            row has this exact user_id. Used to attribute traffic per user.
 
     Returns:
         List of session summaries ordered by most recent activity
     """
     if db_pool.is_sqlite:
-        return await _fetch_session_list_sqlite(limit, db_pool, offset)
-    return await _fetch_session_list_pg(limit, db_pool, offset)
+        return await _fetch_session_list_sqlite(limit, db_pool, offset, user_id=user_id)
+    return await _fetch_session_list_pg(limit, db_pool, offset, user_id=user_id)
 
 
-async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int = 0) -> SessionListResponse:
+async def _fetch_session_list_pg(
+    limit: int,
+    db_pool: DatabasePool,
+    offset: int = 0,
+    *,
+    user_id: str | None = None,
+) -> SessionListResponse:
     """PostgreSQL version using PG-specific features (FILTER, DISTINCT ON, array_agg)."""
+    # SECURITY INVARIANT: user_id is bound as a query parameter, never
+    # interpolated into the SQL string. The placeholder slot is fixed,
+    # only the WHERE-clause presence is conditional on whether a filter
+    # was requested. See test_fetch_session_list_user_filter_sql_injection.
+    #
+    # PERF: the user_id-population join to conversation_calls is intentionally
+    # OUT of the main aggregation query. When no filter is requested we never
+    # touch conversation_calls in the hot CTE — user_ids come from a separate
+    # post-query keyed on the page's session_ids (mirrors the SQLite pattern).
     async with db_pool.connection() as conn:
-        total_count = await conn.fetchval(
-            """
-            SELECT COUNT(DISTINCT session_id)
-            FROM conversation_events
-            WHERE session_id IS NOT NULL
-            """
-        )
-
-        rows = await conn.fetch(
-            """
-            WITH session_stats AS (
-                SELECT
-                    session_id,
-                    MIN(created_at) as first_ts,
-                    MAX(created_at) as last_ts,
-                    COUNT(*) as total_events,
-                    COUNT(DISTINCT call_id) as turn_count,
-                    COUNT(*) FILTER (
-                        WHERE event_type LIKE 'policy.%'
-                        AND event_type NOT LIKE 'policy.judge.evaluation%'
-                    ) as policy_interventions
+        if user_id is not None:
+            total_count = await conn.fetchval(
+                """
+                SELECT COUNT(DISTINCT ce.session_id)
+                FROM conversation_events ce
+                JOIN conversation_calls cc ON ce.call_id = cc.call_id
+                WHERE ce.session_id IS NOT NULL AND cc.user_id = $1
+                """,
+                user_id,
+            )
+        else:
+            total_count = await conn.fetchval(
+                """
+                SELECT COUNT(DISTINCT session_id)
                 FROM conversation_events
                 WHERE session_id IS NOT NULL
-                GROUP BY session_id
+                """
+            )
+
+        # When the caller filters by user_id we restrict the events under
+        # consideration to call_ids belonging to that user — a single shared
+        # subquery used by every CTE so preview_message / models_used cannot
+        # leak content from another user's calls under a shared session_id.
+        user_call_filter = (
+            "AND ce.call_id IN (SELECT call_id FROM conversation_calls WHERE user_id = $3)"
+            if user_id is not None
+            else ""
+        )
+        query_args: list[Any] = [limit, offset]
+        if user_id is not None:
+            query_args.append(user_id)
+
+        rows = await conn.fetch(
+            f"""
+            WITH session_stats AS (
+                SELECT
+                    ce.session_id,
+                    MIN(ce.created_at) as first_ts,
+                    MAX(ce.created_at) as last_ts,
+                    COUNT(*) as total_events,
+                    COUNT(DISTINCT ce.call_id) as turn_count,
+                    COUNT(*) FILTER (
+                        WHERE ce.event_type LIKE 'policy.%'
+                        AND ce.event_type NOT LIKE 'policy.%judge.evaluation%'
+                    ) as policy_interventions
+                FROM conversation_events ce
+                WHERE ce.session_id IS NOT NULL
+                {user_call_filter}
+                GROUP BY ce.session_id
             ),
             session_models AS (
                 SELECT DISTINCT
-                    session_id,
-                    payload->>'final_model' as model
-                FROM conversation_events
-                WHERE session_id IS NOT NULL
-                AND event_type = 'transaction.request_recorded'
-                AND payload->>'final_model' IS NOT NULL
+                    ce.session_id,
+                    ce.payload->>'final_model' as model
+                FROM conversation_events ce
+                WHERE ce.session_id IS NOT NULL
+                AND ce.event_type = 'transaction.request_recorded'
+                AND ce.payload->>'final_model' IS NOT NULL
+                {user_call_filter}
             ),
             session_first_message AS (
-                SELECT DISTINCT ON (session_id)
-                    session_id,
-                    payload as request_payload
-                FROM conversation_events
-                WHERE session_id IS NOT NULL
-                AND event_type = 'transaction.request_recorded'
+                SELECT DISTINCT ON (ce.session_id)
+                    ce.session_id,
+                    ce.payload as request_payload
+                FROM conversation_events ce
+                WHERE ce.session_id IS NOT NULL
+                AND ce.event_type = 'transaction.request_recorded'
                 -- Skip probe requests: max_tokens=1 means internal probe (token counting, quota).
                 -- COALESCE to 2 so requests without max_tokens are not skipped.
-                AND COALESCE((payload->'final_request'->>'max_tokens')::int, 2) > 1
-                ORDER BY session_id, created_at ASC
+                AND COALESCE((ce.payload->'final_request'->>'max_tokens')::int, 2) > 1
+                {user_call_filter}
+                ORDER BY ce.session_id, ce.created_at ASC
             )
             SELECT
                 s.session_id,
@@ -430,9 +488,41 @@ async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int 
             ORDER BY s.last_ts DESC
             LIMIT $1 OFFSET $2
             """,
-            limit,
-            offset,
+            *query_args,
         )
+
+        # Separate user_ids lookup keyed on the page's session_ids. Distinct
+        # users only — never collapse via MIN/MAX. When a user filter is in
+        # effect the same scoping is applied so the response doesn't leak the
+        # *existence* of other users sharing the session.
+        user_ids_by_session: dict[str, list[str]] = {}
+        if rows:
+            session_ids_on_page = [str(row["session_id"]) for row in rows]
+            placeholders = ", ".join(f"${i + 1}" for i in range(len(session_ids_on_page)))
+            if user_id is not None:
+                user_id_filter_clause = f"AND cc.user_id = ${len(session_ids_on_page) + 1}"
+                user_id_extra_args: list[Any] = [user_id]
+            else:
+                user_id_filter_clause = ""
+                user_id_extra_args = []
+            user_id_rows = await conn.fetch(
+                f"""
+                SELECT DISTINCT ce.session_id, cc.user_id
+                FROM conversation_events ce
+                JOIN conversation_calls cc ON ce.call_id = cc.call_id
+                WHERE ce.session_id IN ({placeholders})
+                AND cc.user_id IS NOT NULL
+                {user_id_filter_clause}
+                """,
+                *session_ids_on_page,
+                *user_id_extra_args,
+            )
+            for r in user_id_rows:
+                sid = str(r["session_id"])
+                uid = str(r["user_id"])
+                bucket = user_ids_by_session.setdefault(sid, [])
+                if uid not in bucket:
+                    bucket.append(uid)
 
     sessions = [
         SessionSummary(
@@ -444,6 +534,7 @@ async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int 
             policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
             models_used=list(row["models"]) if row["models"] else [],  # type: ignore[arg-type]
             preview_message=_extract_preview_message(cast(_PreviewPayload, row["request_payload"])),
+            user_ids=user_ids_by_session.get(str(row["session_id"]), []),
         )
         for row in rows
     ]
@@ -454,43 +545,76 @@ async def _fetch_session_list_pg(limit: int, db_pool: DatabasePool, offset: int 
     return SessionListResponse(sessions=sessions, total=total, offset=offset, has_more=has_more)
 
 
-async def _fetch_session_list_sqlite(limit: int, db_pool: DatabasePool, offset: int = 0) -> SessionListResponse:
+async def _fetch_session_list_sqlite(
+    limit: int,
+    db_pool: DatabasePool,
+    offset: int = 0,
+    *,
+    user_id: str | None = None,
+) -> SessionListResponse:
     """SQLite version: 3 queries total (vs PostgreSQL's 2).
 
     Avoids N+1 by batching models and previews for the whole page in one
     query each, then merging in Python. PostgreSQL uses array_agg/DISTINCT ON
     in a single CTE; SQLite lacks those, so we use IN (session_ids) instead.
     """
+    # SECURITY INVARIANT: user_id is bound as a query parameter, never
+    # interpolated into the SQL string.
     async with db_pool.connection() as conn:
-        total_count = await conn.fetchval(
-            """
-            SELECT COUNT(DISTINCT session_id)
-            FROM conversation_events
-            WHERE session_id IS NOT NULL
-            """
+        if user_id is not None:
+            total_count = await conn.fetchval(
+                """
+                SELECT COUNT(DISTINCT ce.session_id)
+                FROM conversation_events ce
+                JOIN conversation_calls cc ON ce.call_id = cc.call_id
+                WHERE ce.session_id IS NOT NULL AND cc.user_id = $1
+                """,
+                user_id,
+            )
+        else:
+            total_count = await conn.fetchval(
+                """
+                SELECT COUNT(DISTINCT session_id)
+                FROM conversation_events
+                WHERE session_id IS NOT NULL
+                """
+            )
+
+        # PERF: only filter through conversation_calls when a user filter is
+        # actually requested. Unfiltered list calls (the hot path) skip the
+        # conversation_calls subquery entirely. user_ids are populated by a
+        # separate post-query keyed on the page's session_ids (SQLite has no
+        # array_agg, so we can't compute them inside this query anyway).
+        user_call_filter = (
+            "AND ce.call_id IN (SELECT call_id FROM conversation_calls WHERE user_id = $3)"
+            if user_id is not None
+            else ""
         )
+        query_args: list[Any] = [limit, offset]
+        if user_id is not None:
+            query_args.append(user_id)
 
         rows = await conn.fetch(
-            """
+            f"""
             SELECT
-                session_id,
-                MIN(created_at) as first_ts,
-                MAX(created_at) as last_ts,
+                ce.session_id,
+                MIN(ce.created_at) as first_ts,
+                MAX(ce.created_at) as last_ts,
                 COUNT(*) as total_events,
-                COUNT(DISTINCT call_id) as turn_count,
+                COUNT(DISTINCT ce.call_id) as turn_count,
                 SUM(CASE
-                    WHEN event_type LIKE 'policy.%'
-                    AND event_type NOT LIKE 'policy.judge.evaluation%'
+                    WHEN ce.event_type LIKE 'policy.%'
+                    AND ce.event_type NOT LIKE 'policy.%judge.evaluation%'
                     THEN 1 ELSE 0
                 END) as policy_interventions
-            FROM conversation_events
-            WHERE session_id IS NOT NULL
-            GROUP BY session_id
+            FROM conversation_events ce
+            WHERE ce.session_id IS NOT NULL
+            {user_call_filter}
+            GROUP BY ce.session_id
             ORDER BY last_ts DESC
             LIMIT $1 OFFSET $2
             """,
-            limit,
-            offset,
+            *query_args,
         )
 
         total = int(total_count) if total_count is not None else 0  # type: ignore[arg-type]
@@ -501,32 +625,76 @@ async def _fetch_session_list_sqlite(limit: int, db_pool: DatabasePool, offset: 
         session_ids = [str(row["session_id"]) for row in rows]
         placeholders = ", ".join(f"${i + 1}" for i in range(len(session_ids)))
 
+        # When a user_id filter is in effect, restrict the model/preview/user-id
+        # lookups to that user's call_ids — without this, preview_message and
+        # models_used can leak content from other users' calls that happen to
+        # share the session_id.
+        # NOTE: this clause is *separate from* the `user_call_filter` used in
+        # the main aggregation above — different placeholder slot ($N differs
+        # because session_ids are also bound here). Don't fold into one.
+        if user_id is not None:
+            user_call_filter_lookups = (
+                f"AND ce.call_id IN (SELECT call_id FROM conversation_calls WHERE user_id = ${len(session_ids) + 1})"
+            )
+            extra_args: list[Any] = [user_id]
+        else:
+            user_call_filter_lookups = ""
+            extra_args = []
+
         # One query for all models on this page
         model_rows = await conn.fetch(
             f"""
-            SELECT session_id, json_extract(payload, '$.final_model') as model
-            FROM conversation_events
-            WHERE session_id IN ({placeholders})
-            AND event_type = 'transaction.request_recorded'
-            AND json_extract(payload, '$.final_model') IS NOT NULL
+            SELECT ce.session_id, json_extract(ce.payload, '$.final_model') as model
+            FROM conversation_events ce
+            WHERE ce.session_id IN ({placeholders})
+            AND ce.event_type = 'transaction.request_recorded'
+            AND json_extract(ce.payload, '$.final_model') IS NOT NULL
+            {user_call_filter_lookups}
             """,
             *session_ids,
+            *extra_args,
         )
 
         # One query for first qualifying preview per session on this page
         preview_rows = await conn.fetch(
             f"""
-            SELECT session_id, payload as request_payload
-            FROM conversation_events
-            WHERE session_id IN ({placeholders})
-            AND event_type = 'transaction.request_recorded'
+            SELECT ce.session_id, ce.payload as request_payload
+            FROM conversation_events ce
+            WHERE ce.session_id IN ({placeholders})
+            AND ce.event_type = 'transaction.request_recorded'
             AND COALESCE(
-                CAST(json_extract(payload, '$.final_request.max_tokens') AS INTEGER),
+                CAST(json_extract(ce.payload, '$.final_request.max_tokens') AS INTEGER),
                 2
             ) > 1
-            ORDER BY session_id, created_at ASC
+            {user_call_filter_lookups}
+            ORDER BY ce.session_id, ce.created_at ASC
             """,
             *session_ids,
+            *extra_args,
+        )
+
+        # Distinct user_ids per session — never collapse via MIN/MAX, that lies
+        # on multi-user sessions. Returned as a list so the consumer can render
+        # mixed-identity sessions honestly. When a user filter is in effect
+        # we constrain to that user so the response doesn't leak the *existence*
+        # of other users sharing the session.
+        if user_id is not None:
+            user_id_filter_clause = f"AND cc.user_id = ${len(session_ids) + 1}"
+            user_id_args: list[Any] = [user_id]
+        else:
+            user_id_filter_clause = ""
+            user_id_args = []
+        user_id_rows = await conn.fetch(
+            f"""
+            SELECT DISTINCT ce.session_id, cc.user_id
+            FROM conversation_events ce
+            JOIN conversation_calls cc ON ce.call_id = cc.call_id
+            WHERE ce.session_id IN ({placeholders})
+            AND cc.user_id IS NOT NULL
+            {user_id_filter_clause}
+            """,
+            *session_ids,
+            *user_id_args,
         )
 
     # Build per-session lookup maps from the bulk results
@@ -544,6 +712,14 @@ async def _fetch_session_list_sqlite(limit: int, db_pool: DatabasePool, offset: 
         if sid not in preview_by_session:
             preview_by_session[sid] = _extract_preview_message(cast(_PreviewPayload, r["request_payload"]))
 
+    user_ids_by_session: dict[str, list[str]] = {}
+    for r in user_id_rows:
+        sid = str(r["session_id"])
+        uid = str(r["user_id"])
+        bucket = user_ids_by_session.setdefault(sid, [])
+        if uid not in bucket:
+            bucket.append(uid)
+
     sessions = [
         SessionSummary(
             session_id=str(row["session_id"]),
@@ -554,6 +730,7 @@ async def _fetch_session_list_sqlite(limit: int, db_pool: DatabasePool, offset: 
             policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
             models_used=models_by_session.get(str(row["session_id"]), []),
             preview_message=preview_by_session.get(str(row["session_id"])),
+            user_ids=user_ids_by_session.get(str(row["session_id"]), []),
         )
         for row in rows
     ]

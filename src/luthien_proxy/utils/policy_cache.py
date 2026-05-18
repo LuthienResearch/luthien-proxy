@@ -13,6 +13,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from luthien_proxy.settings import get_settings
 from luthien_proxy.utils.db import DatabasePool
 
 # Type alias for the factory function injected into PolicyContext
@@ -22,6 +23,31 @@ type PolicyCacheFactory = Callable[[str], PolicyCache]
 # realistic workloads while still providing a hard ceiling that prevents a leaky
 # caller from filling the shared table. Override via constructor or factory.
 DEFAULT_MAX_ENTRIES = 10_000
+
+
+def build_factory(db_pool: DatabasePool | None) -> PolicyCacheFactory | None:
+    """Build a PolicyCacheFactory wired to the current policy_cache_max_entries setting.
+
+    Single source of truth for both the gateway pipeline and any other call
+    site (e.g. the admin policy-test endpoint) that needs to construct a
+    PolicyContext. The settings read is intentionally lazy so CLI/env/DB
+    overrides resolved after import take effect — same reasoning as
+    anthropic_client_cache._max_cache_size.
+
+    Returns ``None`` when no DB is configured: policies that require
+    persistent caching will raise from ``ctx.policy_cache(...)`` exactly as
+    they do for real traffic in dockerless dev without a DB.
+
+    A non-positive ``policy_cache_max_entries`` is treated as "unbounded"
+    (the underlying ``PolicyCache`` accepts ``None`` for max_entries). This
+    lets operators uncap the cache via config without changing call sites.
+    """
+    if db_pool is None:
+        return None
+    cap_setting = get_settings().policy_cache_max_entries
+    cap: int | None = cap_setting if cap_setting > 0 else None
+    return lambda name: PolicyCache(db_pool, name, max_entries=cap)
+
 
 # SQLite stores expires_at as TEXT and compares it with datetime('now'), which
 # relies on lexicographic ordering over the "YYYY-MM-DD HH:MM:SS" format.
@@ -242,4 +268,4 @@ class PolicyCache:
         return count_raw
 
 
-__all__ = ["PolicyCache", "PolicyCacheFactory", "DEFAULT_MAX_ENTRIES"]
+__all__ = ["PolicyCache", "PolicyCacheFactory", "DEFAULT_MAX_ENTRIES", "build_factory"]

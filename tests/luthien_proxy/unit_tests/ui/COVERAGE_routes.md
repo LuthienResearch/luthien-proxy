@@ -14,8 +14,9 @@
 - `landing_page()` — tested in `test_routes.py::TestLandingPage`
 - `deprecated_activity_monitor_redirect()` — tested in `test_routes.py::TestDeprecatedRedirects`
 - `debug_activity_monitor()` — tested in `test_routes.py::TestDeprecatedRedirects`
+- `credentials_page()` — tested in `test_routes.py::TestCredentialsPage`
 
 ## What's Not Tested (by design)
 
-- `diff_viewer()`, `policy_config()`, `credentials_page()`, `request_logs_viewer()`, `conversation_live_view()` — these are simple FileResponse routes behind auth; testing them requires mocking auth or integration tests
+- `diff_viewer()`, `policy_config()`, `request_logs_viewer()`, `conversation_live_view()` — these are simple FileResponse routes behind auth; testing them requires mocking auth or integration tests
 - `activity_stream()` — SSE streaming, tested via e2e tests

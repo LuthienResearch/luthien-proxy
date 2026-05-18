@@ -67,7 +67,7 @@ def build_tempo_url(call_id: str, tempo_url: str | None = None) -> str:
 def extract_message_content(msg: dict[str, Any]) -> str:
     """Extract text content from a message dict.
 
-    Delegates to the shared _extract_text_content for content block parsing.
+    Delegates to the shared extract_text_content for content block parsing.
     """
     return extract_text_content(msg.get("content", ""))
 

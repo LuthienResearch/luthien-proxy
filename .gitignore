@@ -34,6 +34,9 @@ scratch/
 _scratch/
 tmp/
 
+# Per-worktree planning scratch — never merged to main
+dev/scratch/
+
 # Replay callback exports
 dev/replay_logs*.jsonl
 dev/litellm_replay_logs/
@@ -86,3 +89,12 @@ tests/**/failure_registry/*.json
 # Local scratch files
 kanban.jpg
 .e2e-logs/
+
+# Automated maintenance — local config (may contain secrets)
+scripts/automated_maintenance/automated_maintenance.env
+# sed -i.bak* artifacts from local edits
+scripts/automated_maintenance/automated_maintenance.env.bak*
+
+# Claude Code runtime state
+.claude/scheduled_tasks.lock
+NEXT.md

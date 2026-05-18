@@ -11,10 +11,10 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import field_validator, model_validator
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from luthien_proxy.credential_manager import AuthMode, parse_auth_mode
+from luthien_proxy.credential_manager import AuthMode
 from luthien_proxy.utils.constants import DEFAULT_GATEWAY_PORT
 from luthien_proxy.version import PROXY_VERSION
 
@@ -37,18 +37,6 @@ class _SettingsBase(BaseSettings):
             object.__setattr__(self, "environment", railway)
         return self
 
-    @field_validator("auth_mode", mode="before", check_fields=False)
-    @classmethod
-    def _coerce_legacy_auth_mode(cls, raw: object) -> object:
-        """Coerce pre-PR-#535 AUTH_MODE aliases (e.g. 'proxy_key') before enum validation."""
-        if isinstance(raw, str):
-            try:
-                return parse_auth_mode(raw, source="AUTH_MODE env var").value
-            except ValueError:
-                # Let pydantic's enum validator produce the canonical error message.
-                return raw
-        return raw
-
 
 class Settings(_SettingsBase):
     """Application settings — all fields generated from config_fields.py."""
@@ -57,12 +45,17 @@ class Settings(_SettingsBase):
     gateway_port: int = DEFAULT_GATEWAY_PORT
     log_level: str = "info"
     verbose_client_errors: bool = False
+    trust_user_id_header: bool = False
 
     # ── auth ────────────────────────────────────────────────────────
     client_api_key: str | None = None
     admin_api_key: str | None = None
     auth_mode: AuthMode = AuthMode.BOTH
     localhost_auth_bypass: bool = True
+
+    # ── rate_limiting ───────────────────────────────────────────────
+    rate_limit_rpm: int = 0
+    rate_limit_burst: int = 0
 
     # ── policy ──────────────────────────────────────────────────────
     policy_source: str = "db-fallback-file"
@@ -78,10 +71,8 @@ class Settings(_SettingsBase):
 
     # ── llm ─────────────────────────────────────────────────────────
     anthropic_api_key: str | None = None
-    litellm_master_key: str | None = None
     llm_judge_model: str | None = None
     llm_judge_api_base: str | None = None
-    llm_judge_api_key: str | None = None
     anthropic_client_cache_size: int = 16
 
     # ── security ────────────────────────────────────────────────────
@@ -89,7 +80,8 @@ class Settings(_SettingsBase):
 
     # ── observability ───────────────────────────────────────────────
     otel_enabled: bool = False
-    otel_exporter_otlp_endpoint: str = "http://tempo:4317"
+    otel_exporter_otlp_endpoint: str = "http://tempo:4318/v1/traces"
+    otel_exporter_otlp_protocol: str = "http/protobuf"
     tempo_url: str = "http://localhost:3200"
     service_name: str = "luthien-proxy"
     service_version: str = PROXY_VERSION
@@ -100,6 +92,22 @@ class Settings(_SettingsBase):
     # ── telemetry ───────────────────────────────────────────────────
     usage_telemetry: bool | None = None
     telemetry_endpoint: str = "https://telemetry.luthien.cc/v1/events"
+
+    # ── retention ───────────────────────────────────────────────────
+    conversation_retention_days: int | None = None
+    archive_s3_bucket: str | None = None
+    archive_s3_prefix: str = "luthien-archive/"
+    retention_archive_batch_size: int = 100
+    retention_s3_encryption: str = "AES256"
+    retention_s3_kms_key_id: str = ""
+
+    # ── webhook ─────────────────────────────────────────────────────
+    webhook_url: str = ""
+    webhook_max_retries: int = 3
+    webhook_retry_delay_seconds: float = 1.0
+    webhook_max_pending_tasks: int = 1000
+    webhook_send_timeout_seconds: float = 10.0
+    webhook_shutdown_drain_seconds: float = 5.0
 
     # ── sentry ──────────────────────────────────────────────────────
     sentry_enabled: bool = False

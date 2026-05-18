@@ -321,6 +321,56 @@ class TestSetDbValue:
         assert exc.value.source == ConfigSource.ENV
         mock_pool.execute.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_delete_after_put_falls_back_to_default_when_no_env_set(self, monkeypatch):
+        """Regression: PUT followed by DELETE must revert to the field default.
+
+        `set_db_value` writes the new value back to Settings via `_sync_one`,
+        which used to poison the `env_from_dotenv` heuristic in `_resolve_field`
+        — a subsequent DELETE then resolved to the sync'd value under a ghost
+        ENV layer instead of falling back to the default. This test pins the
+        correct behavior: with no real env override, DELETE must reach DEFAULT.
+        """
+        monkeypatch.delenv("DOGFOOD_MODE", raising=False)
+        mock_pool = MagicMock()
+        mock_pool.execute = AsyncMock()
+        mock_db = MagicMock()
+        mock_db.get_pool = AsyncMock(return_value=mock_pool)
+
+        settings = _make_settings()
+        registry = ConfigRegistry(settings=settings, db_pool=mock_db)
+        registry._resolve_all()
+
+        put_result = await registry.set_db_value("dogfood_mode", True)
+        assert put_result.source == ConfigSource.DB
+        assert put_result.value is True
+
+        delete_result = await registry.delete_db_value("dogfood_mode")
+        assert delete_result.source == ConfigSource.DEFAULT
+        assert delete_result.value is False
+
+    def test_env_snapshot_survives_set_db_value_sync_back(self, monkeypatch):
+        """The startup env snapshot must not be overwritten by `_sync_one`.
+
+        Even after a PUT mutates `_settings.<field>` to the DB value, the
+        ENV snapshot captured at `__init__` must still reflect the original
+        env value — otherwise the ENV layer would drift toward the latest
+        DB write on every resolve.
+        """
+        monkeypatch.setenv("DOGFOOD_MODE", "true")
+        settings = _make_settings(dogfood_mode=True)
+        registry = _make_registry(settings=settings)
+
+        assert registry._env_values.get("dogfood_mode") is True
+
+        # Simulate `_sync_one` pushing a different value back into Settings
+        # (exactly what `set_db_value` does after writing the DB row).
+        registry._sync_one("dogfood_mode", False)
+        assert settings.dogfood_mode is False
+
+        # Snapshot is immutable by design; the ENV value hasn't changed.
+        assert registry._env_values.get("dogfood_mode") is True
+
 
 class TestCoerce:
     def test_bool_from_string_true(self):

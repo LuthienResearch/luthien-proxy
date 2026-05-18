@@ -10,6 +10,7 @@ from redis.asyncio import Redis
 
 from luthien_proxy.config_registry import ConfigRegistry
 from luthien_proxy.credential_manager import CredentialManager
+from luthien_proxy.inference.registry import InferenceProviderRegistry
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.observability.event_publisher import EventPublisherProtocol
@@ -17,8 +18,10 @@ from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
 )
 from luthien_proxy.policy_manager import PolicyManager
+from luthien_proxy.rate_limit import TokenBucketRateLimiter
 from luthien_proxy.usage_telemetry.collector import UsageCollector
 from luthien_proxy.utils import db
+from luthien_proxy.webhook.sender import WebhookSender
 
 
 @dataclass
@@ -39,10 +42,13 @@ class Dependencies:
     anthropic_client: AnthropicClient | None = field(default=None)
     event_publisher: EventPublisherProtocol | None = field(default=None)
     credential_manager: CredentialManager | None = field(default=None)
+    inference_provider_registry: InferenceProviderRegistry | None = field(default=None)
     enable_request_logging: bool = field(default=False)
     usage_collector: UsageCollector | None = field(default=None)
     config_registry: ConfigRegistry | None = field(default=None)
+    rate_limiter: TokenBucketRateLimiter | None = field(default=None)
     last_credential_info: dict[str, Any] = field(default_factory=dict)
+    webhook_sender: WebhookSender | None = field(default=None)
 
     def get_anthropic_policy(self) -> AnthropicExecutionInterface:
         """Get the current Anthropic policy.
@@ -197,6 +203,16 @@ def get_config_registry(request: Request) -> ConfigRegistry | None:
     return get_dependencies(request).config_registry
 
 
+def get_rate_limiter(request: Request) -> TokenBucketRateLimiter | None:
+    """Get rate limiter from dependencies."""
+    return get_dependencies(request).rate_limiter
+
+
+def get_webhook_sender(request: Request) -> WebhookSender | None:
+    """Get webhook sender from dependencies."""
+    return get_dependencies(request).webhook_sender
+
+
 async def require_config_registry(
     config_registry: ConfigRegistry | None = Depends(get_config_registry),
 ) -> ConfigRegistry:
@@ -215,6 +231,20 @@ async def require_credential_manager(
     return credential_manager
 
 
+def get_inference_provider_registry(request: Request) -> InferenceProviderRegistry | None:
+    """Get inference provider registry from dependencies."""
+    return get_dependencies(request).inference_provider_registry
+
+
+async def require_inference_provider_registry(
+    registry: InferenceProviderRegistry | None = Depends(get_inference_provider_registry),
+) -> InferenceProviderRegistry:
+    """Get inference provider registry, raising 503 if not available."""
+    if registry is None:
+        raise HTTPException(status_code=503, detail="Inference provider registry not available")
+    return registry
+
+
 __all__ = [
     "Dependencies",
     "get_dependencies",
@@ -229,7 +259,11 @@ __all__ = [
     "get_anthropic_policy",
     "get_credential_manager",
     "require_credential_manager",
+    "get_inference_provider_registry",
+    "require_inference_provider_registry",
     "get_usage_collector",
     "get_config_registry",
     "require_config_registry",
+    "get_rate_limiter",
+    "get_webhook_sender",
 ]

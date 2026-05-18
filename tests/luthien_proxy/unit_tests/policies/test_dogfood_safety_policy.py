@@ -3,15 +3,25 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from anthropic.lib.streaming import MessageStreamEvent
+from anthropic.types import (
+    InputJSONDelta,
+    RawContentBlockDeltaEvent,
+    RawContentBlockStartEvent,
+    RawContentBlockStopEvent,
+    RawMessageDeltaEvent,
+    ToolUseBlock,
+)
+from tests.luthien_proxy.unit_tests.policies.anthropic_event_builders import message_delta
 
 from luthien_proxy.policies.dogfood_safety_policy import (
     DogfoodSafetyConfig,
     DogfoodSafetyPolicy,
-    _BufferedAnthropicToolUse,
 )
+from luthien_proxy.policy_core.anthropic_message_builder import AnthropicMessageBuilder
 from luthien_proxy.policy_core.policy_context import PolicyContext
 
 
@@ -204,7 +214,10 @@ class TestAnthropicNonStreaming:
 
         result = await policy.on_anthropic_response(response, ctx)
 
-        assert result is response
+        assert len(result["content"]) == 1
+        assert result["content"][0]["type"] == "tool_use"
+        assert result["content"][0]["input"] == {"command": "echo hello"}
+        assert result["stop_reason"] == "tool_use"
 
     @pytest.mark.asyncio
     async def test_passes_through_text_response(self):
@@ -222,7 +235,12 @@ class TestAnthropicNonStreaming:
 
     @pytest.mark.asyncio
     async def test_mixed_content_blocks_only_dangerous(self):
-        """When multiple content blocks exist, only dangerous ones are replaced."""
+        """When multiple content blocks exist, only dangerous ones are replaced.
+
+        Wire shape: tool_use must trail (#708 invariant). Blocked-text
+        replacements land in the pre-tool slot; the surviving safe
+        tool_use is the trailing block.
+        """
         policy = _make_policy()
         ctx = _make_context()
 
@@ -247,10 +265,154 @@ class TestAnthropicNonStreaming:
 
         result = await policy.on_anthropic_response(response, ctx)
 
-        assert result["content"][0]["type"] == "text"
+        types = [b["type"] for b in result["content"]]
+        # All non-tool content (original text + blocked replacement) precedes the surviving tool.
+        assert types == ["text", "text", "tool_use"], f"Got: {types}"
         assert result["content"][0]["text"] == "Let me run that"
-        assert result["content"][1]["type"] == "tool_use"
-        assert "BLOCKED" in result["content"][2]["text"]
+        assert "BLOCKED" in result["content"][1]["text"]
+        assert result["content"][2]["name"] == "Bash"
+        assert result["content"][2]["input"] == {"command": "echo hello"}
+        assert result["stop_reason"] == "tool_use"
+
+
+# ============================================================================
+# Streaming stop_reason correction
+# ============================================================================
+
+
+def _tool_start(index: int, tool_id: str = "toolu_1", name: str = "Bash") -> RawContentBlockStartEvent:
+    return RawContentBlockStartEvent(
+        type="content_block_start",
+        index=index,
+        content_block=ToolUseBlock(type="tool_use", id=tool_id, name=name, input={}),
+    )
+
+
+def _tool_delta(index: int, partial_json: str) -> RawContentBlockDeltaEvent:
+    return RawContentBlockDeltaEvent(
+        type="content_block_delta",
+        index=index,
+        delta=InputJSONDelta(type="input_json_delta", partial_json=partial_json),
+    )
+
+
+def _block_stop(index: int) -> RawContentBlockStopEvent:
+    return RawContentBlockStopEvent(type="content_block_stop", index=index)
+
+
+class TestStreamingStopReasonCorrection:
+    """Streaming path must rewrite stop_reason='tool_use' → 'end_turn' when all tool_use blocked.
+
+    Mirrors the non-streaming path's existing behavior (line 215-217) and the
+    same fix applied to ToolCallJudgePolicy in this PR.
+    """
+
+    @pytest.mark.asyncio
+    async def test_stop_reason_corrected_after_dangerous_tool_blocked(self):
+        """Single dangerous tool_use blocked → message_delta('tool_use') rewritten to 'end_turn'."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0)), ctx)
+        await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, _tool_delta(0, '{"command":"docker compose down"}')), ctx
+        )
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
+
+        msg_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
+
+        delta_events = [e for e in msg_events if isinstance(e, RawMessageDeltaEvent)]
+        assert len(delta_events) == 1
+        assert delta_events[0].delta.stop_reason == "end_turn"
+
+    @pytest.mark.asyncio
+    async def test_stop_reason_kept_when_tool_safe(self):
+        """Safe tool_use passed through → stop_reason stays 'tool_use'."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0)), ctx)
+        await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, _tool_delta(0, '{"command":"echo hello"}')), ctx
+        )
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
+
+        msg_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
+
+        delta_events = [e for e in msg_events if isinstance(e, RawMessageDeltaEvent)]
+        assert len(delta_events) == 1
+        assert delta_events[0].delta.stop_reason == "tool_use"
+
+    @pytest.mark.asyncio
+    async def test_stop_reason_kept_with_mixed_tools(self):
+        """Mixed safe + dangerous → stop_reason stays 'tool_use' (safe tool survives)."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        # Index 0: safe
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0, tool_id="toolu_safe")), ctx)
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_delta(0, '{"command":"echo hi"}')), ctx)
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
+
+        # Index 1: dangerous
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(1, tool_id="toolu_bad")), ctx)
+        await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, _tool_delta(1, '{"command":"docker compose down"}')), ctx
+        )
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(1)), ctx)
+
+        msg_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
+
+        delta_events = [e for e in msg_events if isinstance(e, RawMessageDeltaEvent)]
+        assert len(delta_events) == 1
+        assert delta_events[0].delta.stop_reason == "tool_use"
+
+    @pytest.mark.asyncio
+    async def test_stop_reason_rewritten_when_no_blocks_observed(self):
+        """No tool_use observed → stop_reason rewritten to end_turn (#708 invariant)."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        msg_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
+
+        delta_events = [e for e in msg_events if isinstance(e, RawMessageDeltaEvent)]
+        assert len(delta_events) == 1
+        assert delta_events[0].delta.stop_reason == "end_turn"
+
+
+# ============================================================================
+# Fail-secure on malformed input
+# ============================================================================
+
+
+class TestFailSecureOnMalformedInput:
+    """Streaming tool_use with malformed input_json must still match dangerous patterns.
+
+    Regression: when `BufferedTool.input_json` fails to parse as JSON, the
+    parsed-dict representation is `{"_raw": <string>}`. A safety policy that
+    extracted `tool_input["command"]` would see an empty string and fail open.
+    The transform falls back to the raw text in that case.
+    """
+
+    @pytest.mark.asyncio
+    async def test_dangerous_command_in_malformed_json_still_blocked(self):
+        policy = _make_policy()
+        ctx = _make_context()
+
+        # Truncated JSON: valid-up-to-here but no closing brace. json.loads will fail;
+        # the regex must still match `docker compose down` in the raw text.
+        all_events: list[MessageStreamEvent] = []
+        all_events += await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0)), ctx)
+        all_events += await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, _tool_delta(0, '{"command":"docker compose down"')), ctx
+        )
+        all_events += await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), ctx)
+        all_events += await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("tool_use")), ctx)
+
+        # First emitted block must be the blocked-text replacement, not a tool_use.
+        start_event = all_events[0]
+        assert isinstance(start_event, RawContentBlockStartEvent)
+        assert start_event.content_block.type == "text"
 
 
 # ============================================================================
@@ -297,10 +459,13 @@ class TestStateCleanup:
         policy = _make_policy()
         policy_ctx = _make_context("txn-456")
 
-        policy._anthropic_buffered_tool_uses(policy_ctx)[0] = _BufferedAnthropicToolUse(id="a", name="test")
-        policy._anthropic_buffered_tool_uses(policy_ctx)[1] = _BufferedAnthropicToolUse(id="b", name="test2")
+        # Drive a tool_use through the stream to populate request state.
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _tool_start(0)), policy_ctx)
+        await policy.on_anthropic_stream_event(
+            cast(MessageStreamEvent, _tool_delta(0, '{"command":"docker compose down"}')), policy_ctx
+        )
+        await policy.on_anthropic_stream_event(cast(MessageStreamEvent, _block_stop(0)), policy_ctx)
 
+        # Cleanup must remove a populated buffer (not just no-op on empty state).
         await policy.on_anthropic_streaming_policy_complete(policy_ctx)
-
-        # State should be recreated empty after cleanup.
-        assert policy._anthropic_buffered_tool_uses(policy_ctx) == {}
+        assert policy_ctx.pop_request_state(policy, AnthropicMessageBuilder) is None

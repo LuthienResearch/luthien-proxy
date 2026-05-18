@@ -15,6 +15,8 @@ from anthropic.lib.streaming import MessageStreamEvent
 from luthien_proxy.policy_core import (
     AnthropicHookPolicy,
     BasePolicy,
+    Category,
+    UIMetadata,
 )
 
 if TYPE_CHECKING:
@@ -43,6 +45,12 @@ class DebugLoggingPolicy(BasePolicy, AnthropicHookPolicy):
     All hooks log relevant data at INFO level, record events to context for
     DB persistence, and pass data through unchanged.
     """
+
+    ui = UIMetadata(
+        display_name="Debug Logging",
+        short_description="Logs full requests, responses, and streaming events for debugging.",
+        category=Category.INTERNAL,
+    )
 
     @property
     def short_policy_name(self) -> str:

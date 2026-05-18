@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from luthien_proxy.policies.simple_policy import SimplePolicy
+from luthien_proxy.policy_core import Category, UIMetadata
 
 if TYPE_CHECKING:
     from luthien_proxy.llm.types.anthropic import AnthropicToolUseBlock
@@ -35,6 +36,12 @@ class HackathonPolicy(SimplePolicy):
     For simpler text-only transforms, consider TextModifierPolicy instead
     (see all_caps_policy.py for a 27-line example).
     """
+
+    ui = UIMetadata(
+        display_name="Hackathon Template",
+        short_description="Starter template for building your own policy at a hackathon.",
+        category=Category.INTERNAL,
+    )
 
     async def simple_on_request(self, request_str: str, context: PolicyContext) -> str:
         """Transform the user's message before it reaches the LLM.

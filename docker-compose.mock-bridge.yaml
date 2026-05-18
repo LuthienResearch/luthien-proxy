@@ -7,8 +7,14 @@
 # The mock server running on the host at port 18888 is reached via
 # host.docker.internal instead of 127.0.0.1.
 #
+# Port 18888 is hardcoded here. The mock-server fixture auto-allocates a
+# free port by default, so when using this compose file you MUST pin the
+# fixture to 18888:
+#   export MOCK_ANTHROPIC_PORT=18888
+#
 # Usage:
 #   docker compose -f docker-compose.yaml -f docker-compose.mock-bridge.yaml up -d
+#   export MOCK_ANTHROPIC_PORT=18888
 #   uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_*.py -v
 
 services:

@@ -11,10 +11,9 @@ from __future__ import annotations
 
 import logging
 import os
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 
 from luthien_proxy.auth import check_auth_or_redirect, verify_admin_token
 from luthien_proxy.dependencies import get_admin_key, get_db_pool
@@ -55,15 +54,6 @@ async def history_list_page(
     return FileResponse(os.path.join(STATIC_DIR, "history_list.html"))
 
 
-@router.get("/session/{session_id}")
-async def deprecated_history_detail_redirect(session_id: str):
-    """Redirect old history detail path to live conversation view.
-
-    No auth check here — the redirect target handles auth.
-    """
-    return RedirectResponse(url=f"/conversation/live/{quote(session_id, safe='')}", status_code=301)
-
-
 # --- JSON API Endpoints ---
 
 
@@ -82,6 +72,13 @@ async def list_sessions(
         ge=0,
         description="Number of sessions to skip for pagination",
     ),
+    user_id: str | None = Query(
+        default=None,
+        description=(
+            "Filter by exact user_id. Matches the user_id extracted from "
+            "X-Luthien-User-Id header (when TRUST_USER_ID_HEADER=true) or JWT sub claim."
+        ),
+    ),
 ) -> SessionListResponse:
     """List recent sessions with summaries.
 
@@ -89,7 +86,7 @@ async def list_sessions(
     including turn counts, policy interventions, and models used.
     Supports pagination via limit and offset parameters.
     """
-    return await fetch_session_list(limit, db_pool, offset)
+    return await fetch_session_list(limit, db_pool, offset, user_id=user_id)
 
 
 @api_router.get("/sessions/{session_id}", response_model=SessionDetail)

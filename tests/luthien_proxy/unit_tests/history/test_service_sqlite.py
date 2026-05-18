@@ -13,6 +13,7 @@ import pytest
 
 from luthien_proxy.history.service import fetch_session_list
 from luthien_proxy.utils.db import DatabasePool
+from luthien_proxy.utils.db_sqlite import SqliteConnection
 
 
 @pytest.fixture
@@ -23,14 +24,9 @@ async def sqlite_pool() -> DatabasePool:
     migrations_dir = Path(__file__).parent.parent.parent.parent.parent / "migrations" / "sqlite"
 
     async with pool.connection() as conn:
+        assert isinstance(conn, SqliteConnection)
         for migration_file in sorted(migrations_dir.glob("*.sql")):
-            sql = migration_file.read_text()
-            for statement in sql.split(";"):
-                statement = statement.strip()
-                if statement and not all(
-                    line.strip().startswith("--") or not line.strip() for line in statement.split("\n")
-                ):
-                    await conn.execute(statement)
+            await conn.executescript(migration_file.read_text())
 
     yield pool
 
@@ -177,7 +173,10 @@ async def populated_with_interventions_pool(sqlite_pool: DatabasePool) -> Databa
             """,
             "event-6",
             "call-3",
-            "policy.judge.tool_call_blocked",
+            # Real production name (post-#169). Paired with the
+            # evaluation_started row below; both must use the same prefix
+            # so the fixture represents a real session, not a chimera.
+            "policy.anthropic_judge.tool_call_blocked",
             json.dumps({"summary": "Dangerous operation blocked"}),
             "session-2",
             "2025-01-16T14:00:00",
@@ -191,7 +190,8 @@ async def populated_with_interventions_pool(sqlite_pool: DatabasePool) -> Databa
             """,
             "event-7",
             "call-3",
-            "policy.judge.evaluation_started",
+            # Real production name (post-#169 `prefix="anthropic_"`).
+            "policy.anthropic_judge.evaluation_started",
             json.dumps({}),
             "session-2",
             "2025-01-16T14:00:01",
@@ -580,7 +580,7 @@ class TestFetchSessionListSqlite:
 
             # Add multiple policy events (not evaluation)
             policy_events = [
-                "policy.judge.tool_call_blocked",
+                "policy.anthropic_judge.tool_call_blocked",
                 "policy.all_caps.content_transformed",
                 "policy.simple_policy.content_complete_warning",
             ]
@@ -609,7 +609,7 @@ class TestFetchSessionListSqlite:
                 """,
                 "event-policy-eval",
                 "call-policy",
-                "policy.judge.evaluation_started",
+                "policy.anthropic_judge.evaluation_started",
                 json.dumps({}),
                 "session-policy",
                 "2025-01-17T10:00:04",
@@ -620,6 +620,74 @@ class TestFetchSessionListSqlite:
 
         # Should count 3 policy events, not the evaluation event
         assert session.policy_interventions == 3
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "judge_prefix",
+        ["", "anthropic_"],
+        ids=["legacy", "anthropic_judge"],
+    )
+    async def test_evaluation_events_excluded_for_all_judge_prefixes(
+        self, sqlite_pool: DatabasePool, judge_prefix: str
+    ):
+        """Regression test: filter must match the emitter contract, not a literal.
+
+        PR #169 introduced `prefix="anthropic_"` at the judge emission helpers
+        in policies/tool_call_judge_policy.py, so events arrive as
+        `policy.{prefix}judge.evaluation_*`. The original filter literal
+        `policy.judge.evaluation%` no longer matched and judge lifecycle
+        events were counted as policy interventions.
+
+        Both prefixes must be excluded from the intervention count:
+          - "" (legacy unprefixed events still in stored history)
+          - "anthropic_" (current production)
+        """
+        session_id = f"session-{judge_prefix or 'legacy'}"
+        call_id = f"call-{judge_prefix or 'legacy'}"
+        async with sqlite_pool.connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO conversation_calls
+                (call_id, model_name, provider, status, session_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                call_id,
+                "gpt-4",
+                "openai",
+                "completed",
+                session_id,
+                "2025-01-17T10:00:00",
+            )
+
+            # One real intervention + two evaluation lifecycle events.
+            # Only the intervention should count.
+            events = [
+                (f"policy.{judge_prefix}judge.tool_call_blocked", 1),
+                (f"policy.{judge_prefix}judge.evaluation_started", 0),
+                (f"policy.{judge_prefix}judge.evaluation_complete", 0),
+            ]
+            for idx, (event_type, _expected) in enumerate(events):
+                await conn.execute(
+                    """
+                    INSERT INTO conversation_events
+                    (id, call_id, event_type, payload, session_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    f"{session_id}-event-{idx}",
+                    call_id,
+                    event_type,
+                    json.dumps({}),
+                    session_id,
+                    f"2025-01-17T10:00:0{idx + 1}",
+                )
+
+        result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
+        session = next(s for s in result.sessions if s.session_id == session_id)
+        assert session.policy_interventions == 1, (
+            f"prefix={judge_prefix!r}: expected 1 (only tool_call_blocked), "
+            f"got {session.policy_interventions} — filter likely failed to "
+            f"exclude evaluation_started/evaluation_complete"
+        )
 
     @pytest.mark.asyncio
     async def test_limit_enforced(self, sqlite_pool: DatabasePool):
@@ -711,6 +779,152 @@ class TestFetchSessionListSqlite:
 
         assert len(result.sessions) == 1
         assert result.sessions[0].session_id == "session-flag"
+
+
+class TestFetchSessionListUserFilter:
+    """Test the user_id filter on fetch_session_list."""
+
+    async def _seed_user_session(
+        self, pool: DatabasePool, *, call_id: str, session_id: str, user_id: str | None, created_at: str
+    ) -> None:
+        async with pool.connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO conversation_calls
+                (call_id, model_name, provider, status, session_id, user_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                call_id,
+                "gpt-4",
+                "openai",
+                "completed",
+                session_id,
+                user_id,
+                created_at,
+            )
+            await conn.execute(
+                """
+                INSERT INTO conversation_events
+                (id, call_id, event_type, payload, session_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                f"event-{call_id}",
+                call_id,
+                "transaction.request_recorded",
+                json.dumps(
+                    {
+                        "final_model": "gpt-4",
+                        "final_request": {"messages": [{"role": "user", "content": "hi"}]},
+                    }
+                ),
+                session_id,
+                created_at,
+            )
+
+    @pytest.mark.asyncio
+    async def test_user_id_populated_on_summary(self, sqlite_pool: DatabasePool):
+        await self._seed_user_session(
+            sqlite_pool, call_id="c1", session_id="s1", user_id="alice", created_at="2025-01-15T10:00:00"
+        )
+        result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
+        assert len(result.sessions) == 1
+        assert result.sessions[0].user_ids == ["alice"]
+
+    @pytest.mark.asyncio
+    async def test_user_id_filter_returns_only_matching(self, sqlite_pool: DatabasePool):
+        await self._seed_user_session(
+            sqlite_pool, call_id="c1", session_id="s-alice", user_id="alice", created_at="2025-01-15T10:00:00"
+        )
+        await self._seed_user_session(
+            sqlite_pool, call_id="c2", session_id="s-bob", user_id="bob", created_at="2025-01-15T10:01:00"
+        )
+        result = await fetch_session_list(limit=10, db_pool=sqlite_pool, user_id="alice")
+        assert [s.session_id for s in result.sessions] == ["s-alice"]
+        assert result.total == 1
+
+    @pytest.mark.asyncio
+    async def test_mixed_user_session_surfaces_all_ids(self, sqlite_pool: DatabasePool):
+        """A session reused across users surfaces every distinct user_id, never collapses."""
+        await self._seed_user_session(
+            sqlite_pool, call_id="c-alice", session_id="shared", user_id="alice", created_at="2025-01-15T10:00:00"
+        )
+        await self._seed_user_session(
+            sqlite_pool, call_id="c-bob", session_id="shared", user_id="bob", created_at="2025-01-15T10:01:00"
+        )
+        result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
+        assert len(result.sessions) == 1
+        assert sorted(result.sessions[0].user_ids) == ["alice", "bob"]
+
+    @pytest.mark.asyncio
+    async def test_user_filter_does_not_leak_other_user_preview(self, sqlite_pool: DatabasePool):
+        """preview_message under ?user_id=alice must not surface bob's content from a shared session."""
+        async with sqlite_pool.connection() as conn:
+            # Bob's call lands first in the same session; his preview would otherwise
+            # become the session's preview_message.
+            await conn.execute(
+                """
+                INSERT INTO conversation_calls
+                (call_id, model_name, provider, status, session_id, user_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                "c-bob",
+                "gpt-4",
+                "openai",
+                "completed",
+                "shared",
+                "bob",
+                "2025-01-15T10:00:00",
+            )
+            await conn.execute(
+                """
+                INSERT INTO conversation_events
+                (id, call_id, event_type, payload, session_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                "e-bob",
+                "c-bob",
+                "transaction.request_recorded",
+                json.dumps(
+                    {
+                        "final_model": "gpt-4-secret",
+                        "final_request": {"messages": [{"role": "user", "content": "BOBS PRIVATE MESSAGE"}]},
+                    }
+                ),
+                "shared",
+                "2025-01-15T10:00:00",
+            )
+
+        await self._seed_user_session(
+            sqlite_pool,
+            call_id="c-alice",
+            session_id="shared",
+            user_id="alice",
+            created_at="2025-01-15T10:01:00",
+        )
+
+        # Filtered query must not surface bob's content.
+        filtered = await fetch_session_list(limit=10, db_pool=sqlite_pool, user_id="alice")
+        assert [s.session_id for s in filtered.sessions] == ["shared"]
+        summary = filtered.sessions[0]
+        assert summary.user_ids == ["alice"], "filter must scope user_ids to alice only"
+        assert summary.preview_message != "BOBS PRIVATE MESSAGE", "preview_message leaked content from a different user"
+        assert "gpt-4-secret" not in summary.models_used, "models_used leaked a model from a different user's call"
+
+    @pytest.mark.asyncio
+    async def test_user_id_filter_sql_injection_safe(self, sqlite_pool: DatabasePool):
+        """Bobby Tables: a value containing SQL is bound as a parameter, not interpolated."""
+        await self._seed_user_session(
+            sqlite_pool, call_id="c1", session_id="s1", user_id="alice", created_at="2025-01-15T10:00:00"
+        )
+        # If user_id were interpolated this would either error, drop the table,
+        # or return all rows. Bound as a parameter it simply matches nothing.
+        result = await fetch_session_list(
+            limit=10, db_pool=sqlite_pool, user_id="alice'; DROP TABLE conversation_calls;--"
+        )
+        assert result.sessions == []
+        # And the table is still queryable.
+        all_rows = await fetch_session_list(limit=10, db_pool=sqlite_pool)
+        assert len(all_rows.sessions) == 1
 
 
 __all__ = []
