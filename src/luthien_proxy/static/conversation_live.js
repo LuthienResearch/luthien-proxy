@@ -226,7 +226,12 @@ function conversationViewer() {
                 this.rawEvents[callId] = [];
             }
 
-            this.rawEvents[callId].push({
+            const MAX_RAW_EVENTS = 50;
+            const bucket = this.rawEvents[callId];
+            if (bucket.length >= MAX_RAW_EVENTS) {
+                bucket.shift();
+            }
+            bucket.push({
                 type: eventType,
                 timestamp: event.timestamp || new Date().toISOString(),
                 data: event
