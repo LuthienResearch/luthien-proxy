@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 from html import escape as html_escape
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -263,8 +264,8 @@ async def fragment_sessions(
     request: Request,
     limit: int = Query(default=20, ge=1, le=100),
     cursor: str | None = Query(default=None),
-    q: str | None = Query(default=None),
-    filter: str | None = Query(default=None),
+    q: str | None = Query(default=None, max_length=128),
+    filter: Literal["30days", "claude"] | None = Query(default=None),
     admin_key: str | None = Depends(get_admin_key),
     db_pool: DatabasePool | None = Depends(get_db_pool),
 ):
