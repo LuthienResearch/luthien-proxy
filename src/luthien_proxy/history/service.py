@@ -1158,6 +1158,13 @@ async def _fetch_session_turns_page(
     return {"turns": turns, "next_cursor": next_cursor}
 
 
+_Q_MAX_LEN = 128
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 async def _fetch_sessions_page(
     cursor_token: str | None,
     limit: int,
@@ -1165,13 +1172,16 @@ async def _fetch_sessions_page(
     q: str | None = None,
     filter: str | None = None,
 ) -> dict[str, Any]:
+    if q is not None:
+        q = q[:_Q_MAX_LEN]
+
     if db_pool.is_sqlite:
         sqlite_args: list[object] = []
 
         q_filter = ""
         if q:
-            sqlite_args.append(f"%{q}%")
-            q_filter = "AND session_id LIKE ?"
+            sqlite_args.append(f"%{_escape_like(q)}%")
+            q_filter = "AND session_id LIKE ? ESCAPE '\\'"
 
         cursor_filter = ""
         if cursor_token is not None:
@@ -1219,9 +1229,9 @@ async def _fetch_sessions_page(
 
         q_filter = ""
         if q:
-            query_args.append(f"%{q}%")
+            query_args.append(f"%{_escape_like(q)}%")
             q_idx = len(query_args)
-            q_filter = f"AND session_id ILIKE ${q_idx}"
+            q_filter = f"AND session_id ILIKE ${q_idx} ESCAPE '\\'"
 
         cursor_filter = ""
         if cursor_token is not None:
