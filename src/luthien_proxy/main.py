@@ -728,7 +728,17 @@ def auto_provision_defaults() -> dict[str, str]:
         provisioned["ADMIN_API_KEY"] = value
 
     if not os.environ.get("CURSOR_HMAC_KEY"):
-        value = secrets.token_urlsafe(32)
+        data_dir = os.path.join(os.path.expanduser("~"), ".luthien")
+        os.makedirs(data_dir, exist_ok=True)
+        key_path = os.path.join(data_dir, "cursor_hmac.key")
+        if os.path.exists(key_path):
+            with open(key_path) as f:
+                value = f.read().strip()
+        else:
+            value = secrets.token_urlsafe(32)
+            with open(key_path, "w") as f:
+                f.write(value)
+            os.chmod(key_path, 0o600)
         os.environ["CURSOR_HMAC_KEY"] = value
         provisioned["CURSOR_HMAC_KEY"] = value
 
