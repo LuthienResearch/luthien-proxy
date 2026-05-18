@@ -3,9 +3,9 @@ category: Features
 pr: 752
 ---
 
-**Admin UI performance optimizations**: Cursor pagination, lazy loading, and memory caps for history and conversation pages.
+**Admin UI performance optimizations**: Cursor pagination and memory caps for the history page and conversation viewer.
   - Cursor-paginated infinite scroll on `/history` (20 sessions per page instead of all)
-  - Lazy-loaded turns on `/conversation/live` via JSON API + structured turn rendering
+  - Conversation viewer loads full session JSON via `/api/history/sessions/{id}` and renders structured turns; paginated lazy loading of turns is deferred to a follow-up PR
   - Raw events capped at 50 per call_id (FIFO) to bound per-turn memory growth
   - Debounced server-side filter on `/history` to reduce query load
   - New fragment endpoints: `/ui/fragments/sessions`, `/ui/fragments/sessions/{id}/turns`
