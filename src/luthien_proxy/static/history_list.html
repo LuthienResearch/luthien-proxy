@@ -377,7 +377,7 @@
             </div>
             <div x-show="loading" class="loading">Loading sessions...</div>
             <div x-show="error" class="error" x-text="error"></div>
-            <div x-show="!loading && sessions.length === 0 && !error" class="empty-state">No sessions found</div>
+            <div x-show="!loading && !hasAnySessions && !error" class="empty-state">No sessions found</div>
             <div 
   x-intersect="!loading && cursor && loadNextPage()"
   x-show="cursor !== null"
@@ -394,7 +394,7 @@
     <script>
         document.addEventListener('alpine:init', () => {
             Alpine.data('sessionsList', () => ({
-                sessions: [],
+                hasAnySessions: false,
                 loading: false,
                 cursor: null,
                 error: null,
@@ -417,16 +417,15 @@
                     this.error = null;
 
                     if (clearList) {
-                        this.sessions = [];
+                        this.hasAnySessions = false;
                         document.getElementById('sessions-list').innerHTML = '';
                     }
 
                     try {
-                        const params = new URLSearchParams({
-                            limit: 20,
-                            filter: this.currentFilter,
-                            q: this.searchQuery
-                        });
+                        const params = new URLSearchParams({ limit: 20, q: this.searchQuery });
+                        if (this.currentFilter && this.currentFilter !== 'all') {
+                            params.append('filter', this.currentFilter);
+                        }
                         if (cursor) {
                             params.append('cursor', cursor);
                         }
@@ -448,9 +447,9 @@
                         this.cursor = sentinel ? sentinel.dataset.cursor : null;
                         if (sentinel) sentinel.remove();
 
-                        // This is a bit of a hack to keep a client-side count, but it's simple.
-                        const newSessions = Array.from(container.querySelectorAll('.session-card')).length - this.sessions.length;
-                        for(let i=0; i<newSessions; i++) this.sessions.push({});
+                        if (container.querySelector('.session-card')) {
+                            this.hasAnySessions = true;
+                        }
 
 
                     } catch (err) {
@@ -476,5 +475,13 @@
         });
     </script>
     <script src="/static/nav.js"></script>
+    <script>
+        document.getElementById('sessions-list').addEventListener('click', function(e) {
+            const card = e.target.closest('[data-href]');
+            if (card) {
+                window.location = card.dataset.href;
+            }
+        });
+    </script>
 </body>
 </html>

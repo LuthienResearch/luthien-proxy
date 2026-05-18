@@ -4,7 +4,7 @@
   <div class="session-card"
        data-session-id="{{ session.session_id }}"
        data-last-ts="{{ session.last_ts }}"
-       onclick="window.location='/conversation/live/{{ session.session_id }}'">
+       data-href="/conversation/live/{{ session.session_id }}">
     <div class="session-main">
       <div class="session-preview">{{ session.preview if session.preview else session.session_id }}</div>
       <div class="session-meta">
