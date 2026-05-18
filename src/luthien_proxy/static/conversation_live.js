@@ -98,8 +98,9 @@ function conversationViewer() {
             try {
                 const resp = await fetch(
                     `/api/history/sessions/${encodeURIComponent(this.conversationId)}`,
-                    { headers: { 'Accept': 'application/json' } }
+                    { headers: { 'Accept': 'application/json' }, redirect: 'manual' }
                 );
+                if (resp.type === 'opaqueredirect') { window.location.href = '/login'; return; }
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
                 const data = await resp.json();
@@ -194,8 +195,9 @@ function conversationViewer() {
             try {
                 const resp = await fetch(
                     `/api/history/sessions/${encodeURIComponent(this.conversationId)}`,
-                    { headers: { 'Accept': 'application/json' } }
+                    { headers: { 'Accept': 'application/json' }, redirect: 'manual' }
                 );
+                if (resp.type === 'opaqueredirect') { window.location.href = '/login'; return; }
                 if (!resp.ok) return;
                 const data = await resp.json();
                 const rawTurns = data.turns || [];

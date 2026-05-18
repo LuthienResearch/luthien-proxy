@@ -22,7 +22,7 @@
   </div>
   {% endfor %}
   {% if next_cursor %}
-  <div class="load-more-sentinel" data-cursor="{{ next_cursor }}" x-intersect="!loading && cursor && loadNextPage()"></div>
+  <div class="load-more-sentinel" data-cursor="{{ next_cursor }}"></div>
   {% endif %}
 </div>
 {% endautoescape %}

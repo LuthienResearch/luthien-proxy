@@ -432,9 +432,14 @@
 
                         const url = `/ui/fragments/sessions?${params.toString()}`;
                         const resp = await fetch(url, {
-                            headers: { 'Accept': 'text/html' }
+                            headers: { 'Accept': 'text/html' },
+                            redirect: 'manual',
                         });
 
+                        if (resp.type === 'opaqueredirect') {
+                            window.location.href = '/login';
+                            return;
+                        }
                         if (!resp.ok) {
                             throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
                         }
