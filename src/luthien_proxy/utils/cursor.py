@@ -21,18 +21,19 @@ def _get_hmac_key() -> bytes:
     return key.encode() if isinstance(key, str) else key
 
 
-def encode_cursor(last_ts: datetime, last_session_id: str) -> str:
+def encode_cursor(last_ts: datetime, last_key: str) -> str:
     """Encode a composite pagination cursor.
 
     Args:
         last_ts: Timestamp of the last item on the current page.
-        last_session_id: Session ID of the last item on the current page.
+        last_key: Opaque tiebreaker for rows sharing the same timestamp
+            (typically session_id or event_id depending on the query).
 
     Returns:
         Opaque base64url-encoded cursor string.
     """
     payload = json.dumps(
-        {"ts": last_ts.isoformat(), "sid": last_session_id},
+        {"ts": last_ts.isoformat(), "sid": last_key},
         separators=(",", ":"),
     ).encode()
 

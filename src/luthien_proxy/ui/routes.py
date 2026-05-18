@@ -6,6 +6,7 @@ Unauthenticated browser requests are redirected to /login.
 
 from __future__ import annotations
 
+import logging
 import os
 from html import escape as html_escape
 from typing import Literal
@@ -17,13 +18,14 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from luthien_proxy.auth import check_auth_or_redirect, get_base_url, verify_admin_token
 from luthien_proxy.dependencies import get_admin_key, get_db_pool, get_event_publisher
-from luthien_proxy.history.service import _fetch_session_turns_page, _fetch_sessions_page
+from luthien_proxy.history.service import fetch_session_turns_page, fetch_sessions_page
 from luthien_proxy.observability.event_publisher import EventPublisherProtocol
 from luthien_proxy.perf.timing_middleware import time_phase
 from luthien_proxy.utils.cursor import decode_cursor
 from luthien_proxy.utils.db import DatabasePool
 
 router = APIRouter(prefix="", tags=["ui"])
+logger = logging.getLogger(__name__)
 
 # Static directory is relative to this module
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
@@ -242,12 +244,13 @@ async def fragment_session_turns(
         try:
             decode_cursor(cursor)
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=f"Invalid cursor: {e}")
+            logger.debug("Rejected invalid turns cursor: %s", e)
+            raise HTTPException(status_code=400, detail="Invalid cursor")
 
     if db_pool is None:
         raise HTTPException(status_code=503, detail="Database not available")
 
-    result = await _fetch_session_turns_page(session_id, cursor, limit, db_pool)
+    result = await fetch_session_turns_page(session_id, cursor, limit, db_pool)
     with time_phase("render"):
         html = _render_turns_fragment(result["turns"], result["next_cursor"])  # type: ignore[arg-type]
     return HTMLResponse(content=html, media_type="text/html; charset=utf-8")
@@ -264,7 +267,7 @@ async def fragment_sessions(
     request: Request,
     limit: int = Query(default=20, ge=1, le=100),
     cursor: str | None = Query(default=None),
-    q: str | None = Query(default=None, max_length=128),
+    q: str | None = Query(default=None),
     quick_filter: Literal["30days", "claude"] | None = Query(default=None, alias="filter"),
     admin_key: str | None = Depends(get_admin_key),
     db_pool: DatabasePool | None = Depends(get_db_pool),
@@ -277,12 +280,13 @@ async def fragment_sessions(
         try:
             decode_cursor(cursor)
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=f"Invalid cursor: {e}")
+            logger.debug("Rejected invalid sessions cursor: %s", e)
+            raise HTTPException(status_code=400, detail="Invalid cursor")
 
     if db_pool is None:
         raise HTTPException(status_code=503, detail="Database not available")
 
-    result = await _fetch_sessions_page(cursor, limit, db_pool, q=q, quick_filter=quick_filter)
+    result = await fetch_sessions_page(cursor, limit, db_pool, q=q, quick_filter=quick_filter)
     with time_phase("render"):
         html = _render_sessions_fragment(result["sessions"], result["next_cursor"])  # type: ignore[arg-type]
     return HTMLResponse(content=html, media_type="text/html; charset=utf-8")

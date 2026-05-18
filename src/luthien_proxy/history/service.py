@@ -1085,12 +1085,17 @@ def _format_message_markdown(msg: ConversationMessage) -> str:
     return "\n".join(lines)
 
 
-async def _fetch_session_turns_page(
+async def fetch_session_turns_page(
     session_id: str,
     cursor_token: str | None,
     limit: int,
     db_pool: DatabasePool,
 ) -> dict[str, object]:
+    """Fetch a cursor-paginated page of raw events for a session.
+
+    Returns a dict with keys ``turns`` (list of event dicts) and
+    ``next_cursor`` (opaque token or None when no further pages exist).
+    """
     cursor_ts = None
     cursor_event_id = None
     if cursor_token is not None:
@@ -1165,13 +1170,22 @@ def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-async def _fetch_sessions_page(
+async def fetch_sessions_page(
     cursor_token: str | None,
     limit: int,
     db_pool: DatabasePool,
     q: str | None = None,
     quick_filter: str | None = None,
 ) -> dict[str, Any]:
+    """Fetch a cursor-paginated page of session summaries.
+
+    Returns a dict with keys ``sessions`` (list of session dicts) and
+    ``next_cursor`` (opaque token or None when no further pages exist).
+
+    Note: ``q`` uses a leading-wildcard LIKE which cannot use a btree index.
+    ``quick_filter='claude'`` scans the full payload column. Both are intended
+    for small deployments; see changelog for the long-term fix path.
+    """
     if q is not None:
         q = q[:_Q_MAX_LEN]
 
@@ -1368,6 +1382,6 @@ __all__ = [
     "fetch_session_detail",
     "export_session_markdown",
     "export_session_jsonl",
-    "_fetch_session_turns_page",
-    "_fetch_sessions_page",
+    "fetch_session_turns_page",
+    "fetch_sessions_page",
 ]
