@@ -22,11 +22,11 @@ function conversationViewer() {
         _rawTurns: [],
         initialLoaded: false,
 
-        init() {
+        async init() {
             const pathParts = window.location.pathname.split('/');
             this.conversationId = decodeURIComponent(pathParts[pathParts.length - 1]);
             this.setupEventDelegation();
-            this.loadInitial();
+            await this.loadInitial();
             this.connectSSE();
             window.addEventListener('beforeunload', () => {
                 if (this.evtSource) this.evtSource.close();
