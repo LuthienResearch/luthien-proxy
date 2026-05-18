@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from luthien_proxy.history.service import fetch_session_list
+from luthien_proxy.history.service import fetch_session_list, fetch_sessions_page
 from luthien_proxy.utils.db import DatabasePool
 from luthien_proxy.utils.db_sqlite import SqliteConnection
 
@@ -925,6 +925,61 @@ class TestFetchSessionListUserFilter:
         # And the table is still queryable.
         all_rows = await fetch_session_list(limit=10, db_pool=sqlite_pool)
         assert len(all_rows.sessions) == 1
+
+
+async def test_fetch_sessions_page_no_duplicates_across_pages(sqlite_pool: DatabasePool) -> None:
+    async with sqlite_pool.connection() as conn:
+        # Session A: events at T=3, T=5, T=8 → real last_ts = T=8
+        # Session C: single event at T=6 → last_ts = T=6
+        # Session B: events at T=1, T=2, T=4 → last_ts = T=4
+        # Page 1 (limit=2) returns A, C. Cursor = (T=6, "sess-C").
+        # A buggy CTE filter on created_at <= T=6 would drop A's T=8 event,
+        # making A's aggregated last_ts = T=5, which passes the outer keyset
+        # predicate (T=5, "sess-A") < (T=6, "sess-C") — causing A to re-appear
+        # on page 2 with wrong stats.
+        for call_id, session_id, ts in [
+            ("call-A1", "sess-A", "2025-01-01T00:00:03"),
+            ("call-A2", "sess-A", "2025-01-01T00:00:05"),
+            ("call-A3", "sess-A", "2025-01-01T00:00:08"),
+            ("call-C1", "sess-C", "2025-01-01T00:00:06"),
+            ("call-B1", "sess-B", "2025-01-01T00:00:01"),
+            ("call-B2", "sess-B", "2025-01-01T00:00:02"),
+            ("call-B3", "sess-B", "2025-01-01T00:00:04"),
+        ]:
+            await conn.execute(
+                "INSERT INTO conversation_calls (call_id, model_name, provider, status, session_id, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                call_id,
+                "claude-3",
+                "anthropic",
+                "completed",
+                session_id,
+                ts,
+            )
+            await conn.execute(
+                "INSERT INTO conversation_events (id, call_id, event_type, payload, session_id, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                f"evt-{call_id}",
+                call_id,
+                "transaction.request_recorded",
+                "{}",
+                session_id,
+                ts,
+            )
+
+    page1 = await fetch_sessions_page(None, 2, sqlite_pool)
+    ids1 = {s["session_id"] for s in page1["sessions"]}
+    assert ids1 == {"sess-A", "sess-C"}
+    assert page1["next_cursor"] is not None
+
+    page2 = await fetch_sessions_page(page1["next_cursor"], 2, sqlite_pool)
+    ids2 = {s["session_id"] for s in page2["sessions"]}
+    assert ids2 == {"sess-B"}
+
+    assert ids1.isdisjoint(ids2), f"Duplicate session_ids across pages: {ids1 & ids2}"
+
+    sess_a = next(s for s in page1["sessions"] if s["session_id"] == "sess-A")
+    assert sess_a["turn_count"] == 3
 
 
 __all__ = []

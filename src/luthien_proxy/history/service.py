@@ -1201,16 +1201,9 @@ async def fetch_sessions_page(
             sqlite_args.append(f"%{_escape_like(q)}%")
             q_filter = "AND session_id LIKE ? ESCAPE '\\'"
 
-        # Push a loose upper-bound on created_at into the CTE so the aggregation
-        # only processes sessions that could appear on this page. The exact keyset
-        # predicate (last_ts, session_id) < (cursor_ts, cursor_sid) is applied
-        # outside the CTE where last_ts is available as a computed column.
-        cte_cursor_filter = ""
         cursor_filter = ""
         if cursor_token is not None:
             cursor_ts, cursor_sid = decode_cursor(cursor_token)
-            sqlite_args.append(cursor_ts.isoformat())
-            cte_cursor_filter = "AND created_at <= ?"
             named_where = cursor_where_clause("sqlite", ts_col="last_ts", sid_col="session_id")
             cursor_filter = f"AND {named_where.replace(':cursor_ts', '?').replace(':cursor_sid', '?')}"
             sqlite_args.extend([cursor_ts.isoformat(), cursor_sid])
@@ -1239,7 +1232,6 @@ async def fetch_sessions_page(
             FROM conversation_events
             WHERE session_id IS NOT NULL
             {q_filter}
-            {cte_cursor_filter}
             GROUP BY session_id
         )
         SELECT session_id, first_ts, last_ts, turn_count, policy_interventions
@@ -1259,14 +1251,9 @@ async def fetch_sessions_page(
             q_idx = len(query_args)
             q_filter = f"AND session_id ILIKE ${q_idx} ESCAPE '\\'"
 
-        # Push a loose upper-bound on created_at into the CTE (same rationale as SQLite branch).
-        cte_cursor_filter = ""
         cursor_filter = ""
         if cursor_token is not None:
             cursor_ts, cursor_sid = decode_cursor(cursor_token)
-            query_args.append(cursor_ts.isoformat())
-            cte_idx = len(query_args)
-            cte_cursor_filter = f"AND created_at <= ${cte_idx}"
             query_args.append(cursor_ts.isoformat())
             ts_idx = len(query_args)
             query_args.append(cursor_sid)
@@ -1293,7 +1280,6 @@ async def fetch_sessions_page(
             FROM conversation_events
             WHERE session_id IS NOT NULL
             {q_filter}
-            {cte_cursor_filter}
             GROUP BY session_id
         )
         SELECT session_id, first_ts, last_ts, turn_count, policy_interventions
