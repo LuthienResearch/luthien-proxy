@@ -1,46 +1,10 @@
 
-let _turnsLoading = false;
+// loadMoreTurns is called from x-intersect on the sentinel element.
+// It delegates to the Alpine component so turnsCursor stays reactive.
 async function loadMoreTurns() {
-    if (_turnsLoading || !window.__turnsCursor) return;
-    _turnsLoading = true;
-    const cursor = window.__turnsCursor;
-    try {
-        window.__turnsCursor = null;
-        const sessionId = window.__sessionId;
-        const url = `/ui/fragments/sessions/${sessionId}/turns?limit=10&cursor=${encodeURIComponent(cursor)}`;
-        const resp = await fetch(url, { headers: { 'Accept': 'text/html' } });
-
-        if (!resp.ok) {
-            throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
-        }
-
-        const html = await resp.text();
-        const container = document.getElementById('conversation-container');
-        const loadMoreEl = document.getElementById('turns-load-more');
-        
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = html;
-        
-        const sentinel = tempDiv.querySelector('.load-more-sentinel[data-cursor]');
-        if (sentinel) {
-            window.__turnsCursor = sentinel.dataset.cursor;
-            sentinel.remove();
-        }
-        
-        if (loadMoreEl) {
-            loadMoreEl.insertAdjacentHTML('beforebegin', tempDiv.innerHTML);
-        } else if (container) {
-            container.insertAdjacentHTML('beforeend', tempDiv.innerHTML);
-        }
-
-        if (window.Alpine) {
-            window.Alpine.initTree(container);
-        }
-    } catch (e) {
-        console.error('Failed to load more turns:', e);
-        if (cursor) window.__turnsCursor = cursor;
-    } finally {
-        _turnsLoading = false;
+    const viewer = Alpine.$data(document.querySelector('[x-data="conversationViewer()"]'));
+    if (viewer) {
+        await viewer._loadMoreTurns();
     }
 }
 
@@ -66,6 +30,8 @@ function conversationViewer() {
         turnFingerprints: {},
         _rawTurns: [],
         initialLoaded: false,
+        turnsCursor: null,
+        _turnsLoading: false,
 
         init() {
             const pathParts = window.location.pathname.split('/');
@@ -139,30 +105,26 @@ function conversationViewer() {
         async loadInitial() {
             const container = document.getElementById('conversation-container');
             if (!container) return;
-            
-            // Set globals for loadMoreTurns
-            window.__sessionId = this.conversationId;
-            window.__turnsCursor = null;
-            
+
+            this.turnsCursor = null;
+
             try {
-                // Fetch first page of turns via fragment endpoint
                 const resp = await fetch(
                     `/ui/fragments/sessions/${encodeURIComponent(this.conversationId)}/turns?limit=10`,
                     { headers: { 'Accept': 'text/html' } }
                 );
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                
+
                 const html = await resp.text();
                 const tempDiv = document.createElement('div');
                 tempDiv.innerHTML = html;
-                
-                // Extract cursor for pagination
+
                 const sentinel = tempDiv.querySelector('.load-more-sentinel[data-cursor]');
                 if (sentinel) {
-                    window.__turnsCursor = sentinel.dataset.cursor;
+                    this.turnsCursor = sentinel.dataset.cursor;
                     sentinel.remove();
                 }
-                
+
                 container.innerHTML = tempDiv.innerHTML;
                 if (window.Alpine) window.Alpine.initTree(container);
             } catch (e) {
@@ -170,6 +132,49 @@ function conversationViewer() {
                 container.innerHTML = '<div class="error-state">Failed to load conversation. Please refresh.</div>';
             } finally {
                 this.initialLoaded = true;
+            }
+        },
+
+        async _loadMoreTurns() {
+            if (this._turnsLoading || !this.turnsCursor) return;
+            this._turnsLoading = true;
+            const cursor = this.turnsCursor;
+            try {
+                this.turnsCursor = null;
+                const url = `/ui/fragments/sessions/${encodeURIComponent(this.conversationId)}/turns?limit=10&cursor=${encodeURIComponent(cursor)}`;
+                const resp = await fetch(url, { headers: { 'Accept': 'text/html' } });
+
+                if (!resp.ok) {
+                    throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+                }
+
+                const html = await resp.text();
+                const container = document.getElementById('conversation-container');
+                const loadMoreEl = document.getElementById('turns-load-more');
+
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = html;
+
+                const sentinel = tempDiv.querySelector('.load-more-sentinel[data-cursor]');
+                if (sentinel) {
+                    this.turnsCursor = sentinel.dataset.cursor;
+                    sentinel.remove();
+                }
+
+                if (loadMoreEl) {
+                    loadMoreEl.insertAdjacentHTML('beforebegin', tempDiv.innerHTML);
+                } else if (container) {
+                    container.insertAdjacentHTML('beforeend', tempDiv.innerHTML);
+                }
+
+                if (window.Alpine) {
+                    window.Alpine.initTree(container);
+                }
+            } catch (e) {
+                console.error('Failed to load more turns:', e);
+                if (cursor) this.turnsCursor = cursor;
+            } finally {
+                this._turnsLoading = false;
             }
         },
 
