@@ -1,4 +1,6 @@
 
+const MAX_RAW_EVENTS_PER_CALL = 50;
+
 function escapeHtml(str) {
     if (str === null || str === undefined) return '';
     const div = document.createElement('div');
@@ -164,9 +166,8 @@ function conversationViewer() {
                 this.rawEvents[callId] = [];
             }
 
-            const MAX_RAW_EVENTS = 50;
             const bucket = this.rawEvents[callId];
-            if (bucket.length >= MAX_RAW_EVENTS) {
+            if (bucket.length >= MAX_RAW_EVENTS_PER_CALL) {
                 bucket.shift();
             }
             bucket.push({
