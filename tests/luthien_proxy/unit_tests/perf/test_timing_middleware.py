@@ -132,6 +132,22 @@ async def test_concurrent_isolation():
     assert "phase-b" in header_b
 
 
+@pytest.mark.asyncio
+async def test_monitored_path_with_zero_phases_omits_header():
+    app = FastAPI()
+    app.add_middleware(ServerTimingMiddleware)
+
+    @app.get("/api/history/sessions")
+    async def endpoint():
+        return {"ok": True}
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/history/sessions")
+    assert response.status_code == 200
+    assert "Server-Timing" not in response.headers
+
+
 def test_time_phase_outside_request_context_does_not_raise():
     with time_phase("orphan"):
         pass
