@@ -17,7 +17,6 @@ from fastapi.responses import FileResponse, PlainTextResponse
 
 from luthien_proxy.auth import check_auth_or_redirect, verify_admin_token
 from luthien_proxy.dependencies import get_admin_key, get_db_pool
-from luthien_proxy.perf.timing_middleware import time_phase
 from luthien_proxy.utils.constants import (
     HISTORY_SESSIONS_DEFAULT_LIMIT,
     HISTORY_SESSIONS_MAX_LIMIT,
@@ -87,11 +86,7 @@ async def list_sessions(
     including turn counts, policy interventions, and models used.
     Supports pagination via limit and offset parameters.
     """
-    result = await fetch_session_list(limit, db_pool, offset, user_id=user_id)
-    with time_phase("serialize"):
-        # Trigger model serialization for Server-Timing measurement
-        result.model_dump()
-    return result
+    return await fetch_session_list(limit, db_pool, offset, user_id=user_id)
 
 
 @api_router.get("/sessions/{session_id}", response_model=SessionDetail)
@@ -106,11 +101,7 @@ async def get_session(
     including all messages, tool calls, and policy annotations.
     """
     try:
-        result = await fetch_session_detail(session_id, db_pool)
-        with time_phase("serialize"):
-            # Trigger model serialization for Server-Timing measurement
-            result.model_dump()
-        return result
+        return await fetch_session_detail(session_id, db_pool)
     except ValueError as e:
         logger.warning(f"Session not found: {repr(e)}")
         raise HTTPException(status_code=404, detail="Session not found.") from None

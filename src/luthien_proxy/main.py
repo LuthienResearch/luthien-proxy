@@ -719,6 +719,11 @@ def auto_provision_defaults() -> dict[str, str]:
         os.environ["ADMIN_API_KEY"] = value
         provisioned["ADMIN_API_KEY"] = value
 
+    if not os.environ.get("CURSOR_HMAC_KEY"):
+        value = secrets.token_urlsafe(32)
+        os.environ["CURSOR_HMAC_KEY"] = value
+        provisioned["CURSOR_HMAC_KEY"] = value
+
     if not os.environ.get("POLICY_CONFIG"):
         value = "config/railway_policy_config.yaml" if on_railway else "config/policy_config.yaml"
         os.environ["POLICY_CONFIG"] = value
