@@ -10,3 +10,4 @@ pr: 752
   - Debounced server-side filter on `/history` to reduce query load
   - New fragment endpoints: `/ui/fragments/sessions`, `/ui/fragments/sessions/{id}/turns`
   - **Known limitation**: `filter=claude` uses a full-table payload scan (`payload LIKE '%claude-code%'`) with no index. It is correct for small deployments but will be slow on large Postgres instances. A structured `client_type` column or trigram index is the long-term fix.
+  - **Known limitation**: session-ID search (`q=`) uses a leading-wildcard `LIKE '%q%'` which cannot use a btree index. Intended for small deployments; a trigram index or prefix-only match is the long-term fix.
