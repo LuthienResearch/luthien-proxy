@@ -1170,7 +1170,7 @@ async def _fetch_sessions_page(
     limit: int,
     db_pool: DatabasePool,
     q: str | None = None,
-    filter: str | None = None,
+    quick_filter: str | None = None,
 ) -> dict[str, Any]:
     if q is not None:
         q = q[:_Q_MAX_LEN]
@@ -1191,9 +1191,9 @@ async def _fetch_sessions_page(
             sqlite_args.extend([cursor_ts.isoformat(), cursor_sid])
 
         filter_clause = ""
-        if filter == "30days":
+        if quick_filter == "30days":
             filter_clause = "AND last_ts >= datetime('now', '-30 days')"
-        elif filter == "claude":
+        elif quick_filter == "claude":
             filter_clause = "AND session_id IN (SELECT DISTINCT session_id FROM conversation_events WHERE payload LIKE '%claude-code%')"
 
         sqlite_args.append(limit + 1)
@@ -1243,9 +1243,9 @@ async def _fetch_sessions_page(
             cursor_filter = f"AND (last_ts, session_id) < (${ts_idx}, ${sid_idx})"
 
         filter_clause = ""
-        if filter == "30days":
+        if quick_filter == "30days":
             filter_clause = "AND last_ts >= NOW() - INTERVAL '30 days'"
-        elif filter == "claude":
+        elif quick_filter == "claude":
             filter_clause = "AND session_id IN (SELECT DISTINCT session_id FROM conversation_events WHERE payload::text ILIKE '%claude-code%')"
 
         sessions_query = f"""
