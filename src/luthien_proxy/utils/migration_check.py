@@ -144,7 +144,8 @@ async def apply_sqlite_migrations(
             # ILIKE, NOW(), ::type, LEAST, to_timestamp, or $N placeholders).
             # A startup-time audit of migrations/sqlite/*.sql enforces this
             # (see tests/.../test_sqlite_migrations_are_native.py).
-            assert isinstance(conn, SqliteConnection), "apply_sqlite_migrations called on non-sqlite pool"
+            if not isinstance(conn, SqliteConnection):
+                raise TypeError(f"apply_sqlite_migrations requires a SqliteConnection, got {type(conn).__name__}")
             sql = mf.read_text()
             await conn.executescript(sql)
 

@@ -161,7 +161,7 @@ if [[ -z "$_db_url" ]]; then
     exit 1
 fi
 
-if [[ "$_db_url" == *"local.db"* ]]; then
+if [[ "$(basename "${_db_url##*:///}")" == "local.db" ]]; then
     fail "ISOLATION REFUSED: DATABASE_URL points to the dev database (local.db)."
     fail "  This script refuses to run against local.db to prevent data pollution."
     fail "  DATABASE_URL=$_db_url"

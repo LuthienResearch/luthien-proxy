@@ -30,10 +30,16 @@ def get_perf_db_url(backend: Literal["sqlite", "postgres"]) -> str:
     base_url = os.environ.get("DATABASE_URL", "")
     if not base_url:
         raise RuntimeError("DATABASE_URL environment variable is required for postgres backend")
+    # Detect an existing options= parameter to avoid a duplicate that would
+    # silently shadow our search_path override (Postgres uses last-value-wins).
+    if "options=" in base_url:
+        raise RuntimeError(
+            "DATABASE_URL already contains an 'options=' parameter. "
+            "Appending a second options=-csearch_path=perf_test would produce a duplicate "
+            "and Postgres would silently ignore one of them. "
+            "Remove the existing 'options=' from DATABASE_URL before using the postgres perf backend."
+        )
     separator = "&" if "?" in base_url else "?"
-    # TODO: if DATABASE_URL already contains options=, this produces a duplicate
-    # parameter and Postgres will silently use only the last one. Parse + merge
-    # when adding full Postgres support.
     return f"{base_url}{separator}options=-csearch_path=perf_test"
 
 

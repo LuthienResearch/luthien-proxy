@@ -336,6 +336,9 @@ def seed_sami_like(backend: Literal["sqlite", "postgres"]) -> SeedingReport:
     prefix = "perf-seed-sami-"
     big_session_id = f"{prefix}442msg"
 
+    if backend == "sqlite":
+        _assert_no_existing_rows(_sqlite_path(url), prefix)
+
     rng = random.Random(_DETERMINISTIC_RNG_SEED)
     other_plan: list[tuple[str, int]] = [(f"{prefix}{i:03d}", rng.randint(1, 187)) for i in range(77)]
     plan = [(big_session_id, 442)] + other_plan
