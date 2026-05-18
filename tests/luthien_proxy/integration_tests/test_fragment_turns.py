@@ -132,7 +132,7 @@ async def test_fragment_turns_unauthenticated(gateway_url):
     async with httpx.AsyncClient(base_url=gateway_url, follow_redirects=False) as client:
         resp = await client.get(f"/ui/fragments/sessions/{_SESSION_ID}/turns")
 
-    assert resp.status_code in (200, 303, 401, 403)
+    assert resp.status_code == 303
 
 
 async def test_fragment_turns_bad_cursor_returns_400(gateway_url, auth_headers):
