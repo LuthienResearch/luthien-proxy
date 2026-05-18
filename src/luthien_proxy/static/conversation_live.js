@@ -1,13 +1,4 @@
 
-// loadMoreTurns is called from x-intersect on the sentinel element.
-// It delegates to the Alpine component so turnsCursor stays reactive.
-async function loadMoreTurns() {
-    const viewer = Alpine.$data(document.querySelector('[x-data="conversationViewer()"]'));
-    if (viewer) {
-        await viewer._loadMoreTurns();
-    }
-}
-
 function escapeHtml(str) {
     if (str === null || str === undefined) return '';
     const div = document.createElement('div');
@@ -30,8 +21,6 @@ function conversationViewer() {
         turnFingerprints: {},
         _rawTurns: [],
         initialLoaded: false,
-        turnsCursor: null,
-        _turnsLoading: false,
 
         init() {
             const pathParts = window.location.pathname.split('/');
@@ -106,75 +95,23 @@ function conversationViewer() {
             const container = document.getElementById('conversation-container');
             if (!container) return;
 
-            this.turnsCursor = null;
-
             try {
                 const resp = await fetch(
-                    `/ui/fragments/sessions/${encodeURIComponent(this.conversationId)}/turns?limit=10`,
-                    { headers: { 'Accept': 'text/html' } }
+                    `/api/history/sessions/${encodeURIComponent(this.conversationId)}`,
+                    { headers: { 'Accept': 'application/json' } }
                 );
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
-                const html = await resp.text();
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = html;
-
-                const sentinel = tempDiv.querySelector('.load-more-sentinel[data-cursor]');
-                if (sentinel) {
-                    this.turnsCursor = sentinel.dataset.cursor;
-                    sentinel.remove();
-                }
-
-                container.innerHTML = tempDiv.innerHTML;
-                if (window.Alpine) window.Alpine.initTree(container);
+                const data = await resp.json();
+                this.processTurns(data);
+                this.updateStats(data);
+                this.updateTimestamp();
+                this.renderTurns();
             } catch (e) {
                 console.error('Failed to load initial turns:', e);
                 container.innerHTML = '<div class="error-state">Failed to load conversation. Please refresh.</div>';
             } finally {
                 this.initialLoaded = true;
-            }
-        },
-
-        async _loadMoreTurns() {
-            if (this._turnsLoading || !this.turnsCursor) return;
-            this._turnsLoading = true;
-            const cursor = this.turnsCursor;
-            try {
-                this.turnsCursor = null;
-                const url = `/ui/fragments/sessions/${encodeURIComponent(this.conversationId)}/turns?limit=10&cursor=${encodeURIComponent(cursor)}`;
-                const resp = await fetch(url, { headers: { 'Accept': 'text/html' } });
-
-                if (!resp.ok) {
-                    throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
-                }
-
-                const html = await resp.text();
-                const container = document.getElementById('conversation-container');
-                const loadMoreEl = document.getElementById('turns-load-more');
-
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = html;
-
-                const sentinel = tempDiv.querySelector('.load-more-sentinel[data-cursor]');
-                if (sentinel) {
-                    this.turnsCursor = sentinel.dataset.cursor;
-                    sentinel.remove();
-                }
-
-                if (loadMoreEl) {
-                    loadMoreEl.insertAdjacentHTML('beforebegin', tempDiv.innerHTML);
-                } else if (container) {
-                    container.insertAdjacentHTML('beforeend', tempDiv.innerHTML);
-                }
-
-                if (window.Alpine) {
-                    window.Alpine.initTree(container);
-                }
-            } catch (e) {
-                console.error('Failed to load more turns:', e);
-                if (cursor) this.turnsCursor = cursor;
-            } finally {
-                this._turnsLoading = false;
             }
         },
 
