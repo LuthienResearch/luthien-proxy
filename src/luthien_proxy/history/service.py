@@ -1176,6 +1176,7 @@ async def fetch_sessions_page(
     db_pool: DatabasePool,
     q: str | None = None,
     quick_filter: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """Fetch a cursor-paginated page of session summaries.
 
@@ -1186,10 +1187,15 @@ async def fetch_sessions_page(
     ``quick_filter='claude'`` scans the full payload column. Both are intended
     for small deployments; see changelog for the long-term fix path.
 
-    Note: unlike ``fetch_session_list``, this function has no ``user_id``
-    scoping. It is admin-only today; add per-user filtering before exposing
-    it to non-admin callers.
+    ``user_id`` is accepted for API symmetry with ``fetch_session_list`` but
+    is not yet applied — this endpoint is admin-only. Add per-user scoping
+    here before exposing it to non-admin callers.
     """
+    if user_id is not None:
+        raise NotImplementedError(
+            "fetch_sessions_page does not yet support user_id scoping. "
+            "Do not expose this endpoint to non-admin callers."
+        )
     if q is not None:
         q = q[:_Q_MAX_LEN]
 
@@ -1210,7 +1216,7 @@ async def fetch_sessions_page(
 
         filter_clause = ""
         if quick_filter == "30days":
-            filter_clause = "AND last_ts >= datetime('now', '-30 days')"
+            filter_clause = "AND datetime(last_ts) >= datetime('now', '-30 days')"
         elif quick_filter == "claude":
             filter_clause = "AND session_id IN (SELECT DISTINCT session_id FROM conversation_events WHERE payload LIKE '%claude-code%')"
 
