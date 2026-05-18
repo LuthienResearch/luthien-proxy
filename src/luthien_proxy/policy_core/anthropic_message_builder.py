@@ -24,8 +24,11 @@ Other invariants the builder owns:
 - The judge-unavailable warning and the consolidated blocked-tool marker
   emit at `finalize()` in the pre-tool slot, so they can never violate the
   trailing-tool_use invariant regardless of when they were noted.
-- `stop_reason` is rewritten at `finalize()` / `to_anthropic_response()`
-  to match whether any tool_use was actually emitted.
+- `stop_reason` is corrected at `finalize()` / `to_anthropic_response()`
+  *only* when upstream is known wrong given what we emitted: a
+  `tool_use` reason with no buffered tool becomes `end_turn`. Every
+  other reason (`max_tokens`, `stop_sequence`, `refusal`, etc.) is
+  preserved — clients depend on those signals.
 """
 
 from __future__ import annotations
@@ -434,13 +437,14 @@ class AnthropicMessageBuilder:
         for tool in s.buffered_tools:
             events.extend(self._emit_tool_now(tool))
 
-        # Adjust stop_reason based on what was actually emitted.
-        any_tool = bool(s.buffered_tools)
-        expected_stop = "tool_use" if any_tool else "end_turn"
-        if message_delta.delta.stop_reason != expected_stop:
+        # Conservative stop_reason correction: only rewrite when upstream is
+        # known wrong given what we actually emitted. Preserve max_tokens,
+        # stop_sequence, refusal, pause_turn, and anything else — clients
+        # depend on those signals.
+        if message_delta.delta.stop_reason == "tool_use" and not s.buffered_tools:
             message_delta = RawMessageDeltaEvent.model_construct(
                 type="message_delta",
-                delta=message_delta.delta.model_copy(update={"stop_reason": expected_stop}),
+                delta=message_delta.delta.model_copy(update={"stop_reason": "end_turn"}),
                 usage=message_delta.usage,
             )
 
@@ -491,11 +495,14 @@ class AnthropicMessageBuilder:
         if not new_content and s.pending_fallback_text is not None:
             new_content.append({"type": "text", "text": s.pending_fallback_text})
 
-        expected_stop = "tool_use" if s.buffered_tools else "end_turn"
-
+        # Conservative stop_reason correction (see finalize() for rationale):
+        # only rewrite the one upstream value known to be wrong given what we
+        # emitted. Preserve everything else.
         modified = cast("AnthropicResponse", dict(template))
         modified["content"] = new_content
-        modified["stop_reason"] = expected_stop
+        upstream_stop = modified.get("stop_reason")
+        if upstream_stop == "tool_use" and not s.buffered_tools:
+            modified["stop_reason"] = "end_turn"
         return modified
 
     # ------------------------------------------------------------------
