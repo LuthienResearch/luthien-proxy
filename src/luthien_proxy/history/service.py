@@ -1256,7 +1256,7 @@ async def fetch_sessions_page(
         cursor_filter = ""
         if cursor_token is not None:
             cursor_ts, cursor_sid = decode_cursor(cursor_token)
-            query_args.append(cursor_ts.isoformat())
+            query_args.append(cursor_ts)
             ts_idx = len(query_args)
             query_args.append(cursor_sid)
             sid_idx = len(query_args)
@@ -1348,8 +1348,7 @@ async def fetch_sessions_page(
             for pr in preview_rows:
                 sid = str(pr["session_id"])
                 if sid not in previews:
-                    raw = _extract_preview_message(cast(_PreviewPayload, pr["payload"]))
-                    previews[sid] = (raw or "")[:100]
+                    previews[sid] = _extract_preview_message(cast(_PreviewPayload, pr["payload"])) or ""
 
             models_by_session: dict[str, list[str]] = {}
             for mr in model_rows:

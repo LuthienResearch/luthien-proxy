@@ -178,8 +178,6 @@ function conversationViewer() {
                 data: event
             });
 
-            this.stats.events++;
-
             const shouldRefresh = eventType.includes('request_recorded') ||
                                 eventType.includes('response_recorded') ||
                                 eventType.includes('policy.');
