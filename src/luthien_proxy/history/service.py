@@ -1117,7 +1117,10 @@ async def fetch_session_turns_page(
                 )
             else:
                 assert cursor_event_id is not None
-                cursor_id_param: str | _UUID = _UUID(cursor_event_id) if not db_pool.is_sqlite else cursor_event_id
+                try:
+                    cursor_id_param: str | _UUID = _UUID(cursor_event_id)
+                except ValueError as exc:
+                    raise ValueError(f"Invalid cursor: event id is not a valid UUID: {exc}") from exc
                 rows = await conn.fetch(
                     """
                     SELECT id, event_type, payload, created_at

@@ -400,13 +400,19 @@
                 error: null,
                 currentFilter: 'all',
                 searchQuery: '',
+                _pendingLoad: null,
 
                 init() {
                     this.loadPage(null, true);
 
                     this.$watch('searchQuery', (newValue, oldValue) => {
                         if (newValue !== oldValue) {
-                            this.loadPage(null, true);
+                            this._pendingLoad = { cursor: null, clearList: true };
+                            if (!this.loading) {
+                                const pending = this._pendingLoad;
+                                this._pendingLoad = null;
+                                this.loadPage(pending.cursor, pending.clearList);
+                            }
                         }
                     });
                 },
@@ -461,6 +467,11 @@
                         this.error = `Failed to load sessions: ${err.message}`;
                     } finally {
                         this.loading = false;
+                        if (this._pendingLoad) {
+                            const pending = this._pendingLoad;
+                            this._pendingLoad = null;
+                            this.loadPage(pending.cursor, pending.clearList);
+                        }
                     }
                 },
 
@@ -473,7 +484,12 @@
                 applyQuickFilter(filter) {
                     if (this.currentFilter !== filter) {
                         this.currentFilter = filter;
-                        this.loadPage(null, true);
+                        this._pendingLoad = { cursor: null, clearList: true };
+                        if (!this.loading) {
+                            const pending = this._pendingLoad;
+                            this._pendingLoad = null;
+                            this.loadPage(pending.cursor, pending.clearList);
+                        }
                     }
                 }
             }));

@@ -250,7 +250,11 @@ async def fragment_session_turns(
     if db_pool is None:
         raise HTTPException(status_code=503, detail="Database not available")
 
-    result = await fetch_session_turns_page(session_id, cursor, limit, db_pool)
+    try:
+        result = await fetch_session_turns_page(session_id, cursor, limit, db_pool)
+    except ValueError as e:
+        logger.debug("Invalid cursor in fetch_session_turns_page: %s", e)
+        raise HTTPException(status_code=400, detail="Invalid cursor")
     with time_phase("render"):
         html = _render_turns_fragment(result["turns"], result["next_cursor"])  # type: ignore[arg-type]
     return HTMLResponse(content=html, media_type="text/html; charset=utf-8")

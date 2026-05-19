@@ -340,12 +340,13 @@ function conversationViewer() {
 
         snapshotExpandState() {
             const state = { visible: [], expanded: [], open: [] };
-            document.querySelectorAll('.visible[id]').forEach(el => state.visible.push(el.id));
-            document.querySelectorAll('.expanded[id]').forEach(el => state.expanded.push(el.id));
-            document.querySelectorAll('.open[data-event-timeline]').forEach(el => {
+            const container = document.getElementById('conversation-container') || document;
+            container.querySelectorAll('.visible[id]').forEach(el => state.visible.push(el.id));
+            container.querySelectorAll('.expanded[id]').forEach(el => state.expanded.push(el.id));
+            container.querySelectorAll('.open[data-event-timeline]').forEach(el => {
                 state.open.push(el.getAttribute('data-event-timeline'));
             });
-            document.querySelectorAll('.open[data-diff-toggle]').forEach(el => {
+            container.querySelectorAll('.open[data-diff-toggle]').forEach(el => {
                 state.open.push('diff:' + el.getAttribute('data-diff-toggle'));
             });
             return state;
