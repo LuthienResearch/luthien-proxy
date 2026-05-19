@@ -58,7 +58,7 @@ if ! curl -sS -m 2 "http://localhost:${PORT}/ready" >/dev/null 2>&1; then
         > .e2e-logs/gateway.log 2>&1 &
     echo "    pid=$!"
     # uv may need to install deps on first run; wait generously.
-    for i in $(seq 1 120); do
+    for _ in $(seq 1 120); do
         if curl -sS -m 1 "http://localhost:${PORT}/ready" >/dev/null 2>&1; then
             break
         fi
