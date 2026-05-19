@@ -23,6 +23,7 @@ def _get_hmac_key() -> bytes:
 
 
 def encode_cursor(last_ts: datetime, last_key: str, kind: CursorKind) -> str:
+    """Encode a composite pagination cursor scoped to the given endpoint kind."""
     payload = json.dumps(
         {"ts": last_ts.isoformat(), "sid": last_key, "kind": kind},
         separators=(",", ":"),
