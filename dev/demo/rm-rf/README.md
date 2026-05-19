@@ -4,8 +4,8 @@ A self-contained, deterministic demo: a client (Claude Code or Cowork) talks
 to the Luthien gateway. The fabricating policy
 (`DemoForceBashRmRfPolicy`) replaces every upstream Claude response with a
 hand-crafted `bash` tool_use for `rm -rf <workspace>/data`. Paired with
-`BlockDangerousCommandsPolicy` (the `succeed` state) Luthien blocks it. On its
-own (the `fail` state) the destructive call reaches the client and — if the
+`BlockDangerousCommandsPolicy` (the `block` state) Luthien blocks it. On its
+own (the `dontblock` state) the destructive call reaches the client and — if the
 client auto-approves the tool call — actually runs.
 
 The story works whether or not the model would have produced the destructive
@@ -24,8 +24,8 @@ call on its own. The fabricator makes the demo deterministic.
 ## Running it
 
 ```bash
-./scripts/demo_setup.sh rm-rf                       # succeed + claude-code (default)
-./scripts/demo_setup.sh rm-rf succeed cowork        # succeed on Cowork
+./scripts/demo_setup.sh rm-rf                       # block + claude-code (default)
+./scripts/demo_setup.sh rm-rf block cowork          # block on Cowork
 ```
 
 Point the client at `http://localhost:8000`, open `~/luthien-demo/rm-rf/` as
@@ -33,11 +33,11 @@ the working directory, and ask:
 
 > Read `team-feedback.md` and act on the feedback.
 
-In `succeed` state the user sees:
+In `block` state the user sees:
 
 > `[BLOCKED] Dangerous command detected: rm -rf. This command was blocked by the safety policy.`
 
-In `fail` state the client receives the fabricated tool_use (tool name varies
+In `dontblock` state the client receives the fabricated tool_use (tool name varies
 per surface — see below) and, if approved, executes it.
 
 ## Surfaces
@@ -59,10 +59,10 @@ README](../README.md#pointing-a-client-at-the-gateway).
 
 Cowork's shell runs in an isolated VM with paths remapped (host
 `~/luthien-demo/...` is mounted at `/sessions/<id>/mnt/...`). The fabricated
-`rm -rf ~/luthien-demo/rm-rf/data` won't actually delete anything in `fail`
-state on Cowork unless you connect that folder so it's mounted into the VM,
-and even then the path inside the VM differs. The block in `succeed` state
-still works because `BlockDangerousCommandsPolicy` decides based on the
+`rm -rf ~/luthien-demo/rm-rf/data` won't actually delete anything in
+`dontblock` state on Cowork unless you connect that folder so it's mounted
+into the VM, and even then the path inside the VM differs. The block in
+`block` state still works because `BlockDangerousCommandsPolicy` decides on the
 command string, not whether the path resolves.
 
 ## Narration
@@ -98,5 +98,5 @@ pkill -f "luthien_proxy.main --local"       # stop the gateway
   on port 8000, the one already bound wins — `lsof -i :8000` to inspect.
 - **Streaming vs non-streaming.** The fabricator handles both; verified via
   curl in both modes. If you see issues, check `.e2e-logs/gateway.log`.
-- **Tool-name mismatch.** If `fail` mode produces "tool not found" in the
+- **Tool-name mismatch.** If `dontblock` mode produces "tool not found" in the
   client, your surface arg doesn't match the client you're using.

@@ -5,12 +5,12 @@
 # Usage:
 #   ./scripts/demo_toggle.sh [demo] [state] [surface]
 #
-# Defaults: demo=rm-rf, state=succeed, surface=claude-code.
+# Defaults: demo=rm-rf, state=block, surface=claude-code.
 #
 # State semantics (derived by the harness from each demo's manifest):
-#   succeed — MultiSerialPolicy([fabricator, protector]). Luthien blocks.
-#   fail    — fabricator alone. The fabricated bad action reaches the client.
-#   off     — NoOpPolicy. Pass-through, no demo behavior.
+#   block      — MultiSerialPolicy([fabricator, protector]). Luthien blocks.
+#   dontblock  — fabricator alone. The fabricated bad action reaches the client.
+#   off        — NoOpPolicy. Pass-through, no demo behavior.
 #
 # Surface determines which client-side tool name the fabricator claims to be
 # producing. Must be one of the surfaces the demo declares.
@@ -27,7 +27,7 @@ if [[ "${1:-}" == "--list" ]]; then
 fi
 
 DEMO="${1:-rm-rf}"
-STATE="${2:-succeed}"
+STATE="${2:-block}"
 SURFACE="${3:-claude-code}"
 PORT="${GATEWAY_PORT:-8000}"
 

@@ -4,7 +4,7 @@
 # ABOUTME: gateway, and sets the active policy. Safe to re-run.
 #
 # Usage: ./scripts/demo_setup.sh [demo] [state] [surface]
-#   Defaults: demo=rm-rf, state=succeed, surface=claude-code.
+#   Defaults: demo=rm-rf, state=block, surface=claude-code.
 #   List demos:  ./scripts/demo_setup.sh --list
 #
 # Prereqs:
@@ -23,7 +23,7 @@ if [[ "${1:-}" == "--list" ]]; then
 fi
 
 DEMO="${1:-rm-rf}"
-STATE="${2:-succeed}"
+STATE="${2:-block}"
 SURFACE="${3:-claude-code}"
 PORT="${GATEWAY_PORT:-8000}"
 
@@ -86,9 +86,9 @@ Demo-specific guidance lives in:
     dev/demo/${DEMO}/README.md
 
 Switch state during the demo (keeping demo=${DEMO}, surface=${SURFACE}):
-    ./scripts/demo_toggle.sh ${DEMO} succeed ${SURFACE}   # Luthien blocks
-    ./scripts/demo_toggle.sh ${DEMO} fail    ${SURFACE}   # destructive call reaches client
-    ./scripts/demo_toggle.sh ${DEMO} off                  # NoOp passthrough
+    ./scripts/demo_toggle.sh ${DEMO} block     ${SURFACE}   # Luthien blocks
+    ./scripts/demo_toggle.sh ${DEMO} dontblock ${SURFACE}   # destructive call reaches client
+    ./scripts/demo_toggle.sh ${DEMO} off                    # NoOp passthrough
 
 Reset the workspace between rehearsals:
     ./scripts/demo_reset.sh ${DEMO}

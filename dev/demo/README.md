@@ -12,8 +12,8 @@ the demo name as the first arg (defaulting to `rm-rf` for convenience):
 
 | State | What the active policy is |
 |---|---|
-| `succeed` | `MultiSerialPolicy([fabricator, protector])` — Luthien blocks the bad action. |
-| `fail` | `fabricator` alone — the bad action reaches the client. |
+| `block` | `MultiSerialPolicy([fabricator, protector])` — Luthien blocks the bad action. |
+| `dontblock` | `fabricator` alone — the bad action reaches the client. |
 | `off` | `NoOpPolicy` — passthrough. |
 
 | Surface | Tool-name namespace the fabricator targets |
@@ -55,7 +55,7 @@ A demo is a self-contained directory under `dev/demo/<name>/` with three things:
    client, what the audience should see, surface-specific caveats.
 
 The harness reads the manifest and derives the three policy chains
-(`succeed` / `fail` / `off`) from it. You don't write any shell.
+(`block` / `dontblock` / `off`) from it. You don't write any shell.
 
 ## Steps
 
@@ -139,7 +139,7 @@ model was tricked when it wasn't).
   determinism. The fabricator should produce the same bad action regardless
   of what the user typed.
 - **Don't bundle the protector into the fabricator.** Keep them separable so
-  you can run `fail` state to show the unprotected baseline.
+  you can run `dontblock` state to show the unprotected baseline.
 - **Don't hardcode surface-specific strings in the policy class.** Tool names,
   MCP namespaces, paths — pass them in via config. One class, many
   surfaces.
@@ -240,8 +240,8 @@ Cowork's bash runs in a Linux VM, not on your host. Files you Read/Write/Edit
 through Cowork's file tools live at the host path you connected, but
 `mcp__workspace__bash` sees them at the VM path
 (`/sessions/<id>/mnt/<demo>/...`). A fabricated `rm -rf ~/luthien-demo/...`
-won't resolve in the VM and won't actually delete host files in `fail` state.
-The block in `succeed` state still demos correctly because
+won't resolve in the VM and won't actually delete host files in `dontblock` state.
+The block in `block` state still demos correctly because
 `BlockDangerousCommandsPolicy` judges the command string, not whether the
 path resolves.
 

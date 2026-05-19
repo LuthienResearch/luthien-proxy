@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # ABOUTME: Wipe and re-clone a named demo's workspace from its template.
-# ABOUTME: Use between rehearsals (especially after running in `fail` state).
+# ABOUTME: Use between rehearsals (especially after running in `dontblock` state).
 #
 # Usage: ./scripts/demo_reset.sh [demo]
 #   Default demo: rm-rf
 #
-# Honors DEMO_DIR env var to override the destination (otherwise read from
-# the demo's manifest).
+# The workspace path comes from the demo's manifest. It's validated to
+# contain `luthien-demo` and not be `/`, $HOME, or empty — so a broken
+# manifest can't `rm -rf` the wrong directory.
 
 set -euo pipefail
 
@@ -19,7 +20,7 @@ fi
 
 DEMO="${1:-rm-rf}"
 TEMPLATE_DIR=$(python3 scripts/_demo_manifest.py template-dir "${DEMO}")
-DEMO_DIR="${DEMO_DIR:-$(python3 scripts/_demo_manifest.py demo-dir "${DEMO}")}"
+DEMO_DIR=$(python3 scripts/_demo_manifest.py demo-dir "${DEMO}")
 
 if [[ ! -d "${TEMPLATE_DIR}" ]]; then
     echo "ERROR: template not found at ${TEMPLATE_DIR}" >&2

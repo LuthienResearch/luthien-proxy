@@ -30,6 +30,31 @@ def _die(msg: str) -> NoReturn:
     sys.exit(1)
 
 
+def _safe_demo_dir(demo: str, raw: str | None) -> str:
+    """Resolve and validate a demo's workspace path.
+
+    The harness `rm -rf`s this path on every setup/reset, so we refuse
+    anything that would clobber $HOME or the filesystem root. Required:
+    absolute path, contains the literal segment `luthien-demo`, not equal
+    to `/` or `$HOME`.
+    """
+    path = os.path.expanduser(raw or f"~/luthien-demo/{demo}")
+    if not path or not path.strip():
+        _die(f"demo_dir resolved to empty string for demo '{demo}'.")
+    if not os.path.isabs(path):
+        _die(f"demo_dir must be an absolute path; got '{path}' for demo '{demo}'.")
+    norm = path.rstrip("/") or "/"
+    home = os.path.expanduser("~").rstrip("/")
+    if norm in ("/", home):
+        _die(f"demo_dir '{path}' is filesystem root or $HOME; refusing.")
+    if "luthien-demo" not in norm:
+        _die(
+            f"demo_dir '{path}' must contain the literal segment 'luthien-demo' "
+            f"as a safety guard against accidental `rm -rf` on the wrong directory."
+        )
+    return path
+
+
 def _load(demo: str) -> dict[str, Any]:
     path = DEMOS_DIR / demo / "demo.toml"
     if not path.exists():
@@ -56,10 +81,10 @@ def _payload(manifest: dict[str, Any], state: str, surface: str) -> dict[str, An
     fab = _fabricator(manifest, surface)
     fab_entry = {"class": fab["class"], "config": fab.get("config", {})}
 
-    if state == "fail":
+    if state == "dontblock":
         return {"policy_class_ref": fab["class"], "config": fab.get("config", {})}
 
-    if state == "succeed":
+    if state == "block":
         protector = manifest.get("protector")
         if not protector or "class" not in protector:
             _die(f"demo '{manifest['name']}' is missing a [protector] section with `class`.")
@@ -69,7 +94,7 @@ def _payload(manifest: dict[str, Any], state: str, surface: str) -> dict[str, An
             "config": {"policies": [fab_entry, prot_entry]},
         }
 
-    _die(f"unknown state '{state}' (expected succeed|fail|off)")
+    _die(f"unknown state '{state}' (expected block|dontblock|off)")
 
 
 def _list_demos() -> list[tuple[str, str]]:
@@ -100,7 +125,7 @@ def main(argv: list[str]) -> None:
     manifest = _load(demo)
 
     if cmd == "demo-dir":
-        print(os.path.expanduser(manifest.get("demo_dir") or f"~/luthien-demo/{demo}"))
+        print(_safe_demo_dir(demo, manifest.get("demo_dir")))
     elif cmd == "template-dir":
         print(str(DEMOS_DIR / demo / "template"))
     elif cmd == "surfaces":
