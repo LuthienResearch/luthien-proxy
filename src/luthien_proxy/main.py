@@ -8,6 +8,7 @@ import enum
 import logging
 import os
 import secrets
+import tempfile
 from collections.abc import MutableMapping
 from contextlib import asynccontextmanager
 
@@ -736,9 +737,11 @@ def auto_provision_defaults() -> dict[str, str]:
                 value = f.read().strip()
         else:
             value = secrets.token_urlsafe(32)
-            with open(key_path, "w") as f:
-                f.write(value)
-            os.chmod(key_path, 0o600)
+            with tempfile.NamedTemporaryFile(mode="w", dir=data_dir, delete=False) as tmp:
+                tmp.write(value)
+                tmp_path = tmp.name
+            os.chmod(tmp_path, 0o600)
+            os.replace(tmp_path, key_path)
         os.environ["CURSOR_HMAC_KEY"] = value
         provisioned["CURSOR_HMAC_KEY"] = value
 

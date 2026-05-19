@@ -105,6 +105,7 @@ function conversationViewer() {
                     { headers: { 'Accept': 'application/json' }, redirect: 'manual' }
                 );
                 if (resp.type === 'opaqueredirect') { window.location.href = '/login'; return; }
+                if (resp.status === 404) throw new Error('Conversation not found');
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
                 const data = await resp.json();

@@ -16,7 +16,7 @@ from typing import Any, TypedDict, cast
 from uuid import UUID as _UUID
 
 from luthien_proxy.perf.timing_middleware import time_phase
-from luthien_proxy.utils.cursor import cursor_where_clause, decode_cursor, encode_cursor
+from luthien_proxy.utils.cursor import decode_cursor, encode_cursor
 from luthien_proxy.utils.db import DatabasePool, parse_db_ts
 
 from .models import (
@@ -1099,7 +1099,7 @@ async def fetch_session_turns_page(
     cursor_ts = None
     cursor_event_id = None
     if cursor_token is not None:
-        cursor_ts, cursor_event_id = decode_cursor(cursor_token)
+        cursor_ts, cursor_event_id = decode_cursor(cursor_token, kind="turns")
 
     async with db_pool.connection() as conn:
         with time_phase("db"):
@@ -1164,7 +1164,7 @@ async def fetch_session_turns_page(
         last_row = page_rows[-1]
         last_ts = parse_db_ts(last_row["created_at"])
         last_event_id = str(last_row["id"])
-        next_cursor = encode_cursor(last_ts, last_event_id)
+        next_cursor = encode_cursor(last_ts, last_event_id, kind="turns")
 
     return {"turns": turns, "next_cursor": next_cursor}
 
@@ -1205,9 +1205,8 @@ async def fetch_sessions_page(
 
         cursor_filter = ""
         if cursor_token is not None:
-            cursor_ts, cursor_sid = decode_cursor(cursor_token)
-            named_where = cursor_where_clause("sqlite", ts_col="last_ts", sid_col="session_id")
-            cursor_filter = f"AND {named_where.replace(':cursor_ts', '?').replace(':cursor_sid', '?')}"
+            cursor_ts, cursor_sid = decode_cursor(cursor_token, kind="sessions")
+            cursor_filter = "AND (last_ts, session_id) < (?, ?)"
             sqlite_args.extend([cursor_ts.isoformat(), cursor_sid])
 
         filter_clause = ""
@@ -1255,7 +1254,7 @@ async def fetch_sessions_page(
 
         cursor_filter = ""
         if cursor_token is not None:
-            cursor_ts, cursor_sid = decode_cursor(cursor_token)
+            cursor_ts, cursor_sid = decode_cursor(cursor_token, kind="sessions")
             query_args.append(cursor_ts)
             ts_idx = len(query_args)
             query_args.append(cursor_sid)
@@ -1362,7 +1361,11 @@ async def fetch_sessions_page(
     if has_more:
         last_row = page_rows[-1]
         last_ts_val = parse_db_ts(last_row["last_ts"])
-        next_cursor = encode_cursor(last_ts_val, str(last_row["session_id"]))
+        # Cursor encodes MAX(created_at) — "last active" time, not creation time.
+        # A new event on an older session bumps its last_ts and can re-surface or
+        # skip that session across page boundaries. This is intentional: the list
+        # is ordered by activity, not by when sessions were created.
+        next_cursor = encode_cursor(last_ts_val, str(last_row["session_id"]), kind="sessions")
 
     sessions = [
         {

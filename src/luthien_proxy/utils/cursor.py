@@ -15,24 +15,16 @@ from typing import Literal
 
 from luthien_proxy.settings import get_settings
 
+CursorKind = Literal["sessions", "turns"]
+
 
 def _get_hmac_key() -> bytes:
     return get_settings().cursor_hmac_key.encode()
 
 
-def encode_cursor(last_ts: datetime, last_key: str) -> str:
-    """Encode a composite pagination cursor.
-
-    Args:
-        last_ts: Timestamp of the last item on the current page.
-        last_key: Opaque tiebreaker for rows sharing the same timestamp
-            (typically session_id or event_id depending on the query).
-
-    Returns:
-        Opaque base64url-encoded cursor string.
-    """
+def encode_cursor(last_ts: datetime, last_key: str, kind: CursorKind) -> str:
     payload = json.dumps(
-        {"ts": last_ts.isoformat(), "sid": last_key},
+        {"ts": last_ts.isoformat(), "sid": last_key, "kind": kind},
         separators=(",", ":"),
     ).encode()
 
@@ -45,17 +37,11 @@ def encode_cursor(last_ts: datetime, last_key: str) -> str:
     return token
 
 
-def decode_cursor(token: str) -> tuple[datetime, str]:
+def decode_cursor(token: str, kind: CursorKind) -> tuple[datetime, str]:
     """Decode and verify a cursor token.
 
-    Args:
-        token: Opaque cursor string from encode_cursor.
-
-    Returns:
-        Tuple of (last_ts, last_session_id).
-
     Raises:
-        ValueError: If token is malformed, tampered, or invalid.
+        ValueError: If token is malformed, tampered, wrong kind, or invalid.
     """
     try:
         padded = token + "=" * (4 - len(token) % 4)
@@ -77,28 +63,11 @@ def decode_cursor(token: str) -> tuple[datetime, str]:
         data = json.loads(payload)
         ts = datetime.fromisoformat(data["ts"])
         sid = data["sid"]
+        token_kind = data["kind"]
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"Invalid cursor: payload parse failed: {exc}") from exc
 
+    if token_kind != kind:
+        raise ValueError(f"Invalid cursor: expected kind={kind!r}, got {token_kind!r}")
+
     return ts, sid
-
-
-def cursor_where_clause(
-    backend: Literal["sqlite", "postgres"],
-    ts_col: str = "last_ts",
-    sid_col: str = "session_id",
-) -> str:
-    """Return a SQL WHERE fragment for composite cursor pagination.
-
-    Uses (ts, sid) < (cursor_ts, cursor_sid) semantics to handle tied timestamps.
-
-    Args:
-        backend: Database backend ("sqlite" or "postgres").
-        ts_col: Column name for the timestamp.
-        sid_col: Column name for the session ID.
-
-    Returns:
-        SQL fragment string (without WHERE keyword). Uses :cursor_ts and :cursor_sid
-        as named parameters.
-    """
-    return f"({ts_col}, {sid_col}) < (:cursor_ts, :cursor_sid)"

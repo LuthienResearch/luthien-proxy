@@ -242,7 +242,7 @@ async def fragment_session_turns(
 
     if cursor is not None:
         try:
-            decode_cursor(cursor)
+            decode_cursor(cursor, kind="turns")
         except ValueError as e:
             logger.debug("Rejected invalid turns cursor: %s", e)
             raise HTTPException(status_code=400, detail="Invalid cursor")
@@ -282,7 +282,7 @@ async def fragment_sessions(
 
     if cursor is not None:
         try:
-            decode_cursor(cursor)
+            decode_cursor(cursor, kind="sessions")
         except ValueError as e:
             logger.debug("Rejected invalid sessions cursor: %s", e)
             raise HTTPException(status_code=400, detail="Invalid cursor")
