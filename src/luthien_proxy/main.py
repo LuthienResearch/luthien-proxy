@@ -440,6 +440,10 @@ def create_app(
             if request.url.path.startswith("/api/") or request.url.path in ("/health", "/ready"):
                 # Prevent CDN/edge caching of API and health responses (Railway, Cloudflare, etc.)
                 response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            elif request.url.path.startswith("/ui/fragments/"):
+                # Fragment responses embed HMAC-signed cursors; a stale cached fragment
+                # replays a stale cursor that becomes a 400 after key rotation.
+                response.headers["Cache-Control"] = "no-store"
             elif request.url.path.startswith("/static/"):
                 path = request.url.path
                 if path.endswith((".js", ".html", ".css")):
@@ -735,6 +739,7 @@ def auto_provision_defaults() -> dict[str, str]:
         if os.path.exists(key_path):
             with open(key_path) as f:
                 value = f.read().strip()
+            logger.info("CURSOR_HMAC_KEY loaded from %s", key_path)
         else:
             value = secrets.token_urlsafe(32)
             with tempfile.NamedTemporaryFile(mode="w", dir=data_dir, delete=False) as tmp:
@@ -742,6 +747,7 @@ def auto_provision_defaults() -> dict[str, str]:
                 tmp_path = tmp.name
             os.chmod(tmp_path, 0o600)
             os.replace(tmp_path, key_path)
+            logger.info("CURSOR_HMAC_KEY generated and saved to %s", key_path)
         os.environ["CURSOR_HMAC_KEY"] = value
         provisioned["CURSOR_HMAC_KEY"] = value
 

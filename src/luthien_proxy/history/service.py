@@ -1129,12 +1129,21 @@ async def fetch_session_turns_page(
                     SELECT id, event_type, payload, created_at
                     FROM conversation_events
                     WHERE session_id = $1
+                    AND (datetime(created_at), id) > (datetime($2), $3)
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT $4
+                    """
+                    if db_pool.is_sqlite
+                    else """
+                    SELECT id, event_type, payload, created_at
+                    FROM conversation_events
+                    WHERE session_id = $1
                     AND (created_at, id) > ($2, $3)
                     ORDER BY created_at ASC, id ASC
                     LIMIT $4
                     """,
                     session_id,
-                    cursor_ts if not db_pool.is_sqlite else cursor_ts.isoformat(),
+                    cursor_ts.isoformat() if db_pool.is_sqlite else cursor_ts,
                     cursor_id_param,
                     limit + 1,
                 )
@@ -1206,7 +1215,7 @@ async def fetch_sessions_page(
         cursor_filter = ""
         if cursor_token is not None:
             cursor_ts, cursor_sid = decode_cursor(cursor_token, kind="sessions")
-            cursor_filter = "AND (last_ts, session_id) < (?, ?)"
+            cursor_filter = "AND (datetime(last_ts), session_id) < (datetime(?), ?)"
             sqlite_args.extend([cursor_ts.isoformat(), cursor_sid])
 
         filter_clause = ""

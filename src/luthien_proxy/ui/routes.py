@@ -245,7 +245,7 @@ async def fragment_session_turns(
             decode_cursor(cursor, kind="turns")
         except ValueError as e:
             logger.debug("Rejected invalid turns cursor: %s", e)
-            raise HTTPException(status_code=400, detail="Invalid cursor")
+            raise HTTPException(status_code=400, detail="Invalid cursor") from e
 
     if db_pool is None:
         raise HTTPException(status_code=503, detail="Database not available")
@@ -254,7 +254,7 @@ async def fragment_session_turns(
         result = await fetch_session_turns_page(session_id, cursor, limit, db_pool)
     except ValueError as e:
         logger.debug("Invalid cursor in fetch_session_turns_page: %s", e)
-        raise HTTPException(status_code=400, detail="Invalid cursor")
+        raise HTTPException(status_code=400, detail="Invalid cursor") from e
     with time_phase("render"):
         html = _render_turns_fragment(result["turns"], result["next_cursor"])  # type: ignore[arg-type]
     return HTMLResponse(content=html, media_type="text/html; charset=utf-8")
@@ -285,7 +285,7 @@ async def fragment_sessions(
             decode_cursor(cursor, kind="sessions")
         except ValueError as e:
             logger.debug("Rejected invalid sessions cursor: %s", e)
-            raise HTTPException(status_code=400, detail="Invalid cursor")
+            raise HTTPException(status_code=400, detail="Invalid cursor") from e
 
     if db_pool is None:
         raise HTTPException(status_code=503, detail="Database not available")
