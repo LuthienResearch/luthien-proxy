@@ -139,13 +139,23 @@ class TestBufferToolAndFinalize:
     @pytest.mark.parametrize(
         "upstream_stop,buffered_tool,expected",
         [
-            ("tool_use", False, "end_turn"),  # claimed tool, sent none
-            ("end_turn", True, "tool_use"),  # claimed end, sent tool
-            ("max_tokens", False, "end_turn"),  # builder forces consistency
-            ("max_tokens", True, "tool_use"),
+            # The only correction the builder makes: upstream claimed tool_use
+            # but every tool was blocked/dropped.
+            ("tool_use", False, "end_turn"),
+            # Every other case preserves upstream verbatim.
+            ("tool_use", True, "tool_use"),
+            ("end_turn", False, "end_turn"),
+            ("end_turn", True, "end_turn"),
+            ("max_tokens", False, "max_tokens"),
+            ("max_tokens", True, "max_tokens"),
+            ("stop_sequence", False, "stop_sequence"),
+            ("stop_sequence", True, "stop_sequence"),
+            ("refusal", False, "refusal"),
+            ("refusal", True, "refusal"),
+            ("pause_turn", False, "pause_turn"),
         ],
     )
-    def test_finalize_corrects_stop_reason(self, upstream_stop: str, buffered_tool: bool, expected: str):
+    def test_finalize_stop_reason_conservative(self, upstream_stop: str, buffered_tool: bool, expected: str):
         builder = AnthropicMessageBuilder()
         if buffered_tool:
             builder.buffer_tool(id="t1", name="Bash", input_json="{}")
@@ -285,11 +295,41 @@ class TestToAnthropicResponse:
     def test_tool_only(self):
         builder = AnthropicMessageBuilder()
         builder.buffer_tool(id="t1", name="Bash", input_json='{"command": "ls"}')
-        result = builder.to_anthropic_response(_response_template())
+        template = _response_template()
+        template["stop_reason"] = "tool_use"
+        result = builder.to_anthropic_response(template)
         assert result["content"] == [
             {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "ls"}},
         ]
         assert result["stop_reason"] == "tool_use"
+
+    @pytest.mark.parametrize(
+        "upstream_stop,buffered_tool,expected",
+        [
+            # The only correction the builder makes.
+            ("tool_use", False, "end_turn"),
+            # Everything else preserved verbatim.
+            ("tool_use", True, "tool_use"),
+            ("end_turn", False, "end_turn"),
+            ("end_turn", True, "end_turn"),
+            ("max_tokens", False, "max_tokens"),
+            ("max_tokens", True, "max_tokens"),
+            ("stop_sequence", False, "stop_sequence"),
+            ("stop_sequence", True, "stop_sequence"),
+            ("refusal", False, "refusal"),
+            ("refusal", True, "refusal"),
+        ],
+    )
+    def test_stop_reason_conservative(self, upstream_stop: str, buffered_tool: bool, expected: str):
+        builder = AnthropicMessageBuilder()
+        if buffered_tool:
+            builder.buffer_tool(id="t1", name="Bash", input_json="{}")
+        else:
+            builder.commit_text("hi")
+        template = _response_template()
+        template["stop_reason"] = upstream_stop  # type: ignore[typeddict-item]
+        result = builder.to_anthropic_response(template)
+        assert result["stop_reason"] == expected
 
     def test_tool_trails_text_even_when_added_first(self):
         builder = AnthropicMessageBuilder()

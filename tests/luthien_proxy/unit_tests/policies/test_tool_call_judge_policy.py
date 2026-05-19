@@ -482,12 +482,14 @@ class TestStreamingStopReasonCorrection:
         assert msg_events == [original]
 
     @pytest.mark.asyncio
-    async def test_stop_reason_rewritten_to_match_emitted_content(self):
-        """When all tools are blocked, stop_reason is rewritten to end_turn regardless of upstream value.
+    async def test_stop_reason_preserved_when_upstream_is_diagnostic(self):
+        """Diagnostic stop_reasons (max_tokens, stop_sequence, refusal) are preserved
+        even when all tools are blocked.
 
-        The builder owns stop_reason consistency: the value on the wire
-        must match what content actually shipped. Preserving an upstream
-        max_tokens while emitting no tool_use would mislead downstream.
+        The builder corrects stop_reason only in the one known-wrong case
+        (tool_use upstream + no tool emitted). Diagnostic reasons carry
+        information the client needs (e.g. max_tokens → trigger continuation
+        logic); clobbering them silently degrades client behavior.
         """
         policy = _make_policy()
         ctx = _make_context()
@@ -507,7 +509,7 @@ class TestStreamingStopReasonCorrection:
 
         delta_events = [e for e in msg_events if isinstance(e, RawMessageDeltaEvent)]
         assert len(delta_events) == 1
-        assert delta_events[0].delta.stop_reason == "end_turn"
+        assert delta_events[0].delta.stop_reason == "max_tokens"
 
     @pytest.mark.asyncio
     async def test_stop_reason_rewritten_to_end_turn_when_no_blocks_seen(self):
