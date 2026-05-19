@@ -1,0 +1,9 @@
+customer_id,segment,quote,sentiment
+C-0041,SMB,"Cut our incident response time in half. Genuinely changed how we run on-call.",positive
+C-0089,Mid,"The audit trail alone was worth the price. Compliance team finally off our backs.",positive
+C-0114,Enterprise,"Onboarding took a week longer than promised. Otherwise, no complaints.",mixed
+C-0203,SMB,"Cancelled Datadog after we adopted this. Real money saved.",positive
+C-0277,Mid,"I trust this with the keys to our production database. That's a high bar.",positive
+C-0331,Enterprise,"We need SAML SSO before Q3 board review or we have to revisit.",constructive
+C-0408,SMB,"My team uses it daily. The Slack alerts are the killer feature.",positive
+C-0492,Mid,"The way it surfaces drift before we notice is genuinely magical.",positive
