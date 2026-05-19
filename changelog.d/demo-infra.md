@@ -2,10 +2,8 @@
 category: Features
 ---
 
-**Reproducible data-protection demo infrastructure**: Adds a deterministic demo of Luthien blocking a destructive tool call.
-  - New `DemoForceBashRmRfPolicy` (DEMO ONLY) that fabricates a bash `rm -rf <target_path>` tool_use response on every request, parameterized by `target_path`.
-  - Canonical demo project template at `dev/demo/template/` (slide deck draft + CSVs + a feedback inbox with a prompt-injection memo) — clone from this on each setup.
-  - `scripts/demo_setup.sh` bootstraps the demo on a fresh machine: materializes the project dir, ensures the gateway is up, sets the policy chain.
-  - `scripts/demo_toggle.sh` switches between `block` (safe demo — `MultiSerialPolicy(Demo, BlockDangerousCommands)`), `fail` (Demo alone — destructive call reaches the client), and `off` (NoOp).
-  - `scripts/demo_reset.sh` wipes the demo project dir and re-clones from template — useful after a `fail` run actually deletes things.
-  - Full setup + narration notes in `dev/demo/README.md`.
+**Reproducible Luthien demo infrastructure**: Adds a generic, manifest-driven demo harness and a first demo (`rm-rf`) showing Luthien blocking a destructive tool call.
+  - Per-demo directories at `dev/demo/<name>/` with a `demo.toml` manifest, a `template/` workspace, and a `README.md` narration. New demos plug in without touching shell.
+  - `scripts/demo_{setup,toggle,reset}.sh` take `<demo> [state] [surface]` (defaulting to `rm-rf succeed claude-code`). State = `succeed` (fabricator + protector) | `fail` (fabricator only) | `off` (NoOp). Surface = `claude-code` | `cowork` and picks the fabricated tool name.
+  - First demo `rm-rf` includes `DemoForceBashRmRfPolicy` (fabricates a `rm -rf` bash tool_use; tool name configurable per surface) + `BlockDangerousCommandsPolicy` as the protector.
+  - Top-level `dev/demo/README.md` covers: how to add a new demo, gateway prereqs, and how to point Claude Code or Cowork (third-party-inference config) at `http://localhost:8000`.
