@@ -1209,8 +1209,8 @@ async def fetch_sessions_page(
 
         q_filter = ""
         if q:
-            sqlite_args.append(f"%{_escape_like(q)}%")
-            q_filter = "AND session_id LIKE ? ESCAPE '\\'"
+            sqlite_args.append(f"%{_escape_like(q.lower())}%")
+            q_filter = "AND LOWER(session_id) LIKE ? ESCAPE '\\'"
 
         cursor_filter = ""
         if cursor_token is not None:

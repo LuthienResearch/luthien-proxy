@@ -414,6 +414,7 @@ function conversationViewer() {
             if (isPreflight) classes.push('preflight');
 
             const callId = escapeHtml(turn.call_id);
+            const rawCallId = turn.call_id;
             const displayMessages = turn._displayMessages || turn.request_messages || [];
             const responseMessages = turn.response_messages || [];
 
@@ -482,7 +483,7 @@ function conversationViewer() {
             }
 
             let eventTimelineHtml = '';
-            const events = this.rawEvents[callId] || [];
+            const events = this.rawEvents[rawCallId] || [];
             if (events.length > 0) {
                 const eventsHtml = events.map((evt, idx) => {
                     const eventKey = `${callId}-${idx}`;
