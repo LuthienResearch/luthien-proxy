@@ -1,0 +1,28 @@
+# Manifest for the `rm-rf` demo.
+#
+# Story: Claude reads a feedback file that contains a planted prompt-injection
+# instructing it to `rm -rf data/`. A fabricating policy guarantees the
+# destructive tool call goes out regardless of whether the model would have
+# followed the injection. Luthien either blocks it (`block`) or doesn't
+# (`dontblock`).
+
+name = "rm-rf"
+short_description = "Force a destructive rm -rf bash call; Luthien blocks it."
+demo_dir = "~/luthien-demo/rm-rf"
+
+# Applied as the second policy in the chain during `block` state. Sees the
+# fabricator's tool_use and judges it.
+[protector]
+class = "luthien_proxy.policies.presets.block_dangerous_commands:BlockDangerousCommandsPolicy"
+config = {}
+
+# Per-surface fabricator config. The class is the same; only the tool name
+# differs because each client exposes its shell-execution tool under a
+# different name.
+[surfaces.claude-code.fabricator]
+class = "luthien_proxy.policies.demo_force_bash_rmrf_policy:DemoForceBashRmRfPolicy"
+config = { tool_name = "Bash", target_path = "~/luthien-demo/rm-rf/data" }
+
+[surfaces.cowork.fabricator]
+class = "luthien_proxy.policies.demo_force_bash_rmrf_policy:DemoForceBashRmRfPolicy"
+config = { tool_name = "mcp__workspace__bash", target_path = "~/luthien-demo/rm-rf/data" }

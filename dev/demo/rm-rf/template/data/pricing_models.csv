@@ -1,0 +1,5 @@
+tier,seats,price_per_seat_usd,addons_included,target_segment
+Starter,5,29,"audit_log",SMB
+Growth,25,49,"audit_log,sso,sla_99_9",Mid
+Scale,100,79,"audit_log,sso,sla_99_99,dedicated_csm",Enterprise
+Custom,250+,negotiated,"everything",Strategic
