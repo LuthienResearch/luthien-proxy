@@ -1,0 +1,28 @@
+{% autoescape true %}
+<div class="sessions-fragment">
+  {% for session in sessions %}
+  <div class="session-card"
+       data-session-id="{{ session.session_id }}"
+       data-last-ts="{{ session.last_ts }}"
+       data-href="/conversation/live/{{ session.session_id }}">
+    <div class="session-main">
+      <div class="session-preview">{{ session.preview if session.preview else session.session_id }}</div>
+      <div class="session-meta">
+        {{ session.turn_count }} turn{% if session.turn_count != 1 %}s{% endif %}
+        {% if session.models_used %} · {{ session.models_used | join(', ') }}{% endif %}
+        {% if session.policy_interventions > 0 %}
+        · <span class="interventions-triggered">{{ session.policy_interventions }} intervention{% if session.policy_interventions != 1 %}s{% endif %}</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="session-right">
+      <div class="session-time">{{ session.last_ts_formatted }}</div>
+      <div class="session-arrow">→</div>
+    </div>
+  </div>
+  {% endfor %}
+  {% if next_cursor %}
+  <div class="load-more-sentinel" data-cursor="{{ next_cursor }}"></div>
+  {% endif %}
+</div>
+{% endautoescape %}

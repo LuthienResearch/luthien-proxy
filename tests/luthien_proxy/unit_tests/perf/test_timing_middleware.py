@@ -1,0 +1,132 @@
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+
+from luthien_proxy.perf.timing_middleware import (
+    ServerTimingMiddleware,
+    format_phases,
+    time_phase,
+)
+
+
+def _make_app(path: str = "/api/history/sessions") -> FastAPI:
+    app = FastAPI()
+    app.add_middleware(ServerTimingMiddleware)
+
+    @app.get(path)
+    async def endpoint():
+        with time_phase("handler"):
+            pass
+        return {"ok": True}
+
+    return app
+
+
+@pytest.fixture
+def history_app():
+    return _make_app("/api/history/sessions")
+
+
+@pytest.fixture
+def v1_app():
+    return _make_app("/v1/messages")
+
+
+def test_format_phases():
+    result = format_phases([("db", 12.3), ("serialize", 4.5)])
+    assert result == "db;dur=12.3, serialize;dur=4.5"
+
+
+def test_format_phases_single():
+    result = format_phases([("render", 1.0)])
+    assert result == "render;dur=1.0"
+
+
+def test_format_phases_empty():
+    assert format_phases([]) == ""
+
+
+@pytest.mark.asyncio
+async def test_path_filter_includes_history(history_app):
+    transport = ASGITransport(app=history_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/history/sessions")
+    assert response.status_code == 200
+    assert "Server-Timing" in response.headers
+
+
+@pytest.mark.asyncio
+async def test_path_filter_includes_debug():
+    app = _make_app("/api/debug/events")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/debug/events")
+    assert "Server-Timing" in response.headers
+
+
+@pytest.mark.asyncio
+async def test_path_filter_includes_ui_fragments():
+    app = _make_app("/ui/fragments/sidebar")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/ui/fragments/sidebar")
+    assert "Server-Timing" in response.headers
+
+
+@pytest.mark.asyncio
+async def test_path_filter_excludes_v1_messages(v1_app):
+    transport = ASGITransport(app=v1_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/v1/messages")
+    assert response.status_code == 200
+    assert "Server-Timing" not in response.headers
+
+
+@pytest.mark.asyncio
+async def test_concurrent_isolation():
+    barrier = asyncio.Event()
+    results: dict[str, str | None] = {}
+
+    app = FastAPI()
+    app.add_middleware(ServerTimingMiddleware)
+
+    @app.get("/api/history/a")
+    async def endpoint_a():
+        with time_phase("phase-a"):
+            await barrier.wait()
+        return {"id": "a"}
+
+    @app.get("/api/history/b")
+    async def endpoint_b():
+        with time_phase("phase-b"):
+            await asyncio.sleep(0)
+        barrier.set()
+        return {"id": "b"}
+
+    transport = ASGITransport(app=app)
+
+    async def call_a():
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.get("/api/history/a")
+        results["a"] = r.headers.get("Server-Timing")
+
+    async def call_b():
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.get("/api/history/b")
+        results["b"] = r.headers.get("Server-Timing")
+
+    await asyncio.gather(call_a(), call_b())
+
+    header_a = results["a"]
+    header_b = results["b"]
+
+    assert header_a is not None
+    assert header_b is not None
+    assert "phase-b" not in header_a, f"phase-b leaked into request-a header: {header_a}"
+    assert "phase-a" not in header_b, f"phase-a leaked into request-b header: {header_b}"
+    assert "phase-a" in header_a
+    assert "phase-b" in header_b

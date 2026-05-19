@@ -8,6 +8,7 @@ import enum
 import logging
 import os
 import secrets
+import tempfile
 from collections.abc import MutableMapping
 from contextlib import asynccontextmanager
 
@@ -41,6 +42,7 @@ from luthien_proxy.observability.event_publisher import (
 )
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.observability.sentry import init_sentry
+from luthien_proxy.perf.timing_middleware import ServerTimingMiddleware
 from luthien_proxy.pipeline.upstream_headers import validate_upstream_headers_at_startup
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.rate_limit import TokenBucketRateLimiter
@@ -193,6 +195,14 @@ def create_app(
         )
         await _config_registry.initialize()
         logger.info("Config registry initialized")
+
+        _CURSOR_HMAC_DEV_SENTINEL = "luthien-perf-cursor-key-dev"
+        if settings.cursor_hmac_key == _CURSOR_HMAC_DEV_SENTINEL:
+            logger.warning(
+                "CURSOR_HMAC_KEY is set to the public dev default. "
+                "Pagination cursors can be forged by anyone who has read this source. "
+                "Set CURSOR_HMAC_KEY to a random secret before deploying to production."
+            )
 
         # Fail fast on UPSTREAM_HEADERS misconfiguration rather than silently
         # disabling the integration on first request.
@@ -430,6 +440,10 @@ def create_app(
             if request.url.path.startswith("/api/") or request.url.path in ("/health", "/ready"):
                 # Prevent CDN/edge caching of API and health responses (Railway, Cloudflare, etc.)
                 response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            elif request.url.path.startswith("/ui/fragments/"):
+                # Fragment responses embed HMAC-signed cursors; a stale cached fragment
+                # replays a stale cursor that becomes a 400 after key rotation.
+                response.headers["Cache-Control"] = "no-store"
             elif request.url.path.startswith("/static/"):
                 path = request.url.path
                 if path.endswith((".js", ".html", ".css")):
@@ -439,6 +453,10 @@ def create_app(
             return response
 
     app.add_middleware(StaticCacheMiddleware)
+
+    # Add ServerTimingMiddleware as the last (innermost) middleware
+    # so it captures actual handler latency
+    app.add_middleware(ServerTimingMiddleware)
 
     # Include routers
     app.include_router(gateway_router)  # /v1/messages
@@ -713,6 +731,25 @@ def auto_provision_defaults() -> dict[str, str]:
         value = f"admin-{secrets.token_urlsafe(16)}"
         os.environ["ADMIN_API_KEY"] = value
         provisioned["ADMIN_API_KEY"] = value
+
+    if not os.environ.get("CURSOR_HMAC_KEY"):
+        data_dir = os.path.join(os.path.expanduser("~"), ".luthien")
+        os.makedirs(data_dir, exist_ok=True)
+        key_path = os.path.join(data_dir, "cursor_hmac.key")
+        if os.path.exists(key_path):
+            with open(key_path) as f:
+                value = f.read().strip()
+            logger.info("CURSOR_HMAC_KEY loaded from %s", key_path)
+        else:
+            value = secrets.token_urlsafe(32)
+            with tempfile.NamedTemporaryFile(mode="w", dir=data_dir, delete=False) as tmp:
+                tmp.write(value)
+                tmp_path = tmp.name
+            os.chmod(tmp_path, 0o600)
+            os.replace(tmp_path, key_path)
+            logger.info("CURSOR_HMAC_KEY generated and saved to %s", key_path)
+        os.environ["CURSOR_HMAC_KEY"] = value
+        provisioned["CURSOR_HMAC_KEY"] = value
 
     if not os.environ.get("POLICY_CONFIG"):
         value = "config/railway_policy_config.yaml" if on_railway else "config/policy_config.yaml"

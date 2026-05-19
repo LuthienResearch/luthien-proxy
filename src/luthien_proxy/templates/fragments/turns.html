@@ -1,0 +1,13 @@
+{% autoescape true %}
+<div class="turns-fragment">
+  {% for turn in turns %}
+  <div class="turn-row" data-event-id="{{ turn.event_id }}" data-last-event-id="{{ turn.event_id }}" data-created-at="{{ turn.created_at }}">
+    <span class="event-type">{{ turn.event_type }}</span>
+    <span class="event-preview">{{ turn.payload_preview }}</span>
+  </div>
+  {% endfor %}
+  {% if next_cursor %}
+  <div class="load-more-sentinel" data-cursor="{{ next_cursor }}"></div>
+  {% endif %}
+</div>
+{% endautoescape %}
