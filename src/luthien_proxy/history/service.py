@@ -1118,6 +1118,11 @@ async def fetch_session_turns_page(
             else:
                 assert cursor_event_id is not None
                 if db_pool.is_sqlite:
+                    # SQLite stores event ids as plain TEXT. If a Postgres-issued
+                    # cursor (UUID string) is decoded here (e.g. same CURSOR_HMAC_KEY
+                    # after a backend migration), the comparison succeeds but may
+                    # return wrong pages. Operators should rotate cursors after
+                    # switching backends.
                     cursor_id_param: str | _UUID = cursor_event_id
                 else:
                     try:
