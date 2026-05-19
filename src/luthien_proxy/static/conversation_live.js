@@ -5,7 +5,9 @@ function escapeHtml(str) {
     if (str === null || str === undefined) return '';
     const div = document.createElement('div');
     div.textContent = String(str);
-    return div.innerHTML;
+    // innerHTML escapes <, >, &. Also escape quotes so the result is safe
+    // in double-quoted HTML attribute values (e.g. data-call-id="...").
+    return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function conversationViewer() {

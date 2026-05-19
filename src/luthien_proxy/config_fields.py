@@ -189,10 +189,11 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
     ),
     ConfigFieldMeta(
         "cursor_hmac_key", "CURSOR_HMAC_KEY", str, "luthien-perf-cursor-key-dev",
-        "HMAC key for signing pagination cursors. Set to a random secret in production.\n"
+        "HMAC key for signing pagination cursors. Auto-provisioned to ~/.luthien/cursor_hmac.key on first run.\n"
         "# In multi-replica deployments, set this explicitly so cursors validate across replicas.\n"
         "# Each replica that auto-generates its own key will reject cursors issued by other replicas.",
         sensitive=True, category="security",
+        dynamic_default=True,
     ),
 
     # ── observability ─────────────────────────────────────────────────────

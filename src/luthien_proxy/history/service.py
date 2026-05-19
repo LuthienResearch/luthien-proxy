@@ -1117,10 +1117,13 @@ async def fetch_session_turns_page(
                 )
             else:
                 assert cursor_event_id is not None
-                try:
-                    cursor_id_param: str | _UUID = _UUID(cursor_event_id)
-                except ValueError as exc:
-                    raise ValueError(f"Invalid cursor: event id is not a valid UUID: {exc}") from exc
+                if db_pool.is_sqlite:
+                    cursor_id_param: str | _UUID = cursor_event_id
+                else:
+                    try:
+                        cursor_id_param = _UUID(cursor_event_id)
+                    except ValueError as exc:
+                        raise ValueError(f"Invalid cursor: event id is not a valid UUID: {exc}") from exc
                 rows = await conn.fetch(
                     """
                     SELECT id, event_type, payload, created_at
@@ -1131,7 +1134,7 @@ async def fetch_session_turns_page(
                     LIMIT $4
                     """,
                     session_id,
-                    cursor_ts.isoformat(),
+                    cursor_ts if not db_pool.is_sqlite else cursor_ts.isoformat(),
                     cursor_id_param,
                     limit + 1,
                 )
@@ -1179,7 +1182,6 @@ async def fetch_sessions_page(
     db_pool: DatabasePool,
     q: str | None = None,
     quick_filter: str | None = None,
-    user_id: str | None = None,
 ) -> dict[str, Any]:
     """Fetch a cursor-paginated page of session summaries.
 
@@ -1189,16 +1191,7 @@ async def fetch_sessions_page(
     Note: ``q`` uses a leading-wildcard LIKE which cannot use a btree index.
     ``quick_filter='claude'`` scans the full payload column. Both are intended
     for small deployments; see changelog for the long-term fix path.
-
-    ``user_id`` is accepted for API symmetry with ``fetch_session_list`` but
-    is not yet applied — this endpoint is admin-only. Add per-user scoping
-    here before exposing it to non-admin callers.
     """
-    if user_id is not None:
-        raise NotImplementedError(
-            "fetch_sessions_page does not yet support user_id scoping. "
-            "Do not expose this endpoint to non-admin callers."
-        )
     if q is not None:
         q = q[:_Q_MAX_LEN]
 

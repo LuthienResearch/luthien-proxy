@@ -17,8 +17,7 @@ from luthien_proxy.settings import get_settings
 
 
 def _get_hmac_key() -> bytes:
-    key = get_settings().cursor_hmac_key
-    return key.encode() if isinstance(key, str) else key
+    return get_settings().cursor_hmac_key.encode()
 
 
 def encode_cursor(last_ts: datetime, last_key: str) -> str:
@@ -78,7 +77,7 @@ def decode_cursor(token: str) -> tuple[datetime, str]:
         data = json.loads(payload)
         ts = datetime.fromisoformat(data["ts"])
         sid = data["sid"]
-    except (json.JSONDecodeError, KeyError, ValueError) as exc:
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"Invalid cursor: payload parse failed: {exc}") from exc
 
     return ts, sid
