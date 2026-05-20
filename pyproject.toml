@@ -82,7 +82,7 @@ docstring-code-format = true
 convention = "google"
 
 [tool.pytest.ini_options]
-addopts = "-q -ra -m 'not e2e and not integration and not mock_e2e and not sqlite_e2e' --import-mode=importlib --cov=src/luthien_proxy --cov-report=term-missing --timeout=3 --timeout-method=signal"
+addopts = "-q -ra -m 'not e2e and not integration and not mock_e2e and not sqlite_e2e and not perf' --import-mode=importlib --cov=src/luthien_proxy --cov-report=term-missing --timeout=3 --timeout-method=signal"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 filterwarnings = [
@@ -95,6 +95,8 @@ markers = [
     "integration: marks integration tests that require external services (OpenAI, Anthropic APIs)",
     "mock_e2e: marks e2e tests that use the mock Anthropic server (no real API calls)",
     "sqlite_e2e: marks e2e tests running the gateway in-process with SQLite (no Docker)",
+    "perf: marks performance tests that measure gateway latency and throughput (opt-in via ./scripts/run_perf.sh)",
+    "contract: marks API contract snapshot tests that validate response shapes",
     "llm01: OWASP LLM01 - Prompt Injection scenarios",
     "llm02: OWASP LLM02 - Insecure Output Handling scenarios (reserved, no tests yet)",
     "llm04: OWASP LLM04 - Model Denial of Service scenarios (reserved, no tests yet)",
@@ -122,13 +124,15 @@ reportMissingImports = "warning"
 
 [dependency-groups]
 dev = [
+    "playwright==1.50.0",
     "pre-commit>=4.3.0",
     "pytest>=8.4.1",
     "pytest-asyncio>=1.1.0",
     "pytest-cov>=6.2.1",
+    "pytest-playwright>=0.5.0",
+    "pytest-timeout>=2.4.0",
     "ruff>=0.12.10",
     "pyright>=1.1.406,<1.2",
-    "pytest-timeout>=2.4.0",
     "radon>=6.0.1",
     "vulture>=2.14",
     "asgi-lifespan>=2.1.0",

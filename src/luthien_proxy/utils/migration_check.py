@@ -53,7 +53,7 @@ def _find_sqlite_migrations_dir() -> Path | None:
     return None
 
 
-async def _apply_sqlite_migrations(
+async def apply_sqlite_migrations(
     db_pool: DatabasePool,
     migrations_dir: Path | None = None,
 ) -> None:
@@ -66,6 +66,10 @@ async def _apply_sqlite_migrations(
 
     Handles upgrade from snapshot-era databases by detecting existing tables
     with no migration tracking and seeding _migrations.
+
+    Public API — intentionally exported for use by perf/db.py and tests.
+    Intended as the sole writer to the ``_migrations`` tracking table; calling
+    it concurrently from multiple processes against the same database is unsafe.
     """
     if migrations_dir is None:
         migrations_dir = _find_sqlite_migrations_dir()
@@ -140,7 +144,8 @@ async def _apply_sqlite_migrations(
             # ILIKE, NOW(), ::type, LEAST, to_timestamp, or $N placeholders).
             # A startup-time audit of migrations/sqlite/*.sql enforces this
             # (see tests/.../test_sqlite_migrations_are_native.py).
-            assert isinstance(conn, SqliteConnection), "_apply_sqlite_migrations called on non-sqlite pool"
+            if not isinstance(conn, SqliteConnection):
+                raise TypeError(f"apply_sqlite_migrations requires a SqliteConnection, got {type(conn).__name__}")
             sql = mf.read_text()
             await conn.executescript(sql)
 
@@ -184,7 +189,7 @@ async def check_migrations(
         migrations_dir: Path to migrations directory. Defaults to /app/migrations.
     """
     if db_pool.is_sqlite:
-        await _apply_sqlite_migrations(db_pool)
+        await apply_sqlite_migrations(db_pool)
         return
 
     if migrations_dir is None:

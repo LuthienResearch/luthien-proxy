@@ -1,0 +1,48 @@
+{
+  "session_id": "str",
+  "first_timestamp": "str",
+  "last_timestamp": "str",
+  "turns": [
+    {
+      "call_id": "str",
+      "timestamp": "str",
+      "model": "str",
+      "request_messages": [
+        {
+          "message_type": "str",
+          "content": "str",
+          "tool_name": "null",
+          "tool_call_id": "null",
+          "tool_input": "null",
+          "is_error": "null"
+        }
+      ],
+      "response_messages": [
+        {
+          "message_type": "str",
+          "content": "str",
+          "tool_name": "null",
+          "tool_call_id": "null",
+          "tool_input": "null",
+          "is_error": "null"
+        }
+      ],
+      "annotations": "list[unknown]",
+      "had_policy_intervention": "bool",
+      "request_was_modified": "bool",
+      "response_was_modified": "bool",
+      "original_request_messages": "null",
+      "original_response_messages": "null",
+      "request_params": {
+        "model": "str",
+        "max_tokens": "int",
+        "stream": "bool",
+        "temperature": "float"
+      }
+    }
+  ],
+  "total_policy_interventions": "int",
+  "models_used": [
+    "str"
+  ]
+}

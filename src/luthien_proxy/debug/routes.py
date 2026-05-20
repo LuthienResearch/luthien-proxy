@@ -9,6 +9,14 @@ Route handlers are thin wrappers that handle HTTP concerns (dependency injection
 error responses) and delegate business logic to the service layer.
 
 All debug endpoints require admin authentication (same as /admin routes).
+
+WARNING — serialization pattern: handlers return Response(content=model.model_dump_json(), ...)
+with response_model= kept on the decorator for OpenAPI schema generation only.
+FastAPI skips response validation when the handler returns a pre-built Response —
+this is intentional to avoid double-serialization (Pydantic→dict→json twice).
+Do NOT copy this pattern to new routes without also adding a contract snapshot test;
+FastAPI's response_model validation will be silently disabled.
+The API contract snapshot tests (test_api_contract.py) provide regression coverage.
 """
 
 from __future__ import annotations
@@ -17,9 +25,11 @@ import logging
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from starlette.responses import Response
 
 from luthien_proxy.auth import verify_admin_token
 from luthien_proxy.dependencies import get_db_pool
+from luthien_proxy.perf.timing_middleware import timed_json_response
 from luthien_proxy.settings import client_error_detail
 from luthien_proxy.utils.constants import DEBUG_CALLS_DEFAULT_LIMIT, DEBUG_CALLS_MAX_LIMIT
 
@@ -39,7 +49,7 @@ async def get_call_events(
     call_id: str,
     _: str = Depends(verify_admin_token),
     db_pool: db.DatabasePool | None = Depends(get_db_pool),
-) -> CallEventsResponse:
+) -> Response:
     """Retrieve all conversation events for a specific call_id.
 
     Args:
@@ -56,7 +66,8 @@ async def get_call_events(
         raise HTTPException(status_code=503, detail="Database not configured")
 
     try:
-        return await fetch_call_events(call_id, db_pool)
+        result = await fetch_call_events(call_id, db_pool)
+        return timed_json_response(result)
     except ValueError as exc:
         # No events found
         raise HTTPException(status_code=404, detail=str(exc))
@@ -70,7 +81,7 @@ async def get_call_diff(
     call_id: str,
     _: str = Depends(verify_admin_token),
     db_pool: db.DatabasePool | None = Depends(get_db_pool),
-) -> CallDiffResponse:
+) -> Response:
     """Compute diff between original and final request/response for a call.
 
     Args:
@@ -87,7 +98,8 @@ async def get_call_diff(
         raise HTTPException(status_code=503, detail="Database not configured")
 
     try:
-        return await fetch_call_diff(call_id, db_pool)
+        result = await fetch_call_diff(call_id, db_pool)
+        return timed_json_response(result)
     except ValueError as exc:
         # No events found
         raise HTTPException(status_code=404, detail=str(exc))
@@ -101,7 +113,7 @@ async def list_recent_calls(
     limit: int = Query(default=DEBUG_CALLS_DEFAULT_LIMIT, ge=1, le=DEBUG_CALLS_MAX_LIMIT),
     _: str = Depends(verify_admin_token),
     db_pool: db.DatabasePool | None = Depends(get_db_pool),
-) -> CallListResponse:
+) -> Response:
     """List recent calls with event counts.
 
     Args:
@@ -118,7 +130,8 @@ async def list_recent_calls(
         raise HTTPException(status_code=503, detail="Database not configured")
 
     try:
-        return await fetch_recent_calls(limit, db_pool)
+        result = await fetch_recent_calls(limit, db_pool)
+        return timed_json_response(result)
     except Exception as exc:
         logger.error(f"Failed to list recent calls: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=client_error_detail(f"Database error: {exc}"))
