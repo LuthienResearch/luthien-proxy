@@ -11,6 +11,7 @@ import secrets
 from collections.abc import MutableMapping
 from contextlib import asynccontextmanager
 
+import httpx
 import litellm
 import uvicorn
 from fastapi import FastAPI, Request
@@ -41,6 +42,7 @@ from luthien_proxy.observability.event_publisher import (
 )
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.observability.sentry import init_sentry
+from luthien_proxy.passthrough_routes import router as passthrough_router
 from luthien_proxy.pipeline.upstream_headers import validate_upstream_headers_at_startup
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.rate_limit import TokenBucketRateLimiter
@@ -385,6 +387,12 @@ def create_app(
         app.state.dependencies = _dependencies
         logger.info("Dependencies container initialized")
 
+        app.state.passthrough_streaming_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=30.0)
+        )
+        app.state.passthrough_buffered_client = httpx.AsyncClient(timeout=30.0)
+        logger.info("Passthrough httpx clients created")
+
         yield
 
         # Shutdown
@@ -396,6 +404,8 @@ def create_app(
         # webhook.stop() runs after anthropic_client_cache.close_all() or
         # before request handling has fully drained, fire_and_forget calls
         # could land against an already-closed httpx client.
+        await app.state.passthrough_streaming_client.aclose()
+        await app.state.passthrough_buffered_client.aclose()
         await _webhook_sender.stop()
         if _purger is not None:
             await _purger.stop()
@@ -450,6 +460,7 @@ def create_app(
     app.include_router(history_routes.router)  # /history/* (conversation history UI)
     app.include_router(history_routes.api_router)  # /api/history/* (conversation history API)
     app.include_router(request_log_router)  # /request-logs/* (HTTP-level logging)
+    app.include_router(passthrough_router)  # /openai/*, /gemini/*, /anthropic/* (Track A bridge)
 
     # Simple utility endpoints
     @app.get("/health")
