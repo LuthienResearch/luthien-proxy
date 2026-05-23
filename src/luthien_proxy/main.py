@@ -396,16 +396,18 @@ def create_app(
         yield
 
         # Shutdown
-        # Webhook sender goes first: stop() drains in-flight tasks within the
-        # configured window, then cancels survivors and aclose()s the httpx
-        # client. After this returns, _stopped=True silently no-ops any
-        # in-flight request that reaches fire_and_forget — this is the
-        # at-most-once semantics we documented. If you reorder this so
-        # webhook.stop() runs after anthropic_client_cache.close_all() or
-        # before request handling has fully drained, fire_and_forget calls
-        # could land against an already-closed httpx client.
+        # Passthrough httpx clients are independent of the webhook sender and
+        # can be closed first.
         await app.state.passthrough_streaming_client.aclose()
         await app.state.passthrough_buffered_client.aclose()
+        # Webhook sender: stop() drains in-flight tasks within the configured
+        # window, then cancels survivors and aclose()s the httpx client. After
+        # this returns, _stopped=True silently no-ops any in-flight request
+        # that reaches fire_and_forget — this is the at-most-once semantics we
+        # documented. If you reorder this so webhook.stop() runs after
+        # anthropic_client_cache.close_all() or before request handling has
+        # fully drained, fire_and_forget calls could land against an
+        # already-closed httpx client.
         await _webhook_sender.stop()
         if _purger is not None:
             await _purger.stop()

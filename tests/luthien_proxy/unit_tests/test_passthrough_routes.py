@@ -486,3 +486,66 @@ class TestMissingServerKey:
                 )
 
         assert response.status_code == 503
+
+
+class TestContentEncodingStripped:
+    def test_content_encoding_stripped_from_buffered_response(self) -> None:
+        upstream_headers = {
+            "content-type": "application/json",
+            "content-encoding": "gzip",
+            "x-request-id": "req-123",
+        }
+        mock_buffered = _make_buffered_client(status_code=200, content=b'{"ok": true}', headers=upstream_headers)
+        app = _make_app(buffered_client=mock_buffered)
+
+        with patch("luthien_proxy.passthrough_routes.create_recorder") as mock_create:
+            mock_create.return_value = MagicMock()
+            client = TestClient(app, raise_server_exceptions=False)
+            response = client.post("/openai/v1/chat/completions", json={"model": "gpt-4o", "messages": []})
+
+        assert response.status_code == 200
+        assert "content-encoding" not in response.headers
+
+    def test_safe_headers_still_forwarded(self) -> None:
+        upstream_headers = {
+            "content-type": "application/json",
+            "x-request-id": "req-456",
+        }
+        mock_buffered = _make_buffered_client(status_code=200, content=b'{"ok": true}', headers=upstream_headers)
+        app = _make_app(buffered_client=mock_buffered)
+
+        with patch("luthien_proxy.passthrough_routes.create_recorder") as mock_create:
+            mock_create.return_value = MagicMock()
+            client = TestClient(app, raise_server_exceptions=False)
+            response = client.post("/openai/v1/chat/completions", json={"model": "gpt-4o", "messages": []})
+
+        assert response.headers.get("x-request-id") == "req-456"
+
+
+class TestInvalidContentLength:
+    def test_non_numeric_content_length_returns_400(self) -> None:
+        app = _make_app()
+
+        with patch("luthien_proxy.passthrough_routes.create_recorder") as mock_create:
+            mock_create.return_value = MagicMock()
+            client = TestClient(app, raise_server_exceptions=False)
+            response = client.post(
+                "/openai/v1/chat/completions",
+                content=b'{"model": "gpt-4o"}',
+                headers={"content-type": "application/json", "content-length": "abc"},
+            )
+
+        assert response.status_code == 400
+
+    def test_valid_content_length_passes(self) -> None:
+        app = _make_app()
+
+        with patch("luthien_proxy.passthrough_routes.create_recorder") as mock_create:
+            mock_create.return_value = MagicMock()
+            client = TestClient(app, raise_server_exceptions=False)
+            response = client.post(
+                "/openai/v1/chat/completions",
+                json={"model": "gpt-4o", "messages": []},
+            )
+
+        assert response.status_code != 400

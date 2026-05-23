@@ -45,6 +45,10 @@ _STRIP_INBOUND = frozenset({"host", "content-length"})
 # Auth headers stripped from all outbound — re-injected per provider below
 _STRIP_AUTH = frozenset({"authorization", "x-api-key", "x-anthropic-api-key", "x-goog-api-key"})
 
+# Headers stripped from upstream responses that httpx has already handled
+# (httpx auto-decompresses, so forwarding content-encoding would mismatch the body)
+_STRIP_RESPONSE = frozenset({"content-encoding", "content-length"})
+
 HOP_BY_HOP_HEADERS = frozenset(
     {
         "connection",
@@ -120,8 +124,12 @@ def _build_outbound_headers(request: Request, provider: str) -> dict[str, str]:
 
 async def _handle_passthrough(request: Request, provider: str, path: str) -> Response:
     content_length = request.headers.get("content-length")
-    if content_length and int(content_length) > MAX_REQUEST_PAYLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="Request payload too large")
+    if content_length:
+        try:
+            if int(content_length) > MAX_REQUEST_PAYLOAD_BYTES:
+                raise HTTPException(status_code=413, detail="Request payload too large")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid content-length header")
 
     body = await request.body()
 
@@ -178,14 +186,18 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
         if response.status_code >= 300:
             # Non-2xx: buffer the error body and return a plain Response so the
             # client sees the real status code.
-            error_body = await response.aread()
-            await upstream_cm.__aexit__(None, None, None)
+            try:
+                error_body = await response.aread()
+            finally:
+                await upstream_cm.__aexit__(None, None, None)
             recorder.record_inbound_response(status=response.status_code)
             recorder.flush()
             safe_headers = {
                 k: v
                 for k, v in response.headers.items()
-                if k.lower() not in HOP_BY_HOP_HEADERS and k.lower() not in DANGEROUS_RESPONSE_HEADERS
+                if k.lower() not in HOP_BY_HOP_HEADERS
+                and k.lower() not in DANGEROUS_RESPONSE_HEADERS
+                and k.lower() not in _STRIP_RESPONSE
             }
             return Response(
                 content=error_body,
@@ -233,7 +245,9 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
     safe_headers = {
         k: v
         for k, v in response.headers.items()
-        if k.lower() not in HOP_BY_HOP_HEADERS and k.lower() not in DANGEROUS_RESPONSE_HEADERS
+        if k.lower() not in HOP_BY_HOP_HEADERS
+        and k.lower() not in DANGEROUS_RESPONSE_HEADERS
+        and k.lower() not in _STRIP_RESPONSE
     }
     return Response(
         content=response.content,
