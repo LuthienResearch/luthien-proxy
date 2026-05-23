@@ -1,7 +1,7 @@
 # Plugin Header Contract
 
 > **Version**: v1.0 (contract version, independent of plugin npm version)
-> **Status**: Active (Track A)
+> **Status**: Contract published ahead of implementation — gateway ingestion code lands in [PR #758](https://github.com/LuthienResearch/luthien-proxy/pull/758). Forward references to `passthrough_routes.py` and `019_add_agent_to_request_logs.sql` will be accurate once PR #758 merges.
 > **Related**: [opencode-luthien plugin](https://github.com/LuthienResearch/opencode-luthien), [PR #758](https://github.com/LuthienResearch/luthien-proxy/pull/758) (gateway implementation)
 
 This document defines the canonical set of HTTP headers injected by the `opencode-luthien` plugin into every proxied request. The gateway reads these headers to populate observability columns in `request_logs`.
@@ -38,7 +38,7 @@ The gateway trusts `x-luthien-*` headers as received — it does not authenticat
 | **Source** | OpenCode agent name (e.g., `build`, `test`, `review`) |
 | **Type** | String (max 64 chars, printable ASCII) |
 | **Required** | No |
-| **Semantics** | Identifies which OpenCode agent mode was active when the request was made. Useful for filtering logs by agent type. When the header is absent, `request_logs.agent` is NULL. The plugin sends `"unknown"` when the agent name is unavailable. |
+| **Semantics** | Identifies which OpenCode agent mode was active when the request was made. Useful for filtering logs by agent type. When the header is absent, `request_logs.agent` is NULL. The plugin sends the literal string `"unknown"` when the agent name is unavailable — the gateway stores this as-is (not normalized to NULL). Consumers should use `COALESCE(agent, 'unknown')` at query time to treat both cases uniformly. |
 | **Example** | `x-luthien-agent: build` |
 | **Persisted to** | `request_logs.agent` (dedicated column, introduced in PR-B / migration 019) |
 
