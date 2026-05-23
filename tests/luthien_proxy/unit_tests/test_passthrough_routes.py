@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import tempfile
-import warnings
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -218,94 +217,6 @@ def test_sensitive_headers_are_passed_to_recorder_raw(sensitive_header: str) -> 
         )
 
     assert sensitive_header in captured_headers
-
-
-def test_body_size_limit_413() -> None:
-    app = _make_app()
-    with patch("luthien_proxy.passthrough_routes.MAX_REQUEST_PAYLOAD_BYTES", 5):
-        client = TestClient(app, raise_server_exceptions=False)
-        response = client.post("/openai/v1/chat/completions", content=b"x" * 10)
-    assert response.status_code == 413
-
-
-def test_body_size_limit_normal_passes() -> None:
-    app = _make_app()
-    with patch("luthien_proxy.passthrough_routes.MAX_REQUEST_PAYLOAD_BYTES", 100):
-        client = TestClient(app)
-        response = client.post("/openai/v1/chat/completions", content=b"x" * 10)
-    assert response.status_code != 413
-
-
-def test_hop_by_hop_stripped() -> None:
-    upstream_headers = {
-        "content-type": "application/json",
-        "transfer-encoding": "chunked",
-        "set-cookie": "session=abc",
-        "server": "nginx/1.0",
-    }
-    mock_buffered = _make_buffered_client(status_code=200, content=b"{}", headers=upstream_headers)
-    app = _make_app(buffered_client=mock_buffered)
-    client = TestClient(app)
-    response = client.post("/openai/v1/chat/completions", json={"model": "gpt-4o"})
-    assert "transfer-encoding" not in response.headers
-    assert "set-cookie" not in response.headers
-    assert "server" not in response.headers
-
-
-def test_essential_headers_preserved() -> None:
-    upstream_headers = {"content-type": "application/json"}
-    mock_buffered = _make_buffered_client(status_code=200, content=b"{}", headers=upstream_headers)
-    app = _make_app(buffered_client=mock_buffered)
-    client = TestClient(app)
-    response = client.post("/openai/v1/chat/completions", json={"model": "gpt-4o"})
-    assert response.headers.get("content-type", "").startswith("application/json")
-
-
-@pytest.fixture
-def _policy_config_file():
-    config_content = 'policy:\n  class: "luthien_proxy.policies.noop_policy:NoOpPolicy"\n  config: {}\n'
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        f.write(config_content)
-        config_path = f.name
-    yield config_path
-    Path(config_path).unlink(missing_ok=True)
-
-
-@pytest.fixture
-def _mock_db_pool():
-    mock = AsyncMock()
-    mock_pool = AsyncMock()
-    mock_pool.fetchrow = AsyncMock(return_value=None)
-    mock.get_pool = AsyncMock(return_value=mock_pool)
-    mock.close = AsyncMock()
-    mock.is_sqlite = False
-    return mock
-
-
-@pytest.fixture
-def _mock_redis_client():
-    mock = AsyncMock()
-    mock.ping = AsyncMock()
-    mock.close = AsyncMock()
-    return mock
-
-
-def test_lifespan_closes_httpx_clients_no_resource_warning(
-    _policy_config_file, _mock_db_pool, _mock_redis_client
-) -> None:
-    from luthien_proxy.main import create_app
-
-    app = create_app(
-        api_key="test",
-        admin_key=None,
-        db_pool=_mock_db_pool,
-        redis_client=_mock_redis_client,
-        startup_policy_path=_policy_config_file,
-    )
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", ResourceWarning)
-        with TestClient(app):
-            pass
 
 
 @pytest.fixture

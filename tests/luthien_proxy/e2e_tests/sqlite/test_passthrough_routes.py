@@ -90,7 +90,7 @@ def test_openai_server_key_not_leaked_to_upstream(sqlite_gateway_url, api_key, m
     )
     captured = mock_openai_server.last_request_headers()
     assert captured is not None
-    outbound_auth = captured.get("Authorization", "")
+    outbound_auth = next((v for k, v in captured.items() if k.lower() == "authorization"), "")
     assert api_key not in outbound_auth, "Proxy key must not reach upstream"
 
 

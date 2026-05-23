@@ -133,10 +133,6 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
 
     headers = _build_outbound_headers(request, provider)
 
-    request.state.luthien_session_id = request.headers.get("x-luthien-session-id")
-    request.state.luthien_agent = request.headers.get("x-luthien-agent")
-    request.state.luthien_model = request.headers.get("x-luthien-model")
-
     deps = getattr(request.app.state, "dependencies", None)
     recorder = create_recorder(
         db_pool=deps.db_pool if deps is not None else None,
@@ -147,10 +143,10 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
         method=request.method,
         url=str(request.url),
         headers=dict(request.headers),
-        body={},
-        session_id=request.state.luthien_session_id,
-        agent=request.state.luthien_agent,
-        model=request.state.luthien_model,
+        body={},  # passthrough bodies may be non-JSON or very large; not logged
+        session_id=request.headers.get("x-luthien-session-id"),
+        agent=request.headers.get("x-luthien-agent"),
+        model=request.headers.get("x-luthien-model"),
         endpoint=f"/{provider}/{path}",
     )
 
