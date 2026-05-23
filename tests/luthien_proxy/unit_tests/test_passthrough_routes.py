@@ -15,6 +15,12 @@ from luthien_proxy.request_log.recorder import NoOpRequestLogRecorder, RequestLo
 from luthien_proxy.utils.db import DatabasePool
 
 
+@pytest.fixture(autouse=True)
+def _patch_provider_keys(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-google-key")
+
+
 def _make_buffered_client(status_code: int = 200, content: bytes = b"{}", headers: dict | None = None) -> MagicMock:
     mock_response = MagicMock()
     mock_response.status_code = status_code
@@ -168,7 +174,11 @@ class TestPassthroughRecorderFlush:
             mock_create.return_value = mock_recorder
 
             client = TestClient(app, raise_server_exceptions=False)
-            response = client.post("/openai/v1/chat/completions", json={"model": "gpt-4o", "messages": []})
+            response = client.post(
+                "/anthropic/v1/messages",
+                json={"model": "claude-haiku-4-5", "max_tokens": 10, "messages": []},
+                headers={"anthropic-version": "2023-06-01"},
+            )
 
         assert response.status_code == 502
         mock_recorder.record_inbound_response.assert_called_once()
