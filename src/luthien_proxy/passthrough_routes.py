@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 UPSTREAM_BASES = {
     "openai": "https://api.openai.com",
     "gemini": "https://generativelanguage.googleapis.com",
-    "anthropic": "https://api.anthropic.com/v1",
+    "anthropic": "https://api.anthropic.com",
 }
 
 
@@ -98,12 +98,14 @@ def _build_outbound_headers(request: Request, provider: str) -> dict[str, str]:
 
     if provider == "openai":
         key = os.environ.get("OPENAI_API_KEY", "")
-        if key:
-            headers["authorization"] = f"Bearer {key}"
+        if not key:
+            raise HTTPException(status_code=503, detail="OpenAI API key not configured on server")
+        headers["authorization"] = f"Bearer {key}"
     elif provider == "gemini":
         key = os.environ.get("GOOGLE_API_KEY", "")
-        if key:
-            headers["x-goog-api-key"] = key
+        if not key:
+            raise HTTPException(status_code=503, detail="Google API key not configured on server")
+        headers["x-goog-api-key"] = key
     elif provider == "anthropic":
         # Forward the client's own auth — this is an alias to the existing /v1/
         for auth_header in ("authorization", "x-api-key", "x-anthropic-api-key"):
@@ -157,29 +159,64 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
     buffered_client = get_buffered_client(request)
 
     if streaming:
+        # We must peek at the upstream response status before committing an HTTP
+        # status to the client.  StreamingResponse locks in 200 the moment it is
+        # returned, so a 4xx/5xx from upstream would be silently misreported.
+        # Strategy: open the upstream connection, read the status + headers, then
+        # either return a plain Response for non-2xx or hand off to a generator
+        # for 2xx streaming.
+        try:
+            upstream_cm = streaming_client.stream(
+                request.method,
+                upstream_url,
+                headers=headers,
+                content=body or None,
+            )
+            response = await upstream_cm.__aenter__()
+        except httpx.RequestError as exc:
+            logger.warning("Streaming passthrough error for %s/%s: %s", provider, path, repr(exc))
+            recorder.record_inbound_response(status=502, error=repr(exc))
+            recorder.flush()
+            raise HTTPException(status_code=502, detail="Failed to connect to upstream API")
+
+        if response.status_code >= 300:
+            # Non-2xx: buffer the error body and return a plain Response so the
+            # client sees the real status code.
+            error_body = await response.aread()
+            await upstream_cm.__aexit__(None, None, None)
+            recorder.record_inbound_response(status=response.status_code)
+            recorder.flush()
+            safe_headers = {
+                k: v
+                for k, v in response.headers.items()
+                if k.lower() not in HOP_BY_HOP_HEADERS and k.lower() not in DANGEROUS_RESPONSE_HEADERS
+            }
+            return Response(
+                content=error_body,
+                status_code=response.status_code,
+                headers=safe_headers,
+            )
+
+        # 2xx: stream the body.  Forward the upstream Content-Type so clients
+        # that branch on it (e.g. Gemini JSON vs SSE) get the right value.
+        upstream_content_type = response.headers.get("content-type", "text/event-stream")
 
         async def stream_chunks():
-            status = 200
+            status = response.status_code
             error: str | None = None
             try:
-                async with streaming_client.stream(
-                    request.method,
-                    upstream_url,
-                    headers=headers,
-                    content=body or None,
-                ) as response:
-                    status = response.status_code
-                    async for chunk in response.aiter_bytes():
-                        yield chunk
+                async for chunk in response.aiter_bytes():
+                    yield chunk
             except httpx.RequestError as exc:
                 logger.warning("Streaming passthrough error for %s/%s: %s", provider, path, repr(exc))
                 status = 502
                 error = repr(exc)
             finally:
+                await upstream_cm.__aexit__(None, None, None)
                 recorder.record_inbound_response(status=status, error=error)
                 recorder.flush()
 
-        return StreamingResponse(stream_chunks(), media_type="text/event-stream")
+        return StreamingResponse(stream_chunks(), media_type=upstream_content_type)
 
     try:
         response = await buffered_client.request(

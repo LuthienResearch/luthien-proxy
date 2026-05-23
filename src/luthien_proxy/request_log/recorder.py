@@ -244,6 +244,10 @@ class RequestLogRecorder:
         try:
             async with self._db_pool.connection() as conn:
                 for pending in (self._inbound, self._outbound):
+                    if pending.http_method is None and pending.direction == "outbound":
+                        # Passthrough requests only populate the inbound side;
+                        # skip the outbound row rather than inserting a fully-NULL row.
+                        continue
                     await _insert_log_row(conn, pending, self._serialize_body)
         except DatabaseWriteError as exc:
             RequestLogRecorder.dropped_writes += 1

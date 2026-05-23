@@ -409,3 +409,159 @@ class TestLifespanHttpxClients:
 
         assert streaming_client.is_closed
         assert buffered_client.is_closed
+
+
+class TestAnthropicBaseUrl:
+    def test_default_anthropic_base_has_no_v1_suffix(self) -> None:
+        from luthien_proxy.passthrough_routes import UPSTREAM_BASES
+
+        base = UPSTREAM_BASES["anthropic"]
+        assert not base.endswith("/v1"), (
+            f"UPSTREAM_BASES['anthropic'] must not include /v1 (got {base!r}); "
+            "a request to /anthropic/v1/messages would become /v1/v1/messages upstream"
+        )
+        assert base == "https://api.anthropic.com"
+
+    def test_upstream_url_construction_no_double_v1(self) -> None:
+        from luthien_proxy.passthrough_routes import UPSTREAM_BASES
+
+        base = UPSTREAM_BASES["anthropic"]
+        path = "v1/messages"
+        constructed = f"{base}/{path}"
+        assert constructed == "https://api.anthropic.com/v1/messages"
+        assert "/v1/v1/" not in constructed
+
+
+class TestStreamingUpstreamError:
+    def _make_streaming_app(self, streaming_client: MagicMock, deps=None) -> FastAPI:
+        app = FastAPI()
+        app.include_router(router)
+        app.dependency_overrides[verify_passthrough_token] = lambda: "tok"
+        app.dependency_overrides[verify_strict_client_key] = lambda: "tok"
+        if deps is not None:
+            app.state.dependencies = deps
+        app.state.passthrough_buffered_client = _make_buffered_client()
+        app.state.passthrough_streaming_client = streaming_client
+        return app
+
+    def _make_streaming_client(
+        self, status_code: int, content: bytes = b"", content_type: str = "text/event-stream"
+    ) -> MagicMock:
+        mock_response = MagicMock()
+        mock_response.status_code = status_code
+        mock_response.headers = {"content-type": content_type}
+
+        async def aread():
+            return content
+
+        async def aiter_bytes():
+            yield content
+
+        mock_response.aread = aread
+        mock_response.aiter_bytes = aiter_bytes
+
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=mock_response)
+        cm.__aexit__ = AsyncMock(return_value=None)
+
+        mock_client = MagicMock()
+        mock_client.stream = MagicMock(return_value=cm)
+        return mock_client
+
+    @pytest.mark.parametrize("upstream_status", [401, 429, 500, 503])
+    def test_streaming_upstream_error_returns_real_status(self, upstream_status: int) -> None:
+        error_body = b'{"error": "upstream error"}'
+        streaming_client = self._make_streaming_client(
+            status_code=upstream_status,
+            content=error_body,
+            content_type="application/json",
+        )
+        app = self._make_streaming_app(streaming_client)
+
+        with patch("luthien_proxy.passthrough_routes.create_recorder") as mock_create:
+            mock_create.return_value = MagicMock(spec=NoOpRequestLogRecorder)
+            with patch.dict("os.environ", {"ANTHROPIC_BASE_URL": "http://mock-upstream"}):
+                client = TestClient(app, raise_server_exceptions=False)
+                response = client.post(
+                    "/anthropic/v1/messages",
+                    json={"model": "claude-haiku-4-5", "max_tokens": 10, "messages": [], "stream": True},
+                    headers={"anthropic-version": "2023-06-01"},
+                )
+
+        assert response.status_code == upstream_status, (
+            f"Expected {upstream_status} from upstream to be forwarded to client, got {response.status_code}"
+        )
+
+    def test_streaming_2xx_returns_streaming_response(self) -> None:
+        sse_chunk = b"data: {}\n\ndata: [DONE]\n\n"
+        streaming_client = self._make_streaming_client(
+            status_code=200,
+            content=sse_chunk,
+            content_type="text/event-stream",
+        )
+        app = self._make_streaming_app(streaming_client)
+
+        with patch("luthien_proxy.passthrough_routes.create_recorder") as mock_create:
+            mock_create.return_value = MagicMock(spec=NoOpRequestLogRecorder)
+            with patch.dict("os.environ", {"ANTHROPIC_BASE_URL": "http://mock-upstream"}):
+                client = TestClient(app, raise_server_exceptions=False)
+                response = client.post(
+                    "/anthropic/v1/messages",
+                    json={"model": "claude-haiku-4-5", "max_tokens": 10, "messages": [], "stream": True},
+                    headers={"anthropic-version": "2023-06-01"},
+                )
+
+        assert response.status_code == 200
+        assert b"DONE" in response.content
+
+    def test_streaming_forwards_upstream_content_type(self) -> None:
+        streaming_client = self._make_streaming_client(
+            status_code=200,
+            content=b'[{"candidates": []}]',
+            content_type="application/json",
+        )
+        app = self._make_streaming_app(streaming_client)
+
+        with patch("luthien_proxy.passthrough_routes.create_recorder") as mock_create:
+            mock_create.return_value = MagicMock(spec=NoOpRequestLogRecorder)
+            with patch.dict("os.environ", {"GEMINI_BASE_URL": "http://mock-upstream", "GOOGLE_API_KEY": "test-key"}):
+                client = TestClient(app, raise_server_exceptions=False)
+                response = client.post(
+                    "/gemini/v1beta/models/gemini-1.5-flash:streamGenerateContent",
+                    json={"contents": [{"parts": [{"text": "hi"}]}]},
+                )
+
+        assert "application/json" in response.headers.get("content-type", "")
+
+
+class TestMissingServerKey:
+    def test_openai_missing_key_returns_503(self) -> None:
+        app = _make_app()
+
+        with patch("luthien_proxy.passthrough_routes.create_recorder") as mock_create:
+            mock_create.return_value = MagicMock(spec=NoOpRequestLogRecorder)
+            with patch.dict("os.environ", {}, clear=True):
+                env = {k: v for k, v in __import__("os").environ.items() if k != "OPENAI_API_KEY"}
+                with patch.dict("os.environ", env, clear=True):
+                    client = TestClient(app, raise_server_exceptions=False)
+                    response = client.post(
+                        "/openai/v1/chat/completions",
+                        json={"model": "gpt-4o", "messages": []},
+                    )
+
+        assert response.status_code == 503
+
+    def test_gemini_missing_key_returns_503(self) -> None:
+        app = _make_app()
+
+        with patch("luthien_proxy.passthrough_routes.create_recorder") as mock_create:
+            mock_create.return_value = MagicMock(spec=NoOpRequestLogRecorder)
+            env = {k: v for k, v in __import__("os").environ.items() if k != "GOOGLE_API_KEY"}
+            with patch.dict("os.environ", env, clear=True):
+                client = TestClient(app, raise_server_exceptions=False)
+                response = client.post(
+                    "/gemini/v1beta/models/gemini-1.5-flash:generateContent",
+                    json={"contents": [{"parts": [{"text": "hi"}]}]},
+                )
+
+        assert response.status_code == 503
