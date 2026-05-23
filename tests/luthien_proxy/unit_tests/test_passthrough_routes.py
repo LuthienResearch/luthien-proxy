@@ -549,3 +549,216 @@ class TestInvalidContentLength:
             )
 
         assert response.status_code != 400
+
+
+class TestGeminiKeyQueryStripping:
+    def test_key_param_stripped_from_gemini_query(self) -> None:
+        captured_urls: list[str] = []
+        mock_buffered = MagicMock()
+
+        async def fake_request(method, url, **kwargs):
+            captured_urls.append(url)
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.content = b"{}"
+            resp.headers = {"content-type": "application/json"}
+            return resp
+
+        mock_buffered.request = fake_request
+        app = _make_app(buffered_client=mock_buffered)
+
+        with patch("luthien_proxy.passthrough_routes.create_recorder") as mock_create:
+            mock_create.return_value = MagicMock()
+            with patch.dict("os.environ", {"GEMINI_BASE_URL": "http://mock-upstream"}):
+                client = TestClient(app, raise_server_exceptions=False)
+                client.post(
+                    "/gemini/v1beta/models/gemini-1.5-flash:generateContent?key=CLIENT_SECRET&alt=json",
+                    json={"contents": []},
+                )
+
+        assert captured_urls, "No upstream request was made"
+        upstream_url = captured_urls[0]
+        assert "key=CLIENT_SECRET" not in upstream_url
+        assert "alt=json" in upstream_url
+
+    def test_non_key_params_preserved_for_gemini(self) -> None:
+        captured_urls: list[str] = []
+        mock_buffered = MagicMock()
+
+        async def fake_request(method, url, **kwargs):
+            captured_urls.append(url)
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.content = b"{}"
+            resp.headers = {"content-type": "application/json"}
+            return resp
+
+        mock_buffered.request = fake_request
+        app = _make_app(buffered_client=mock_buffered)
+
+        with patch("luthien_proxy.passthrough_routes.create_recorder") as mock_create:
+            mock_create.return_value = MagicMock()
+            with patch.dict("os.environ", {"GEMINI_BASE_URL": "http://mock-upstream"}):
+                client = TestClient(app, raise_server_exceptions=False)
+                client.post(
+                    "/gemini/v1beta/models/gemini-1.5-flash:generateContent?alt=sse",
+                    json={"contents": []},
+                )
+
+        assert captured_urls
+        assert "alt=sse" in captured_urls[0]
+
+    def test_key_param_not_stripped_for_openai(self) -> None:
+        captured_urls: list[str] = []
+        mock_buffered = MagicMock()
+
+        async def fake_request(method, url, **kwargs):
+            captured_urls.append(url)
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.content = b"{}"
+            resp.headers = {"content-type": "application/json"}
+            return resp
+
+        mock_buffered.request = fake_request
+        app = _make_app(buffered_client=mock_buffered)
+
+        with patch("luthien_proxy.passthrough_routes.create_recorder") as mock_create:
+            mock_create.return_value = MagicMock()
+            with patch.dict("os.environ", {"OPENAI_BASE_URL": "http://mock-upstream"}):
+                client = TestClient(app, raise_server_exceptions=False)
+                client.post(
+                    "/openai/v1/chat/completions?key=somevalue",
+                    json={"model": "gpt-4o", "messages": []},
+                )
+
+        assert captured_urls
+        assert "key=somevalue" in captured_urls[0]
+
+
+class TestStreamingResponseHeaders:
+    def _make_streaming_client_with_headers(self, status_code: int, content: bytes, headers: dict) -> MagicMock:
+        mock_response = MagicMock()
+        mock_response.status_code = status_code
+        mock_response.headers = headers
+
+        async def aread():
+            return content
+
+        async def aiter_bytes():
+            yield content
+
+        mock_response.aread = aread
+        mock_response.aiter_bytes = aiter_bytes
+
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=mock_response)
+        cm.__aexit__ = AsyncMock(return_value=None)
+
+        mock_client = MagicMock()
+        mock_client.stream = MagicMock(return_value=cm)
+        return mock_client
+
+    def test_streaming_2xx_forwards_upstream_headers(self) -> None:
+        streaming_client = self._make_streaming_client_with_headers(
+            status_code=200,
+            content=b"data: {}\n\ndata: [DONE]\n\n",
+            headers={
+                "content-type": "text/event-stream",
+                "x-request-id": "req-stream-123",
+                "anthropic-ratelimit-requests-remaining": "99",
+            },
+        )
+        app = FastAPI()
+        app.include_router(router)
+        app.dependency_overrides[verify_passthrough_token] = lambda: "tok"
+        app.dependency_overrides[verify_strict_client_key] = lambda: "tok"
+        app.state.passthrough_buffered_client = _make_buffered_client()
+        app.state.passthrough_streaming_client = streaming_client
+
+        with patch("luthien_proxy.passthrough_routes.create_recorder") as mock_create:
+            mock_create.return_value = MagicMock(spec=NoOpRequestLogRecorder)
+            with patch.dict("os.environ", {"ANTHROPIC_BASE_URL": "http://mock-upstream"}):
+                client = TestClient(app, raise_server_exceptions=False)
+                response = client.post(
+                    "/anthropic/v1/messages",
+                    json={"model": "claude-haiku-4-5", "max_tokens": 10, "messages": [], "stream": True},
+                    headers={"anthropic-version": "2023-06-01"},
+                )
+
+        assert response.status_code == 200
+        assert response.headers.get("x-request-id") == "req-stream-123"
+        assert response.headers.get("anthropic-ratelimit-requests-remaining") == "99"
+
+    def test_streaming_2xx_strips_dangerous_headers(self) -> None:
+        streaming_client = self._make_streaming_client_with_headers(
+            status_code=200,
+            content=b"data: {}\n\ndata: [DONE]\n\n",
+            headers={
+                "content-type": "text/event-stream",
+                "set-cookie": "session=evil",
+                "server": "nginx",
+                "transfer-encoding": "chunked",
+            },
+        )
+        app = FastAPI()
+        app.include_router(router)
+        app.dependency_overrides[verify_passthrough_token] = lambda: "tok"
+        app.dependency_overrides[verify_strict_client_key] = lambda: "tok"
+        app.state.passthrough_buffered_client = _make_buffered_client()
+        app.state.passthrough_streaming_client = streaming_client
+
+        with patch("luthien_proxy.passthrough_routes.create_recorder") as mock_create:
+            mock_create.return_value = MagicMock(spec=NoOpRequestLogRecorder)
+            with patch.dict("os.environ", {"ANTHROPIC_BASE_URL": "http://mock-upstream"}):
+                client = TestClient(app, raise_server_exceptions=False)
+                response = client.post(
+                    "/anthropic/v1/messages",
+                    json={"model": "claude-haiku-4-5", "max_tokens": 10, "messages": [], "stream": True},
+                    headers={"anthropic-version": "2023-06-01"},
+                )
+
+        assert "set-cookie" not in response.headers
+        assert "server" not in response.headers
+        assert "transfer-encoding" not in response.headers
+
+
+class TestWriteLogsSkipsEmptyOutbound:
+    def test_only_inbound_row_written_for_passthrough(self) -> None:
+        from luthien_proxy.request_log.recorder import RequestLogRecorder, _PendingLog
+
+        recorder = RequestLogRecorder.__new__(RequestLogRecorder)
+        recorder._transaction_id = "test-txn"
+        recorder._inbound = _PendingLog(
+            direction="inbound",
+            transaction_id="test-txn",
+            http_method="POST",
+            url="http://gateway/openai/v1/chat/completions",
+        )
+        recorder._outbound = _PendingLog(
+            direction="outbound",
+            transaction_id="test-txn",
+        )
+
+        insert_calls: list[str] = []
+
+        async def fake_insert(conn, pending, serialize):
+            insert_calls.append(pending.direction)
+
+        import unittest.mock as mock_module
+
+        with mock_module.patch("luthien_proxy.request_log.recorder._insert_log_row", side_effect=fake_insert):
+            mock_pool = MagicMock()
+            mock_conn = AsyncMock()
+            mock_pool.connection = MagicMock(
+                return_value=AsyncMock(
+                    __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock(return_value=None)
+                )
+            )
+            recorder._db_pool = mock_pool
+
+            import asyncio
+
+            asyncio.run(recorder._write_logs())
+
+        assert insert_calls == ["inbound"], f"Expected only inbound row, got: {insert_calls}"

@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import uuid
+from urllib.parse import parse_qsl, urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -122,6 +123,16 @@ def _build_outbound_headers(request: Request, provider: str) -> dict[str, str]:
     return headers
 
 
+def _safe_response_headers(response_headers: httpx.Headers) -> dict[str, str]:
+    return {
+        k: v
+        for k, v in response_headers.items()
+        if k.lower() not in HOP_BY_HOP_HEADERS
+        and k.lower() not in DANGEROUS_RESPONSE_HEADERS
+        and k.lower() not in _STRIP_RESPONSE
+    }
+
+
 async def _handle_passthrough(request: Request, provider: str, path: str) -> Response:
     content_length = request.headers.get("content-length")
     if content_length:
@@ -137,7 +148,14 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
         raise HTTPException(status_code=413, detail="Request payload too large")
     upstream_url = f"{_upstream_base(provider)}/{path}"
     if request.url.query:
-        upstream_url = f"{upstream_url}?{request.url.query}"
+        query = request.url.query
+        if provider == "gemini":
+            # Strip ?key= to prevent clients from bypassing server-injected auth;
+            # the server key is injected via x-goog-api-key header instead.
+            params = [(k, v) for k, v in parse_qsl(query) if k.lower() != "key"]
+            query = urlencode(params)
+        if query:
+            upstream_url = f"{upstream_url}?{query}"
 
     headers = _build_outbound_headers(request, provider)
 
@@ -207,7 +225,10 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
 
         # 2xx: stream the body.  Forward the upstream Content-Type so clients
         # that branch on it (e.g. Gemini JSON vs SSE) get the right value.
+        # Also forward other safe upstream headers (rate-limit, request-id, etc.)
+        # to match the behaviour of the buffered path.
         upstream_content_type = response.headers.get("content-type", "text/event-stream")
+        safe_headers = _safe_response_headers(response.headers)
 
         async def stream_chunks():
             status = response.status_code
@@ -224,7 +245,7 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
                 recorder.record_inbound_response(status=status, error=error)
                 recorder.flush()
 
-        return StreamingResponse(stream_chunks(), media_type=upstream_content_type)
+        return StreamingResponse(stream_chunks(), media_type=upstream_content_type, headers=safe_headers)
 
     try:
         response = await buffered_client.request(
@@ -242,13 +263,7 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
     recorder.record_inbound_response(status=response.status_code)
     recorder.flush()
 
-    safe_headers = {
-        k: v
-        for k, v in response.headers.items()
-        if k.lower() not in HOP_BY_HOP_HEADERS
-        and k.lower() not in DANGEROUS_RESPONSE_HEADERS
-        and k.lower() not in _STRIP_RESPONSE
-    }
+    safe_headers = _safe_response_headers(response.headers)
     return Response(
         content=response.content,
         status_code=response.status_code,
