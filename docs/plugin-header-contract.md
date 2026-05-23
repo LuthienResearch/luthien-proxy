@@ -23,22 +23,22 @@ The gateway trusts `x-luthien-*` headers as received — it does not authenticat
 | Field | Value |
 |---|---|
 | **Source** | OpenCode session ID (UUIDv4, provided by OpenCode runtime) |
-| **Type** | String (UUIDv4 format, max 36 chars, pattern `[0-9a-f-]{36}`) |
+| **Type** | String (UUIDv4 format: `[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}`) |
 | **Required** | No — absent when plugin is not loaded or proxy is unreachable |
 | **Semantics** | Identifies the OpenCode session that originated the request. Unique per OpenCode process invocation. Shared across all requests within a single session. |
 | **Example** | `x-luthien-session-id: 550e8400-e29b-41d4-a716-446655440000` |
 | **Persisted to** | `request_logs.session_id` (dedicated column) |
 
-> **Validation**: The gateway stores the value as-is with no length enforcement or UUID validation. The plugin MUST send a valid UUIDv4 (max 36 chars). Behavior for malformed or oversized values is undefined until PR-B adds explicit validation.
+> **Validation**: The gateway stores the value as-is with no length enforcement or UUID validation. The plugin MUST send a valid UUIDv4. Behavior for malformed or oversized values is undefined until PR-B adds explicit validation.
 
 ### `x-luthien-agent`
 
 | Field | Value |
 |---|---|
 | **Source** | OpenCode agent name (e.g., `build`, `test`, `review`) |
-| **Type** | String (max 64 chars, printable ASCII) |
-| **Required** | No |
-| **Semantics** | Identifies which OpenCode agent mode was active when the request was made. Useful for filtering logs by agent type. When the header is absent, `request_logs.agent` is NULL. The plugin sends the literal string `"unknown"` when the agent name is unavailable — the gateway stores this as-is (not normalized to NULL). Consumers should use `COALESCE(agent, 'unknown')` at query time to treat both cases uniformly. |
+| **Type** | String |
+| **Required** | No — **omit this header when the agent name is unavailable**. Do not send a placeholder like `"unknown"`. |
+| **Semantics** | Identifies which OpenCode agent mode was active when the request was made. Useful for filtering logs by agent type. When the header is absent, `request_logs.agent` is NULL — this is the canonical signal for "agent name unavailable or non-plugin traffic". Sending a placeholder string instead of omitting the header would conflate two distinct cases (plugin loaded but unresolved vs. plugin not loaded) and make them indistinguishable at query time. |
 | **Example** | `x-luthien-agent: build` |
 | **Persisted to** | `request_logs.agent` (dedicated column, introduced in PR-B / migration 019) |
 
@@ -79,10 +79,12 @@ The gateway trusts `x-luthien-*` headers as received — it does not authenticat
 
 ## Gateway Behavior
 
-- **Inbound**: The gateway reads `x-luthien-session-id`, `x-luthien-agent`, and `x-luthien-model` from inbound requests and persists them to dedicated `request_logs` columns (agent column introduced in PR-B).
-- **Outbound**: All `x-luthien-*` headers are **stripped** before forwarding to upstream providers (Anthropic, OpenAI, Gemini). They are internal observability headers and must not leak to external APIs.
-- **Unknown headers**: Any `x-luthien-*` header not listed above is logged (via `request_headers` JSONB) and ignored. This supports additive evolution.
-- **Missing headers**: When `x-luthien-*` headers are absent (plugin not loaded, proxy unreachable), the corresponding `request_logs` columns are NULL. Requests still succeed.
+- **Inbound**: The gateway will read `x-luthien-session-id`, `x-luthien-agent`, and `x-luthien-model` from inbound requests and persist them to dedicated `request_logs` columns (agent column introduced in PR-B).
+- **Outbound**: All `x-luthien-*` headers will be **stripped** before forwarding to upstream providers (Anthropic, OpenAI, Gemini) — by prefix match, not by enumerating the documented header names. This ensures headers added in future plugin versions are also stripped. They are internal observability headers and must not leak to external APIs.
+- **Unknown headers**: Any `x-luthien-*` header not listed above will be logged (via `request_headers` JSONB) and ignored. This supports additive evolution.
+- **Missing headers**: When `x-luthien-*` headers are absent (plugin not loaded, proxy unreachable), the corresponding `request_logs` columns will be NULL. Requests still succeed.
+
+> **Note on `request_headers` JSONB**: `request_logs.request_headers` stores the raw inbound header set. Headers marked "Persisted to `request_headers` JSONB" are not routed to dedicated columns — they are accessible via JSON queries on the raw header blob.
 
 ---
 
