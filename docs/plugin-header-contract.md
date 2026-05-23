@@ -2,7 +2,7 @@
 
 > **Version**: v1.0 (contract version, independent of plugin npm version)
 > **Status**: Active (Track A)
-> **Related**: [opencode-luthien plugin](https://github.com/LuthienResearch/opencode-luthien), [PR #757](https://github.com/LuthienResearch/luthien-proxy/pull/757)
+> **Related**: [opencode-luthien plugin](https://github.com/LuthienResearch/opencode-luthien), [PR #758](https://github.com/LuthienResearch/luthien-proxy/pull/758) (gateway implementation)
 
 This document defines the canonical set of HTTP headers injected by the `opencode-luthien` plugin into every proxied request. The gateway reads these headers to populate observability columns in `request_logs`.
 
@@ -10,7 +10,9 @@ This document defines the canonical set of HTTP headers injected by the `opencod
 
 ## Trust Boundary
 
-The gateway trusts `x-luthien-*` headers as received — it does not authenticate their origin beyond the client credential check already applied to every request. Operators who expose the gateway to untrusted clients should front it with a reverse proxy that strips inbound `x-luthien-*` headers before they reach the gateway, preventing clients from spoofing session IDs or agent names in logs.
+The gateway trusts `x-luthien-*` headers as received — it does not authenticate their origin beyond the client credential check already applied to every request. Operators who expose the gateway to untrusted clients should configure a reverse proxy to strip the specific headers documented here (`x-luthien-session-id`, `x-luthien-agent`, `x-luthien-provider`, `x-luthien-model`, `x-luthien-plugin-version`) before they reach the gateway, preventing clients from spoofing session IDs or agent names in logs.
+
+> **Note**: `x-luthien-user-id` is a separate header controlled by the `TRUST_USER_ID_HEADER` gateway config. A blanket strip of all `x-luthien-*` headers would silently disable user attribution for operators who have intentionally enabled that setting. Strip only the headers listed above.
 
 ---
 
@@ -27,7 +29,7 @@ The gateway trusts `x-luthien-*` headers as received — it does not authenticat
 | **Example** | `x-luthien-session-id: 550e8400-e29b-41d4-a716-446655440000` |
 | **Persisted to** | `request_logs.session_id` (dedicated column) |
 
-> **Validation**: The gateway stores the value as-is without UUID validation. Values longer than 36 characters are truncated to fit the column. The plugin MUST send a valid UUIDv4.
+> **Validation**: The gateway stores the value as-is with no length enforcement or UUID validation. The plugin MUST send a valid UUIDv4 (max 36 chars). Behavior for malformed or oversized values is undefined until PR-B adds explicit validation.
 
 ### `x-luthien-agent`
 
@@ -45,7 +47,7 @@ The gateway trusts `x-luthien-*` headers as received — it does not authenticat
 | Field | Value |
 |---|---|
 | **Source** | Plugin — derived from the AI SDK provider ID |
-| **Type** | String (one of: `anthropic`, `openai`, `google`) |
+| **Type** | String — known values: `anthropic`, `openai`, `google` |
 | **Required** | No |
 | **Semantics** | Identifies which AI provider the request targets. Redundant with the URL prefix (`/openai/`, `/gemini/`, `/anthropic/`) but included for convenience. Unknown values are logged via `request_headers` JSONB and passed through — the gateway does not reject unrecognised provider strings, supporting forward-compatibility as new providers are added. |
 | **Example** | `x-luthien-provider: openai` |
