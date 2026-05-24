@@ -64,6 +64,11 @@ HOP_BY_HOP_HEADERS = frozenset(
 )
 DANGEROUS_RESPONSE_HEADERS = frozenset({"set-cookie", "server", "x-powered-by"})
 
+# Hop-by-hop and connection-scoped headers must not be forwarded upstream
+# (RFC 7230 §6.1). Also strip cookie — none of the three providers consume it
+# and forwarding it could leak browser session data.
+_STRIP_INBOUND_HOP_BY_HOP = HOP_BY_HOP_HEADERS | frozenset({"cookie"})
+
 
 def get_streaming_client(request: Request) -> httpx.AsyncClient:
     return request.app.state.passthrough_streaming_client
@@ -96,6 +101,8 @@ def _build_outbound_headers(request: Request, provider: str) -> dict[str, str]:
         if k_lower in _STRIP_INBOUND:
             continue
         if k_lower in _STRIP_AUTH:
+            continue
+        if k_lower in _STRIP_INBOUND_HOP_BY_HOP:
             continue
         if k_lower.startswith("x-luthien-"):
             continue
@@ -236,7 +243,9 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
         # Also forward other safe upstream headers (rate-limit, request-id, etc.)
         # to match the behaviour of the buffered path.
         upstream_content_type = response.headers.get("content-type", "text/event-stream")
-        safe_headers = _safe_response_headers(response.headers)
+        safe_headers = {
+            k: v for k, v in _safe_response_headers(response.headers).items() if k.lower() != "content-type"
+        }
 
         async def stream_chunks():
             status = response.status_code
