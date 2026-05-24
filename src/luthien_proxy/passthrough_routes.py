@@ -187,6 +187,7 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
         transaction_id=str(uuid.uuid4()),
         enabled=deps.enable_request_logging if deps is not None else False,
     )
+    streaming = _is_streaming(path, body)
     recorder.record_inbound_request(
         method=request.method,
         url=_sanitize_url(str(request.url), provider),
@@ -196,9 +197,9 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
         agent=request.headers.get("x-luthien-agent"),
         model=request.headers.get("x-luthien-model"),
         endpoint=f"/{provider}/{path}",
+        is_streaming=streaming,
     )
 
-    streaming = _is_streaming(path, body)
     streaming_client = get_streaming_client(request)
     buffered_client = get_buffered_client(request)
 

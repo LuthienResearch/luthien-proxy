@@ -216,7 +216,6 @@ class RequestLogRecorder:
         self._outbound.error = error
         self._outbound.completed_at = time.time()
         self._outbound.duration_ms = (self._outbound.completed_at - self._outbound.started_at) * 1000
-        self._outbound.populated = True
 
     # -- Flush to DB -------------------------------------------------------
 
