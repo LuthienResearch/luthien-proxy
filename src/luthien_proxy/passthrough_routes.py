@@ -78,7 +78,7 @@ def _is_streaming(path: str, body: bytes) -> bool:
         return True
     try:
         data = json.loads(body)
-        return bool(data.get("stream", False))
+        return data.get("stream") is True
     except (json.JSONDecodeError, AttributeError, ValueError):
         return False
 
@@ -248,6 +248,9 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
                 logger.warning("Streaming passthrough error for %s/%s: %s", provider, path, repr(exc))
                 status = 502
                 error = repr(exc)
+                # Mid-stream failure: the client has already received 200 OK and
+                # a partial body. We can't change the HTTP status at this point;
+                # the truncated stream is the only signal available to the client.
             finally:
                 await upstream_cm.__aexit__(None, None, None)
                 recorder.record_inbound_response(status=status, error=error)

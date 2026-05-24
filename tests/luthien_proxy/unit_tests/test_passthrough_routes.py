@@ -788,13 +788,13 @@ class TestIsStreaming:
         body = json.dumps({"model": "gpt-4o", "stream": False}).encode()
         assert _is_streaming("v1/chat/completions", body) is False
 
-    def test_stream_string_true_is_streaming(self) -> None:
+    def test_stream_string_true_is_not_streaming(self) -> None:
         import json
 
         from luthien_proxy.passthrough_routes import _is_streaming
 
         body = json.dumps({"model": "gpt-4o", "stream": "true"}).encode()
-        assert _is_streaming("v1/chat/completions", body) is True
+        assert _is_streaming("v1/chat/completions", body) is False
 
     def test_stream_generate_content_path_is_streaming(self) -> None:
         from luthien_proxy.passthrough_routes import _is_streaming

@@ -390,9 +390,10 @@ def create_app(
         app.state.passthrough_streaming_client = httpx.AsyncClient(
             timeout=httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=30.0)
         )
-        app.state.passthrough_buffered_client = httpx.AsyncClient(timeout=30.0)
+        app.state.passthrough_buffered_client = httpx.AsyncClient(timeout=120.0)
         # Two separate clients: streaming needs a long read timeout (300s) for
-        # token-by-token SSE; buffered only needs 30s for a complete JSON response.
+        # token-by-token SSE; buffered uses 120s to accommodate long non-streaming
+        # generations (extended thinking, large max_tokens) without 502ing.
         logger.info("Passthrough httpx clients created")
 
         yield

@@ -905,6 +905,20 @@ class TestPendingLogPopulatedFlag:
 
         assert recorder._outbound.populated is True
 
+    def test_record_outbound_response_sets_populated(self) -> None:
+        recorder = RequestLogRecorder.__new__(RequestLogRecorder)
+        recorder._transaction_id = "txn-2"
+        recorder._inbound = _PendingLog(direction="inbound", transaction_id="txn-2")
+        recorder._outbound = _PendingLog(
+            direction="outbound",
+            transaction_id="txn-2",
+            started_at=__import__("time").time(),
+        )
+
+        recorder.record_outbound_response(status=200)
+
+        assert recorder._outbound.populated is True
+
     @pytest.mark.asyncio
     async def test_write_logs_skips_unpopulated_outbound(self) -> None:
         recorder = RequestLogRecorder.__new__(RequestLogRecorder)

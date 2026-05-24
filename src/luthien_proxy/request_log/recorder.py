@@ -216,6 +216,7 @@ class RequestLogRecorder:
         self._outbound.error = error
         self._outbound.completed_at = time.time()
         self._outbound.duration_ms = (self._outbound.completed_at - self._outbound.started_at) * 1000
+        self._outbound.populated = True
 
     # -- Flush to DB -------------------------------------------------------
 
@@ -247,11 +248,9 @@ class RequestLogRecorder:
             async with self._db_pool.connection() as conn:
                 for pending in (self._inbound, self._outbound):
                     if not pending.populated and pending.direction == "outbound":
-                        # Outbound side was never populated (e.g. passthrough requests
-                        # that only record the inbound side). Skip rather than inserting
-                        # a fully-NULL row. Using an explicit flag rather than checking
-                        # http_method so non-passthrough flows that forget to call
-                        # record_outbound_request() surface as a visible NULL row.
+                        # Outbound side was never populated — skip rather than
+                        # inserting a fully-NULL row. Passthrough requests only
+                        # record the inbound side; this is the expected path for them.
                         continue
                     await _insert_log_row(conn, pending, self._serialize_body)
         except DatabaseWriteError as exc:
