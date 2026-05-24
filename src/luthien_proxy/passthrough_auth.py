@@ -7,7 +7,7 @@ untouched — this is a parallel, simpler dep for passthrough routes only.
 
 import secrets
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from luthien_proxy.credential_manager import AuthMode, CredentialManager
@@ -16,7 +16,19 @@ from luthien_proxy.dependencies import get_api_key, get_credential_manager
 _bearer = HTTPBearer(auto_error=False)
 
 
+def _extract_token(request: Request, credentials: HTTPAuthorizationCredentials | None) -> str | None:
+    """Extract auth token from Bearer header or Anthropic SDK-style API key headers."""
+    if credentials:
+        return credentials.credentials
+    for header in ("x-api-key", "x-anthropic-api-key"):
+        val = request.headers.get(header)
+        if val:
+            return val
+    return None
+
+
 async def verify_passthrough_token(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     api_key: str | None = Depends(get_api_key),
     credential_manager: CredentialManager | None = Depends(get_credential_manager),
@@ -30,8 +42,11 @@ async def verify_passthrough_token(
     - PASSTHROUGH: any token accepted (client's own key forwarded upstream)
     - CLIENT_KEY: only the configured CLIENT_API_KEY is accepted
     - BOTH: CLIENT_API_KEY accepted, or any token (passthrough path)
+
+    Accepts Authorization: Bearer, x-api-key, or x-anthropic-api-key headers
+    so Anthropic SDK clients (which default to x-api-key) work without changes.
     """
-    token = credentials.credentials if credentials else None
+    token = _extract_token(request, credentials)
 
     # Determine auth mode
     if credential_manager is None:

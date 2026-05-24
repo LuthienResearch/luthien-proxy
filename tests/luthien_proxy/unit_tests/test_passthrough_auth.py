@@ -10,6 +10,12 @@ from luthien_proxy.credential_manager import AuthConfig, AuthMode, CredentialMan
 from luthien_proxy.passthrough_auth import verify_passthrough_token, verify_strict_client_key
 
 
+def _make_request(headers: dict | None = None) -> MagicMock:
+    req = MagicMock()
+    req.headers = headers or {}
+    return req
+
+
 @pytest.mark.asyncio
 async def test_passthrough_mode_accepts_any_token():
     """PASSTHROUGH mode: any token is accepted."""
@@ -23,6 +29,7 @@ async def test_passthrough_mode_accepts_any_token():
 
     credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="any-token")
     result = await verify_passthrough_token(
+        request=_make_request(),
         credentials=credentials,
         api_key=None,
         credential_manager=cred_manager,
@@ -43,6 +50,7 @@ async def test_passthrough_mode_accepts_no_token():
     )
 
     result = await verify_passthrough_token(
+        request=_make_request(),
         credentials=None,
         api_key=None,
         credential_manager=cred_manager,
@@ -64,6 +72,7 @@ async def test_client_key_mode_accepts_matching_token():
 
     credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="sk-test-key")
     result = await verify_passthrough_token(
+        request=_make_request(),
         credentials=credentials,
         api_key="sk-test-key",
         credential_manager=cred_manager,
@@ -86,6 +95,7 @@ async def test_client_key_mode_rejects_mismatched_token():
     credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="wrong-token")
     with pytest.raises(HTTPException) as exc_info:
         await verify_passthrough_token(
+            request=_make_request(),
             credentials=credentials,
             api_key="sk-test-key",
             credential_manager=cred_manager,
@@ -108,6 +118,7 @@ async def test_client_key_mode_rejects_missing_token():
 
     with pytest.raises(HTTPException) as exc_info:
         await verify_passthrough_token(
+            request=_make_request(),
             credentials=None,
             api_key="sk-test-key",
             credential_manager=cred_manager,
@@ -130,6 +141,7 @@ async def test_both_mode_accepts_matching_client_key():
 
     credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="sk-test-key")
     result = await verify_passthrough_token(
+        request=_make_request(),
         credentials=credentials,
         api_key="sk-test-key",
         credential_manager=cred_manager,
@@ -151,6 +163,7 @@ async def test_both_mode_accepts_any_other_token():
 
     credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="user-token")
     result = await verify_passthrough_token(
+        request=_make_request(),
         credentials=credentials,
         api_key="sk-test-key",
         credential_manager=cred_manager,
@@ -172,6 +185,7 @@ async def test_both_mode_rejects_missing_token():
 
     with pytest.raises(HTTPException) as exc_info:
         await verify_passthrough_token(
+            request=_make_request(),
             credentials=None,
             api_key="sk-test-key",
             credential_manager=cred_manager,
@@ -186,6 +200,7 @@ async def test_no_credential_manager_defaults_to_client_key():
     """When credential_manager is None, default to CLIENT_KEY mode."""
     credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="sk-test-key")
     result = await verify_passthrough_token(
+        request=_make_request(),
         credentials=credentials,
         api_key="sk-test-key",
         credential_manager=None,
@@ -200,12 +215,55 @@ async def test_no_credential_manager_rejects_mismatched_token():
     credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="wrong-token")
     with pytest.raises(HTTPException) as exc_info:
         await verify_passthrough_token(
+            request=_make_request(),
             credentials=credentials,
             api_key="sk-test-key",
             credential_manager=None,
         )
 
     assert exc_info.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_x_api_key_header_accepted_in_passthrough_mode():
+    """x-api-key header is accepted as an alternative to Bearer token."""
+    cred_manager = MagicMock(spec=CredentialManager)
+    cred_manager.config = AuthConfig(
+        auth_mode=AuthMode.PASSTHROUGH,
+        validate_credentials=False,
+        valid_cache_ttl_seconds=3600,
+        invalid_cache_ttl_seconds=60,
+    )
+
+    result = await verify_passthrough_token(
+        request=_make_request({"x-api-key": "sk-from-header"}),
+        credentials=None,
+        api_key=None,
+        credential_manager=cred_manager,
+    )
+
+    assert result == "sk-from-header"
+
+
+@pytest.mark.asyncio
+async def test_x_anthropic_api_key_header_accepted_in_passthrough_mode():
+    """x-anthropic-api-key header is accepted as an alternative to Bearer token."""
+    cred_manager = MagicMock(spec=CredentialManager)
+    cred_manager.config = AuthConfig(
+        auth_mode=AuthMode.PASSTHROUGH,
+        validate_credentials=False,
+        valid_cache_ttl_seconds=3600,
+        invalid_cache_ttl_seconds=60,
+    )
+
+    result = await verify_passthrough_token(
+        request=_make_request({"x-anthropic-api-key": "sk-anthropic-key"}),
+        credentials=None,
+        api_key=None,
+        credential_manager=cred_manager,
+    )
+
+    assert result == "sk-anthropic-key"
 
 
 @pytest.mark.asyncio
@@ -244,6 +302,7 @@ async def test_timing_safe_comparison():
 
     credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="sk-test-key")
     result = await verify_passthrough_token(
+        request=_make_request(),
         credentials=credentials,
         api_key="sk-test-key",
         credential_manager=cred_manager,

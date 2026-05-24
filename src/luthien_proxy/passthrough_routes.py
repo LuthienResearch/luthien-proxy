@@ -265,7 +265,7 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
                 try:
                     await upstream_cm.__aexit__(None, None, None)
                 except Exception:
-                    logger.warning("Error closing upstream connection for %s/%s", provider, path)
+                    logger.warning("Error closing upstream connection for %s/%s", provider, path, exc_info=True)
                 recorder.record_inbound_response(status=status, error=error)
                 recorder.flush()
 
