@@ -395,7 +395,7 @@ def create_app(
         # token-by-token SSE; buffered uses 120s to accommodate long non-streaming
         # generations (extended thinking, large max_tokens) without 502ing.
         logger.info("Passthrough httpx clients created")
-        logger.warning(
+        logger.info(
             "/anthropic/* passthrough route is active. Requests to /anthropic/v1/... "
             "bypass the policy chain (no judges, no transformations). "
             "This is a temporary Track A bridge — see Track B (#563-569)."

@@ -184,7 +184,7 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
         method=request.method,
         url=_sanitize_url(str(request.url), provider),
         headers=dict(request.headers),
-        body={},  # passthrough bodies may be non-JSON or very large; not logged
+        body=None,
         session_id=request.headers.get("x-luthien-session-id"),
         agent=request.headers.get("x-luthien-agent"),
         model=request.headers.get("x-luthien-model"),
@@ -252,7 +252,10 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
                 # a partial body. We can't change the HTTP status at this point;
                 # the truncated stream is the only signal available to the client.
             finally:
-                await upstream_cm.__aexit__(None, None, None)
+                try:
+                    await upstream_cm.__aexit__(None, None, None)
+                except Exception:
+                    logger.warning("Error closing upstream connection for %s/%s", provider, path)
                 recorder.record_inbound_response(status=status, error=error)
                 recorder.flush()
 

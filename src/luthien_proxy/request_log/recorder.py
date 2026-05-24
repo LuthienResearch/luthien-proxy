@@ -144,7 +144,7 @@ class RequestLogRecorder:
         method: str,
         url: str,
         headers: dict[str, str],
-        body: dict[str, Any],
+        body: dict[str, Any] | None,
         session_id: str | None = None,
         agent: str | None = None,
         model: str | None = None,
