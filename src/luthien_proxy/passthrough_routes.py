@@ -11,7 +11,7 @@ import json
 import logging
 import os
 import uuid
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -133,6 +133,21 @@ def _safe_response_headers(response_headers: httpx.Headers) -> dict[str, str]:
     }
 
 
+def _sanitize_url(url: str, provider: str) -> str:
+    """Strip auth query params from the URL before logging.
+
+    Gemini accepts ?key= as an alternative to the x-goog-api-key header.
+    We strip it from outbound requests, but the inbound URL (from the client)
+    may still carry it — redact before storing in request_logs.
+    """
+    if provider != "gemini" or "key=" not in url:
+        return url
+
+    parts = urlsplit(url)
+    params = [(k, v) for k, v in parse_qsl(parts.query) if k.lower() != "key"]
+    return urlunsplit(parts._replace(query=urlencode(params)))
+
+
 async def _handle_passthrough(request: Request, provider: str, path: str) -> Response:
     content_length = request.headers.get("content-length")
     if content_length:
@@ -167,7 +182,7 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
     )
     recorder.record_inbound_request(
         method=request.method,
-        url=str(request.url),
+        url=_sanitize_url(str(request.url), provider),
         headers=dict(request.headers),
         body={},  # passthrough bodies may be non-JSON or very large; not logged
         session_id=request.headers.get("x-luthien-session-id"),
@@ -210,17 +225,10 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
                 await upstream_cm.__aexit__(None, None, None)
             recorder.record_inbound_response(status=response.status_code)
             recorder.flush()
-            safe_headers = {
-                k: v
-                for k, v in response.headers.items()
-                if k.lower() not in HOP_BY_HOP_HEADERS
-                and k.lower() not in DANGEROUS_RESPONSE_HEADERS
-                and k.lower() not in _STRIP_RESPONSE
-            }
             return Response(
                 content=error_body,
                 status_code=response.status_code,
-                headers=safe_headers,
+                headers=_safe_response_headers(response.headers),
             )
 
         # 2xx: stream the body.  Forward the upstream Content-Type so clients

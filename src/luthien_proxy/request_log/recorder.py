@@ -56,6 +56,7 @@ class _PendingLog:
     endpoint: str | None = None
     error: str | None = None
     agent: str | None = None
+    populated: bool = False
 
 
 async def _insert_log_row(
@@ -200,6 +201,7 @@ class RequestLogRecorder:
         self._outbound.is_streaming = is_streaming
         self._outbound.endpoint = endpoint
         self._outbound.started_at = time.time()
+        self._outbound.populated = True
 
     def record_outbound_response(
         self,
@@ -244,9 +246,12 @@ class RequestLogRecorder:
         try:
             async with self._db_pool.connection() as conn:
                 for pending in (self._inbound, self._outbound):
-                    if pending.http_method is None and pending.direction == "outbound":
-                        # Passthrough requests only populate the inbound side;
-                        # skip the outbound row rather than inserting a fully-NULL row.
+                    if not pending.populated and pending.direction == "outbound":
+                        # Outbound side was never populated (e.g. passthrough requests
+                        # that only record the inbound side). Skip rather than inserting
+                        # a fully-NULL row. Using an explicit flag rather than checking
+                        # http_method so non-passthrough flows that forget to call
+                        # record_outbound_request() surface as a visible NULL row.
                         continue
                     await _insert_log_row(conn, pending, self._serialize_body)
         except DatabaseWriteError as exc:

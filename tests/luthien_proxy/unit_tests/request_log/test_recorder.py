@@ -888,3 +888,86 @@ class TestInsertLogRow:
 
         await _insert_log_row(conn, self._make_pending(), lambda b: None)
         conn.execute.assert_called_once()
+
+
+class TestPendingLogPopulatedFlag:
+    def test_populated_defaults_false(self) -> None:
+        log = _PendingLog(direction="outbound", transaction_id="txn-1")
+        assert log.populated is False
+
+    def test_record_outbound_request_sets_populated(self) -> None:
+        recorder = RequestLogRecorder.__new__(RequestLogRecorder)
+        recorder._transaction_id = "txn-1"
+        recorder._inbound = _PendingLog(direction="inbound", transaction_id="txn-1")
+        recorder._outbound = _PendingLog(direction="outbound", transaction_id="txn-1")
+
+        recorder.record_outbound_request(body={}, method="POST")
+
+        assert recorder._outbound.populated is True
+
+    @pytest.mark.asyncio
+    async def test_write_logs_skips_unpopulated_outbound(self) -> None:
+        recorder = RequestLogRecorder.__new__(RequestLogRecorder)
+        recorder._transaction_id = "txn-skip"
+        recorder._inbound = _PendingLog(
+            direction="inbound",
+            transaction_id="txn-skip",
+            http_method="POST",
+            populated=True,
+        )
+        recorder._outbound = _PendingLog(direction="outbound", transaction_id="txn-skip")
+
+        insert_calls: list[str] = []
+
+        async def fake_insert(conn, pending, serialize):
+            insert_calls.append(pending.direction)
+
+        with patch("luthien_proxy.request_log.recorder._insert_log_row", side_effect=fake_insert):
+            mock_pool = MagicMock()
+            mock_conn = AsyncMock()
+            mock_pool.connection = MagicMock(
+                return_value=AsyncMock(
+                    __aenter__=AsyncMock(return_value=mock_conn),
+                    __aexit__=AsyncMock(return_value=None),
+                )
+            )
+            recorder._db_pool = mock_pool
+            await recorder._write_logs()
+
+        assert insert_calls == ["inbound"]
+
+    @pytest.mark.asyncio
+    async def test_write_logs_includes_populated_outbound(self) -> None:
+        recorder = RequestLogRecorder.__new__(RequestLogRecorder)
+        recorder._transaction_id = "txn-both"
+        recorder._inbound = _PendingLog(
+            direction="inbound",
+            transaction_id="txn-both",
+            http_method="POST",
+            populated=True,
+        )
+        recorder._outbound = _PendingLog(
+            direction="outbound",
+            transaction_id="txn-both",
+            http_method="POST",
+            populated=True,
+        )
+
+        insert_calls: list[str] = []
+
+        async def fake_insert(conn, pending, serialize):
+            insert_calls.append(pending.direction)
+
+        with patch("luthien_proxy.request_log.recorder._insert_log_row", side_effect=fake_insert):
+            mock_pool = MagicMock()
+            mock_conn = AsyncMock()
+            mock_pool.connection = MagicMock(
+                return_value=AsyncMock(
+                    __aenter__=AsyncMock(return_value=mock_conn),
+                    __aexit__=AsyncMock(return_value=None),
+                )
+            )
+            recorder._db_pool = mock_pool
+            await recorder._write_logs()
+
+        assert insert_calls == ["inbound", "outbound"]

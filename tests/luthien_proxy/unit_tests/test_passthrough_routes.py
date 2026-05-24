@@ -724,7 +724,8 @@ class TestStreamingResponseHeaders:
 
 
 class TestWriteLogsSkipsEmptyOutbound:
-    def test_only_inbound_row_written_for_passthrough(self) -> None:
+    @pytest.mark.asyncio
+    async def test_only_inbound_row_written_for_passthrough(self) -> None:
         from luthien_proxy.request_log.recorder import RequestLogRecorder, _PendingLog
 
         recorder = RequestLogRecorder.__new__(RequestLogRecorder)
@@ -745,20 +746,65 @@ class TestWriteLogsSkipsEmptyOutbound:
         async def fake_insert(conn, pending, serialize):
             insert_calls.append(pending.direction)
 
-        import unittest.mock as mock_module
-
-        with mock_module.patch("luthien_proxy.request_log.recorder._insert_log_row", side_effect=fake_insert):
+        with patch("luthien_proxy.request_log.recorder._insert_log_row", side_effect=fake_insert):
             mock_pool = MagicMock()
             mock_conn = AsyncMock()
             mock_pool.connection = MagicMock(
                 return_value=AsyncMock(
-                    __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock(return_value=None)
+                    __aenter__=AsyncMock(return_value=mock_conn),
+                    __aexit__=AsyncMock(return_value=None),
                 )
             )
             recorder._db_pool = mock_pool
-
-            import asyncio
-
-            asyncio.run(recorder._write_logs())
+            await recorder._write_logs()
 
         assert insert_calls == ["inbound"], f"Expected only inbound row, got: {insert_calls}"
+
+
+class TestIsStreaming:
+    def test_empty_body_is_not_streaming(self) -> None:
+        from luthien_proxy.passthrough_routes import _is_streaming
+
+        assert _is_streaming("v1/chat/completions", b"") is False
+
+    def test_non_json_body_is_not_streaming(self) -> None:
+        from luthien_proxy.passthrough_routes import _is_streaming
+
+        assert _is_streaming("v1/chat/completions", b"not json at all") is False
+
+    def test_stream_true_bool_is_streaming(self) -> None:
+        import json
+
+        from luthien_proxy.passthrough_routes import _is_streaming
+
+        body = json.dumps({"model": "gpt-4o", "stream": True}).encode()
+        assert _is_streaming("v1/chat/completions", body) is True
+
+    def test_stream_false_bool_is_not_streaming(self) -> None:
+        import json
+
+        from luthien_proxy.passthrough_routes import _is_streaming
+
+        body = json.dumps({"model": "gpt-4o", "stream": False}).encode()
+        assert _is_streaming("v1/chat/completions", body) is False
+
+    def test_stream_string_true_is_streaming(self) -> None:
+        import json
+
+        from luthien_proxy.passthrough_routes import _is_streaming
+
+        body = json.dumps({"model": "gpt-4o", "stream": "true"}).encode()
+        assert _is_streaming("v1/chat/completions", body) is True
+
+    def test_stream_generate_content_path_is_streaming(self) -> None:
+        from luthien_proxy.passthrough_routes import _is_streaming
+
+        assert _is_streaming("v1beta/models/gemini-1.5-flash:streamGenerateContent", b"{}") is True
+
+    def test_no_stream_key_is_not_streaming(self) -> None:
+        import json
+
+        from luthien_proxy.passthrough_routes import _is_streaming
+
+        body = json.dumps({"model": "gpt-4o", "messages": []}).encode()
+        assert _is_streaming("v1/chat/completions", body) is False
