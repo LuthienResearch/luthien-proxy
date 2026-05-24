@@ -154,8 +154,8 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
         try:
             if int(content_length) > MAX_REQUEST_PAYLOAD_BYTES:
                 raise HTTPException(status_code=413, detail="Request payload too large")
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid content-length header")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid content-length header") from exc
 
     body = await request.body()
 
@@ -256,7 +256,12 @@ async def _handle_passthrough(request: Request, provider: str, path: str) -> Res
                 recorder.record_inbound_response(status=status, error=error)
                 recorder.flush()
 
-        return StreamingResponse(stream_chunks(), media_type=upstream_content_type, headers=safe_headers)
+        return StreamingResponse(
+            stream_chunks(),
+            status_code=response.status_code,
+            media_type=upstream_content_type,
+            headers=safe_headers,
+        )
 
     try:
         response = await buffered_client.request(
