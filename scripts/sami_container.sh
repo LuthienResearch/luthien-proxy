@@ -37,11 +37,26 @@ run() {
 
 smoke() {
   _check_docker
-  echo "Running smoke test..."
+  echo "Running smoke test (gateway health check)..."
   docker run --rm \
     -e ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
     "${IMAGE_NAME}:${IMAGE_TAG}" \
-    /work/scripts/track_a_smoke.sh
+    /bin/sh -c '
+      cd /app
+      .venv/bin/python -m luthien_proxy.main &
+      GW_PID=$!
+      for i in $(seq 1 30); do
+        if curl -fsS http://localhost:8000/health >/dev/null 2>&1; then
+          echo "SMOKE: gateway /health OK"
+          kill "$GW_PID" 2>/dev/null || true
+          exit 0
+        fi
+        sleep 1
+      done
+      echo "SMOKE: gateway did not respond within 30s" >&2
+      kill "$GW_PID" 2>/dev/null || true
+      exit 1
+    '
 }
 
 clean() {
@@ -58,7 +73,7 @@ Usage: $(basename "$0") <command>
 Commands:
   build   Build the luthien-sami Docker image
   run     Run the container interactively (gateway + opencode)
-  smoke   Run the track_a_smoke.sh script inside the container
+  smoke   Run gateway health check smoke test inside the container
   clean   Remove the image and data volume
   help    Show this help message
 
