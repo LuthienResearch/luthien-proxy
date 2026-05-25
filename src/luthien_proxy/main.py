@@ -12,6 +12,7 @@ import tempfile
 from collections.abc import MutableMapping
 from contextlib import asynccontextmanager
 
+import httpx
 import litellm
 import uvicorn
 from fastapi import FastAPI, Request
@@ -42,6 +43,7 @@ from luthien_proxy.observability.event_publisher import (
 )
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.observability.sentry import init_sentry
+from luthien_proxy.passthrough_routes import router as passthrough_router
 from luthien_proxy.perf.timing_middleware import ServerTimingMiddleware
 from luthien_proxy.pipeline.upstream_headers import validate_upstream_headers_at_startup
 from luthien_proxy.policy_manager import PolicyManager
@@ -395,17 +397,35 @@ def create_app(
         app.state.dependencies = _dependencies
         logger.info("Dependencies container initialized")
 
+        app.state.passthrough_streaming_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=30.0)
+        )
+        app.state.passthrough_buffered_client = httpx.AsyncClient(timeout=120.0)
+        # Two separate clients: streaming needs a long read timeout (300s) for
+        # token-by-token SSE; buffered uses 120s to accommodate long non-streaming
+        # generations (extended thinking, large max_tokens) without 502ing.
+        logger.info("Passthrough httpx clients created")
+        logger.info(
+            "/anthropic/* passthrough route is active. Requests to /anthropic/v1/... "
+            "bypass the policy chain (no judges, no transformations). "
+            "This is a temporary Track A bridge — see Track B (#563-569)."
+        )
+
         yield
 
         # Shutdown
-        # Webhook sender goes first: stop() drains in-flight tasks within the
-        # configured window, then cancels survivors and aclose()s the httpx
-        # client. After this returns, _stopped=True silently no-ops any
-        # in-flight request that reaches fire_and_forget — this is the
-        # at-most-once semantics we documented. If you reorder this so
-        # webhook.stop() runs after anthropic_client_cache.close_all() or
-        # before request handling has fully drained, fire_and_forget calls
-        # could land against an already-closed httpx client.
+        # Passthrough httpx clients are independent of the webhook sender and
+        # can be closed first.
+        await app.state.passthrough_streaming_client.aclose()
+        await app.state.passthrough_buffered_client.aclose()
+        # Webhook sender: stop() drains in-flight tasks within the configured
+        # window, then cancels survivors and aclose()s the httpx client. After
+        # this returns, _stopped=True silently no-ops any in-flight request
+        # that reaches fire_and_forget — this is the at-most-once semantics we
+        # documented. If you reorder this so webhook.stop() runs after
+        # anthropic_client_cache.close_all() or before request handling has
+        # fully drained, fire_and_forget calls could land against an
+        # already-closed httpx client.
         await _webhook_sender.stop()
         if _purger is not None:
             await _purger.stop()
@@ -468,6 +488,7 @@ def create_app(
     app.include_router(history_routes.router)  # /history/* (conversation history UI)
     app.include_router(history_routes.api_router)  # /api/history/* (conversation history API)
     app.include_router(request_log_router)  # /request-logs/* (HTTP-level logging)
+    app.include_router(passthrough_router)  # /openai/*, /gemini/*, /anthropic/* (Track A bridge)
 
     # Simple utility endpoints
     @app.get("/health")

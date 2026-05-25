@@ -32,15 +32,14 @@ def mock_server():
 
 @pytest.fixture(scope="module")
 def gateway_url(mock_server):
-    """Boot an in-process SQLite gateway with no Redis."""
     with boot_sqlite_gateway(
         api_key=_API_KEY,
         admin_key=_ADMIN_KEY,
         mock_anthropic_url=f"http://127.0.0.1:{mock_server.port}",
         tmp_prefix="luthien_activity_e2e_",
         thread_name="activity-gateway",
-    ) as url:
-        yield url
+    ) as booted:
+        yield booted.url
 
 
 @pytest.mark.asyncio

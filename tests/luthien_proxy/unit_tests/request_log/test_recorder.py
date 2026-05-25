@@ -42,6 +42,7 @@ class Test_PendingLog:
         assert log.direction == "inbound"
         assert log.transaction_id == "txn-123"
         assert log.session_id is None
+        assert log.agent is None
         assert log.http_method is None
         assert log.url is None
         assert log.request_headers is None
@@ -168,6 +169,7 @@ class TestRequestLogRecorder:
             headers=headers,
             body=body,
             session_id="sess-456",
+            agent="opencode/1.0",
             model="gpt-4-turbo",
             is_streaming=True,
             endpoint="/v1/messages/completions",
@@ -176,6 +178,7 @@ class TestRequestLogRecorder:
         assert recorder._inbound.http_method == "POST"
         assert recorder._inbound.url == "http://example.com/api"
         assert recorder._inbound.session_id == "sess-456"
+        assert recorder._inbound.agent == "opencode/1.0"
         assert recorder._inbound.model == "gpt-4-turbo"
         assert recorder._inbound.is_streaming is True
         assert recorder._inbound.endpoint == "/v1/messages/completions"
@@ -280,7 +283,6 @@ class TestRequestLogRecorder:
         db_pool = MagicMock(spec=DatabasePool)
         recorder = RequestLogRecorder(db_pool, "txn-123")
 
-        # Set inbound with session_id
         recorder.record_inbound_request(
             method="POST",
             url="http://example.com/api",
@@ -288,11 +290,36 @@ class TestRequestLogRecorder:
             body={},
             session_id="my-session-id",
         )
-
-        # Record outbound without specifying session_id
         recorder.record_outbound_request(body={})
 
         assert recorder._outbound.session_id == "my-session-id"
+
+    def test_record_outbound_request_inherits_agent_from_inbound(self) -> None:
+        """record_outbound_request copies agent from inbound log."""
+        db_pool = MagicMock(spec=DatabasePool)
+        recorder = RequestLogRecorder(db_pool, "txn-123")
+
+        recorder.record_inbound_request(
+            method="POST",
+            url="http://example.com/api",
+            headers={},
+            body={},
+            agent="opencode/1.0",
+        )
+        recorder.record_outbound_request(body={})
+
+        assert recorder._outbound.agent == "opencode/1.0"
+
+    def test_record_inbound_request_agent_defaults_to_none(self) -> None:
+        """agent defaults to None when not provided."""
+        db_pool = MagicMock(spec=DatabasePool)
+        recorder = RequestLogRecorder(db_pool, "txn-123")
+
+        recorder.record_inbound_request(method="GET", url="http://example.com", headers={}, body={})
+
+        assert recorder._inbound.agent is None
+        recorder.record_outbound_request(body={})
+        assert recorder._outbound.agent is None
 
     def test_record_outbound_request_updates_started_at(self) -> None:
         """record_outbound_request sets started_at to current time."""
@@ -861,3 +888,100 @@ class TestInsertLogRow:
 
         await _insert_log_row(conn, self._make_pending(), lambda b: None)
         conn.execute.assert_called_once()
+
+
+class TestPendingLogPopulatedFlag:
+    def test_populated_defaults_false(self) -> None:
+        log = _PendingLog(direction="outbound", transaction_id="txn-1")
+        assert log.populated is False
+
+    def test_record_outbound_request_sets_populated(self) -> None:
+        recorder = RequestLogRecorder.__new__(RequestLogRecorder)
+        recorder._transaction_id = "txn-1"
+        recorder._inbound = _PendingLog(direction="inbound", transaction_id="txn-1")
+        recorder._outbound = _PendingLog(direction="outbound", transaction_id="txn-1")
+
+        recorder.record_outbound_request(body={}, method="POST")
+
+        assert recorder._outbound.populated is True
+
+    def test_record_outbound_response_does_not_set_populated(self) -> None:
+        recorder = RequestLogRecorder.__new__(RequestLogRecorder)
+        recorder._transaction_id = "txn-2"
+        recorder._inbound = _PendingLog(direction="inbound", transaction_id="txn-2")
+        recorder._outbound = _PendingLog(
+            direction="outbound",
+            transaction_id="txn-2",
+            started_at=__import__("time").time(),
+        )
+
+        recorder.record_outbound_response(status=200)
+
+        assert recorder._outbound.populated is False
+
+    @pytest.mark.asyncio
+    async def test_write_logs_skips_unpopulated_outbound(self) -> None:
+        recorder = RequestLogRecorder.__new__(RequestLogRecorder)
+        recorder._transaction_id = "txn-skip"
+        recorder._inbound = _PendingLog(
+            direction="inbound",
+            transaction_id="txn-skip",
+            http_method="POST",
+            populated=True,
+        )
+        recorder._outbound = _PendingLog(direction="outbound", transaction_id="txn-skip")
+
+        insert_calls: list[str] = []
+
+        async def fake_insert(conn, pending, serialize):
+            insert_calls.append(pending.direction)
+
+        with patch("luthien_proxy.request_log.recorder._insert_log_row", side_effect=fake_insert):
+            mock_pool = MagicMock()
+            mock_conn = AsyncMock()
+            mock_pool.connection = MagicMock(
+                return_value=AsyncMock(
+                    __aenter__=AsyncMock(return_value=mock_conn),
+                    __aexit__=AsyncMock(return_value=None),
+                )
+            )
+            recorder._db_pool = mock_pool
+            await recorder._write_logs()
+
+        assert insert_calls == ["inbound"]
+
+    @pytest.mark.asyncio
+    async def test_write_logs_includes_populated_outbound(self) -> None:
+        recorder = RequestLogRecorder.__new__(RequestLogRecorder)
+        recorder._transaction_id = "txn-both"
+        recorder._inbound = _PendingLog(
+            direction="inbound",
+            transaction_id="txn-both",
+            http_method="POST",
+            populated=True,
+        )
+        recorder._outbound = _PendingLog(
+            direction="outbound",
+            transaction_id="txn-both",
+            http_method="POST",
+            populated=True,
+        )
+
+        insert_calls: list[str] = []
+
+        async def fake_insert(conn, pending, serialize):
+            insert_calls.append(pending.direction)
+
+        with patch("luthien_proxy.request_log.recorder._insert_log_row", side_effect=fake_insert):
+            mock_pool = MagicMock()
+            mock_conn = AsyncMock()
+            mock_pool.connection = MagicMock(
+                return_value=AsyncMock(
+                    __aenter__=AsyncMock(return_value=mock_conn),
+                    __aexit__=AsyncMock(return_value=None),
+                )
+            )
+            recorder._db_pool = mock_pool
+            await recorder._write_logs()
+
+        assert insert_calls == ["inbound", "outbound"]

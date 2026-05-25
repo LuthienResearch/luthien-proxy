@@ -44,6 +44,9 @@ def main():
     # from the environment to bind to the same port.
     mock_port = int(os.getenv("MOCK_ANTHROPIC_PORT", "0")) or _free_port()
 
+    openai_mock_port = int(os.getenv("MOCK_OPENAI_PORT", "0")) or _free_port()
+    gemini_mock_port = int(os.getenv("MOCK_GEMINI_PORT", "0")) or _free_port()
+
     # Create SQLite gateway
     gateway_port = _free_port()
     tmp_dir = tempfile.mkdtemp(prefix="luthien_mock_e2e_")
@@ -74,6 +77,8 @@ def main():
 
     os.environ["ANTHROPIC_BASE_URL"] = f"http://localhost:{mock_port}"
     os.environ["ANTHROPIC_API_KEY"] = "mock-key"
+    os.environ["OPENAI_BASE_URL"] = f"http://localhost:{openai_mock_port}"
+    os.environ["GEMINI_BASE_URL"] = f"http://localhost:{gemini_mock_port}"
 
     app = create_app(
         api_key=api_key,
@@ -107,6 +112,8 @@ def main():
         "api_key": api_key,
         "admin_api_key": admin_api_key,
         "mock_port": mock_port,
+        "mock_openai_port": openai_mock_port,
+        "mock_gemini_port": gemini_mock_port,
     }
     print(json.dumps(info))
     sys.stdout.flush()
