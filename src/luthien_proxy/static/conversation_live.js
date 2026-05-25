@@ -1,8 +1,13 @@
+
+const MAX_RAW_EVENTS_PER_CALL = 50;
+
 function escapeHtml(str) {
     if (str === null || str === undefined) return '';
     const div = document.createElement('div');
     div.textContent = String(str);
-    return div.innerHTML;
+    // innerHTML escapes <, >, &. Also escape quotes so the result is safe
+    // in double-quoted HTML attribute values (e.g. data-call-id="...").
+    return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function conversationViewer() {
@@ -19,12 +24,13 @@ function conversationViewer() {
         renderedCallIds: new Set(),
         turnFingerprints: {},
         _rawTurns: [],
+        initialLoaded: false,
 
-        init() {
+        async init() {
             const pathParts = window.location.pathname.split('/');
             this.conversationId = decodeURIComponent(pathParts[pathParts.length - 1]);
             this.setupEventDelegation();
-            this.loadInitial();
+            await this.loadInitial();
             this.connectSSE();
             window.addEventListener('beforeunload', () => {
                 if (this.evtSource) this.evtSource.close();
@@ -90,30 +96,28 @@ function conversationViewer() {
         },
 
         async loadInitial() {
+            const container = document.getElementById('conversation-container');
+            if (!container) return;
+
             try {
                 const resp = await fetch(
                     `/api/history/sessions/${encodeURIComponent(this.conversationId)}`,
-                    { headers: { 'Accept': 'application/json' } }
+                    { headers: { 'Accept': 'application/json' }, redirect: 'manual' }
                 );
-
-                if (!resp.ok) {
-                    if (resp.status === 403) {
-                        window.location.href = '/login?error=required&next=' +
-                            encodeURIComponent(window.location.pathname);
-                        return;
-                    }
-                    if (resp.status === 404) throw new Error('Conversation not found');
-                    throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
-                }
+                if (resp.type === 'opaqueredirect') { window.location.href = '/login'; return; }
+                if (resp.status === 404) throw new Error('Conversation not found');
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
                 const data = await resp.json();
                 this.processTurns(data);
                 this.updateStats(data);
                 this.updateTimestamp();
                 this.renderTurns();
-                this.$nextTick(() => this.autoScrollToBottom());
-            } catch (err) {
-                this.showError(`Failed to load: ${err.message}`);
+            } catch (e) {
+                console.error('Failed to load initial turns:', e);
+                container.innerHTML = '<div class="error-state">Failed to load conversation. Please refresh.</div>';
+            } finally {
+                this.initialLoaded = true;
             }
         },
 
@@ -165,13 +169,15 @@ function conversationViewer() {
                 this.rawEvents[callId] = [];
             }
 
-            this.rawEvents[callId].push({
+            const bucket = this.rawEvents[callId];
+            if (bucket.length >= MAX_RAW_EVENTS_PER_CALL) {
+                bucket.shift();
+            }
+            bucket.push({
                 type: eventType,
                 timestamp: event.timestamp || new Date().toISOString(),
                 data: event
             });
-
-            this.stats.events++;
 
             const shouldRefresh = eventType.includes('request_recorded') ||
                                 eventType.includes('response_recorded') ||
@@ -191,8 +197,9 @@ function conversationViewer() {
             try {
                 const resp = await fetch(
                     `/api/history/sessions/${encodeURIComponent(this.conversationId)}`,
-                    { headers: { 'Accept': 'application/json' } }
+                    { headers: { 'Accept': 'application/json' }, redirect: 'manual' }
                 );
+                if (resp.type === 'opaqueredirect') { window.location.href = '/login'; return; }
                 if (!resp.ok) return;
                 const data = await resp.json();
                 const rawTurns = data.turns || [];
@@ -254,23 +261,6 @@ function conversationViewer() {
             this.turns = this.presentTurns(rawTurns);
         },
 
-        // Presentation pipeline: classify preflight turns and compute
-        // display messages (dedup) entirely on the client side.
-        //
-        // The API sends the full conversation history on every request:
-        //   Turn 1: [user₀]
-        //   Turn 2: [user₀, assistant₁, user₂]
-        //   Turn 3: [user₀, assistant₁, user₂, tool_call₂, tool_result₂, user₃]
-        //
-        // user₀ (the initial message with all preamble) is re-sent identically
-        // every turn. New content appears at the end, after the previous turn's
-        // messages. So for turn N, display = request_messages.slice(prevCount).
-        // Preflight turns are excluded from the count so they don't disrupt the
-        // sequence.
-        //
-        // Invariant: the API sends a stable, strictly-growing cumulative
-        // message array. If a policy rewrites or reorders earlier messages,
-        // the slicing will produce incorrect results.
         presentTurns(rawTurns) {
             let prevRealMsgCount = 0;
 
@@ -294,17 +284,9 @@ function conversationViewer() {
             });
         },
 
-        // Classify non-conversational preflight turns using structural
-        // request params (not response content heuristics).
-        //   - Quota probe: max_tokens === 1
-        //   - Title generation: json_schema output + low max_tokens (≤256)
-        // These can appear at any position in the session.
         classifyPreflight(turn) {
             const params = turn.request_params || {};
             if (params.max_tokens === 1) return true;
-            // json_schema alone isn't sufficient — real conversations can use
-            // structured output. Title generation uses json_schema with a
-            // small token budget.
             if (params.output_config?.format?.type === 'json_schema'
                 && params.max_tokens != null && params.max_tokens <= 256) return true;
             return false;
@@ -359,12 +341,13 @@ function conversationViewer() {
 
         snapshotExpandState() {
             const state = { visible: [], expanded: [], open: [] };
-            document.querySelectorAll('.visible[id]').forEach(el => state.visible.push(el.id));
-            document.querySelectorAll('.expanded[id]').forEach(el => state.expanded.push(el.id));
-            document.querySelectorAll('.open[data-event-timeline]').forEach(el => {
+            const container = document.getElementById('conversation-container') || document;
+            container.querySelectorAll('.visible[id]').forEach(el => state.visible.push(el.id));
+            container.querySelectorAll('.expanded[id]').forEach(el => state.expanded.push(el.id));
+            container.querySelectorAll('.open[data-event-timeline]').forEach(el => {
                 state.open.push(el.getAttribute('data-event-timeline'));
             });
-            document.querySelectorAll('.open[data-diff-toggle]').forEach(el => {
+            container.querySelectorAll('.open[data-diff-toggle]').forEach(el => {
                 state.open.push('diff:' + el.getAttribute('data-diff-toggle'));
             });
             return state;
@@ -431,13 +414,10 @@ function conversationViewer() {
             if (isPreflight) classes.push('preflight');
 
             const callId = escapeHtml(turn.call_id);
+            const rawCallId = turn.call_id;
             const displayMessages = turn._displayMessages || turn.request_messages || [];
             const responseMessages = turn.response_messages || [];
 
-            // Build unified message list pairing tool calls with their results.
-            // Tool results (from request) match tool calls (from request or response)
-            // via tool_call_id. We also skip request tool_calls that duplicate
-            // a response tool_call from this same turn (the API re-sends them).
             const toolResultsByCallId = {};
             for (const m of displayMessages) {
                 if (m.message_type === 'tool_result' && m.tool_call_id) {
@@ -445,7 +425,6 @@ function conversationViewer() {
                 }
             }
 
-            // Track response tool_call IDs to suppress duplicates from request
             const responseToolCallIds = new Set();
             for (const m of responseMessages) {
                 if (m.message_type === 'tool_call' && m.tool_call_id) {
@@ -456,20 +435,16 @@ function conversationViewer() {
             const orderedMessages = [];
             const usedResultIds = new Set();
 
-            // Request messages: skip tool_results (paired later) and
-            // tool_calls that also appear in the response (duplicates)
             for (const m of displayMessages) {
                 if (m.message_type === 'tool_result') continue;
                 if (m.message_type === 'tool_call' && responseToolCallIds.has(m.tool_call_id)) continue;
                 orderedMessages.push(m);
-                // If this request tool_call has a result, pair it
                 if (m.message_type === 'tool_call' && toolResultsByCallId[m.tool_call_id]) {
                     orderedMessages.push(toolResultsByCallId[m.tool_call_id]);
                     usedResultIds.add(m.tool_call_id);
                 }
             }
 
-            // Response messages with paired results
             for (const m of responseMessages) {
                 orderedMessages.push(m);
                 if (m.message_type === 'tool_call' && toolResultsByCallId[m.tool_call_id]) {
@@ -478,7 +453,6 @@ function conversationViewer() {
                 }
             }
 
-            // Any orphaned tool results
             for (const id in toolResultsByCallId) {
                 if (!usedResultIds.has(id)) {
                     orderedMessages.push(toolResultsByCallId[id]);
@@ -509,7 +483,7 @@ function conversationViewer() {
             }
 
             let eventTimelineHtml = '';
-            const events = this.rawEvents[callId] || [];
+            const events = this.rawEvents[rawCallId] || [];
             if (events.length > 0) {
                 const eventsHtml = events.map((evt, idx) => {
                     const eventKey = `${callId}-${idx}`;
@@ -578,7 +552,6 @@ function conversationViewer() {
             const content = msg.content || '';
             const contentId = `c-${stableId}`;
 
-            // Tool calls: show only the pretty-formatted input, not raw content
             if (msg.message_type === 'tool_call' && msg.tool_input) {
                 return `
                     <div class="message ${typeClass}">
@@ -593,7 +566,6 @@ function conversationViewer() {
                 `;
             }
 
-            // Tool results: code-style block
             if (msg.message_type === 'tool_result') {
                 const shouldTruncate = content.length > 800;
                 const expandBtn = shouldTruncate
@@ -644,8 +616,6 @@ function conversationViewer() {
                 'bash-stderr': 'bash-output',
             };
 
-            // Known wrapper tags are flat (never nested within themselves)
-            // so a simple regex is reliable here.
             const tagNames = Object.keys(TAG_LABELS).map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
             const tagPattern = new RegExp(
                 '<(' + tagNames.join('|') + ')(?:\\s[^>]*)?>([\\s\\S]*?)</\\1>',
@@ -670,7 +640,6 @@ function conversationViewer() {
                 if (remaining) parts.push({ type: 'text', content: remaining });
             }
 
-            // If no tags found, fall back to plain rendering
             if (parts.length === 0 || (parts.length === 1 && parts[0].type === 'text')) {
                 return this._renderPlainContent(content, contentId);
             }

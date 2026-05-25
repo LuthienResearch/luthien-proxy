@@ -25,8 +25,7 @@ from playwright.async_api import Page
 
 from luthien_proxy.perf.seeding import seed_sami_like, seed_sessions
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-EVIDENCE_DIR = _REPO_ROOT / ".sisyphus" / "evidence"
+EVIDENCE_DIR = Path(".sisyphus/evidence")
 
 N_RUNS: int = 5
 
@@ -200,7 +199,7 @@ async def test_transcript_open(
 
 @pytest.mark.perf
 @pytest.mark.asyncio
-async def test_first_turn_painted_largest_sami_session(
+async def test_first_turn_painted_500_turns(
     playwright_page: Page,
     perf_gateway_url: str,
     admin_headers: dict[str, str],

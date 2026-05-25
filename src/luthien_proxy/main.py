@@ -8,6 +8,7 @@ import enum
 import logging
 import os
 import secrets
+import tempfile
 from collections.abc import MutableMapping
 from contextlib import asynccontextmanager
 
@@ -20,7 +21,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from redis.asyncio import Redis
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from luthien_proxy.admin import router as admin_router
 from luthien_proxy.config_fields import CONFIG_FIELDS, CONFIG_FIELDS_BY_NAME
@@ -194,6 +195,14 @@ def create_app(
         )
         await _config_registry.initialize()
         logger.info("Config registry initialized")
+
+        _CURSOR_HMAC_DEV_SENTINEL = "luthien-perf-cursor-key-dev"
+        if settings.cursor_hmac_key == _CURSOR_HMAC_DEV_SENTINEL:
+            logger.warning(
+                "CURSOR_HMAC_KEY is set to the public dev default. "
+                "Pagination cursors can be forged by anyone who has read this source. "
+                "Set CURSOR_HMAC_KEY to a random secret before deploying to production."
+            )
 
         # Fail fast on UPSTREAM_HEADERS misconfiguration rather than silently
         # disabling the integration on first request.
@@ -425,40 +434,28 @@ def create_app(
     # JS/HTML/CSS use no-cache so the browser always revalidates (prevents
     # stale JS after a gateway restart). Other assets (images, fonts) get a
     # longer TTL since they change infrequently.
-    class StaticCacheMiddleware:
-        def __init__(self, app: ASGIApp) -> None:  # noqa: D107
-            self.app = app
-
-        async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # noqa: D102
-            if scope["type"] != "http":
-                await self.app(scope, receive, send)
-                return
-
-            path: str = scope.get("path", "")
-
-            def _cache_header() -> str | None:
-                if path.startswith("/api/") or path in ("/health", "/ready"):
-                    return "no-store, no-cache, must-revalidate"
-                if path.startswith("/static/"):
-                    return "no-cache" if path.endswith((".js", ".html", ".css")) else "public, max-age=3600"
-                return None
-
-            cache_value = _cache_header()
-
-            async def send_with_cache(message: Message) -> None:
-                if message["type"] == "http.response.start" and cache_value:
-                    headers = [h for h in message.get("headers", []) if h[0].lower() != b"cache-control"]
-                    headers.append((b"cache-control", cache_value.encode()))
-                    message = {**message, "headers": headers}
-                await send(message)
-
-            await self.app(scope, receive, send_with_cache if cache_value else send)
+    class StaticCacheMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            response = await call_next(request)
+            if request.url.path.startswith("/api/") or request.url.path in ("/health", "/ready"):
+                # Prevent CDN/edge caching of API and health responses (Railway, Cloudflare, etc.)
+                response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            elif request.url.path.startswith("/ui/fragments/"):
+                # Fragment responses embed HMAC-signed cursors; a stale cached fragment
+                # replays a stale cursor that becomes a 400 after key rotation.
+                response.headers["Cache-Control"] = "no-store"
+            elif request.url.path.startswith("/static/"):
+                path = request.url.path
+                if path.endswith((".js", ".html", ".css")):
+                    response.headers["Cache-Control"] = "no-cache"
+                else:
+                    response.headers["Cache-Control"] = "public, max-age=3600"
+            return response
 
     app.add_middleware(StaticCacheMiddleware)
 
-    # Add ServerTimingMiddleware as the outermost middleware (add_middleware stacks
-    # outermost-last). StaticCacheMiddleware is pure-ASGI so it does not break
-    # ContextVar propagation for streaming responses on timed paths.
+    # Add ServerTimingMiddleware as the last (innermost) middleware
+    # so it captures actual handler latency
     app.add_middleware(ServerTimingMiddleware)
 
     # Include routers
@@ -734,6 +731,25 @@ def auto_provision_defaults() -> dict[str, str]:
         value = f"admin-{secrets.token_urlsafe(16)}"
         os.environ["ADMIN_API_KEY"] = value
         provisioned["ADMIN_API_KEY"] = value
+
+    if not os.environ.get("CURSOR_HMAC_KEY"):
+        data_dir = os.path.join(os.path.expanduser("~"), ".luthien")
+        os.makedirs(data_dir, exist_ok=True)
+        key_path = os.path.join(data_dir, "cursor_hmac.key")
+        if os.path.exists(key_path):
+            with open(key_path) as f:
+                value = f.read().strip()
+            logger.info("CURSOR_HMAC_KEY loaded from %s", key_path)
+        else:
+            value = secrets.token_urlsafe(32)
+            with tempfile.NamedTemporaryFile(mode="w", dir=data_dir, delete=False) as tmp:
+                tmp.write(value)
+                tmp_path = tmp.name
+            os.chmod(tmp_path, 0o600)
+            os.replace(tmp_path, key_path)
+            logger.info("CURSOR_HMAC_KEY generated and saved to %s", key_path)
+        os.environ["CURSOR_HMAC_KEY"] = value
+        provisioned["CURSOR_HMAC_KEY"] = value
 
     if not os.environ.get("POLICY_CONFIG"):
         value = "config/railway_policy_config.yaml" if on_railway else "config/policy_config.yaml"

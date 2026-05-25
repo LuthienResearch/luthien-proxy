@@ -86,6 +86,9 @@ tests/**/failure_registry/*.json
 # Serena AI assistant local state
 .serena/
 
+# Sisyphus agent working state (plans, evidence, run artifacts)
+.sisyphus/
+
 # Local scratch files
 kanban.jpg
 .e2e-logs/

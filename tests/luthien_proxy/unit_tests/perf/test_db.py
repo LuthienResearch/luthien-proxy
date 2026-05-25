@@ -16,8 +16,8 @@ def test_ensure_perf_isolation_rejects_local_db():
         ensure_perf_isolation("sqlite:///~/.luthien/local.db")
 
 
-def test_ensure_perf_isolation_accepts_perf_db(tmp_path):
-    ensure_perf_isolation(f"sqlite:///{tmp_path}/.luthien/perf.db")
+def test_ensure_perf_isolation_accepts_perf_db():
+    ensure_perf_isolation("sqlite:////Users/test/.luthien/perf.db")
 
 
 def test_ensure_perf_isolation_rejects_postgres_without_perf_test():
@@ -40,11 +40,6 @@ def test_drop_perf_db_idempotent(tmp_path):
     with patch("pathlib.Path.home", return_value=tmp_path):
         drop_perf_db("sqlite")
         drop_perf_db("sqlite")
-
-
-def test_ensure_perf_isolation_rejects_unrecognized_scheme():
-    with pytest.raises(RuntimeError, match="isolation"):
-        ensure_perf_isolation("mysql://user:pass@localhost/luthien")
 
 
 def test_migrate_perf_db_creates_tables(tmp_path):

@@ -6,8 +6,6 @@ and absent from gateway paths like /v1/messages.
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -20,7 +18,14 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 def app_with_db():
     """Create an in-process app with SQLite for testing."""
-    db_pool = db.DatabasePool("sqlite:///:memory:")
+    import asyncio
+
+    async def _setup():
+        db_pool = db.DatabasePool("sqlite:///:memory:")
+        await db_pool.get_pool()
+        return db_pool
+
+    db_pool = asyncio.run(_setup())
 
     app = create_app(
         api_key=None,

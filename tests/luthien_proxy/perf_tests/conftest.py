@@ -59,6 +59,14 @@ class PageLoadMetrics:
 
 
 @dataclass
+class ScrollFPSMetrics:
+    p50_frame_ms: float
+    p95_frame_ms: float
+    p99_frame_ms: float
+    n_frames: int
+
+
+@dataclass
 class RunStats:
     cold_ms: float  # first run — cold cache, excluded from warm stats
     warm_median_ms: float
@@ -160,6 +168,59 @@ async def measure_page_load(page: Page, url: str) -> PageLoadMetrics:
         dcl_ms=metrics["dcl"],
         load_ms=metrics["load"],
         ttfm_ms=metrics["ttfm"],
+    )
+
+
+async def measure_scroll_fps(page: Page, selector: str) -> ScrollFPSMetrics:
+    """Scroll selector for 5 s via rAF and return p50/p95/p99 frame times.
+
+    Returns a Promise from page.evaluate so Playwright waits for the full
+    5-second measurement without blocking the Python event loop.
+    """
+    page.set_default_timeout(10_000)
+
+    frame_times: list[float] = await page.evaluate(
+        """(selector) => {
+            return new Promise(function(resolve) {
+                var el = document.querySelector(selector) || document.body;
+                var frameTimes = [];
+                var lastTime = performance.now();
+                var rafId = null;
+                var done = false;
+
+                function tick(now) {
+                    if (done) { return; }
+                    var delta = now - lastTime;
+                    if (delta > 0) { frameTimes.push(delta); }
+                    lastTime = now;
+                    el.scrollTop += 80;
+                    if (el.scrollTop + el.clientHeight >= el.scrollHeight) {
+                        el.scrollTop = 0;
+                    }
+                    rafId = requestAnimationFrame(tick);
+                }
+
+                setTimeout(function() {
+                    done = true;
+                    if (rafId !== null) { cancelAnimationFrame(rafId); }
+                    resolve(frameTimes);
+                }, 5000);
+
+                rafId = requestAnimationFrame(tick);
+            });
+        }""",
+        selector,
+    )
+
+    if not frame_times:
+        return ScrollFPSMetrics(p50_frame_ms=0.0, p95_frame_ms=0.0, p99_frame_ms=0.0, n_frames=0)
+
+    sorted_times = sorted(frame_times)
+    return ScrollFPSMetrics(
+        p50_frame_ms=_percentile(sorted_times, 0.50),
+        p95_frame_ms=_percentile(sorted_times, 0.95),
+        p99_frame_ms=_percentile(sorted_times, 0.99),
+        n_frames=len(sorted_times),
     )
 
 

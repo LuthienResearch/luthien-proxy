@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from tests.luthien_proxy.perf_tests.conftest import (
     PageLoadMetrics,
+    ScrollFPSMetrics,
     _percentile,
     n_runs,
 )
@@ -15,6 +16,14 @@ def test_page_load_metrics_dataclass():
     assert m.dcl_ms == 50.0
     assert m.load_ms == 120.0
     assert m.ttfm_ms == 200.0
+
+
+def test_scroll_fps_metrics_dataclass():
+    m = ScrollFPSMetrics(p50_frame_ms=16.0, p95_frame_ms=33.0, p99_frame_ms=50.0, n_frames=300)
+    assert m.p50_frame_ms == 16.0
+    assert m.p95_frame_ms == 33.0
+    assert m.p99_frame_ms == 50.0
+    assert m.n_frames == 300
 
 
 def test_run_stats_median():

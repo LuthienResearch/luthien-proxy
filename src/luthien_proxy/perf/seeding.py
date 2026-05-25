@@ -26,7 +26,7 @@ from luthien_proxy.perf.db import ensure_perf_isolation, get_perf_db_url, migrat
 logger = logging.getLogger(__name__)
 
 _MODEL = "claude-haiku-4-5"
-_BASE_TS = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+_BASE_TS = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
 _BATCH_SIZE = 5000  # ~125 MB in-memory per batch at ~25 KB/payload; reduce if RSS is a concern
 _DETERMINISTIC_RNG_SEED = 0xABCDEF
 
@@ -82,7 +82,7 @@ _RESP_TAIL = '"}]}}'
 class SeedingReport:
     """Report returned by seeding functions with metrics about the seeding run."""
 
-    label: str
+    tier: int | str
     total_sessions: int
     total_rows: int
     total_bytes: int
@@ -135,7 +135,7 @@ def _sqlite_path(url: str) -> Path:
 def _seed_sqlite(
     db_path: Path,
     plan: list[tuple[str, int]],
-    label: str,
+    tier: int | str,
     backend: str = "sqlite",
 ) -> SeedingReport:
     """Bulk-insert plan into SQLite via executemany.
@@ -143,7 +143,7 @@ def _seed_sqlite(
     Args:
         db_path: Path to the SQLite database file.
         plan: List of (session_id, n_calls) pairs.
-        label: Tier label for the report (e.g. ``"100"``, ``"sami"``).
+        tier: Tier label for the report (e.g. ``"100"``, ``"sami"``).
         backend: Backend label for the report.
 
     Returns:
@@ -242,7 +242,7 @@ def _seed_sqlite(
     total_rows = 3 * n_calls_total  # 1 calls row + 2 events rows per call
 
     return SeedingReport(
-        label=label,
+        tier=tier,
         total_sessions=len(plan),
         total_rows=total_rows,
         total_bytes=total_bytes,
@@ -308,11 +308,11 @@ def seed_sessions(
     migrate_perf_db(backend)
 
     prefix = f"perf-seed-{tier}-"
+    plan = [(f"{prefix}{i:04d}", _call_count(i, rng_seed=tier)) for i in range(tier)]
 
     if backend == "sqlite":
         _assert_no_existing_rows(_sqlite_path(url), prefix)
-        plan = [(f"{prefix}{i:04d}", _call_count(i, rng_seed=tier)) for i in range(tier)]
-        return _seed_sqlite(_sqlite_path(url), plan, label=str(tier), backend=backend)
+        return _seed_sqlite(_sqlite_path(url), plan, tier=tier, backend=backend)
     raise NotImplementedError(f"backend {backend!r} not yet implemented")
 
 
@@ -344,5 +344,5 @@ def seed_sami_like(backend: Literal["sqlite", "postgres"]) -> SeedingReport:
     plan = [(big_session_id, 442)] + other_plan
 
     if backend == "sqlite":
-        return _seed_sqlite(_sqlite_path(url), plan, label="sami", backend=backend)
+        return _seed_sqlite(_sqlite_path(url), plan, tier="sami", backend=backend)
     raise NotImplementedError(f"backend {backend!r} not yet implemented")

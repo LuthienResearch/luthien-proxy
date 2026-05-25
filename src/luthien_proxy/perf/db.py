@@ -23,22 +23,18 @@ def get_perf_db_url(backend: Literal["sqlite", "postgres"]) -> str:
         A database URL string for use with the migration runner.
 
     Raises:
+        ValueError: When backend is "postgres" (not yet implemented).
         RuntimeError: When backend is "postgres" and DATABASE_URL is unset.
     """
+    if backend == "postgres":
+        raise ValueError(
+            "Postgres backend is not yet implemented for the perf harness. Use --backend sqlite (the default)."
+        )
     if backend == "sqlite":
         return f"sqlite:///{Path.home()}/.luthien/perf.db"
     base_url = os.environ.get("DATABASE_URL", "")
     if not base_url:
         raise RuntimeError("DATABASE_URL environment variable is required for postgres backend")
-    # Detect an existing options= parameter to avoid a duplicate that would
-    # silently shadow our search_path override (Postgres uses last-value-wins).
-    if "options=" in base_url:
-        raise RuntimeError(
-            "DATABASE_URL already contains an 'options=' parameter. "
-            "Appending a second options=-csearch_path=perf_test would produce a duplicate "
-            "and Postgres would silently ignore one of them. "
-            "Remove the existing 'options=' from DATABASE_URL before using the postgres perf backend."
-        )
     separator = "&" if "?" in base_url else "?"
     return f"{base_url}{separator}options=-csearch_path=perf_test"
 
@@ -56,25 +52,16 @@ def ensure_perf_isolation(url: str) -> None:
             or if it is a Postgres URL without the "perf_test" schema override.
             The message always contains the word "isolation".
     """
-    if url.startswith(("sqlite://", "sqlite+aiosqlite://")):
-        from pathlib import Path as _Path  # noqa: PLC0415
-
-        path_str = url.split("///", 1)[-1] if "///" in url else url.split("//", 1)[-1]
-        if _Path(path_str).name == "local.db":
-            raise RuntimeError(
-                "Perf DB isolation violation: URL resolves to local.db — "
-                "refusing to use the dev database as the perf database. "
-                "Use get_perf_db_url() to obtain the correct perf DB URL."
-            )
-    elif url.startswith(("postgresql://", "postgres://")):
-        if "options=-csearch_path=perf_test" not in url:
-            raise RuntimeError(
-                f"Perf DB isolation violation: Postgres URL must include "
-                f"'options=-csearch_path=perf_test' (use get_perf_db_url('postgres')). Got: {url!r}"
-            )
-    else:
+    if "local.db" in url:
         raise RuntimeError(
-            f"Perf DB isolation violation: unrecognized URL scheme — cannot verify isolation for: {url!r}"
+            "Perf DB isolation violation: URL contains 'local.db' — "
+            "refusing to use the dev database as the perf database. "
+            "Use get_perf_db_url() to obtain the correct perf DB URL."
+        )
+    if url.startswith(("postgresql://", "postgres://")) and "perf_test" not in url:
+        raise RuntimeError(
+            f"Perf DB isolation violation: Postgres URL must include "
+            f"'perf_test' schema (add ?options=-csearch_path=perf_test). Got: {url!r}"
         )
 
 
@@ -90,9 +77,18 @@ def drop_perf_db(backend: Literal["sqlite", "postgres"]) -> None:
         perf_path.unlink(missing_ok=True)
         return
 
-    raise NotImplementedError(
-        "Postgres perf drop is not yet implemented. Implement alongside _seed_postgres in seeding.py."
-    )
+    url = get_perf_db_url("postgres")
+
+    async def _drop() -> None:
+        import asyncpg  # type: ignore[import-untyped]  # noqa: PLC0415
+
+        conn = await asyncpg.connect(url)
+        try:
+            await conn.execute("DROP SCHEMA IF EXISTS perf_test CASCADE")
+        finally:
+            await conn.close()
+
+    asyncio.run(_drop())
 
 
 def migrate_perf_db(backend: Literal["sqlite", "postgres"]) -> None:
@@ -101,10 +97,6 @@ def migrate_perf_db(backend: Literal["sqlite", "postgres"]) -> None:
     Calls ensure_perf_isolation before touching the database. For SQLite,
     creates ~/.luthien/ if needed and runs the bundled migration scripts
     via the standard migration runner.
-
-    Note: Must be called from a synchronous context — internally uses
-    asyncio.run() and cannot be called from within a running event loop
-    (e.g. from an async test fixture or FastAPI handler).
 
     Args:
         backend: "sqlite" or "postgres".
@@ -119,48 +111,22 @@ def migrate_perf_db(backend: Literal["sqlite", "postgres"]) -> None:
     if backend == "sqlite":
         _migrate_sqlite(url)
     else:
-        raise NotImplementedError(
-            "Postgres perf migration is not yet implemented. Implement alongside _seed_postgres in seeding.py."
-        )
-
-
-async def migrate_perf_db_async(backend: Literal["sqlite", "postgres"]) -> None:
-    """Apply all migrations to the perf database.
-
-    Async variant of :func:`migrate_perf_db`.  Safe to call from async
-    fixtures and handlers.  See :func:`migrate_perf_db` for full docs.
-
-    Args:
-        backend: "sqlite" or "postgres".
-
-    Raises:
-        RuntimeError: If isolation check fails or migrations fail.
-        NotImplementedError: For the "postgres" backend (not yet implemented).
-    """
-    url = get_perf_db_url(backend)
-    ensure_perf_isolation(url)
-
-    if backend == "sqlite":
-        await _migrate_sqlite_async(url)
-    else:
-        raise NotImplementedError(
-            "Postgres perf migration is not yet implemented. Implement alongside _seed_postgres in seeding.py."
-        )
-
-
-async def _migrate_sqlite_async(url: str) -> None:
-    from luthien_proxy.utils.db import DatabasePool  # noqa: PLC0415
-    from luthien_proxy.utils.db_sqlite import parse_sqlite_url  # noqa: PLC0415
-    from luthien_proxy.utils.migration_check import apply_sqlite_migrations  # noqa: PLC0415
-
-    db_path = Path(parse_sqlite_url(url))
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    db_pool = DatabasePool(url)
-    try:
-        await apply_sqlite_migrations(db_pool)
-    finally:
-        await db_pool.close()
+        raise NotImplementedError("Postgres perf migration is not yet implemented")
 
 
 def _migrate_sqlite(url: str) -> None:
-    asyncio.run(_migrate_sqlite_async(url))
+    from luthien_proxy.utils.db import DatabasePool  # noqa: PLC0415
+    from luthien_proxy.utils.db_sqlite import parse_sqlite_url  # noqa: PLC0415
+    from luthien_proxy.utils.migration_check import _apply_sqlite_migrations  # noqa: PLC0415
+
+    db_path = Path(parse_sqlite_url(url))
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    async def _run() -> None:
+        db_pool = DatabasePool(url)
+        try:
+            await _apply_sqlite_migrations(db_pool)
+        finally:
+            await db_pool.close()
+
+    asyncio.run(_run())

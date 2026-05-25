@@ -21,29 +21,20 @@ Usage::
 
 from __future__ import annotations
 
-import re
 import time
-from collections.abc import Awaitable, Callable, Generator
+from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import TYPE_CHECKING
 
-from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 from starlette.responses import Response
-
-_PHASE_NAME_RE = re.compile(r"[A-Za-z0-9_-]+")
-
-if TYPE_CHECKING:
-    from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 # Paths where Server-Timing is emitted.  /v1/messages is deliberately excluded.
 _TIMED_PREFIXES: tuple[str, ...] = (
     "/api/history/",
     "/api/debug/",
     "/ui/fragments/",
-    # /api/activity/stream and other SSE endpoints are intentionally excluded:
-    # long-lived connections collect phases for the full stream duration,
-    # making the Server-Timing header meaningless as a request-level metric.
 )
 
 # Per-request phase list: list of (name, elapsed_ms) tuples.
@@ -58,12 +49,7 @@ def time_phase(name: str) -> Generator[None, None, None]:
 
     The elapsed milliseconds are appended to the current request's phase list
     (stored in a ``ContextVar``).  If called outside a ``ServerTimingMiddleware``
-    request context the phase is silently discarded.  Phases are recorded even
-    when the block raises — the ``finally`` clause always appends the elapsed time.
-
-    Public API: intentionally exported without a leading underscore so that
-    perf/db.py and test infrastructure can call it directly without reaching
-    into a private symbol.
+    request context the phase is silently discarded.
 
     Args:
         name: Short identifier for the phase (e.g. ``"db"``, ``"serialize"``).
@@ -76,8 +62,6 @@ def time_phase(name: str) -> Generator[None, None, None]:
         with time_phase("db"):
             rows = await conn.fetch(query)
     """
-    if not _PHASE_NAME_RE.fullmatch(name):
-        raise ValueError(f"time_phase name must be an RFC 8941 token ([A-Za-z0-9_-]+): {name!r}")
     start = time.perf_counter()
     try:
         yield
@@ -106,95 +90,41 @@ def format_phases(phases: list[tuple[str, float]]) -> str:
     return ", ".join(f"{name};dur={elapsed_ms:.1f}" for name, elapsed_ms in phases)
 
 
-class ServerTimingMiddleware:
-    """Pure-ASGI middleware that adds a ``Server-Timing`` header to filtered responses.
-
-    Implemented as a plain ASGI callable (not ``BaseHTTPMiddleware``) to avoid
-    Starlette's pipe-buffering wrapper around ``call_next``, which materialises
-    streaming responses in memory and breaks ContextVar propagation in some
-    Starlette versions.  This implementation wraps only ``send`` — the inner app
-    runs unmodified and streaming chunks pass through untouched.
+class ServerTimingMiddleware(BaseHTTPMiddleware):
+    """ASGI middleware that adds a ``Server-Timing`` header to filtered responses.
 
     Only paths starting with ``/api/history/``, ``/api/debug/``, or
     ``/ui/fragments/`` receive the header.  All other paths (including the hot
     ``/v1/messages`` path) pass through with zero overhead beyond a single
-    ``str.startswith`` check on the ASGI scope.
+    ``str.startswith`` check.
 
     Timing phases are recorded by calling ``time_phase(name)`` anywhere in the
     request/response call stack.  Context isolation is guaranteed by
     ``contextvars.ContextVar``: each request gets its own fresh phase list.
-
-    ContextVar constraint: if any ``BaseHTTPMiddleware`` sits between this
-    middleware and the route handler (e.g. ``StaticCacheMiddleware`` in
-    ``main.py``), ContextVar propagation may silently break for streaming
-    responses on that path.  Do not call ``time_phase`` from inside a
-    ``StreamingResponse`` body generator — the phase will be lost.
-
-    Phases after ``http.response.start``: the ``Server-Timing`` header is
-    finalized at response-start time.  Any ``time_phase`` block that runs
-    during body streaming (e.g. in a generator) will not appear in the header.
     """
 
-    def __init__(self, app: ASGIApp) -> None:  # noqa: D107
-        self.app = app
+    async def dispatch(self, request: Request, call_next) -> Response:  # noqa: D102
+        path = request.url.path
+        should_time = path.startswith(_TIMED_PREFIXES)
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # noqa: D102
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-
-        path: str = scope.get("path", "")
-        if not path.startswith(_TIMED_PREFIXES):
-            await self.app(scope, receive, send)
-            return
+        if not should_time:
+            return await call_next(request)
 
         phases: list[tuple[str, float]] = []
         token = _phases_var.set(phases)
         try:
-            await self.app(scope, receive, _make_send_with_timing(send, phases))
+            response = await call_next(request)
         finally:
             _phases_var.reset(token)
 
+        if phases:
+            response.headers["Server-Timing"] = format_phases(phases)
 
-def timed_json_response(model: BaseModel) -> Response:
-    """Serialize a Pydantic model to a JSON Response, recording serialize time.
-
-    Wraps ``model.model_dump_json()`` in a ``time_phase("serialize")`` block and
-    returns a ``starlette.responses.Response`` with ``media_type="application/json"``.
-    Use in route handlers instead of returning the model directly to avoid the
-    double-serialization that occurs when FastAPI validates a ``response_model``
-    return value (Pydantic→dict→json twice).
-
-    Args:
-        model: A ``pydantic.BaseModel`` instance.
-
-    Returns:
-        A pre-serialized JSON ``Response``.
-    """
-    with time_phase("serialize"):
-        body: str = model.model_dump_json()
-    return Response(content=body, media_type="application/json")
-
-
-def _make_send_with_timing(
-    send: Send,
-    phases: list[tuple[str, float]],
-) -> Callable[[Message], Awaitable[None]]:
-    """Return a wrapped ``send`` that injects Server-Timing on http.response.start."""
-
-    async def send_with_timing(message: Message) -> None:
-        if message["type"] == "http.response.start" and phases:
-            headers = [h for h in message.get("headers", []) if h[0].lower() != b"server-timing"]
-            headers.append((b"server-timing", format_phases(phases).encode()))
-            message = {**message, "headers": headers}
-        await send(message)
-
-    return send_with_timing
+        return response
 
 
 __all__ = [
     "ServerTimingMiddleware",
     "time_phase",
     "format_phases",
-    "timed_json_response",
 ]

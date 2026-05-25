@@ -77,6 +77,7 @@ class Settings(_SettingsBase):
 
     # ── security ────────────────────────────────────────────────────
     credential_encryption_key: str | None = None
+    cursor_hmac_key: str = "luthien-perf-cursor-key-dev"
 
     # ── observability ───────────────────────────────────────────────
     otel_enabled: bool = False

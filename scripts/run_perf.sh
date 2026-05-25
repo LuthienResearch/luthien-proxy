@@ -67,11 +67,11 @@ Environment:
                  SQLite example: sqlite:///$HOME/.luthien/perf.db
 
 Examples:
-  DATABASE_URL=sqlite:///$HOME/.luthien/perf.db ./scripts/run_perf.sh --tier 100
-  DATABASE_URL=sqlite:///$HOME/.luthien/perf.db ./scripts/run_perf.sh --tier 100 --assert-slo
-  DATABASE_URL=sqlite:///$HOME/.luthien/perf.db ./scripts/run_perf.sh --tier 100 --throttled
+  DATABASE_URL=sqlite://$HOME/.luthien/perf.db ./scripts/run_perf.sh --tier 100
+  DATABASE_URL=sqlite://$HOME/.luthien/perf.db ./scripts/run_perf.sh --tier 100 --assert-slo
+  DATABASE_URL=sqlite://$HOME/.luthien/perf.db ./scripts/run_perf.sh --tier 100 --throttled
   ./scripts/run_perf.sh --clean
-  DATABASE_URL=sqlite:///$HOME/.luthien/perf.db ./scripts/run_perf.sh --seed-only --tier 1000
+  DATABASE_URL=sqlite://$HOME/.luthien/perf.db ./scripts/run_perf.sh --seed-only --tier 1000
 
 Postgres --clean note:
   For Postgres, --clean executes DROP SCHEMA perf_test CASCADE.
@@ -161,7 +161,7 @@ if [[ -z "$_db_url" ]]; then
     exit 1
 fi
 
-if [[ "$(basename "${_db_url##*:///}")" == "local.db" ]]; then
+if [[ "$_db_url" == *"local.db"* ]]; then
     fail "ISOLATION REFUSED: DATABASE_URL points to the dev database (local.db)."
     fail "  This script refuses to run against local.db to prevent data pollution."
     fail "  DATABASE_URL=$_db_url"

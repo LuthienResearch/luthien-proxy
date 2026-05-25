@@ -1,6 +1,6 @@
 ---
 category: Chores & Docs
-pr: 753
+pr: 752
 ---
 
 **Admin UI performance baseline**: Establishes perf infrastructure and captures SQLite baseline for history/conversation pages.

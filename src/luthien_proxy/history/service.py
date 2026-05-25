@@ -11,10 +11,12 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, TypedDict, cast
+from uuid import UUID as _UUID
 
 from luthien_proxy.perf.timing_middleware import time_phase
+from luthien_proxy.utils.cursor import decode_cursor, encode_cursor
 from luthien_proxy.utils.db import DatabasePool, parse_db_ts
 
 from .models import (
@@ -351,6 +353,29 @@ def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None
                 return content
 
     return None
+
+
+def _format_session_ts(dt: datetime) -> str:
+    now = datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    total_seconds = (now - dt).total_seconds()
+
+    if total_seconds < 60:
+        return "just now"
+    elif total_seconds < 3600:
+        mins = int(total_seconds // 60)
+        return f"{mins}m ago"
+    elif total_seconds < 86400:
+        hours = int(total_seconds // 3600)
+        return f"{hours}h ago"
+    elif total_seconds < 7 * 86400:
+        days = int(total_seconds // 86400)
+        return f"{days}d ago"
+    elif dt.year == now.year:
+        return f"{dt.strftime('%b')} {dt.day}"
+    else:
+        return f"{dt.strftime('%b')} {dt.day}, {dt.year}"
 
 
 async def fetch_session_list(
@@ -1060,10 +1085,325 @@ def _format_message_markdown(msg: ConversationMessage) -> str:
     return "\n".join(lines)
 
 
+async def fetch_session_turns_page(
+    session_id: str,
+    cursor_token: str | None,
+    limit: int,
+    db_pool: DatabasePool,
+) -> dict[str, object]:
+    """Fetch a cursor-paginated page of raw events for a session.
+
+    Returns a dict with keys ``turns`` (list of event dicts) and
+    ``next_cursor`` (opaque token or None when no further pages exist).
+    """
+    cursor_ts = None
+    cursor_event_id = None
+    if cursor_token is not None:
+        cursor_ts, cursor_event_id = decode_cursor(cursor_token, kind="turns")
+
+    async with db_pool.connection() as conn:
+        with time_phase("db"):
+            if cursor_ts is None:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, event_type, payload, created_at
+                    FROM conversation_events
+                    WHERE session_id = $1
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT $2
+                    """,
+                    session_id,
+                    limit + 1,
+                )
+            else:
+                assert cursor_event_id is not None
+                if db_pool.is_sqlite:
+                    # SQLite stores event ids as plain TEXT. If a Postgres-issued
+                    # cursor (UUID string) is decoded here (e.g. same CURSOR_HMAC_KEY
+                    # after a backend migration), the comparison succeeds but may
+                    # return wrong pages. Operators should rotate cursors after
+                    # switching backends.
+                    cursor_id_param: str | _UUID = cursor_event_id
+                else:
+                    try:
+                        cursor_id_param = _UUID(cursor_event_id)
+                    except ValueError as exc:
+                        raise ValueError(f"Invalid cursor: event id is not a valid UUID: {exc}") from exc
+                rows = await conn.fetch(
+                    """
+                    SELECT id, event_type, payload, created_at
+                    FROM conversation_events
+                    WHERE session_id = $1
+                    AND (datetime(created_at), id) > (datetime($2), $3)
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT $4
+                    """
+                    if db_pool.is_sqlite
+                    else """
+                    SELECT id, event_type, payload, created_at
+                    FROM conversation_events
+                    WHERE session_id = $1
+                    AND (created_at, id) > ($2, $3)
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT $4
+                    """,
+                    session_id,
+                    cursor_ts.isoformat() if db_pool.is_sqlite else cursor_ts,
+                    cursor_id_param,
+                    limit + 1,
+                )
+
+    has_more = len(rows) > limit
+    page_rows = list(rows[:limit])
+
+    turns: list[dict[str, object]] = []
+    for row in page_rows:
+        payload_raw = row["payload"]
+        if isinstance(payload_raw, dict):
+            payload_str = json.dumps(payload_raw)
+        else:
+            payload_str = str(payload_raw) if payload_raw is not None else ""
+
+        turns.append(
+            {
+                "event_id": str(row["id"]),
+                "created_at": parse_db_ts(row["created_at"]),
+                "event_type": str(row["event_type"]),
+                "payload_preview": payload_str[:200],
+            }
+        )
+
+    next_cursor: str | None = None
+    if has_more and page_rows:
+        last_row = page_rows[-1]
+        last_ts = parse_db_ts(last_row["created_at"])
+        last_event_id = str(last_row["id"])
+        next_cursor = encode_cursor(last_ts, last_event_id, kind="turns")
+
+    return {"turns": turns, "next_cursor": next_cursor}
+
+
+_Q_MAX_LEN = 128
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+async def fetch_sessions_page(
+    cursor_token: str | None,
+    limit: int,
+    db_pool: DatabasePool,
+    q: str | None = None,
+    quick_filter: str | None = None,
+) -> dict[str, Any]:
+    """Fetch a cursor-paginated page of session summaries.
+
+    Returns a dict with keys ``sessions`` (list of session dicts) and
+    ``next_cursor`` (opaque token or None when no further pages exist).
+
+    Note: ``q`` uses a leading-wildcard LIKE which cannot use a btree index.
+    ``quick_filter='claude'`` scans the full payload column. Both are intended
+    for small deployments; see changelog for the long-term fix path.
+    """
+    if q is not None:
+        q = q[:_Q_MAX_LEN]
+
+    if db_pool.is_sqlite:
+        sqlite_args: list[object] = []
+
+        q_filter = ""
+        if q:
+            sqlite_args.append(f"%{_escape_like(q.lower())}%")
+            q_filter = "AND LOWER(session_id) LIKE ? ESCAPE '\\'"
+
+        cursor_filter = ""
+        if cursor_token is not None:
+            cursor_ts, cursor_sid = decode_cursor(cursor_token, kind="sessions")
+            cursor_filter = "AND (datetime(last_ts), session_id) < (datetime(?), ?)"
+            sqlite_args.extend([cursor_ts.isoformat(), cursor_sid])
+
+        filter_clause = ""
+        if quick_filter == "30days":
+            filter_clause = "AND datetime(last_ts) >= datetime('now', '-30 days')"
+        elif quick_filter == "claude":
+            filter_clause = "AND session_id IN (SELECT DISTINCT session_id FROM conversation_events WHERE payload LIKE '%claude-code%')"
+
+        sqlite_args.append(limit + 1)
+        query_args: list[object] = sqlite_args
+
+        sessions_query = f"""
+        WITH sessions_agg AS (
+            SELECT
+                session_id,
+                MIN(created_at) AS first_ts,
+                MAX(created_at) AS last_ts,
+                COUNT(DISTINCT call_id) AS turn_count,
+                SUM(CASE
+                    WHEN event_type LIKE 'policy.%'
+                    AND event_type NOT LIKE 'policy.%judge.evaluation%'
+                    THEN 1 ELSE 0
+                END) AS policy_interventions
+            FROM conversation_events
+            WHERE session_id IS NOT NULL
+            {q_filter}
+            GROUP BY session_id
+        )
+        SELECT session_id, first_ts, last_ts, turn_count, policy_interventions
+        FROM sessions_agg
+        WHERE 1=1
+        {cursor_filter}
+        {filter_clause}
+        ORDER BY last_ts DESC, session_id DESC
+        LIMIT ?
+        """
+    else:
+        query_args = [limit + 1]
+
+        q_filter = ""
+        if q:
+            query_args.append(f"%{_escape_like(q)}%")
+            q_idx = len(query_args)
+            q_filter = f"AND session_id ILIKE ${q_idx} ESCAPE '\\'"
+
+        cursor_filter = ""
+        if cursor_token is not None:
+            cursor_ts, cursor_sid = decode_cursor(cursor_token, kind="sessions")
+            query_args.append(cursor_ts)
+            ts_idx = len(query_args)
+            query_args.append(cursor_sid)
+            sid_idx = len(query_args)
+            cursor_filter = f"AND (last_ts, session_id) < (${ts_idx}, ${sid_idx})"
+
+        filter_clause = ""
+        if quick_filter == "30days":
+            filter_clause = "AND last_ts >= NOW() - INTERVAL '30 days'"
+        elif quick_filter == "claude":
+            filter_clause = "AND session_id IN (SELECT DISTINCT session_id FROM conversation_events WHERE payload::text ILIKE '%claude-code%')"
+
+        sessions_query = f"""
+        WITH sessions_agg AS (
+            SELECT
+                session_id,
+                MIN(created_at) AS first_ts,
+                MAX(created_at) AS last_ts,
+                COUNT(DISTINCT call_id) AS turn_count,
+                COUNT(*) FILTER (
+                    WHERE event_type LIKE 'policy.%'
+                    AND event_type NOT LIKE 'policy.%judge.evaluation%'
+                ) AS policy_interventions
+            FROM conversation_events
+            WHERE session_id IS NOT NULL
+            {q_filter}
+            GROUP BY session_id
+        )
+        SELECT session_id, first_ts, last_ts, turn_count, policy_interventions
+        FROM sessions_agg
+        WHERE 1=1
+        {cursor_filter}
+        {filter_clause}
+        ORDER BY last_ts DESC, session_id DESC
+        LIMIT $1
+        """
+
+    async with db_pool.connection() as conn:
+        with time_phase("db"):
+            rows = list(await conn.fetch(sessions_query, *query_args))
+
+            has_more = len(rows) > limit
+            page_rows = rows[:limit]
+
+            if not page_rows:
+                return {"sessions": [], "next_cursor": None}
+
+            session_ids = [str(r["session_id"]) for r in page_rows]
+
+            if db_pool.is_sqlite:
+                placeholders = ", ".join("?" for _ in session_ids)
+                max_tokens_check = """
+                AND COALESCE(
+                    CAST(json_extract(payload, '$.final_request.max_tokens') AS INTEGER),
+                    2
+                ) > 1
+                """
+                model_field_sql = "json_extract(payload, '$.final_model')"
+            else:
+                placeholders = ", ".join(f"${i + 1}" for i in range(len(session_ids)))
+                max_tokens_check = """
+                AND COALESCE((payload->'final_request'->>'max_tokens')::int, 2) > 1
+                """
+                model_field_sql = "payload->>'final_model'"
+
+            preview_rows = await conn.fetch(
+                f"""
+                SELECT session_id, payload
+                FROM conversation_events
+                WHERE session_id IN ({placeholders})
+                AND event_type = 'transaction.request_recorded'
+                {max_tokens_check}
+                ORDER BY session_id, created_at ASC
+                """,
+                *session_ids,
+            )
+
+            model_rows = await conn.fetch(
+                f"""
+                SELECT session_id, {model_field_sql} as model
+                FROM conversation_events
+                WHERE session_id IN ({placeholders})
+                AND event_type = 'transaction.request_recorded'
+                AND {model_field_sql} IS NOT NULL
+                """,
+                *session_ids,
+            )
+
+            previews: dict[str, str] = {}
+            for pr in preview_rows:
+                sid = str(pr["session_id"])
+                if sid not in previews:
+                    previews[sid] = _extract_preview_message(cast(_PreviewPayload, pr["payload"])) or ""
+
+            models_by_session: dict[str, list[str]] = {}
+            for mr in model_rows:
+                sid = str(mr["session_id"])
+                model = str(mr["model"])
+                session_models = models_by_session.setdefault(sid, [])
+                if model not in session_models:
+                    session_models.append(model)
+
+    next_cursor: str | None = None
+    if has_more:
+        last_row = page_rows[-1]
+        last_ts_val = parse_db_ts(last_row["last_ts"])
+        # Cursor encodes MAX(created_at) — "last active" time, not creation time.
+        # A new event on an older session bumps its last_ts and can re-surface or
+        # skip that session across page boundaries. This is intentional: the list
+        # is ordered by activity, not by when sessions were created.
+        next_cursor = encode_cursor(last_ts_val, str(last_row["session_id"]), kind="sessions")
+
+    sessions = [
+        {
+            "session_id": str(r["session_id"]),
+            "first_ts": str(r["first_ts"]),
+            "last_ts": str(r["last_ts"]),
+            "last_ts_formatted": _format_session_ts(parse_db_ts(r["last_ts"])),
+            "turn_count": int(r["turn_count"]),  # type: ignore[arg-type]
+            "policy_interventions": int(r["policy_interventions"]),  # type: ignore[arg-type]
+            "models_used": models_by_session.get(str(r["session_id"]), []),
+            "preview": previews.get(str(r["session_id"]), ""),
+        }
+        for r in page_rows
+    ]
+
+    return {"sessions": sessions, "next_cursor": next_cursor}
+
+
 __all__ = [
     "extract_text_content",
     "fetch_session_list",
     "fetch_session_detail",
     "export_session_markdown",
     "export_session_jsonl",
+    "fetch_session_turns_page",
+    "fetch_sessions_page",
 ]

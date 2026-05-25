@@ -25,8 +25,7 @@ from luthien_proxy.perf.seeding import seed_sami_like
 
 from .conftest import measure_page_load
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-EVIDENCE_DIR = _REPO_ROOT / ".sisyphus" / "evidence"
+EVIDENCE_DIR = Path(".sisyphus/evidence")
 
 # CDP throttle parameters — match Sami's Tailscale Funnel free-tier shape.
 THROTTLE_DOWNLOAD_BPS: int = 125_000  # bytes/sec (~1 Mbps)
@@ -34,7 +33,7 @@ THROTTLE_UPLOAD_BPS: int = 125_000  # bytes/sec (~1 Mbps)
 THROTTLE_LATENCY_MS: int = 300  # ms additional latency (RTT)
 
 _SAMI_LIVE_SESSION = "perf-seed-sami-442msg"
-N_RUNS: int = 3  # 3 runs: CDP throttle adds ~300 ms/run; 3 is enough for a stable median
+N_RUNS: int = 3  # 3 runs; report median
 
 
 @pytest.fixture(scope="session")

@@ -27,8 +27,7 @@ from luthien_proxy.utils.db import DatabasePool
 
 from .conftest import measure_page_load, n_runs
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-EVIDENCE_DIR = _REPO_ROOT / ".sisyphus" / "evidence"
+EVIDENCE_DIR = Path(".sisyphus/evidence")
 TRACES_DIR = EVIDENCE_DIR / "traces"
 
 _TTFB_SLO_MS: float = 2_000.0
@@ -40,10 +39,11 @@ N_RUNS: int = 5
 
 
 def _discover_html_routes() -> list[str]:
+    db_pool = DatabasePool(get_perf_db_url("sqlite"))
     app = create_app(
         api_key="x",
         admin_key="x",
-        db_pool=DatabasePool(get_perf_db_url("sqlite")),  # lazy — no connection opened
+        db_pool=db_pool,
         redis_client=None,
         startup_policy_path=None,
     )
@@ -71,6 +71,9 @@ def _discover_html_routes() -> list[str]:
         routes.append(path)
 
     return sorted(routes)
+
+
+_ADMIN_ROUTES: list[str] = _discover_html_routes()
 
 
 def _live_conversation_id(fixture_name: str) -> str:
@@ -130,17 +133,12 @@ def perf_results_store() -> Iterator[dict[str, list[dict[str, Any]]]]:
             json.dump(result, f, indent=2)
 
 
-def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
-    if "fixture_name" in metafunc.fixturenames and "route_path" in metafunc.fixturenames:
-        admin_routes = _discover_html_routes()
-        metafunc.parametrize(
-            "fixture_name,route_path",
-            [(f, p) for f in FIXTURE_NAMES for p in admin_routes],
-        )
-
-
 @pytest.mark.perf
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fixture_name,route_path",
+    [(f, p) for f in FIXTURE_NAMES for p in _ADMIN_ROUTES],
+)
 async def test_page_load(
     fixture_name: str,
     route_path: str,

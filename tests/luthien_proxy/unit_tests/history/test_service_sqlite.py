@@ -7,11 +7,16 @@ SQLite database with the schema applied.
 from __future__ import annotations
 
 import json
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import cast
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from luthien_proxy.history.service import fetch_session_list
+from luthien_proxy.history.service import fetch_session_list, fetch_session_turns_page, fetch_sessions_page
+from luthien_proxy.utils.cursor import encode_cursor
 from luthien_proxy.utils.db import DatabasePool
 from luthien_proxy.utils.db_sqlite import SqliteConnection
 
@@ -925,6 +930,232 @@ class TestFetchSessionListUserFilter:
         # And the table is still queryable.
         all_rows = await fetch_session_list(limit=10, db_pool=sqlite_pool)
         assert len(all_rows.sessions) == 1
+
+
+async def test_fetch_sessions_page_no_duplicates_across_pages(sqlite_pool: DatabasePool) -> None:
+    async with sqlite_pool.connection() as conn:
+        # Session A: events at T=3, T=5, T=8 → real last_ts = T=8
+        # Session C: single event at T=6 → last_ts = T=6
+        # Session B: events at T=1, T=2, T=4 → last_ts = T=4
+        # Page 1 (limit=2) returns A, C. Cursor = (T=6, "sess-C").
+        # A buggy CTE filter on created_at <= T=6 would drop A's T=8 event,
+        # making A's aggregated last_ts = T=5, which passes the outer keyset
+        # predicate (T=5, "sess-A") < (T=6, "sess-C") — causing A to re-appear
+        # on page 2 with wrong stats.
+        for call_id, session_id, ts in [
+            ("call-A1", "sess-A", "2025-01-01T00:00:03"),
+            ("call-A2", "sess-A", "2025-01-01T00:00:05"),
+            ("call-A3", "sess-A", "2025-01-01T00:00:08"),
+            ("call-C1", "sess-C", "2025-01-01T00:00:06"),
+            ("call-B1", "sess-B", "2025-01-01T00:00:01"),
+            ("call-B2", "sess-B", "2025-01-01T00:00:02"),
+            ("call-B3", "sess-B", "2025-01-01T00:00:04"),
+        ]:
+            await conn.execute(
+                "INSERT INTO conversation_calls (call_id, model_name, provider, status, session_id, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                call_id,
+                "claude-3",
+                "anthropic",
+                "completed",
+                session_id,
+                ts,
+            )
+            await conn.execute(
+                "INSERT INTO conversation_events (id, call_id, event_type, payload, session_id, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                f"evt-{call_id}",
+                call_id,
+                "transaction.request_recorded",
+                "{}",
+                session_id,
+                ts,
+            )
+
+    page1 = await fetch_sessions_page(None, 2, sqlite_pool)
+    ids1 = {s["session_id"] for s in page1["sessions"]}
+    assert ids1 == {"sess-A", "sess-C"}
+    assert page1["next_cursor"] is not None
+
+    page2 = await fetch_sessions_page(page1["next_cursor"], 2, sqlite_pool)
+    ids2 = {s["session_id"] for s in page2["sessions"]}
+    assert ids2 == {"sess-B"}
+
+    assert ids1.isdisjoint(ids2), f"Duplicate session_ids across pages: {ids1 & ids2}"
+
+    sess_a = next(s for s in page1["sessions"] if s["session_id"] == "sess-A")
+    assert sess_a["turn_count"] == 3
+
+
+@pytest.fixture
+async def turns_sqlite_pool(sqlite_pool: DatabasePool) -> DatabasePool:
+    async with sqlite_pool.connection() as conn:
+        await conn.execute(
+            "INSERT INTO conversation_calls (call_id, model_name, provider, status, session_id, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            "call-turns-1",
+            "claude-3",
+            "anthropic",
+            "completed",
+            "sess-turns",
+            "2025-03-01 10:00:00",
+        )
+        for i in range(5):
+            await conn.execute(
+                "INSERT INTO conversation_events (id, call_id, event_type, payload, session_id, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                f"evt-turns-{i}",
+                "call-turns-1",
+                "transaction.request_recorded",
+                "{}",
+                "sess-turns",
+                f"2025-03-01 10:00:0{i}",
+            )
+    return sqlite_pool
+
+
+@pytest.mark.asyncio
+async def test_fetch_session_turns_page_first_page(turns_sqlite_pool: DatabasePool):
+    result = await fetch_session_turns_page("sess-turns", None, 3, turns_sqlite_pool)
+    turns = cast(list[dict], result["turns"])
+    assert len(turns) == 3
+    assert result["next_cursor"] is not None
+
+
+@pytest.mark.asyncio
+async def test_fetch_session_turns_page_second_page_space_timestamps(turns_sqlite_pool: DatabasePool):
+    page1 = await fetch_session_turns_page("sess-turns", None, 3, turns_sqlite_pool)
+    assert page1["next_cursor"] is not None
+
+    page2 = await fetch_session_turns_page("sess-turns", cast(str, page1["next_cursor"]), 3, turns_sqlite_pool)
+    turns2 = cast(list[dict], page2["turns"])
+    assert len(turns2) == 2
+    assert page2["next_cursor"] is None
+
+    ids1 = {t["event_id"] for t in cast(list[dict], page1["turns"])}
+    ids2 = {t["event_id"] for t in turns2}
+    assert ids1.isdisjoint(ids2), f"Duplicate event_ids across pages: {ids1 & ids2}"
+
+
+@pytest.mark.asyncio
+async def test_fetch_sessions_page_quick_filter_30days(sqlite_pool: DatabasePool):
+    async with sqlite_pool.connection() as conn:
+        await conn.execute(
+            "INSERT INTO conversation_calls (call_id, model_name, provider, status, session_id, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            "call-recent",
+            "claude-3",
+            "anthropic",
+            "completed",
+            "sess-recent",
+            "2099-01-01 00:00:00",
+        )
+        await conn.execute(
+            "INSERT INTO conversation_events (id, call_id, event_type, payload, session_id, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            "evt-recent",
+            "call-recent",
+            "transaction.request_recorded",
+            "{}",
+            "sess-recent",
+            "2099-01-01 00:00:00",
+        )
+        await conn.execute(
+            "INSERT INTO conversation_calls (call_id, model_name, provider, status, session_id, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            "call-old",
+            "claude-3",
+            "anthropic",
+            "completed",
+            "sess-old",
+            "2000-01-01 00:00:00",
+        )
+        await conn.execute(
+            "INSERT INTO conversation_events (id, call_id, event_type, payload, session_id, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            "evt-old",
+            "call-old",
+            "transaction.request_recorded",
+            "{}",
+            "sess-old",
+            "2000-01-01 00:00:00",
+        )
+
+    result = await fetch_sessions_page(None, 20, sqlite_pool, quick_filter="30days")
+    session_ids = {s["session_id"] for s in result["sessions"]}
+    assert "sess-recent" in session_ids
+    assert "sess-old" not in session_ids
+
+
+@pytest.mark.asyncio
+async def test_fetch_sessions_page_quick_filter_claude(sqlite_pool: DatabasePool):
+    async with sqlite_pool.connection() as conn:
+        await conn.execute(
+            "INSERT INTO conversation_calls (call_id, model_name, provider, status, session_id, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            "call-cc",
+            "claude-3",
+            "anthropic",
+            "completed",
+            "sess-claude-code",
+            "2025-06-01 00:00:00",
+        )
+        await conn.execute(
+            "INSERT INTO conversation_events (id, call_id, event_type, payload, session_id, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            "evt-cc",
+            "call-cc",
+            "transaction.request_recorded",
+            '{"client":"claude-code"}',
+            "sess-claude-code",
+            "2025-06-01 00:00:00",
+        )
+        await conn.execute(
+            "INSERT INTO conversation_calls (call_id, model_name, provider, status, session_id, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            "call-other",
+            "claude-3",
+            "anthropic",
+            "completed",
+            "sess-other",
+            "2025-06-01 00:00:01",
+        )
+        await conn.execute(
+            "INSERT INTO conversation_events (id, call_id, event_type, payload, session_id, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            "evt-other",
+            "call-other",
+            "transaction.request_recorded",
+            '{"client":"api"}',
+            "sess-other",
+            "2025-06-01 00:00:01",
+        )
+
+    result = await fetch_sessions_page(None, 20, sqlite_pool, quick_filter="claude")
+    session_ids = {s["session_id"] for s in result["sessions"]}
+    assert "sess-claude-code" in session_ids
+    assert "sess-other" not in session_ids
+
+
+@pytest.mark.asyncio
+async def test_fetch_session_turns_page_postgres_non_uuid_cursor_raises():
+    """Postgres branch raises ValueError when cursor encodes a non-UUID event_id."""
+    ts = datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
+    cursor = encode_cursor(ts, "not-a-uuid", kind="turns")
+
+    mock_conn = AsyncMock()
+    mock_conn.fetch = AsyncMock(return_value=[])
+
+    @asynccontextmanager
+    async def _connection():
+        yield mock_conn
+
+    mock_pool = MagicMock(spec=DatabasePool)
+    mock_pool.is_sqlite = False
+    mock_pool.connection = _connection
+
+    with pytest.raises(ValueError, match="UUID"):
+        await fetch_session_turns_page("sess-x", cursor, 10, mock_pool)
 
 
 __all__ = []
