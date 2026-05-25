@@ -1,0 +1,89 @@
+# syntax=docker/dockerfile:1
+# SAMI harness: Luthien gateway + OpenCode CLI + opencode-luthien plugin (SQLite mode).
+# No PostgreSQL or Redis — uses SQLite at /data/local.db.
+#
+# Build:
+#   docker build -f docker/Dockerfile.sami -t luthien-sami:test .
+#
+# Run (interactive):
+#   docker run -it \
+#     -v luthien-sami-data:/data \
+#     -e ADMIN_API_KEY=your-admin-key \
+#     luthien-sami:test
+#
+# Volume mount points:
+#   /data  — SQLite database (persistent)
+
+# ── Stage 1: gateway-builder — install Python deps ────────────────
+FROM python:3.13-slim AS gateway-builder
+
+COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /bin/uv
+
+WORKDIR /app
+COPY pyproject.toml uv.lock README.md ./
+COPY src/ ./src/
+COPY config/ ./config/
+COPY migrations/ ./migrations/
+
+# hatch-vcs needs .git/ to resolve the version; SETUPTOOLS_SCM_PRETEND_VERSION is the escape hatch.
+ARG BUILD_COMMIT=unknown
+ARG BUILD_VERSION=""
+ENV SETUPTOOLS_SCM_PRETEND_VERSION="${BUILD_VERSION:-0.0.0+${BUILD_COMMIT}}"
+
+RUN uv sync --frozen --no-dev
+
+# ── Stage 2: plugin-builder — compile opencode-luthien TS → JS ───
+FROM oven/bun:1.2 AS plugin-builder
+
+WORKDIR /plugin
+COPY plugins/opencode-luthien/ ./
+# Installs devDependencies (tsc) then compiles; --frozen-lockfile matches bun.lock exactly
+RUN bun install --frozen-lockfile && bun run build
+
+# ── Stage 3: runtime — gateway + bun + opencode CLI + plugin ─────
+FROM python:3.13-slim AS runtime
+
+# System deps: curl for health-check polling in entrypoint
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# uv (fast Python runner)
+COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /bin/uv
+
+# bun runtime (from official image — avoids curl|bash)
+COPY --from=oven/bun:1.2 /usr/local/bin/bun /usr/local/bin/bun
+
+# Install opencode CLI globally (pinned to match plugin peerDependencies ^1.14.0)
+# BUN_INSTALL=/usr/local puts the binary at /usr/local/bin/opencode (already in PATH)
+ENV BUN_INSTALL=/usr/local
+RUN bun add -g opencode-ai@1.14.25
+
+# ── Gateway (pre-built venv from Stage 1) ────────────────────────
+WORKDIR /app
+COPY --from=gateway-builder /app ./
+
+# ── Plugin (compiled dist from Stage 2) ──────────────────────────
+RUN mkdir -p /opt/opencode-luthien
+COPY --from=plugin-builder /plugin/dist /opt/opencode-luthien/dist
+COPY --from=plugin-builder /plugin/package.json /opt/opencode-luthien/package.json
+
+# ── Entrypoint and opencode config ───────────────────────────────
+COPY docker/sami-entrypoint.sh /usr/local/bin/sami-entrypoint.sh
+RUN mkdir -p /root/.config/opencode
+COPY docker/sami-opencode.json /root/.config/opencode/opencode.json
+RUN chmod +x /usr/local/bin/sami-entrypoint.sh
+
+# ── Environment ───────────────────────────────────────────────────
+ENV LUTHIEN_PROXY_URL=http://localhost:8000
+ENV ANTHROPIC_BASE_URL=http://localhost:8000
+ENV DATABASE_URL=sqlite:////data/local.db
+ENV POLICY_CONFIG=/app/config/policy_config.yaml
+
+VOLUME ["/data"]
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+CMD ["/usr/local/bin/sami-entrypoint.sh"]
