@@ -45,8 +45,8 @@ def gateway_url(mock_server):
         mock_anthropic_url=f"http://127.0.0.1:{mock_server.port}",
         tmp_prefix="luthien_regression_e2e_",
         thread_name="regression-gateway",
-    ) as url:
-        yield url
+    ) as booted:
+        yield booted.url
 
 
 @pytest.mark.asyncio

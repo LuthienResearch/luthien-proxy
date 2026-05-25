@@ -19,7 +19,7 @@ import time
 
 # Set env vars BEFORE importing luthien_proxy — init_sentry() runs at import
 # time and caches get_settings() via lru_cache, so env must be set first.
-os.environ.setdefault("ENABLE_REQUEST_LOGGING", "true")
+os.environ["ENABLE_REQUEST_LOGGING"] = "true"  # always enable for mock e2e
 
 import uvicorn  # noqa: E402
 
@@ -78,7 +78,9 @@ def main():
     os.environ["ANTHROPIC_BASE_URL"] = f"http://localhost:{mock_port}"
     os.environ["ANTHROPIC_API_KEY"] = "mock-key"
     os.environ["OPENAI_BASE_URL"] = f"http://localhost:{openai_mock_port}"
+    os.environ.setdefault("OPENAI_API_KEY", "mock-openai-key")  # mock server doesn't check
     os.environ["GEMINI_BASE_URL"] = f"http://localhost:{gemini_mock_port}"
+    os.environ.setdefault("GOOGLE_API_KEY", "mock-google-key")  # mock server doesn't check
 
     app = create_app(
         api_key=api_key,
