@@ -1,0 +1,15 @@
+{
+  "call_id": "str",
+  "events": [
+    {
+      "event_id": "str",
+      "call_id": "str",
+      "event_type": "str",
+      "payload": {},
+      "created_at": "str",
+      "session_id": "str"
+    }
+  ],
+  "tempo_trace_url": "null",
+  "session_id": "str"
+}

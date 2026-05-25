@@ -6,10 +6,12 @@ These tests focus on the HTTP layer - ensuring routes properly:
 - Return correct response models
 """
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+from starlette.responses import Response
 
 from luthien_proxy.history.models import (
     ConversationMessage,
@@ -59,12 +61,13 @@ class TestListSessionsRoute:
         ) as mock_fetch:
             result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=0, user_id=None)
 
-            assert isinstance(result, SessionListResponse)
-            assert result.total == 100
-            assert result.offset == 0
-            assert result.has_more is True
-            assert len(result.sessions) == 1
-            assert result.sessions[0].session_id == "session-1"
+            assert isinstance(result, Response)
+            body = json.loads(bytes(result.body))
+            assert body["total"] == 100
+            assert body["offset"] == 0
+            assert body["has_more"] is True
+            assert len(body["sessions"]) == 1
+            assert body["sessions"][0]["session_id"] == "session-1"
             mock_fetch.assert_called_once_with(50, mock_db_pool, 0, user_id=None)
 
     @pytest.mark.asyncio
@@ -98,8 +101,9 @@ class TestListSessionsRoute:
         ) as mock_fetch:
             result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=50, user_id=None)
 
-            assert result.offset == 50
-            assert result.has_more is True
+            body = json.loads(bytes(result.body))
+            assert body["offset"] == 50
+            assert body["has_more"] is True
             mock_fetch.assert_called_once_with(50, mock_db_pool, 50, user_id=None)
 
     @pytest.mark.asyncio
@@ -114,9 +118,10 @@ class TestListSessionsRoute:
         ):
             result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=0, user_id=None)
 
-            assert result.total == 0
-            assert result.sessions == []
-            assert result.has_more is False
+            body = json.loads(bytes(result.body))
+            assert body["total"] == 0
+            assert body["sessions"] == []
+            assert body["has_more"] is False
 
 
 class TestGetSessionRoute:
@@ -152,9 +157,10 @@ class TestGetSessionRoute:
         ) as mock_fetch:
             result = await get_session(session_id="test-session", _=AUTH_TOKEN, db_pool=mock_db_pool)
 
-            assert isinstance(result, SessionDetail)
-            assert result.session_id == "test-session"
-            assert len(result.turns) == 1
+            assert isinstance(result, Response)
+            body = json.loads(bytes(result.body))
+            assert body["session_id"] == "test-session"
+            assert len(body["turns"]) == 1
             mock_fetch.assert_called_once_with("test-session", mock_db_pool)
 
     @pytest.mark.asyncio
@@ -208,7 +214,7 @@ class TestExportSessionRoute:
             result = await export_session(session_id="test-session", _=AUTH_TOKEN, db_pool=mock_db_pool)
 
             assert result.media_type == "text/markdown"
-            assert "# Conversation History: test-session" in result.body.decode()
+            assert "# Conversation History: test-session" in bytes(result.body).decode()
             assert "Content-Disposition" in result.headers
             assert 'filename="conversation_test-session.md"' in result.headers["Content-Disposition"]
 

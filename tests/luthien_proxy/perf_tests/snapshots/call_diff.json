@@ -1,0 +1,21 @@
+{
+  "call_id": "str",
+  "request": {
+    "model_changed": "bool",
+    "original_model": "null",
+    "final_model": "null",
+    "max_tokens_changed": "bool",
+    "original_max_tokens": "null",
+    "final_max_tokens": "null",
+    "messages": []
+  },
+  "response": {
+    "content_changed": "bool",
+    "original_content": "str",
+    "final_content": "str",
+    "finish_reason_changed": "bool",
+    "original_finish_reason": "null",
+    "final_finish_reason": "null"
+  },
+  "tempo_trace_url": "null"
+}

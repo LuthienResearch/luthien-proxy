@@ -1,0 +1,20 @@
+{
+  "sessions": [
+    {
+      "session_id": "str",
+      "first_timestamp": "str",
+      "last_timestamp": "str",
+      "turn_count": "int",
+      "total_events": "int",
+      "policy_interventions": "int",
+      "models_used": [
+        "str"
+      ],
+      "preview_message": "str",
+      "user_ids": "list[unknown]"
+    }
+  ],
+  "total": "int",
+  "offset": "int",
+  "has_more": "bool"
+}

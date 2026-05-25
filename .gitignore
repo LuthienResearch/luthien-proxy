@@ -98,3 +98,10 @@ scripts/automated_maintenance/automated_maintenance.env.bak*
 # Claude Code runtime state
 .claude/scheduled_tasks.lock
 NEXT.md
+
+# Agent run artifacts — transient logs and task evidence
+# Canonical baseline reports (.md) are tracked; everything else is ephemeral.
+.sisyphus/evidence/*.log
+.sisyphus/evidence/*.txt
+.sisyphus/evidence/task-*.json
+.sisyphus/plans/

@@ -5,6 +5,14 @@ Provides endpoints for:
 - Viewing session details
 - Exporting sessions to markdown
 - HTML UI pages
+
+WARNING — serialization pattern: API handlers return Response(content=model.model_dump_json(), ...)
+with response_model= kept on the decorator for OpenAPI schema generation only.
+FastAPI skips response validation when the handler returns a pre-built Response —
+this is intentional to avoid double-serialization (Pydantic→dict→json twice).
+Do NOT copy this pattern to new routes without also adding a contract snapshot test;
+FastAPI's response_model validation will be silently disabled.
+The API contract snapshot tests (test_api_contract.py) provide regression coverage.
 """
 
 from __future__ import annotations
@@ -14,9 +22,11 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse
+from starlette.responses import Response
 
 from luthien_proxy.auth import check_auth_or_redirect, verify_admin_token
 from luthien_proxy.dependencies import get_admin_key, get_db_pool
+from luthien_proxy.perf.timing_middleware import timed_json_response
 from luthien_proxy.utils.constants import (
     HISTORY_SESSIONS_DEFAULT_LIMIT,
     HISTORY_SESSIONS_MAX_LIMIT,
@@ -79,14 +89,15 @@ async def list_sessions(
             "X-Luthien-User-Id header (when TRUST_USER_ID_HEADER=true) or JWT sub claim."
         ),
     ),
-) -> SessionListResponse:
+) -> Response:
     """List recent sessions with summaries.
 
     Returns a list of session summaries ordered by most recent activity,
     including turn counts, policy interventions, and models used.
     Supports pagination via limit and offset parameters.
     """
-    return await fetch_session_list(limit, db_pool, offset, user_id=user_id)
+    result = await fetch_session_list(limit, db_pool, offset, user_id=user_id)
+    return timed_json_response(result)
 
 
 @api_router.get("/sessions/{session_id}", response_model=SessionDetail)
@@ -94,14 +105,15 @@ async def get_session(
     session_id: str,
     _: str = Depends(verify_admin_token),
     db_pool: DatabasePool = Depends(get_db_pool),
-) -> SessionDetail:
+) -> Response:
     """Get full session detail with conversation turns.
 
     Returns the complete conversation history for a session,
     including all messages, tool calls, and policy annotations.
     """
     try:
-        return await fetch_session_detail(session_id, db_pool)
+        result = await fetch_session_detail(session_id, db_pool)
+        return timed_json_response(result)
     except ValueError as e:
         logger.warning(f"Session not found: {repr(e)}")
         raise HTTPException(status_code=404, detail="Session not found.") from None

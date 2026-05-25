@@ -1,0 +1,11 @@
+{
+  "calls": [
+    {
+      "call_id": "str",
+      "event_count": "int",
+      "latest_timestamp": "str",
+      "session_id": "str"
+    }
+  ],
+  "total": "int"
+}

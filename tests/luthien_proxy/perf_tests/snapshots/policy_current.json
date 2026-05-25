@@ -1,0 +1,7 @@
+{
+  "policy": "str",
+  "class_ref": "str",
+  "enabled_at": "str",
+  "enabled_by": "str",
+  "config": {}
+}

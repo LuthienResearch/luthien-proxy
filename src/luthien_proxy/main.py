@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from redis.asyncio import Redis
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from luthien_proxy.admin import router as admin_router
 from luthien_proxy.config_fields import CONFIG_FIELDS, CONFIG_FIELDS_BY_NAME
@@ -41,6 +41,7 @@ from luthien_proxy.observability.event_publisher import (
 )
 from luthien_proxy.observability.redis_event_publisher import RedisEventPublisher
 from luthien_proxy.observability.sentry import init_sentry
+from luthien_proxy.perf.timing_middleware import ServerTimingMiddleware
 from luthien_proxy.pipeline.upstream_headers import validate_upstream_headers_at_startup
 from luthien_proxy.policy_manager import PolicyManager
 from luthien_proxy.rate_limit import TokenBucketRateLimiter
@@ -424,21 +425,41 @@ def create_app(
     # JS/HTML/CSS use no-cache so the browser always revalidates (prevents
     # stale JS after a gateway restart). Other assets (images, fonts) get a
     # longer TTL since they change infrequently.
-    class StaticCacheMiddleware(BaseHTTPMiddleware):
-        async def dispatch(self, request: Request, call_next):
-            response = await call_next(request)
-            if request.url.path.startswith("/api/") or request.url.path in ("/health", "/ready"):
-                # Prevent CDN/edge caching of API and health responses (Railway, Cloudflare, etc.)
-                response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-            elif request.url.path.startswith("/static/"):
-                path = request.url.path
-                if path.endswith((".js", ".html", ".css")):
-                    response.headers["Cache-Control"] = "no-cache"
-                else:
-                    response.headers["Cache-Control"] = "public, max-age=3600"
-            return response
+    class StaticCacheMiddleware:
+        def __init__(self, app: ASGIApp) -> None:  # noqa: D107
+            self.app = app
+
+        async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # noqa: D102
+            if scope["type"] != "http":
+                await self.app(scope, receive, send)
+                return
+
+            path: str = scope.get("path", "")
+
+            def _cache_header() -> str | None:
+                if path.startswith("/api/") or path in ("/health", "/ready"):
+                    return "no-store, no-cache, must-revalidate"
+                if path.startswith("/static/"):
+                    return "no-cache" if path.endswith((".js", ".html", ".css")) else "public, max-age=3600"
+                return None
+
+            cache_value = _cache_header()
+
+            async def send_with_cache(message: Message) -> None:
+                if message["type"] == "http.response.start" and cache_value:
+                    headers = [h for h in message.get("headers", []) if h[0].lower() != b"cache-control"]
+                    headers.append((b"cache-control", cache_value.encode()))
+                    message = {**message, "headers": headers}
+                await send(message)
+
+            await self.app(scope, receive, send_with_cache if cache_value else send)
 
     app.add_middleware(StaticCacheMiddleware)
+
+    # Add ServerTimingMiddleware as the outermost middleware (add_middleware stacks
+    # outermost-last). StaticCacheMiddleware is pure-ASGI so it does not break
+    # ContextVar propagation for streaming responses on timed paths.
+    app.add_middleware(ServerTimingMiddleware)
 
     # Include routers
     app.include_router(gateway_router)  # /v1/messages
