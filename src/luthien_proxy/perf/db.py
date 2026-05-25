@@ -117,7 +117,7 @@ def migrate_perf_db(backend: Literal["sqlite", "postgres"]) -> None:
 def _migrate_sqlite(url: str) -> None:
     from luthien_proxy.utils.db import DatabasePool  # noqa: PLC0415
     from luthien_proxy.utils.db_sqlite import parse_sqlite_url  # noqa: PLC0415
-    from luthien_proxy.utils.migration_check import _apply_sqlite_migrations  # noqa: PLC0415
+    from luthien_proxy.utils.migration_check import apply_sqlite_migrations  # noqa: PLC0415
 
     db_path = Path(parse_sqlite_url(url))
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -125,7 +125,7 @@ def _migrate_sqlite(url: str) -> None:
     async def _run() -> None:
         db_pool = DatabasePool(url)
         try:
-            await _apply_sqlite_migrations(db_pool)
+            await apply_sqlite_migrations(db_pool)
         finally:
             await db_pool.close()
 
