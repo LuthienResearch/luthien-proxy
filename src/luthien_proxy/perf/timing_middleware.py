@@ -26,6 +26,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 
+from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -123,8 +124,29 @@ class ServerTimingMiddleware(BaseHTTPMiddleware):
         return response
 
 
+def timed_json_response(model: BaseModel) -> Response:
+    """Serialize a Pydantic model to a JSON Response, recording serialize time.
+
+    Wraps ``model.model_dump_json()`` in a ``time_phase("serialize")`` block and
+    returns a ``starlette.responses.Response`` with ``media_type="application/json"``.
+    Use in route handlers instead of returning the model directly to avoid the
+    double-serialization that occurs when FastAPI validates a ``response_model``
+    return value (Pydantic→dict→json twice).
+
+    Args:
+        model: A ``pydantic.BaseModel`` instance.
+
+    Returns:
+        A pre-serialized JSON ``Response``.
+    """
+    with time_phase("serialize"):
+        body: str = model.model_dump_json()
+    return Response(content=body, media_type="application/json")
+
+
 __all__ = [
     "ServerTimingMiddleware",
     "time_phase",
     "format_phases",
+    "timed_json_response",
 ]
