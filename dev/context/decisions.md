@@ -7,6 +7,49 @@ If updating existing content significantly, note it: `## Topic (2025-10-08, upda
 
 ---
 
+## 2026-05-25 — Trajectory integration branch strategy
+
+**Decision**: Use a long-lived `trajectory/sami-ready` integration branch with sequential
+`git merge --no-ff` stacking of 5 PRs, plus an isolated Docker harness, instead of waiting
+for all PRs to merge to main individually.
+
+**Context**: External collaborator (Sami Jawhar) needs to validate Track A end-to-end before
+any PR merges to main. The branch is a delivery artifact, not a feature to merge.
+
+**Stack order**: main → #753 (perf-infra) → #752 (perf-baseline) → #757 (track-a-foundation)
+→ #758 (track-a-passthrough) → #759 (track-a-plugin). Each merged by pinned SHA via
+`git merge --no-ff <sha>`, recorded in `dev/scratch/sami-ready-shas.txt`.
+
+**AGENTS.md deviations (intentional)**:
+- No tracking PR (`gh pr create` step skipped) — branch is a delivery artifact, not for merge
+- No `changelog.d/` fragment — branch never merges to main
+- No `gh pr create` step in the objective workflow
+
+Each deviation is justified in `TRAJECTORY_SAMI_README.md` and quoted here for future agents.
+
+**Known conflicts resolved**:
+- Perf overlap between #753/#752: resolved per `dev/scratch/perf-conflict-resolution.md`
+  (37 overlapping files, 13 take-752, 2 take-753, 7 hand-merge)
+- `pyproject.toml` and `uv.lock` between #757/#758: auto-merged cleanly
+- `src/luthien_proxy/main.py` between #758 and HEAD: hand-merged (import ordering)
+- Submodule gitlink missing from #759: fixed with `git update-index --add --cacheinfo`
+
+**Lifetime**: TBD — coordinate with Paolo before rebasing or deleting.
+
+**When to use this pattern again**: When 2+ unmerged PRs need to be validated together by an
+external party before any of them merge to main.
+
+**When NOT to use**: When the PRs are simple enough to merge to main quickly, or when the
+external party can rebase locally.
+
+**References**:
+- Branch: `trajectory/sami-ready` on origin
+- Sami-facing docs: `TRAJECTORY_SAMI_README.md` at branch root
+- SHA snapshot: `dev/scratch/sami-ready-shas.txt`
+- Conflict resolution: `dev/scratch/perf-conflict-resolution.md`
+
+---
+
 ## Auto-Release on Merge to Main (2026-04-09)
 
 **Decision**: Fully automated patch releases on every merge to main. Replaces the previous manual tag-based workflow (2026-03-18). See `dev-README.md` § Releasing for the full procedure.
