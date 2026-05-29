@@ -856,10 +856,14 @@ async def _probe_db(deps: Dependencies) -> ComponentCheck:
         return ComponentCheck(status="ok", latency_ms=round((time.perf_counter() - t0) * 1000, 1))
     except asyncio.TimeoutError:
         logger.warning("system-status: DB probe timed out after %.1fs", SYSTEM_STATUS_PROBE_TIMEOUT_SECONDS)
-        return ComponentCheck(status="error", error="database check timed out")
+        return ComponentCheck(
+            status="error", latency_ms=round((time.perf_counter() - t0) * 1000, 1), error="database check timed out"
+        )
     except Exception:
         logger.warning("system-status: DB probe failed", exc_info=True)
-        return ComponentCheck(status="error", error="database check failed")
+        return ComponentCheck(
+            status="error", latency_ms=round((time.perf_counter() - t0) * 1000, 1), error="database check failed"
+        )
 
 
 async def _probe_redis(deps: Dependencies) -> ComponentCheck:
@@ -873,10 +877,14 @@ async def _probe_redis(deps: Dependencies) -> ComponentCheck:
         return ComponentCheck(status="ok", latency_ms=round((time.perf_counter() - t0) * 1000, 1))
     except asyncio.TimeoutError:
         logger.warning("system-status: Redis probe timed out after %.1fs", SYSTEM_STATUS_PROBE_TIMEOUT_SECONDS)
-        return ComponentCheck(status="error", error="redis check timed out")
+        return ComponentCheck(
+            status="error", latency_ms=round((time.perf_counter() - t0) * 1000, 1), error="redis check timed out"
+        )
     except Exception:
         logger.warning("system-status: Redis probe failed", exc_info=True)
-        return ComponentCheck(status="error", error="redis check failed")
+        return ComponentCheck(
+            status="error", latency_ms=round((time.perf_counter() - t0) * 1000, 1), error="redis check failed"
+        )
 
 
 @router.get("/system-status", response_model=SystemStatusResponse)
@@ -899,7 +907,11 @@ async def get_system_status(
     """
     db_check, redis_check = await asyncio.gather(_probe_db(deps), _probe_redis(deps))
 
-    if db_check.status == "error":
+    # DB is required: error OR not_configured means the gateway can't serve
+    # traffic (matches /ready's 503 when db_pool is None). Redis is optional —
+    # not_configured (SQLite/local mode) stays healthy; only a Redis *error*
+    # degrades.
+    if db_check.status in ("error", "not_configured"):
         overall = "unhealthy"
     elif redis_check.status == "error":
         overall = "degraded"

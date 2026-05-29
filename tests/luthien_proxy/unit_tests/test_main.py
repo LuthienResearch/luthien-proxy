@@ -498,6 +498,8 @@ class TestCreateApp:
             assert data["status"] == "unhealthy"
             assert data["checks"]["db"]["status"] == "error"
             assert data["checks"]["db"]["error"] == "database check failed"
+            # Latency is populated even on the error path (useful for ops).
+            assert data["checks"]["db"]["latency_ms"] is not None
             assert "db.internal" not in response.text
 
     def test_system_status_degraded_when_redis_error(self, policy_config_file, mock_db_pool, mock_redis_client):
@@ -593,6 +595,56 @@ class TestCreateApp:
             assert data["status"] == "unhealthy"
             assert data["checks"]["db"]["status"] == "error"
             assert data["checks"]["db"]["error"] == "database check timed out"
+
+    def test_system_status_db_not_configured_is_unhealthy(self, policy_config_file, mock_db_pool, mock_redis_client):
+        """DB is required: a missing db_pool is unhealthy, not healthy (unlike optional Redis)."""
+        app = create_app(
+            api_key="test-key",
+            admin_key="test-admin-key",
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            app.state.dependencies.db_pool = None
+            data = client.get(
+                "/api/admin/system-status",
+                headers={"Authorization": "Bearer test-admin-key"},
+            ).json()
+            assert data["status"] == "unhealthy"
+            assert data["checks"]["db"]["status"] == "not_configured"
+            assert data["checks"]["redis"]["status"] == "ok"
+
+    def test_system_status_redis_timeout_is_bounded(
+        self, policy_config_file, mock_db_pool, mock_redis_client, monkeypatch
+    ):
+        """A hung Redis ping is bounded by the probe timeout (symmetry with the DB probe)."""
+        from luthien_proxy.admin import routes as admin_routes
+
+        monkeypatch.setattr(admin_routes, "SYSTEM_STATUS_PROBE_TIMEOUT_SECONDS", 0.05)
+
+        async def _hang(*args, **kwargs):
+            await asyncio.sleep(1.0)
+
+        mock_redis_client.ping = _hang
+        app = create_app(
+            api_key="test-key",
+            admin_key="test-admin-key",
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        with TestClient(app) as client:
+            data = client.get(
+                "/api/admin/system-status",
+                headers={"Authorization": "Bearer test-admin-key"},
+            ).json()
+            # DB ok + Redis timed out → degraded (Redis is optional).
+            assert data["status"] == "degraded"
+            assert data["checks"]["redis"]["status"] == "error"
+            assert data["checks"]["redis"]["error"] == "redis check timed out"
 
     def test_billing_status_returns_403_without_auth(self, policy_config_file, mock_db_pool, mock_redis_client):
         """Billing status is gated by admin auth — unauthenticated callers get 403."""
