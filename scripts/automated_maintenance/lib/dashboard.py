@@ -22,9 +22,10 @@ from pathlib import Path
 #   - check statuses (`pass`, `fail`, `skip`, `error`) come from
 #     `maint_run_check` in `checks.sh` and `maint_run_doc_drift` in
 #     `doc_drift.sh` (`status` field in `results.json`).
-#   - autofix statuses (`opened_pr`, `no_diff`, `forbidden_paths`,
-#     `timeout`, `skip`, `error`) come from `maint_run_autofix` in
-#     `autofix.sh` (`autofix.status` in `results.json`).
+#   - autofix statuses (`opened_pr`, `no_diff`, `forbidden_paths`, `timeout`,
+#     `error`, `skipped_existing_pr`, `skipped_query_failed`) come from
+#     `maint_run_autofix` in `autofix.sh` (per-concern under `autofix.<concern>`
+#     in `results.json`).
 # If you add a new status on either side, also add it here — unmapped
 # statuses fall through to the grey `unknown` color silently.
 STATUS_COLOR = {
@@ -37,6 +38,8 @@ STATUS_COLOR = {
     "no_diff": "#718096",
     "timeout": "#dd6b20",
     "forbidden_paths": "#c53030",
+    "skipped_existing_pr": "#718096",  # benign: a fix is already in review
+    "skipped_query_failed": "#dd6b20",  # operational: couldn't reach GitHub
 }
 
 CSS = """
@@ -113,9 +116,13 @@ def autofix_items(autofix: dict | None) -> list[tuple[str, dict]]:
     """
     if not isinstance(autofix, dict) or not autofix:
         return []
-    if "status" in autofix:  # legacy single-object shape
-        return [("autofix", autofix)]
-    return list(autofix.items())
+    # Per-concern shape: every value is itself a dict (the concern's entry).
+    # Legacy single-object shape ({"status": ..., "pr_url": ...}) has scalar
+    # values — discriminate on that rather than a magic key name, so a future
+    # concern literally named "status" can't be misread as legacy.
+    if all(isinstance(v, dict) for v in autofix.values()):
+        return list(autofix.items())
+    return [("autofix", autofix)]
 
 
 def load_runs(runs_dir: Path) -> list[dict]:

@@ -58,6 +58,13 @@ PY
 # Echo the URL of an already-open autofix PR for this concern, if any.
 # rc 0 + URL on stdout when one exists; rc 1 when none; rc 2 when the GitHub
 # query itself failed (caller fails closed rather than risk a duplicate).
+#
+# Dedup correctness depends on the trailing `/`: `head:` matches by prefix, so
+# `head:maint-fix/<concern>/` matches `maint-fix/<concern>/<run_id>` but not a
+# concern whose name extends this one. This holds only while no concern name
+# is a prefix of another. Today's concerns (the check names: dev_checks,
+# e2e_sqlite, e2e_mock, e2e_real, doc_drift) are all prefix-distinct; keep it
+# that way, or this dedup could match across concerns.
 _autofix_open_pr_for() {
     local concern="$1" url
     url="$(gh pr list \
@@ -121,6 +128,7 @@ listing what you fixed, what you couldn't, and why.
 EOF
 )"
 
+    local sess_rc=0
     (
         unset ANTHROPIC_API_KEY
         printf '%s' "${prompt}" | maint_timeout "${AUTOFIX_TIMEOUT}" \
@@ -130,7 +138,15 @@ EOF
                 --max-budget-usd "${AUTOFIX_MAX_BUDGET_USD}" \
                 --allowedTools "Read Edit Write Glob Grep Bash" \
             > "${MAINT_RUN_DIR}/autofix_session.${concern}.log" 2>&1
-    ) || true
+    ) || sess_rc=$?
+    # A timed-out session (gtimeout → 124) was killed mid-edit; don't push its
+    # partial, unreviewed work as if it were a finished fix. Other nonzero
+    # exits are tolerated — `claude` may exit nonzero yet still have produced a
+    # complete, valid diff, so we fall through to the diff check below.
+    if [[ ${sess_rc} -eq 124 ]]; then
+        echo "autofix(${concern}) timed out after ${AUTOFIX_TIMEOUT}s — not pushing partial work"
+        return 124
+    fi
 
     # No change? Nothing to push. `git status --porcelain` catches untracked
     # files that `git diff` alone misses.
@@ -277,6 +293,10 @@ PY
         ended="$(date +%s)"
         duration=$((ended - started))
         local status
+        # rc=2 here can only mean forbidden_paths: the other rc=2 source
+        # (_autofix_open_pr_for query failure) takes the early `continue`
+        # above and never reaches _run_autofix_concern. Keep that early-out
+        # if refactoring, or this mapping becomes ambiguous.
         case "${rc}" in
             0) status="opened_pr" ;;
             65) status="no_diff" ;;
