@@ -20,6 +20,10 @@ import pytest
 from luthien_proxy.policy_core.base_policy import BasePolicy
 from luthien_proxy.policy_types import REGISTERED_BUILTINS, sync_policy_types
 from luthien_proxy.utils.db import DatabasePool
+
+# Importing the private _apply_sqlite_migrations is intentional coupling: the fixture
+# applies migrations the same way production does, so the test exercises the real schema
+# setup path rather than a divergent copy.
 from luthien_proxy.utils.migration_check import _apply_sqlite_migrations
 
 

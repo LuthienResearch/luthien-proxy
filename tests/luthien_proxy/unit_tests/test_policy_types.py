@@ -33,6 +33,8 @@ class TestDeriveBuiltinName:
             ("TextModifierPolicy", "text-modifier"),
             ("LLMPolicy", "llm"),
             ("HTTPSPolicy", "https"),
+            # Acronym run followed by a word splits at the boundary.
+            ("HTTPSRedirectPolicy", "https-redirect"),
         ],
     )
     def test_converts_pascal_to_kebab(self, class_name: str, expected: str) -> None:

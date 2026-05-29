@@ -51,17 +51,22 @@ def derive_builtin_name(class_name: str) -> str:
 
     Algorithm:
     1. Drop trailing 'Policy' if present
-    2. Insert '-' between any lowercase followed by uppercase
-    3. Lowercase
+    2. Insert '-' between an acronym run and a following word (e.g. HTTPSRedirect -> HTTPS-Redirect)
+    3. Insert '-' between any lowercase followed by uppercase
+    4. Lowercase
 
-    Examples: SimpleLLMPolicy -> simple-llm, NoOpPolicy -> no-op, LLMPolicy -> llm.
+    Examples: SimpleLLMPolicy -> simple-llm, NoOpPolicy -> no-op, LLMPolicy -> llm,
+    HTTPSRedirectPolicy -> https-redirect.
     """
     # Drop 'Policy' suffix if present
     if class_name.endswith("Policy"):
         class_name = class_name[:-6]
 
+    # Split an uppercase acronym run from a following word: HTTPSRedirect -> HTTPS-Redirect
+    kebab = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1-\2", class_name)
+
     # Insert '-' between lowercase and uppercase
-    kebab = re.sub(r"([a-z])([A-Z])", r"\1-\2", class_name)
+    kebab = re.sub(r"([a-z])([A-Z])", r"\1-\2", kebab)
 
     # Lowercase
     return kebab.lower()
