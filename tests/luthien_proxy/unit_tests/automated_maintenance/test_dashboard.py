@@ -104,6 +104,11 @@ def test_autofix_items_normalizes_shapes():
     # Empty / missing → no items.
     assert dashboard.autofix_items(None) == []
     assert dashboard.autofix_items({}) == []
+    # Edge case the discriminator exists for: a concern literally named
+    # "status" whose value is a dict → per-concern (NOT legacy), because the
+    # discriminator keys on value type, not the key name.
+    concern_named_status = {"status": {"status": "opened_pr", "pr_url": "u"}}
+    assert dashboard.autofix_items(concern_named_status) == [("status", {"status": "opened_pr", "pr_url": "u"})]
 
 
 def test_render_index_per_concern_autofix(tmp_path):
@@ -145,7 +150,12 @@ def test_render_run_per_concern_autofix_sections(tmp_path):
         },
         autofix={
             "doc_drift": {"status": "opened_pr", "duration_s": 80, "exit_code": 0, "pr_url": "https://x/pr/1"},
-            "dev_checks": {"status": "skipped_existing_pr", "duration_s": 0, "exit_code": 0, "existing_pr": "https://x/pr/2"},
+            "dev_checks": {
+                "status": "skipped_existing_pr",
+                "duration_s": 0,
+                "exit_code": 0,
+                "existing_pr": "https://x/pr/2",
+            },
         },
     )
     (run / "autofix_session.doc_drift.log").write_text("DOC DRIFT SESSION LOG")

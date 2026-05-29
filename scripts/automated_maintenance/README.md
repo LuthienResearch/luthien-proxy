@@ -244,6 +244,14 @@ Risks, in order:
    branch. The next run wipes the state-dir clone and starts fresh, so
    this self-heals.
 
+**On per-concern dedup**: the "skip a concern that already has an open PR"
+check queries `gh pr list` and is not atomic. Two maintenance runs firing
+close together (a manual rerun during the cron fire, or two hosts pointed at
+the same repo) could both query before either opens its PR, and both open a
+duplicate for the same concern. The single-host nightly-cron deployment this
+is built for doesn't hit that (the run lock in `automated_maintenance.sh`
+serializes runs on one host); it's a deliberate trade-off, not a guarantee.
+
 **On account scope**: `gh pr create` runs as whatever account `gh` is
 logged in as. If you enable autofix on a workstation, autofix PRs will
 be authored by your personal account, and the session can `gh` against

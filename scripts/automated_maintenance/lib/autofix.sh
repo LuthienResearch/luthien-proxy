@@ -92,8 +92,12 @@ _run_autofix_concern() {
 
     local branch="${AUTOFIX_BRANCH_PREFIX}/${concern}/${MAINT_RUN_ID}"
     git checkout -B "${branch}" "origin/${MAINT_REPO_BRANCH}"
-    git config user.email nightly-autofix@users.noreply.github.com
-    git config user.name "nightly-autofix"
+    # `checkout -B` only resets tracked files. Concerns run serially in the
+    # same clone, so without this any untracked leftovers from the previous
+    # concern's session (scratch files Claude wrote but never `git add`ed)
+    # would survive and get swept into THIS concern's `git add -A` below —
+    # contaminating its diff and possibly its forbidden-paths verdict.
+    git clean -fdx
 
     local prompt
     prompt="$(cat <<EOF
@@ -267,6 +271,11 @@ PY
         echo "[maint] all checks passed, no autofix needed" >&2
         return 0
     fi
+
+    # Repo-local commit identity for the autofix branches — set once for the
+    # clone rather than per concern.
+    git -C "${MAINT_REPO_DIR}" config user.email nightly-autofix@users.noreply.github.com
+    git -C "${MAINT_REPO_DIR}" config user.name "nightly-autofix"
 
     local concern
     for concern in "${concerns[@]}"; do
