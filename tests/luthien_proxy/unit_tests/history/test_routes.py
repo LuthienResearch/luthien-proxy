@@ -380,9 +380,7 @@ class TestUserLabelRoutes:
         from luthien_proxy.history.routes import UserLabelRequest, set_user_label
 
         with pytest.raises(HTTPException) as exc:
-            await set_user_label(
-                user_id="alice", body=UserLabelRequest(display_name="   "), _=AUTH_TOKEN, db_pool=pool
-            )
+            await set_user_label(user_id="alice", body=UserLabelRequest(display_name="   "), _=AUTH_TOKEN, db_pool=pool)
         assert exc.value.status_code == 400
 
     @pytest.mark.asyncio

@@ -39,6 +39,7 @@ class UserLabelRequest(BaseModel):
         description="Human-readable display name for the user",
     )
 
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/history", tags=["history"])

@@ -121,19 +121,35 @@ class TestUpdateSessionSummary:
         ts = datetime.now(UTC)
         async with pool.connection() as conn:
             await update_session_summary(
-                conn, session_id="s1", event_type="transaction.request_recorded",
-                data=_request(model="m1", text="first"), user_id="alice", timestamp=ts,
+                conn,
+                session_id="s1",
+                event_type="transaction.request_recorded",
+                data=_request(model="m1", text="first"),
+                user_id="alice",
+                timestamp=ts,
             )
             await update_session_summary(
-                conn, session_id="s1", event_type="policy.block", data={}, user_id=None,
+                conn,
+                session_id="s1",
+                event_type="policy.block",
+                data={},
+                user_id=None,
                 timestamp=ts + timedelta(seconds=1),
             )
             await update_session_summary(
-                conn, session_id="s1", event_type="transaction.request_recorded",
-                data=_request(model="m2", text="second"), user_id=None, timestamp=ts + timedelta(seconds=2),
+                conn,
+                session_id="s1",
+                event_type="transaction.request_recorded",
+                data=_request(model="m2", text="second"),
+                user_id=None,
+                timestamp=ts + timedelta(seconds=2),
             )
             await update_session_summary(
-                conn, session_id="s1", event_type="policy.judge.evaluation", data={}, user_id=None,
+                conn,
+                session_id="s1",
+                event_type="policy.judge.evaluation",
+                data={},
+                user_id=None,
                 timestamp=ts + timedelta(seconds=3),
             )
         row = await self._row(pool, "s1")
@@ -149,16 +165,29 @@ class TestUpdateSessionSummary:
         async with pool.connection() as conn:
             # first event has no user_id
             await update_session_summary(
-                conn, session_id="s1", event_type="pipeline.client_request", data={}, user_id=None, timestamp=ts,
+                conn,
+                session_id="s1",
+                event_type="pipeline.client_request",
+                data={},
+                user_id=None,
+                timestamp=ts,
             )
             # later event carries one — should fill it
             await update_session_summary(
-                conn, session_id="s1", event_type="transaction.request_recorded",
-                data=_request(), user_id="bob", timestamp=ts + timedelta(seconds=1),
+                conn,
+                session_id="s1",
+                event_type="transaction.request_recorded",
+                data=_request(),
+                user_id="bob",
+                timestamp=ts + timedelta(seconds=1),
             )
             # a still-later event with a different user_id must NOT overwrite
             await update_session_summary(
-                conn, session_id="s1", event_type="policy.block", data={}, user_id="carol",
+                conn,
+                session_id="s1",
+                event_type="policy.block",
+                data={},
+                user_id="carol",
                 timestamp=ts + timedelta(seconds=2),
             )
         row = await self._row(pool, "s1")
@@ -169,8 +198,12 @@ class TestUpdateSessionSummary:
         async with pool.connection() as conn:
             for i in range(3):
                 await update_session_summary(
-                    conn, session_id="s1", event_type="transaction.request_recorded",
-                    data=_request(model="same"), user_id=None, timestamp=ts + timedelta(seconds=i),
+                    conn,
+                    session_id="s1",
+                    event_type="transaction.request_recorded",
+                    data=_request(model="same"),
+                    user_id=None,
+                    timestamp=ts + timedelta(seconds=i),
                 )
         row = await self._row(pool, "s1")
         assert row["models_used"] == "same"

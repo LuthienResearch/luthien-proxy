@@ -79,11 +79,7 @@ def extract_preview(data: dict[str, Any]) -> str | None:
             continue
         content = msg.get("content")
         if isinstance(content, list):
-            texts = [
-                b["text"]
-                for b in content
-                if isinstance(b, dict) and b.get("type") == "text" and b.get("text")
-            ]
+            texts = [b["text"] for b in content if isinstance(b, dict) and b.get("type") == "text" and b.get("text")]
             content = " ".join(texts)
         if not isinstance(content, str):
             continue
