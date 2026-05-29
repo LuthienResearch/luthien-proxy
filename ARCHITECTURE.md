@@ -126,7 +126,7 @@ All live in `src/luthien_proxy/policies/`:
 | `dogfood_safety_policy.DogfoodSafetyPolicy` | Safety rails used when the gateway is dogfooding itself. |
 | `multi_serial_policy.MultiSerialPolicy` | Runs multiple policies sequentially; drives composition via `policy_composition.compose_policy`. |
 | `onboarding_policy.OnboardingPolicy` / `hackathon_onboarding_policy.HackathonOnboardingPolicy` | Welcome-and-guide policies used during first-run flows. |
-| `hackathon_policy_template.HackathonPolicyTemplate` | Template scaffolding for hackathon participants. |
+| `hackathon_policy_template.HackathonPolicy` | Template scaffolding for hackathon participants. |
 | `sample_pydantic_policy.SamplePydanticPolicy` | Example showing Pydantic-model-based config. |
 | `simple_noop_policy.SimpleNoOpPolicy` | `SimplePolicy` demo passthrough. |
 | `presets/` | Ready-made presets (`block_dangerous_commands`, `block_sensitive_file_writes`, `block_web_requests`, `no_apologies`, `no_yapping`, `plain_dashes`, `prefer_uv`). |
@@ -287,7 +287,7 @@ All policies inherit from `BasePolicy`. It provides:
 - `active_policy_names()` returning this policy's leaf names (multi-policies recurse; `NoOpPolicy` returns `[]`).
 - `get_config()` auto-extracts configuration from Pydantic-model instance attributes.
 - `freeze_configured_state()` — load-time check that rejects mutable container attributes on the instance (policies are singletons shared across concurrent requests).
-- Policies that make their own backend calls (judges) declare an `auth_provider` in config (`user_credentials`, `{"server_key": ...}`, or `{"user_then_server": ...}`) and resolve it via `CredentialManager.resolve(provider, context)` at call time.
+- Policies that make their own backend calls (judges) declare an `inference_provider` in config (`user_credentials`, `{"provider": ...}`, or `{"user_then_provider": ...}`) and resolve it via `resolve_inference_provider(ref, context, registry)` (`inference/dispatch.py`) at call time.
 
 ### AnthropicExecutionInterface
 
