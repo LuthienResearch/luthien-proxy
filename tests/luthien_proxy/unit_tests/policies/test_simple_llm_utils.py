@@ -13,7 +13,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from luthien_proxy.inference.base import InferenceResult
+from luthien_proxy.inference.base import (
+    InferenceInvalidCredentialError,
+    InferenceProviderError,
+    InferenceResult,
+    InferenceTimeoutError,
+)
 from luthien_proxy.policies.simple_llm_utils import (
     BlockDescriptor,
     SimpleLLMJudgeConfig,
@@ -394,6 +399,52 @@ class TestCallSimpleLLMJudge:
             provider=provider,
         )
         assert result.action == "pass"
+
+    @pytest.mark.asyncio
+    async def test_invalid_credential_fails_fast_without_retry(self):
+        """A rejected credential (401/403) is permanent → no retry, raised immediately."""
+        config = SimpleLLMJudgeConfig(
+            instructions="Be safe",
+            model="test-model",
+            max_retries=2,
+            retry_delay=5,  # would be a long wait if it (wrongly) retried
+        )
+        provider = _mock_provider_raising(InferenceInvalidCredentialError("rejected"))
+        with pytest.raises(InferenceInvalidCredentialError):
+            await call_simple_llm_judge(
+                config=config,
+                current_block=BlockDescriptor(type="text", content="hello"),
+                previous_blocks=(),
+                provider=provider,
+            )
+        assert provider.complete.call_count == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            InferenceTimeoutError("slow"),
+            InferenceProviderError("5xx"),
+            RuntimeError("boom"),
+        ],
+    )
+    async def test_transient_errors_still_retry(self, exc):
+        """Timeouts, provider errors, and generic failures retry up to max_retries."""
+        config = SimpleLLMJudgeConfig(
+            instructions="Be safe",
+            model="test-model",
+            max_retries=2,
+            retry_delay=0,
+        )
+        provider = _mock_provider_raising(exc)
+        with pytest.raises(type(exc)):
+            await call_simple_llm_judge(
+                config=config,
+                current_block=BlockDescriptor(type="text", content="hello"),
+                previous_blocks=(),
+                provider=provider,
+            )
+        assert provider.complete.call_count == 3  # 1 initial + 2 retries
 
 
 if __name__ == "__main__":

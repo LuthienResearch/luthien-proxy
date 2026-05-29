@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
+from luthien_proxy.inference.base import InferenceInvalidCredentialError
 from luthien_proxy.policies.tool_call_judge_utils import parse_judge_response
 
 if TYPE_CHECKING:
@@ -211,6 +212,13 @@ async def call_simple_llm_judge(
     Retries up to `config.max_retries` times with `config.retry_delay`
     seconds between attempts. The last exception propagates on final
     failure.
+
+    Permanent failures are not retried: a rejected credential
+    (`InferenceInvalidCredentialError`, i.e. 401/403) will never succeed on
+    retry, so it re-raises immediately rather than burning
+    `max_retries * retry_delay` seconds and hammering the upstream.
+    Transient errors (timeouts, connection errors) and parse failures still
+    retry, since a fresh call may produce valid output next time.
     """
     prompt = build_judge_prompt(config.instructions, current_block, previous_blocks)
 
@@ -228,9 +236,14 @@ async def call_simple_llm_judge(
                 credential_override=credential_override,
             )
             return parse_judge_action(result.text)
+        except InferenceInvalidCredentialError:
+            # Permanent: the credential is rejected and won't be accepted on
+            # retry. Fail fast instead of sleeping through every attempt.
+            logger.warning("SimpleLLM judge credential rejected; failing fast (no retry)")
+            raise
         except Exception as exc:  # noqa: BLE001
-            # Retry all errors — parse failures can succeed on retry if the
-            # model produces valid output next time.
+            # Retry transient/parse failures — a fresh call can succeed if
+            # the model produces valid output next time.
             last_exc = exc
             is_last_attempt = attempt == max_attempts - 1
             if is_last_attempt:

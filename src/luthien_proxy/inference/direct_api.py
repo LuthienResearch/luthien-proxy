@@ -45,6 +45,7 @@ from luthien_proxy.inference.base import (
     extract_schema,
     validate_schema,
 )
+from luthien_proxy.llm import anthropic_client_cache
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 from luthien_proxy.llm.types.anthropic import AnthropicRequest
 
@@ -133,15 +134,23 @@ class DirectApiProvider(InferenceProvider):
             schema=schema,
         )
 
-        client = _build_client(credential, self._api_base)
+        # Stable-credential calls (no override) reuse a cached client keyed
+        # by credential + base URL, so a judge that fires on every tool call
+        # doesn't pay pool init/teardown each time. Per-user passthrough
+        # (credential_override set) builds a fresh client and closes it,
+        # since those credentials vary per request and shouldn't accumulate
+        # in the shared cache.
+        is_passthrough = credential_override is not None
+        if is_passthrough:
+            client = _build_client(credential, self._api_base)
+        else:
+            client = await _cached_client(credential, self._api_base)
         try:
             try:
                 response = await client.complete(request)
             finally:
-                # The client wraps a fresh AsyncAnthropic built per call
-                # (credential varies by request). Close its pool so we don't
-                # leak file descriptors when many judge calls run in a row.
-                await client.close()
+                if is_passthrough:
+                    await client.close()
         except anthropic.AuthenticationError as exc:
             raise InferenceInvalidCredentialError(
                 f"{self.name}: credential rejected by backend: {exc}",
@@ -184,15 +193,31 @@ class DirectApiProvider(InferenceProvider):
 
 
 def _build_client(credential: Credential, api_base: str | None) -> AnthropicClient:
-    """Build an `AnthropicClient` for a single request.
+    """Build a fresh `AnthropicClient` for a single passthrough request.
 
-    The Anthropic SDK client is keyed by credential, so we can't share one
-    instance across requests with different `credential_override` values.
-    Building per-call is cheap (httpx.AsyncClient pool init only).
+    Used for `credential_override` (per-user passthrough) calls, where the
+    credential varies per request and the client should not be cached. The
+    caller is responsible for closing it. Stable-credential calls go through
+    `_cached_client` instead.
     """
     if credential.credential_type == CredentialType.AUTH_TOKEN:
         return AnthropicClient(auth_token=credential.value, base_url=api_base)
     return AnthropicClient(api_key=credential.value, base_url=api_base)
+
+
+async def _cached_client(credential: Credential, api_base: str | None) -> AnthropicClient:
+    """Return a cached `AnthropicClient` for a stable server credential.
+
+    Delegates to the shared `anthropic_client_cache`, which keys on a hash
+    of the credential value + auth type + base URL. Because the cache owns
+    the client lifecycle (LRU eviction + shutdown close), callers must NOT
+    close the returned client.
+    """
+    return await anthropic_client_cache.get_client(
+        credential.value,
+        auth_type=credential.credential_type.value,
+        base_url=api_base,
+    )
 
 
 def _build_request(
