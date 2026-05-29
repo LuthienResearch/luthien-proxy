@@ -55,6 +55,8 @@ class _PendingLog:
     is_streaming: bool = False
     endpoint: str | None = None
     error: str | None = None
+    agent: str | None = None
+    populated: bool = False
 
 
 async def _insert_log_row(
@@ -79,13 +81,13 @@ async def _insert_log_row(
                 http_method, url, request_headers, request_body,
                 response_status, response_headers, response_body,
                 started_at, completed_at, duration_ms,
-                model, is_streaming, endpoint, error
+                model, is_streaming, endpoint, error, agent
             ) VALUES (
                 $1, $2, $3,
                 $4, $5, $6::jsonb, $7::jsonb,
                 $8, $9::jsonb, $10::jsonb,
                 to_timestamp($11), to_timestamp($12), $13,
-                $14, $15, $16, $17
+                $14, $15, $16, $17, $18
             )
             """,
             pending.transaction_id,
@@ -105,6 +107,7 @@ async def _insert_log_row(
             pending.is_streaming,
             pending.endpoint,
             pending.error,
+            pending.agent,
         )
     except Exception as exc:
         raise DatabaseWriteError(
@@ -141,8 +144,9 @@ class RequestLogRecorder:
         method: str,
         url: str,
         headers: dict[str, str],
-        body: dict[str, Any],
+        body: dict[str, Any] | None,
         session_id: str | None = None,
+        agent: str | None = None,
         model: str | None = None,
         is_streaming: bool = False,
         endpoint: str | None = None,
@@ -153,6 +157,7 @@ class RequestLogRecorder:
         self._inbound.request_headers = sanitize_headers(headers)
         self._inbound.request_body = body
         self._inbound.session_id = session_id
+        self._inbound.agent = agent
         self._inbound.model = model
         self._inbound.is_streaming = is_streaming
         self._inbound.endpoint = endpoint
@@ -191,10 +196,12 @@ class RequestLogRecorder:
         self._outbound.url = url
         self._outbound.request_body = body
         self._outbound.session_id = self._inbound.session_id
+        self._outbound.agent = self._inbound.agent
         self._outbound.model = model
         self._outbound.is_streaming = is_streaming
         self._outbound.endpoint = endpoint
         self._outbound.started_at = time.time()
+        self._outbound.populated = True
 
     def record_outbound_response(
         self,
@@ -239,6 +246,11 @@ class RequestLogRecorder:
         try:
             async with self._db_pool.connection() as conn:
                 for pending in (self._inbound, self._outbound):
+                    if not pending.populated and pending.direction == "outbound":
+                        # Outbound side was never populated — skip rather than
+                        # inserting a fully-NULL row. Passthrough requests only
+                        # record the inbound side; this is the expected path for them.
+                        continue
                     await _insert_log_row(conn, pending, self._serialize_body)
         except DatabaseWriteError as exc:
             RequestLogRecorder.dropped_writes += 1
@@ -265,8 +277,9 @@ class NoOpRequestLogRecorder(RequestLogRecorder):
         method: str,
         url: str,
         headers: dict[str, str],
-        body: dict[str, Any],
+        body: dict[str, Any] | None,
         session_id: str | None = None,
+        agent: str | None = None,
         model: str | None = None,
         is_streaming: bool = False,
         endpoint: str | None = None,
