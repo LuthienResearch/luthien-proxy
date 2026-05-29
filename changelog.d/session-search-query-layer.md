@@ -1,5 +1,6 @@
 ---
 category: Features
+pr: 773
 ---
 
 **Server-side session search**: `/api/history/sessions` now accepts `model`, `from`, `to`, `q` (full-text content), and `policy_intervention` filters, on top of the existing `user_id`. Resolves #558.
