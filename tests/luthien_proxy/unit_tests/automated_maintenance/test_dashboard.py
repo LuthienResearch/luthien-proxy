@@ -91,6 +91,49 @@ def test_render_index_includes_run_pills_and_links(tmp_path):
     assert "opened_pr" in html_out
 
 
+def test_autofix_items_normalizes_shapes():
+    # Legacy single-object → one ("autofix", entry) pair.
+    legacy = {"status": "opened_pr", "pr_url": "u"}
+    assert dashboard.autofix_items(legacy) == [("autofix", legacy)]
+    # Per-concern dict → one pair per concern.
+    per_concern = {
+        "doc_drift": {"status": "opened_pr", "pr_url": "u1"},
+        "dev_checks": {"status": "skipped_existing_pr", "existing_pr": "u2"},
+    }
+    assert dashboard.autofix_items(per_concern) == list(per_concern.items())
+    # Empty / missing → no items.
+    assert dashboard.autofix_items(None) == []
+    assert dashboard.autofix_items({}) == []
+
+
+def test_render_index_per_concern_autofix(tmp_path):
+    _write_run(
+        tmp_path,
+        "2026-05-09-080000",
+        overall="fail",
+        checks={
+            "doc_drift": {"status": "fail", "log": "d.log", "duration_s": 5, "exit_code": 1},
+            "dev_checks": {"status": "fail", "log": "c.log", "duration_s": 9, "exit_code": 1},
+        },
+        autofix={
+            "doc_drift": {"status": "opened_pr", "duration_s": 80, "exit_code": 0, "pr_url": "https://x/pr/1"},
+            "dev_checks": {
+                "status": "skipped_existing_pr",
+                "duration_s": 0,
+                "exit_code": 0,
+                "existing_pr": "https://x/pr/2",
+            },
+        },
+    )
+    runs = dashboard.load_runs(tmp_path)
+    html_out = dashboard.render_index(runs)
+    # Both concerns' statuses and their distinct PR links are surfaced.
+    assert "opened_pr" in html_out
+    assert "skipped_existing_pr" in html_out
+    assert "https://x/pr/1" in html_out
+    assert "https://x/pr/2" in html_out
+
+
 def test_render_run_uses_report_field_for_link(tmp_path):
     run = _write_run(
         tmp_path,
