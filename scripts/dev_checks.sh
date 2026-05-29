@@ -45,6 +45,11 @@ Usage: dev_checks.sh [--timing[=PATH]] [--skip-reports] [--fast] [--workers=N]
 USAGE
             exit 0
             ;;
+        *)
+            echo "dev_checks.sh: unknown argument '$arg'" >&2
+            echo "Run 'dev_checks.sh --help' for usage." >&2
+            exit 2
+            ;;
     esac
 done
 
