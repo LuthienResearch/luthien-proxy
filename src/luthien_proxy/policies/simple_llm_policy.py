@@ -169,8 +169,9 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
     def __init__(self, config: SimpleLLMJudgeConfig | None = None):
         """Initialize with judge config.
 
-        Note: config=None will fail at runtime with ValidationError since auth_provider is required.
-        Pass an explicit SimpleLLMJudgeConfig with auth_provider set.
+        Note: config=None fails with ValidationError because `instructions` is
+        required. The inference target defaults to `user_credentials` when
+        neither `inference_provider` nor `auth_provider` is set.
         """
         parsed = self._init_config(config, SimpleLLMJudgeConfig)
 

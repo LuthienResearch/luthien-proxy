@@ -109,7 +109,8 @@ async def resolve_inference_provider(
         CredentialError: `UserCredentials` selected but the request has no
             user credential, or a `UserThenProvider` with
             ``on_fallback="fail"`` had no user credential.
-        InferenceRegistryError (subclass): Registry lookup failed.
+        InferenceRegistryError (subclass): propagated from `registry.get`
+            when a named-provider lookup fails.
         RuntimeError: Named-provider selected but no registry was configured.
     """
     if isinstance(ref, UserCredentials):

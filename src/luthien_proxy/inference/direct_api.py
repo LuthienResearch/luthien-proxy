@@ -18,9 +18,10 @@ structured payload; it validates via `jsonschema` defensively to keep a
 clear error path for schema-invalid outputs even though the model is
 constrained to emit schema-matching JSON.
 
-When no schema is supplied (either no `response_format` or
-`{"type": "json_object"}`), we emit a plain completion and prepend a
-system-side instruction pushing the model toward JSON.
+When no schema is supplied we emit a plain completion. For
+`response_format={"type": "json_object"}` we prepend a system-side
+instruction pushing the model toward JSON; with no `response_format` at
+all we send the messages unmodified.
 """
 
 from __future__ import annotations

@@ -172,8 +172,9 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
     def __init__(self, config: ToolCallJudgeConfig | None = None):
         """Initialize with optional config. Also accepts a dict at runtime.
 
-        Note: config=None will fail at runtime with ValidationError since auth_provider is required.
-        Pass an explicit ToolCallJudgeConfig with auth_provider set.
+        Note: config=None is valid — every field has a default and the
+        inference target defaults to `user_credentials` when neither
+        `inference_provider` nor `auth_provider` is set.
         """
         self.config = self._init_config(config, ToolCallJudgeConfig)
 
