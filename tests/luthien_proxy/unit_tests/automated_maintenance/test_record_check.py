@@ -53,9 +53,7 @@ def test_records_check_with_extra_json(tmp_path):
     `json.loads(extra)` raised and the check was silently dropped, leaving
     `checks: {}`.
     """
-    proc = _run_record_check(
-        tmp_path, "dev_checks", "pass", "dev_checks.log", '{"duration_s":24,"exit_code":0}'
-    )
+    proc = _run_record_check(tmp_path, "dev_checks", "pass", "dev_checks.log", '{"duration_s":24,"exit_code":0}')
     assert proc.returncode == 0, proc.stderr
     checks = _checks(tmp_path)
     assert "dev_checks" in checks
