@@ -6,11 +6,11 @@ Defines Pydantic models for:
 - Policy annotations for interventions
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class MessageType(str, Enum):
@@ -99,7 +99,11 @@ class SessionSearchParams(BaseModel):
       - from_time / to_time: the session's *last activity* (the max event
         timestamp) falls within ``[from_time, to_time]``, inclusive. Either
         bound may be omitted. (Last-activity, not overlap — consistent with the
-        list's ``ORDER BY last_ts``.)
+        list's ``ORDER BY last_ts``.) Bounds are interpreted as UTC: a
+        timezone-aware value is converted to UTC and a naive value is taken
+        as-is (see the validator below). When ``user_id`` is also set, "last
+        activity" is scoped to *that user's* events in the session, not the
+        session's last activity overall.
       - q: full-text content search over indexed conversation text. Postgres
         uses the ``search_vector`` tsvector column; SQLite uses the
         ``conversation_events_fts`` FTS5 table. Both are porter-stemmed and
@@ -119,6 +123,20 @@ class SessionSearchParams(BaseModel):
     to_time: datetime | None = None
     q: str | None = None
     policy_intervention: bool = False
+
+    @field_validator("from_time", "to_time")
+    @classmethod
+    def _to_naive_utc(cls, value: datetime | None) -> datetime | None:
+        """Normalize time bounds to naive UTC.
+
+        ``created_at`` is compared as a UTC timestamp (Postgres ``timestamptz``)
+        / lexicographic ISO text (SQLite). A timezone-aware input is converted
+        to UTC and stripped of tzinfo so comparison is consistent across
+        backends; a naive input is left as-is (already assumed UTC).
+        """
+        if value is not None and value.tzinfo is not None:
+            return value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
 
     def is_empty(self) -> bool:
         """True when no filter is active (the unfiltered list fast path applies)."""

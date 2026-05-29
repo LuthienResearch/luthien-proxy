@@ -14,7 +14,7 @@ and aggregate-syntax regressions on the PG path without a live database.
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -256,6 +256,16 @@ class TestTimeRangeFilter:
         )
         assert [s.session_id for s in result.sessions] == ["s-new"]
 
+    @pytest.mark.asyncio
+    async def test_bounds_are_inclusive_at_exact_timestamp(self, sqlite_pool: DatabasePool):
+        """A session whose last activity equals from_time or to_time exactly is included."""
+        await _seed_request(sqlite_pool, call_id="c1", session_id="s1", created_at="2026-04-01T10:00:00")
+        exact = datetime(2026, 4, 1, 10, 0, 0)
+        at_from = await fetch_session_list(limit=10, db_pool=sqlite_pool, search=SessionSearchParams(from_time=exact))
+        at_to = await fetch_session_list(limit=10, db_pool=sqlite_pool, search=SessionSearchParams(to_time=exact))
+        assert [s.session_id for s in at_from.sessions] == ["s1"]
+        assert [s.session_id for s in at_to.sessions] == ["s1"]
+
 
 class TestPolicyInterventionFilter:
     @pytest.mark.asyncio
@@ -387,6 +397,93 @@ class TestSearchInjectionSafe:
         # Table still intact and queryable.
         intact = await fetch_session_list(limit=10, db_pool=sqlite_pool)
         assert len(intact.sessions) == 1
+
+    @pytest.mark.asyncio
+    async def test_q_value_is_bound_not_interpolated(self, sqlite_pool: DatabasePool):
+        """The free-text q is sanitized + bound by session_fts_filter_sql, never interpolated."""
+        await _seed_request(
+            sqlite_pool, call_id="c1", session_id="s1", created_at="2026-04-01T10:00:00", content="hello"
+        )
+        result = await fetch_session_list(
+            limit=10,
+            db_pool=sqlite_pool,
+            search=SessionSearchParams(q="needle'; DROP TABLE conversation_events_fts;--"),
+        )
+        assert result.sessions == []
+        # FTS table and base data both intact.
+        intact = await fetch_session_list(limit=10, db_pool=sqlite_pool)
+        assert len(intact.sessions) == 1
+
+
+class TestUserScopedSearch:
+    @pytest.mark.asyncio
+    async def test_q_filter_does_not_match_another_users_text_in_shared_session(self, sqlite_pool: DatabasePool):
+        """Under ?user_id=alice, q must only match alice's events — not bob's, in a shared session.
+
+        This is the cross-user content-isolation property the user_scope_sql threading exists for:
+        without it, the q gate subquery would qualify the shared session on bob's matching text.
+        """
+        # Bob's call carries the searched term; alice's does not.
+        await _seed_request(
+            sqlite_pool,
+            call_id="c-bob",
+            session_id="shared",
+            created_at="2026-04-01T10:00:00",
+            user_id="bob",
+            content="the secret needle",
+        )
+        await _seed_request(
+            sqlite_pool,
+            call_id="c-alice",
+            session_id="shared",
+            created_at="2026-04-01T10:01:00",
+            user_id="alice",
+            content="just a haystack",
+        )
+        # q=needle matches only bob's event → alice-scoped search must not surface the session.
+        bob_term = await fetch_session_list(
+            limit=10, db_pool=sqlite_pool, user_id="alice", search=SessionSearchParams(q="needle")
+        )
+        assert bob_term.sessions == []
+        assert bob_term.total == 0
+        # q=haystack matches alice's own event → session surfaces.
+        alice_term = await fetch_session_list(
+            limit=10, db_pool=sqlite_pool, user_id="alice", search=SessionSearchParams(q="haystack")
+        )
+        assert [s.session_id for s in alice_term.sessions] == ["shared"]
+        assert alice_term.total == 1
+
+
+class TestTimezoneNormalization:
+    def test_aware_bounds_normalized_to_naive_utc(self):
+        """A tz-aware from/to is converted to UTC and stripped of tzinfo by the model validator."""
+        aware = datetime(2026, 4, 1, 9, 0, 0, tzinfo=timezone(timedelta(hours=2)))  # 07:00 UTC
+        params = SessionSearchParams(from_time=aware, to_time=aware)
+        assert params.from_time == datetime(2026, 4, 1, 7, 0, 0)
+        assert params.from_time.tzinfo is None
+        assert params.to_time == datetime(2026, 4, 1, 7, 0, 0)
+
+    def test_naive_bounds_left_as_is(self):
+        naive = datetime(2026, 4, 1, 9, 0, 0)
+        assert SessionSearchParams(from_time=naive).from_time == naive
+
+    @pytest.mark.asyncio
+    async def test_aware_from_time_filters_by_utc_instant(self, sqlite_pool: DatabasePool):
+        await _seed_request(sqlite_pool, call_id="c1", session_id="s1", created_at="2026-04-01T10:00:00")
+        # 09:00+02:00 == 07:00 UTC < 10:00 → included.
+        included = await fetch_session_list(
+            limit=10,
+            db_pool=sqlite_pool,
+            search=SessionSearchParams(from_time=datetime(2026, 4, 1, 9, 0, 0, tzinfo=timezone(timedelta(hours=2)))),
+        )
+        assert [s.session_id for s in included.sessions] == ["s1"]
+        # 13:00+02:00 == 11:00 UTC > 10:00 → excluded.
+        excluded = await fetch_session_list(
+            limit=10,
+            db_pool=sqlite_pool,
+            search=SessionSearchParams(from_time=datetime(2026, 4, 1, 13, 0, 0, tzinfo=timezone(timedelta(hours=2)))),
+        )
+        assert excluded.sessions == []
 
 
 class _FakePool:

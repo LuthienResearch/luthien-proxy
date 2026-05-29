@@ -87,12 +87,16 @@ async def list_sessions(
     from_time: datetime | None = Query(
         default=None,
         alias="from",
-        description="Lower bound (inclusive) on session last activity, ISO 8601.",
+        description="Lower bound (inclusive) on session last activity, ISO 8601. Interpreted as UTC.",
     ),
     to_time: datetime | None = Query(
         default=None,
         alias="to",
-        description="Upper bound (inclusive) on session last activity, ISO 8601.",
+        description=(
+            "Upper bound (inclusive) on session last activity, ISO 8601. Interpreted as UTC. "
+            "Inclusive at the timestamp level: to include all of a calendar day, pass end-of-day "
+            "(e.g. 2026-04-30T23:59:59)."
+        ),
     ),
     q: str | None = Query(
         default=None,

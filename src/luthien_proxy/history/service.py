@@ -354,6 +354,25 @@ def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None
     return None
 
 
+# A "real" policy intervention is any policy.* event that is not a judge
+# lifecycle/evaluation event. This predicate (over alias ``ce``) is the single
+# source of truth — consumed by both the per-session stat aggregate and the
+# policy_intervention filter, on both backends. Keep it here so the stat and
+# the filter can never drift out of sync.
+_INTERVENTION_PREDICATE = "ce.event_type LIKE 'policy.%' AND ce.event_type NOT LIKE 'policy.%judge.evaluation%'"
+
+
+def _intervention_count_expr(is_postgres: bool) -> str:
+    """Aggregate expression counting real policy interventions for a session.
+
+    Postgres uses a ``COUNT(*) FILTER`` aggregate; SQLite lacks ``FILTER`` so it
+    uses ``SUM(CASE ...)``. Both wrap the same :data:`_INTERVENTION_PREDICATE`.
+    """
+    if is_postgres:
+        return f"COUNT(*) FILTER (WHERE {_INTERVENTION_PREDICATE})"
+    return f"SUM(CASE WHEN {_INTERVENTION_PREDICATE} THEN 1 ELSE 0 END)"
+
+
 def _build_session_filter_sql(
     search: SessionSearchParams,
     db_pool: DatabasePool,
@@ -420,16 +439,7 @@ def _build_session_filter_sql(
         having.append(f"MAX(ce.created_at) <= {placeholder}")
 
     if search.policy_intervention:
-        if db_pool.is_postgres:
-            having.append(
-                "COUNT(*) FILTER (WHERE ce.event_type LIKE 'policy.%' "
-                "AND ce.event_type NOT LIKE 'policy.%judge.evaluation%') > 0"
-            )
-        else:
-            having.append(
-                "SUM(CASE WHEN ce.event_type LIKE 'policy.%' "
-                "AND ce.event_type NOT LIKE 'policy.%judge.evaluation%' THEN 1 ELSE 0 END) > 0"
-            )
+        having.append(f"{_intervention_count_expr(db_pool.is_postgres)} > 0")
 
     return where_gates, having
 
@@ -565,10 +575,7 @@ async def _fetch_session_list_pg(
                     MAX(ce.created_at) as last_ts,
                     COUNT(*) as total_events,
                     COUNT(DISTINCT ce.call_id) as turn_count,
-                    COUNT(*) FILTER (
-                        WHERE ce.event_type LIKE 'policy.%'
-                        AND ce.event_type NOT LIKE 'policy.%judge.evaluation%'
-                    ) as policy_interventions
+                    {_intervention_count_expr(True)} as policy_interventions
                 FROM conversation_events ce
                 WHERE ce.session_id IS NOT NULL
                 {user_call_filter}
@@ -764,11 +771,7 @@ async def _fetch_session_list_sqlite(
                 MAX(ce.created_at) as last_ts,
                 COUNT(*) as total_events,
                 COUNT(DISTINCT ce.call_id) as turn_count,
-                SUM(CASE
-                    WHEN ce.event_type LIKE 'policy.%'
-                    AND ce.event_type NOT LIKE 'policy.%judge.evaluation%'
-                    THEN 1 ELSE 0
-                END) as policy_interventions
+                {_intervention_count_expr(False)} as policy_interventions
             FROM conversation_events ce
             WHERE ce.session_id IS NOT NULL
             {user_call_filter}
