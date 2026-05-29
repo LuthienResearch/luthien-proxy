@@ -777,6 +777,7 @@ dependencies = [
     { name = "anthropic" },
     { name = "asyncpg" },
     { name = "beartype" },
+    { name = "boto3" },
     { name = "click" },
     { name = "cryptography" },
     { name = "httpx" },
@@ -797,15 +798,9 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 
-[package.optional-dependencies]
-archive = [
-    { name = "boto3" },
-]
-
 [package.dev-dependencies]
 dev = [
     { name = "asgi-lifespan" },
-    { name = "boto3" },
     { name = "luthien-cli" },
     { name = "pre-commit" },
     { name = "pyright" },
@@ -827,7 +822,7 @@ requires-dist = [
     { name = "anthropic", specifier = ">=0.84.0" },
     { name = "asyncpg", specifier = ">=0.30.0" },
     { name = "beartype", specifier = ">=0.21.0" },
-    { name = "boto3", marker = "extra == 'archive'", specifier = ">=1.34" },
+    { name = "boto3", specifier = ">=1.34" },
     { name = "click", specifier = ">=8.1.0" },
     { name = "cryptography", specifier = ">=44.0.0" },
     { name = "httpx", specifier = ">=0.28.1" },
@@ -847,12 +842,10 @@ requires-dist = [
     { name = "sentry-sdk", extras = ["fastapi"], specifier = ">=2.54.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.31.0" },
 ]
-provides-extras = ["archive"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "asgi-lifespan", specifier = ">=2.1.0" },
-    { name = "boto3", specifier = ">=1.34" },
     { name = "luthien-cli", editable = "src/luthien_cli" },
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pyright", specifier = ">=1.1.406,<1.2" },

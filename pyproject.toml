@@ -23,6 +23,11 @@ dependencies = [
     "aiosqlite>=0.20.0",
     "asyncpg>=0.30.0",
     "beartype>=0.21.0",
+    # boto3 powers the opt-in S3 conversation archiver (retention/archiver.py,
+    # gated by ARCHIVE_S3_BUCKET). It was previously pulled in transitively by
+    # litellm[proxy]; with LiteLLM retired it is declared directly so archiving
+    # keeps working for every install with no operator action.
+    "boto3>=1.34",
     "click>=8.1.0",
     "cryptography>=44.0.0",
     "httpx>=0.28.1",
@@ -44,13 +49,6 @@ dependencies = [
     "aiohttp>=3.9.0",
     "sentry-sdk[fastapi]>=2.54.0",
 ]
-
-[project.optional-dependencies]
-# S3 conversation archiving (retention/archiver.py) is opt-in via
-# ARCHIVE_S3_BUCKET. boto3 was previously pulled in transitively by the
-# LiteLLM proxy extra; with LiteLLM retired it must be declared explicitly.
-# Operators who enable S3 archiving install `luthien-proxy[archive]`.
-archive = ["boto3>=1.34"]
 
 [tool.hatch.version]
 source = "vcs"
@@ -143,7 +141,6 @@ dev = [
     "luthien-cli",
     "pytest-httpx>=0.35.0",
     "pytest-xdist>=3.6.0",
-    "boto3>=1.34",
 ]
 
 [tool.uv.sources]
