@@ -435,6 +435,21 @@ def create_app(
 
     app.add_middleware(StaticCacheMiddleware)
 
+    # Attach X-RateLimit-* headers to successful /v1/ responses. The rate-limit
+    # dependency stashes its RateLimitDecision on request.state; we read it here
+    # because the /v1 routes return their own Response objects (StreamingResponse
+    # / JSONResponse), which discard headers set on a dependency-injected Response.
+    class RateLimitHeaderMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            response = await call_next(request)
+            decision = getattr(request.state, "rate_limit_decision", None)
+            if decision is not None:
+                response.headers["X-RateLimit-Limit"] = str(decision.limit)
+                response.headers["X-RateLimit-Remaining"] = str(decision.remaining)
+            return response
+
+    app.add_middleware(RateLimitHeaderMiddleware)
+
     # Include routers
     app.include_router(gateway_router)  # /v1/messages
     app.include_router(debug_router)  # /api/debug/*
