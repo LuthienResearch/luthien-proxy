@@ -904,6 +904,12 @@ async def get_system_status(
     readiness. This endpoint is for a monitoring system that parses the body,
     and is behind admin auth so its timing and topology signals aren't exposed
     to unauthenticated probes.
+
+    Always returns HTTP 200 — the overall verdict is in the body's `status`
+    field. Do NOT switch this to 503 on `unhealthy`: this is a body-parsed
+    diagnostics endpoint, not a probe wired to restart/drain logic (that's
+    /health and /ready). Returning non-2xx here would mislead HTTP-status
+    monitors into treating a reported-but-handled state as an endpoint outage.
     """
     db_check, redis_check = await asyncio.gather(_probe_db(deps), _probe_redis(deps))
 
@@ -911,6 +917,7 @@ async def get_system_status(
     # traffic (matches /ready's 503 when db_pool is None). Redis is optional —
     # not_configured (SQLite/local mode) stays healthy; only a Redis *error*
     # degrades.
+    overall: Literal["healthy", "degraded", "unhealthy"]
     if db_check.status in ("error", "not_configured"):
         overall = "unhealthy"
     elif redis_check.status == "error":
