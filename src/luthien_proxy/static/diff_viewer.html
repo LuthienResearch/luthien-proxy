@@ -672,10 +672,13 @@
             loadDiff();
         }
 
-        // Escapes <, >, &, " and ' so the result is safe in both HTML text and
-        // quoted-attribute contexts. (The old textContent/innerHTML form left
-        // quotes unescaped, which is unsafe the moment a value lands in an
-        // attribute.)
+        // Escapes <, >, &, " and ' so the result is safe in HTML text and
+        // *quoted* HTML attribute contexts ONLY. NOT safe for: JS-string
+        // contexts (a value placed inside an inline event-handler's quoted
+        // argument), URL / javascript: contexts, or *unquoted* attributes — for
+        // those use DOM construction (createElement + textContent/dataset +
+        // addEventListener). (The old textContent/innerHTML form left quotes
+        // unescaped, unsafe the moment a value lands in an attribute.)
         function escapeHtml(text) {
             if (text === null || text === undefined) {
                 return '';
