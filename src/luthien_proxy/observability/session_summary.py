@@ -119,12 +119,14 @@ async def update_session_summary(
     policy_inc = 1 if _is_policy_event(event_type) else 0
     call_inc = 1 if is_request else 0
 
-    # New-model accumulation can't be expressed purely in SQL across both
-    # backends (no portable array_append-with-dedup), so we read-modify-write
-    # the comma-joined list. The read happens inside the same connection/txn as
-    # the write, so there's no cross-request race within a single event write.
+    # New-model accumulation is a comma-joined set kept in a text column, dedup'd
+    # inline. The membership test uses LIKE, so the model name must have LIKE
+    # metacharacters escaped — otherwise a model containing '%' or '_' would
+    # match unrelated entries and silently drop. We REPLACE-escape '\', '%', '_'
+    # in the pattern operand only (not the value being stored) and declare
+    # ESCAPE '\'. Both SQLite and Postgres support REPLACE and LIKE ... ESCAPE.
     await conn.execute(
-        """
+        r"""
         INSERT INTO session_summaries (
             session_id, first_seen, last_seen, event_count, call_count,
             policy_event_count, user_id, models_used, preview_message
@@ -144,7 +146,9 @@ async def update_session_summary(
             models_used = CASE
                 WHEN $6 IS NULL THEN session_summaries.models_used
                 WHEN session_summaries.models_used IS NULL THEN $6
-                WHEN ',' || session_summaries.models_used || ',' LIKE '%,' || $6 || ',%'
+                WHEN ',' || session_summaries.models_used || ',' LIKE
+                    '%,' || REPLACE(REPLACE(REPLACE($6, '\', '\\'), '%', '\%'), '_', '\_') || ',%'
+                    ESCAPE '\'
                     THEN session_summaries.models_used
                 ELSE session_summaries.models_used || ',' || $6 END,
             preview_message = COALESCE(session_summaries.preview_message, EXCLUDED.preview_message)

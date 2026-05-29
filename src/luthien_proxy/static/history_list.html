@@ -638,10 +638,14 @@
         function userBadgeHtml(uid) {
             const color = userColor(uid);
             const label = userDisplay(uid);
+            // uid is attacker-controllable (X-Luthien-User-Id header / JWT sub).
+            // It only ever appears escaped inside attributes; the click is wired
+            // via a delegated listener (see init) reading data-uid — never an
+            // inline onclick.
             return `<span class="user-badge"
                 style="color:${color};background:${color}22;"
-                title="Click to set a display name · ${escapeHtml(uid)}"
-                onclick="editUserLabel('${escapeHtml(uid)}', event)">${escapeHtml(label)}</span>`;
+                data-uid="${escapeHtml(uid)}"
+                title="Click to set a display name · ${escapeHtml(uid)}">${escapeHtml(label)}</span>`;
         }
 
         async function editUserLabel(uid, event) {
@@ -831,10 +835,21 @@
         }
 
         function escapeHtml(str) {
+            // textContent escapes < > &, but NOT quotes — so values interpolated
+            // into quoted attributes (title="...", data-uid="...") or JS string
+            // literals could break out. Escape quotes explicitly too.
             const div = document.createElement('div');
             div.textContent = str;
-            return div.innerHTML;
+            return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
+
+        // Delegated click handler for user badges. The uid is carried in a
+        // data-uid attribute (escaped at render time) rather than baked into an
+        // inline onclick, so an attacker-controlled uid can never become code.
+        document.getElementById('sessions-container').addEventListener('click', (e) => {
+            const badge = e.target.closest('.user-badge');
+            if (badge) editUserLabel(badge.dataset.uid, e);
+        });
 
         loadUsersAndLabels();
         loadSessions();

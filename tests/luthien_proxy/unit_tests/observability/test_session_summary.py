@@ -208,3 +208,22 @@ class TestUpdateSessionSummary:
         row = await self._row(pool, "s1")
         assert row["models_used"] == "same"
         assert row["call_count"] == 3
+
+    async def test_model_names_with_like_metacharacters_not_conflated(self, pool: DatabasePool) -> None:
+        """A model containing LIKE wildcards ('%', '_') must not match a different
+        model. Without ESCAPE, 'claude_x' would match 'claudeax' and drop it, and
+        'm%' would match 'mZ'. All four are distinct and must all be retained."""
+        ts = datetime.now(UTC)
+        models = ["claude_x", "claudeax", "claude_x", "m%", "mZ", "m%"]
+        async with pool.connection() as conn:
+            for i, m in enumerate(models):
+                await update_session_summary(
+                    conn,
+                    session_id="s1",
+                    event_type="transaction.request_recorded",
+                    data=_request(model=m),
+                    user_id=None,
+                    timestamp=ts + timedelta(seconds=i),
+                )
+        row = await self._row(pool, "s1")
+        assert str(row["models_used"]).split(",") == ["claude_x", "claudeax", "m%", "mZ"]

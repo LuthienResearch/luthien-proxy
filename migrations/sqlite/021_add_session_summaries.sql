@@ -35,7 +35,12 @@ SELECT
         AND ce.event_type NOT LIKE 'policy.judge.evaluation%'
         THEN 1 ELSE 0
     END),
-    (SELECT cc.user_id FROM conversation_calls cc WHERE cc.session_id = ce.session_id AND cc.user_id IS NOT NULL LIMIT 1),
+    -- Earliest-call user_id wins, matching the incremental COALESCE semantics
+    -- (first non-null user_id seen for the session sticks). ORDER BY makes the
+    -- pick deterministic when a session spans multiple users.
+    (SELECT cc.user_id FROM conversation_calls cc
+       WHERE cc.session_id = ce.session_id AND cc.user_id IS NOT NULL
+       ORDER BY cc.created_at LIMIT 1),
     (SELECT GROUP_CONCAT(DISTINCT json_extract(ce2.payload, '$.final_model'))
        FROM conversation_events ce2
        WHERE ce2.session_id = ce.session_id
