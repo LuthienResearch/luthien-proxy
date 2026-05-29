@@ -112,6 +112,12 @@ async def update_session_summary(
     ``preview_message`` is set once (the first non-probe user message wins) and
     never overwritten. ``user_id`` is filled the first time a non-null value is
     seen and never overwritten (COALESCE), matching ``conversation_calls``.
+
+    Assumption: model names contain no comma. ``models_used`` is a single
+    comma-delimited text column, so a comma inside a model name would corrupt
+    both the dedupe membership test and any reader that splits on ``,``. Model
+    names are Anthropic/provider model identifiers, which don't contain commas;
+    if that ever changes this should move to a side table (see PR follow-ups).
     """
     is_request = event_type == "transaction.request_recorded"
     model = extract_model(data) if is_request else None

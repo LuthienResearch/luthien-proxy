@@ -243,49 +243,57 @@ class EventEmitter:
 
         try:
             async with db_pool.connection() as conn:
-                # Ensure call row exists with session_id and user_id
-                await conn.execute(
-                    """
-                    INSERT INTO conversation_calls (call_id, created_at, session_id, user_id)
-                    VALUES ($1, $2, $3, $4)
-                    ON CONFLICT (call_id) DO UPDATE SET
-                        session_id = COALESCE(conversation_calls.session_id, EXCLUDED.session_id),
-                        user_id = COALESCE(conversation_calls.user_id, EXCLUDED.user_id)
-                    """,
-                    transaction_id,
-                    timestamp,
-                    session_id,
-                    user_id,
-                )
-
-                # Insert event row. user_id is intentionally NOT stored on
-                # conversation_events — it lives on conversation_calls (which
-                # query paths join through). Denormalizing onto every event
-                # row paid a write cost for zero readers.
-                await conn.execute(
-                    """
-                    INSERT INTO conversation_events (call_id, event_type, payload, created_at, session_id)
-                    VALUES ($1, $2, $3, $4, $5)
-                    """,
-                    transaction_id,
-                    event_type,
-                    json.dumps(data),
-                    timestamp,
-                    session_id,
-                )
-
-                # Incrementally maintain the materialized session_summaries row.
-                # Only sessions with a session_id are listed by the history page,
-                # so events without one contribute nothing here.
-                if isinstance(session_id, str) and session_id:
-                    await update_session_summary(
-                        conn,
-                        session_id=session_id,
-                        event_type=event_type,
-                        data=data,
-                        user_id=user_id if isinstance(user_id, str) else None,
-                        timestamp=timestamp,
+                # All three writes must commit together. Without an explicit
+                # transaction each statement auto-commits, so a failure in the
+                # session_summaries update would leave the event row already
+                # committed and the materialized summary permanently out of sync
+                # (the 021 backfill's ON CONFLICT DO NOTHING can't repair drift).
+                # Wrapping them keeps conversation_events and session_summaries
+                # consistent and makes dropped_db_writes honest (all-or-nothing).
+                async with conn.transaction():
+                    # Ensure call row exists with session_id and user_id
+                    await conn.execute(
+                        """
+                        INSERT INTO conversation_calls (call_id, created_at, session_id, user_id)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (call_id) DO UPDATE SET
+                            session_id = COALESCE(conversation_calls.session_id, EXCLUDED.session_id),
+                            user_id = COALESCE(conversation_calls.user_id, EXCLUDED.user_id)
+                        """,
+                        transaction_id,
+                        timestamp,
+                        session_id,
+                        user_id,
                     )
+
+                    # Insert event row. user_id is intentionally NOT stored on
+                    # conversation_events — it lives on conversation_calls (which
+                    # query paths join through). Denormalizing onto every event
+                    # row paid a write cost for zero readers.
+                    await conn.execute(
+                        """
+                        INSERT INTO conversation_events (call_id, event_type, payload, created_at, session_id)
+                        VALUES ($1, $2, $3, $4, $5)
+                        """,
+                        transaction_id,
+                        event_type,
+                        json.dumps(data),
+                        timestamp,
+                        session_id,
+                    )
+
+                    # Incrementally maintain the materialized session_summaries row.
+                    # Only sessions with a session_id are listed by the history page,
+                    # so events without one contribute nothing here.
+                    if isinstance(session_id, str) and session_id:
+                        await update_session_summary(
+                            conn,
+                            session_id=session_id,
+                            event_type=event_type,
+                            data=data,
+                            user_id=user_id if isinstance(user_id, str) else None,
+                            timestamp=timestamp,
+                        )
 
             logger.debug(f"Wrote event to db: {event_type} (transaction_id={transaction_id})")
         except (OSError, asyncpg.PostgresError, asyncpg.InternalClientError) as e:

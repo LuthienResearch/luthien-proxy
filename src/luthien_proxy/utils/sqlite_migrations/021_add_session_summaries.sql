@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS session_summaries (
 );
 
 CREATE INDEX IF NOT EXISTS idx_session_summaries_last_seen ON session_summaries(last_seen DESC);
-CREATE INDEX IF NOT EXISTS idx_session_summaries_user ON session_summaries(user_id);
+-- Partial index to match the Postgres migration (NULL user_id rows excluded).
+CREATE INDEX IF NOT EXISTS idx_session_summaries_user ON session_summaries(user_id) WHERE user_id IS NOT NULL;
 
 -- Backfill counts + user_id + models_used from existing data.
 -- preview_message is intentionally NOT backfilled (see Postgres migration).

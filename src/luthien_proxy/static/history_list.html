@@ -723,8 +723,15 @@
                     }
 
                     const hasPreview = !!session.preview_message;
+                    // session_id is client-controllable (X-Luthien-Session-Id) and
+                    // MUST NOT go into an inline onclick: the HTML parser decodes
+                    // entities before the JS engine runs, so HTML-escaping is the
+                    // wrong escaping for an event-handler context and a quote in
+                    // session_id would still break out. Carry it in a data-attribute
+                    // (escaped for the attribute context) and wire the click via a
+                    // delegated listener (see init) that reads dataset.sessionId.
                     html += `
-                        <div class="session-card" onclick="viewSession('${escapeHtml(session.session_id)}')">
+                        <div class="session-card" data-session-id="${escapeHtml(session.session_id)}">
                             <div class="session-main">
                                 <div class="session-preview${hasPreview ? '' : ' session-preview-empty'}">${escapeHtml(previewText)}</div>
                                 <div class="session-meta">${metaParts.join(' · ')} · ${interventionsHtml}${userBadges}</div>
@@ -843,12 +850,20 @@
             return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
 
-        // Delegated click handler for user badges. The uid is carried in a
-        // data-uid attribute (escaped at render time) rather than baked into an
-        // inline onclick, so an attacker-controlled uid can never become code.
+        // Single delegated click handler for the session list. Both the user
+        // badge (uid) and the session card (session_id) carry their value in a
+        // data-attribute (escaped at render time) instead of an inline onclick,
+        // so attacker-controllable values can never become executable code.
+        // A badge click edits the label and does NOT navigate; any other click
+        // inside a card opens the conversation.
         document.getElementById('sessions-container').addEventListener('click', (e) => {
             const badge = e.target.closest('.user-badge');
-            if (badge) editUserLabel(badge.dataset.uid, e);
+            if (badge) {
+                editUserLabel(badge.dataset.uid, e);
+                return;
+            }
+            const card = e.target.closest('.session-card');
+            if (card) viewSession(card.dataset.sessionId);
         });
 
         loadUsersAndLabels();
