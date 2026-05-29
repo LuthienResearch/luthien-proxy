@@ -109,17 +109,28 @@ function applyFilters() {
     });
 }
 
-// Rebuild the filter dropdown dynamically
+// Rebuild the filter dropdown dynamically.
+//
+// DOM construction: `category` / `subtype` are derived from event_type (split
+// on '.'), which comes from the activity stream and is request-derived. They
+// were previously interpolated into innerHTML including id="" / value=""
+// attributes — same stored-XSS class. Build nodes; markup/quotes are inert.
 function rebuildFilterDropdown() {
-    typeFilterDropdownEl.innerHTML = '';
+    typeFilterDropdownEl.replaceChildren();
 
     // Add "Select All" option
     const selectAllDiv = document.createElement('div');
     selectAllDiv.className = 'filter-option';
-    selectAllDiv.innerHTML = `
-        <input type="checkbox" id="select-all-types" ${selectAllChecked ? 'checked' : ''}>
-        <label for="select-all-types"><strong>Select All</strong></label>
-    `;
+    const selectAllInput = document.createElement('input');
+    selectAllInput.type = 'checkbox';
+    selectAllInput.id = 'select-all-types';
+    selectAllInput.checked = selectAllChecked;
+    const selectAllLabel = document.createElement('label');
+    selectAllLabel.htmlFor = 'select-all-types';
+    const selectAllStrong = document.createElement('strong');
+    selectAllStrong.textContent = 'Select All';
+    selectAllLabel.appendChild(selectAllStrong);
+    selectAllDiv.append(selectAllInput, selectAllLabel);
     typeFilterDropdownEl.appendChild(selectAllDiv);
 
     // Add categories and subtypes
@@ -131,24 +142,34 @@ function rebuildFilterDropdown() {
         // Category header (clickable to toggle all in category)
         const categoryDiv = document.createElement('div');
         categoryDiv.className = 'filter-category';
-        categoryDiv.innerHTML = `
-            <div class="filter-option category-header" data-category="${category}">
-                <label><strong>${category}</strong> (${subtypes.length})</label>
-            </div>
-        `;
+        const headerOption = document.createElement('div');
+        headerOption.className = 'filter-option category-header';
+        headerOption.dataset.category = category;
+        const headerLabel = document.createElement('label');
+        const headerStrong = document.createElement('strong');
+        headerStrong.textContent = category;
+        headerLabel.append(headerStrong, document.createTextNode(` (${subtypes.length})`));
+        headerOption.appendChild(headerLabel);
+        categoryDiv.appendChild(headerOption);
         typeFilterDropdownEl.appendChild(categoryDiv);
 
         // Subtypes
         subtypes.forEach(subtype => {
             const fullType = `${category}.${subtype}`;
             const isSelected = selectedEventTypes.has(fullType);
+            const checkboxId = `type-${category}-${subtype}`;
 
             const subtypeDiv = document.createElement('div');
             subtypeDiv.className = 'filter-option filter-subtype';
-            subtypeDiv.innerHTML = `
-                <input type="checkbox" id="type-${category}-${subtype}" value="${fullType}" ${isSelected ? 'checked' : ''}>
-                <label for="type-${category}-${subtype}">${subtype}</label>
-            `;
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.id = checkboxId;
+            input.value = fullType;
+            input.checked = isSelected;
+            const label = document.createElement('label');
+            label.htmlFor = checkboxId;
+            label.textContent = subtype;
+            subtypeDiv.append(input, label);
             typeFilterDropdownEl.appendChild(subtypeDiv);
         });
     });
@@ -173,7 +194,15 @@ function updateTypeFilterLabel() {
     }
 }
 
-// Create event DOM element
+// Create event DOM element.
+//
+// DOM construction (not innerHTML): every value here comes from the activity
+// stream, which is derived from live request traffic — event_type,
+// transaction_id, and the full event payload are attacker-influenceable. The
+// previous innerHTML build interpolated `event_type` as HTML text and the whole
+// event via `JSON.stringify(event)` into a <pre> with NO escaping; JSON.stringify
+// does not escape <, >, so a payload containing "</pre><script>..." injected
+// script. Building nodes with textContent makes every field inert.
 function createEventElement(event) {
     const el = document.createElement('div');
     el.className = 'event';
@@ -184,25 +213,44 @@ function createEventElement(event) {
     const transactionId = event.transaction_id || callId;
     const timestamp = event.timestamp || new Date().toISOString();
 
-    el.innerHTML = `
-        <div class="event-header">
-            <div class="event-main">
-                <div class="event-type">${event.event_type || 'unknown'}</div>
-                <div class="event-meta">
-                    <span class="event-id">ID: ${transactionId.substring(0, 12)}...</span>
-                    <span class="event-time">${formatTime(timestamp)}</span>
-                </div>
-            </div>
-            <div class="expand-icon">▼</div>
-        </div>
-        <div class="event-payload">
-            <pre>${JSON.stringify(event, null, 2)}</pre>
-        </div>
-    `;
+    const headerDiv = document.createElement('div');
+    headerDiv.className = 'event-header';
+
+    const mainDiv = document.createElement('div');
+    mainDiv.className = 'event-main';
+
+    const typeDiv = document.createElement('div');
+    typeDiv.className = 'event-type';
+    typeDiv.textContent = event.event_type || 'unknown';
+
+    const metaDiv = document.createElement('div');
+    metaDiv.className = 'event-meta';
+    const idSpan = document.createElement('span');
+    idSpan.className = 'event-id';
+    idSpan.textContent = `ID: ${String(transactionId).substring(0, 12)}...`;
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'event-time';
+    timeSpan.textContent = formatTime(timestamp);
+    metaDiv.append(idSpan, timeSpan);
+
+    mainDiv.append(typeDiv, metaDiv);
+
+    const expandIcon = document.createElement('div');
+    expandIcon.className = 'expand-icon';
+    expandIcon.textContent = '▼';
+
+    headerDiv.append(mainDiv, expandIcon);
+
+    const payloadDiv = document.createElement('div');
+    payloadDiv.className = 'event-payload';
+    const pre = document.createElement('pre');
+    pre.textContent = JSON.stringify(event, null, 2);
+    payloadDiv.appendChild(pre);
+
+    el.append(headerDiv, payloadDiv);
 
     // Add click handler for expand/collapse
-    const header = el.querySelector('.event-header');
-    header.addEventListener('click', () => {
+    headerDiv.addEventListener('click', () => {
         el.classList.toggle('expanded');
     });
 
@@ -352,7 +400,10 @@ function connect() {
 
 // Clear events
 clearBtnEl.addEventListener('click', () => {
-    eventsEl.innerHTML = '<div class="empty-state">Events cleared. Waiting for new events...</div>';
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = 'Events cleared. Waiting for new events...';
+    eventsEl.replaceChildren(empty);
     allEvents = [];
     eventCount = 0;
     updateStatus(eventSource && eventSource.readyState === EventSource.OPEN);

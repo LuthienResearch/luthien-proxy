@@ -321,12 +321,24 @@
             if (type === 'success') setTimeout(() => { el.className = 'status-msg'; }, 3000);
         }
 
-        // HTML-escape anything that lands inside innerHTML. Config values come
-        // from the DB and are admin-writable, so we must not trust them as HTML.
+        // Escapes <, >, &, " and ' so the result is safe in HTML text and
+        // *quoted* HTML attribute contexts ONLY. NOT safe for: JS-string
+        // contexts (a value inside an inline event-handler's quoted argument),
+        // URL / javascript: contexts, or *unquoted* attributes — for those use
+        // DOM construction (createElement + textContent/dataset +
+        // addEventListener). The old textContent/innerHTML form left quotes
+        // unescaped, unsafe the moment a value lands in an attribute (this file
+        // interpolates esc() into value="", title="", data-field="").
+        // Config field metadata is dev-defined today, but "internally derived so
+        // it's fine" is exactly the assumption that rots — escape all five.
         function esc(s) {
-            const d = document.createElement('div');
-            d.textContent = s === null || s === undefined ? '' : String(s);
-            return d.innerHTML;
+            if (s === null || s === undefined) return '';
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
         }
 
         // Store resolved field objects by name so edit handlers can look them
@@ -451,7 +463,13 @@
 
                 renderDashboard(configData.config, policyData);
             } catch (e) {
-                document.getElementById('content').innerHTML = `<div class="section" style="color:#f87171">Error: ${e.message}</div>`;
+                // e.message is unconstrained (server-returned text) — build the
+                // node and use textContent so it cannot inject markup.
+                const errDiv = document.createElement('div');
+                errDiv.className = 'section';
+                errDiv.style.color = '#f87171';
+                errDiv.textContent = 'Error: ' + e.message;
+                document.getElementById('content').replaceChildren(errDiv);
             }
         }
 

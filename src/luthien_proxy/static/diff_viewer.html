@@ -407,7 +407,11 @@
                 renderDiff(data);
             } catch (error) {
                 diffContainer.innerHTML = '';
-                errorContainer.innerHTML = `<div class="error">Failed to load diff: ${error.message}</div>`;
+                // error.message is unconstrained server/network text — textContent.
+                const errDiv = document.createElement('div');
+                errDiv.className = 'error';
+                errDiv.textContent = 'Failed to load diff: ' + error.message;
+                errorContainer.replaceChildren(errDiv);
             }
         }
 
@@ -614,7 +618,10 @@
                 renderRecentCalls(data.calls);
             } catch (error) {
                 diffContainer.innerHTML = '';
-                errorContainer.innerHTML = `<div class="error">Failed to load recent calls: ${error.message}</div>`;
+                const errDiv = document.createElement('div');
+                errDiv.className = 'error';
+                errDiv.textContent = 'Failed to load recent calls: ' + error.message;
+                errorContainer.replaceChildren(errDiv);
             }
         }
 
