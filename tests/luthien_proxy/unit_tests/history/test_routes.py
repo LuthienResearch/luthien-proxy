@@ -17,6 +17,7 @@ from luthien_proxy.history.models import (
     MessageType,
     SessionDetail,
     SessionListResponse,
+    SessionSearchParams,
     SessionSummary,
 )
 from luthien_proxy.history.routes import (
@@ -57,7 +58,18 @@ class TestListSessionsRoute:
             new_callable=AsyncMock,
             return_value=expected_response,
         ) as mock_fetch:
-            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=0, user_id=None)
+            result = await list_sessions(
+                _=AUTH_TOKEN,
+                db_pool=mock_db_pool,
+                limit=50,
+                offset=0,
+                user_id=None,
+                model=None,
+                from_time=None,
+                to_time=None,
+                q=None,
+                policy_intervention=False,
+            )
 
             assert isinstance(result, SessionListResponse)
             assert result.total == 100
@@ -65,7 +77,7 @@ class TestListSessionsRoute:
             assert result.has_more is True
             assert len(result.sessions) == 1
             assert result.sessions[0].session_id == "session-1"
-            mock_fetch.assert_called_once_with(50, mock_db_pool, 0, user_id=None)
+            mock_fetch.assert_called_once_with(50, mock_db_pool, 0, user_id=None, search=SessionSearchParams())
 
     @pytest.mark.asyncio
     async def test_list_sessions_custom_limit(self):
@@ -77,8 +89,19 @@ class TestListSessionsRoute:
             new_callable=AsyncMock,
             return_value=SessionListResponse(sessions=[], total=0),
         ) as mock_fetch:
-            await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=100, offset=0, user_id=None)
-            mock_fetch.assert_called_once_with(100, mock_db_pool, 0, user_id=None)
+            await list_sessions(
+                _=AUTH_TOKEN,
+                db_pool=mock_db_pool,
+                limit=100,
+                offset=0,
+                user_id=None,
+                model=None,
+                from_time=None,
+                to_time=None,
+                q=None,
+                policy_intervention=False,
+            )
+            mock_fetch.assert_called_once_with(100, mock_db_pool, 0, user_id=None, search=SessionSearchParams())
 
     @pytest.mark.asyncio
     async def test_list_sessions_with_offset(self):
@@ -96,11 +119,59 @@ class TestListSessionsRoute:
             new_callable=AsyncMock,
             return_value=expected_response,
         ) as mock_fetch:
-            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=50, user_id=None)
+            result = await list_sessions(
+                _=AUTH_TOKEN,
+                db_pool=mock_db_pool,
+                limit=50,
+                offset=50,
+                user_id=None,
+                model=None,
+                from_time=None,
+                to_time=None,
+                q=None,
+                policy_intervention=False,
+            )
 
             assert result.offset == 50
             assert result.has_more is True
-            mock_fetch.assert_called_once_with(50, mock_db_pool, 50, user_id=None)
+            mock_fetch.assert_called_once_with(50, mock_db_pool, 50, user_id=None, search=SessionSearchParams())
+
+    @pytest.mark.asyncio
+    async def test_list_sessions_forwards_search_filters(self):
+        """Search query params are assembled into SessionSearchParams and forwarded."""
+        from datetime import datetime
+
+        mock_db_pool = MagicMock()
+        with patch(
+            "luthien_proxy.history.routes.fetch_session_list",
+            new_callable=AsyncMock,
+            return_value=SessionListResponse(sessions=[], total=0),
+        ) as mock_fetch:
+            await list_sessions(
+                _=AUTH_TOKEN,
+                db_pool=mock_db_pool,
+                limit=50,
+                offset=0,
+                user_id="sami",
+                model="claude-opus-4-6",
+                from_time=datetime(2026, 4, 1),
+                to_time=datetime(2026, 4, 12),
+                q="error",
+                policy_intervention=True,
+            )
+            mock_fetch.assert_called_once_with(
+                50,
+                mock_db_pool,
+                0,
+                user_id="sami",
+                search=SessionSearchParams(
+                    model="claude-opus-4-6",
+                    from_time=datetime(2026, 4, 1),
+                    to_time=datetime(2026, 4, 12),
+                    q="error",
+                    policy_intervention=True,
+                ),
+            )
 
     @pytest.mark.asyncio
     async def test_list_sessions_empty(self):
@@ -112,7 +183,18 @@ class TestListSessionsRoute:
             new_callable=AsyncMock,
             return_value=SessionListResponse(sessions=[], total=0),
         ):
-            result = await list_sessions(_=AUTH_TOKEN, db_pool=mock_db_pool, limit=50, offset=0, user_id=None)
+            result = await list_sessions(
+                _=AUTH_TOKEN,
+                db_pool=mock_db_pool,
+                limit=50,
+                offset=0,
+                user_id=None,
+                model=None,
+                from_time=None,
+                to_time=None,
+                q=None,
+                policy_intervention=False,
+            )
 
             assert result.total == 0
             assert result.sessions == []
