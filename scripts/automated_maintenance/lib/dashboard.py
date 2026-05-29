@@ -23,8 +23,9 @@ from pathlib import Path
 #     `maint_run_check` in `checks.sh` and `maint_run_doc_drift` in
 #     `doc_drift.sh` (`status` field in `results.json`).
 #   - autofix statuses (`opened_pr`, `no_diff`, `forbidden_paths`,
-#     `timeout`, `skip`, `error`) come from `maint_run_autofix` in
-#     `autofix.sh` (`autofix.status` in `results.json`).
+#     `path_gate_error`, `timeout`, `error`, `skipped_existing_pr`,
+#     `skipped_query_failed`) come from `maint_run_autofix` in `autofix.sh`
+#     (per-concern under `autofix.<concern>` in `results.json`).
 # If you add a new status on either side, also add it here — unmapped
 # statuses fall through to the grey `unknown` color silently.
 STATUS_COLOR = {
@@ -37,6 +38,9 @@ STATUS_COLOR = {
     "no_diff": "#718096",
     "timeout": "#dd6b20",
     "forbidden_paths": "#c53030",
+    "skipped_existing_pr": "#718096",  # benign: a fix is already in review
+    "skipped_query_failed": "#dd6b20",  # operational: couldn't reach GitHub
+    "path_gate_error": "#dd6b20",  # operational: path_gate.py couldn't classify
 }
 
 CSS = """
@@ -104,6 +108,24 @@ def read_log_tail(path: Path, max_bytes: int = _LOG_TAIL_BYTES) -> str:
         return f.read().decode("utf-8", errors="replace")
 
 
+def autofix_items(autofix: dict | None) -> list[tuple[str, dict]]:
+    """Normalize the results.json `autofix` field to a list of (concern, entry).
+
+    Current shape is per-concern: ``{"doc_drift": {...}, "dev_checks": {...}}``.
+    The legacy shape was a single object (``{"status": ..., "pr_url": ...}``);
+    map it to one ``("autofix", entry)`` pair so old runs still render.
+    """
+    if not isinstance(autofix, dict) or not autofix:
+        return []
+    # Per-concern shape: every value is itself a dict (the concern's entry).
+    # Legacy single-object shape ({"status": ..., "pr_url": ...}) has scalar
+    # values — discriminate on that rather than a magic key name, so a future
+    # concern literally named "status" can't be misread as legacy.
+    if all(isinstance(v, dict) for v in autofix.values()):
+        return list(autofix.items())
+    return [("autofix", autofix)]
+
+
 def load_runs(runs_dir: Path) -> list[dict]:
     runs = []
     if not runs_dir.exists():
@@ -130,12 +152,14 @@ def render_index(runs: list[dict]) -> str:
         check_pills = " ".join(
             f'<span title="{html.escape(n)}">{pill(c.get("status", "unknown"))}</span>' for n, c in checks.items()
         )
-        autofix = r.get("autofix") or {}
-        af_html = ""
-        if autofix:
-            af_html = pill(autofix.get("status", "unknown"))
-            if autofix.get("pr_url"):
-                af_html = f'<a href="{html.escape(autofix["pr_url"])}">{af_html}</a>'
+        af_parts = []
+        for cname, a in autofix_items(r.get("autofix")):
+            p = pill(a.get("status", "unknown"))
+            link = a.get("pr_url") or a.get("existing_pr")
+            if link:
+                p = f'<a href="{html.escape(link)}">{p}</a>'
+            af_parts.append(f'<span title="{html.escape(cname)}">{p}</span>')
+        af_html = " ".join(af_parts)
         rows.append(
             f"""<tr>
               <td><a class="run-link" href="runs/{html.escape(rid)}.html">{html.escape(rid)}</a></td>
@@ -202,24 +226,28 @@ def render_run(r: dict) -> str:
             </section>"""
         )
 
-    autofix = r.get("autofix") or {}
-    af_section = ""
-    if autofix:
-        af_log = r["_dir"] / "autofix_session.log"
-        af_log_text = read_log_tail(af_log)
-        af_summary = r["_dir"] / "autofix_summary.md"
+    af_blocks = []
+    for cname, a in autofix_items(r.get("autofix")):
+        # Per-concern artifacts use a .<concern> suffix; the legacy single
+        # object used unsuffixed names.
+        suffix = "" if cname == "autofix" else f".{cname}"
+        af_log = r["_dir"] / f"autofix_session{suffix}.log"
+        af_log_text = read_log_tail(af_log) if af_log.exists() else ""
+        af_summary = r["_dir"] / f"autofix_summary{suffix}.md"
         af_summary_text = af_summary.read_text() if af_summary.exists() else ""
-        pr = autofix.get("pr_url")
-        pr_link = f'<p>PR: <a href="{html.escape(pr)}">{html.escape(pr)}</a></p>' if pr else ""
-        af_section = f"""<section>
-          <h2>autofix {pill(autofix.get("status", "unknown"))}</h2>
-          <p class="check-meta">duration {autofix.get("duration_s", "?")}s
-             · exit {autofix.get("exit_code", "?")}</p>
+        link = a.get("pr_url") or a.get("existing_pr")
+        pr_link = f'<p>PR: <a href="{html.escape(link)}">{html.escape(link)}</a></p>' if link else ""
+        af_blocks.append(
+            f"""<section>
+          <h2>autofix · {html.escape(cname)} {pill(a.get("status", "unknown"))}</h2>
+          <p class="check-meta">duration {a.get("duration_s", "?")}s
+             · exit {a.get("exit_code", "?")}</p>
           {pr_link}
           {f"<details open><summary>Summary</summary><pre>{html.escape(af_summary_text)}</pre></details>" if af_summary_text else ""}
-          <details><summary>Session log ({len(af_log_text)} chars, tail)</summary>
-          <pre>{html.escape(af_log_text)}</pre></details>
+          {f"<details><summary>Session log ({len(af_log_text)} chars, tail)</summary><pre>{html.escape(af_log_text)}</pre></details>" if af_log_text else ""}
         </section>"""
+        )
+    af_section = "".join(af_blocks)
 
     return f"""<!doctype html>
 <html><head>

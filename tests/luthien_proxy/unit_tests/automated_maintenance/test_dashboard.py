@@ -91,6 +91,108 @@ def test_render_index_includes_run_pills_and_links(tmp_path):
     assert "opened_pr" in html_out
 
 
+def test_autofix_items_normalizes_shapes():
+    # Legacy single-object → one ("autofix", entry) pair.
+    legacy = {"status": "opened_pr", "pr_url": "u"}
+    assert dashboard.autofix_items(legacy) == [("autofix", legacy)]
+    # Per-concern dict → one pair per concern.
+    per_concern = {
+        "doc_drift": {"status": "opened_pr", "pr_url": "u1"},
+        "dev_checks": {"status": "skipped_existing_pr", "existing_pr": "u2"},
+    }
+    assert dashboard.autofix_items(per_concern) == list(per_concern.items())
+    # Empty / missing → no items.
+    assert dashboard.autofix_items(None) == []
+    assert dashboard.autofix_items({}) == []
+    # Edge case the discriminator exists for: a concern literally named
+    # "status" whose value is a dict → per-concern (NOT legacy), because the
+    # discriminator keys on value type, not the key name.
+    concern_named_status = {"status": {"status": "opened_pr", "pr_url": "u"}}
+    assert dashboard.autofix_items(concern_named_status) == [("status", {"status": "opened_pr", "pr_url": "u"})]
+
+
+def test_render_index_per_concern_autofix(tmp_path):
+    _write_run(
+        tmp_path,
+        "2026-05-09-080000",
+        overall="fail",
+        checks={
+            "doc_drift": {"status": "fail", "log": "d.log", "duration_s": 5, "exit_code": 1},
+            "dev_checks": {"status": "fail", "log": "c.log", "duration_s": 9, "exit_code": 1},
+        },
+        autofix={
+            "doc_drift": {"status": "opened_pr", "duration_s": 80, "exit_code": 0, "pr_url": "https://x/pr/1"},
+            "dev_checks": {
+                "status": "skipped_existing_pr",
+                "duration_s": 0,
+                "exit_code": 0,
+                "existing_pr": "https://x/pr/2",
+            },
+        },
+    )
+    runs = dashboard.load_runs(tmp_path)
+    html_out = dashboard.render_index(runs)
+    # Both concerns' statuses and their distinct PR links are surfaced.
+    assert "opened_pr" in html_out
+    assert "skipped_existing_pr" in html_out
+    assert "https://x/pr/1" in html_out
+    assert "https://x/pr/2" in html_out
+
+
+def test_render_run_per_concern_autofix_sections(tmp_path):
+    """Each concern's session log maps via its `.<concern>` suffix on disk."""
+    run = _write_run(
+        tmp_path,
+        "2026-05-09-080000",
+        checks={
+            "doc_drift": {"status": "fail", "log": "doc_drift.log", "duration_s": 5, "exit_code": 1},
+            "dev_checks": {"status": "fail", "log": "dev_checks.log", "duration_s": 9, "exit_code": 1},
+        },
+        autofix={
+            "doc_drift": {"status": "opened_pr", "duration_s": 80, "exit_code": 0, "pr_url": "https://x/pr/1"},
+            "dev_checks": {
+                "status": "skipped_existing_pr",
+                "duration_s": 0,
+                "exit_code": 0,
+                "existing_pr": "https://x/pr/2",
+            },
+        },
+    )
+    (run / "autofix_session.doc_drift.log").write_text("DOC DRIFT SESSION LOG")
+    (run / "autofix_session.dev_checks.log").write_text("DEV CHECKS SESSION LOG")
+    runs = dashboard.load_runs(tmp_path)
+    html_out = dashboard.render_run(runs[0])
+    # Both concerns render their own section, log, and PR link.
+    assert "DOC DRIFT SESSION LOG" in html_out
+    assert "DEV CHECKS SESSION LOG" in html_out
+    assert "https://x/pr/1" in html_out
+    assert "https://x/pr/2" in html_out
+    assert "skipped_existing_pr" in html_out
+
+
+def test_render_run_legacy_autofix_section(tmp_path):
+    """Legacy single-object autofix reads the unsuffixed autofix_session.log."""
+    run = _write_run(
+        tmp_path,
+        "2026-05-09-080000",
+        checks={"doc_drift": {"status": "fail", "log": "d.log", "duration_s": 5, "exit_code": 1}},
+        autofix={"status": "opened_pr", "duration_s": 80, "exit_code": 0, "pr_url": "https://x/pr/legacy"},
+    )
+    (run / "autofix_session.log").write_text("LEGACY SESSION LOG")
+    runs = dashboard.load_runs(tmp_path)
+    html_out = dashboard.render_run(runs[0])
+    assert "LEGACY SESSION LOG" in html_out
+    assert "https://x/pr/legacy" in html_out
+
+
+@pytest.mark.parametrize("status", ["skipped_existing_pr", "skipped_query_failed", "path_gate_error"])
+def test_new_autofix_statuses_have_distinct_colors(status):
+    """New autofix statuses are mapped — they must not fall through to grey unknown."""
+    assert status in dashboard.STATUS_COLOR
+    assert dashboard.STATUS_COLOR[status] != dashboard.STATUS_COLOR["unknown"]
+    assert dashboard.STATUS_COLOR[status] in dashboard.pill(status)
+
+
 def test_render_run_uses_report_field_for_link(tmp_path):
     run = _write_run(
         tmp_path,

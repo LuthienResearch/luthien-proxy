@@ -22,14 +22,18 @@ On each scheduled run, the job:
    include it.
 4. Runs a doc-drift sweep via headless `claude` — finds stale references
    in markdown/config relative to current code.
-5. If anything failed and `AUTOFIX_ENABLED=true`, spawns a headless
-   `claude` session that tries to fix it and opens a draft PR.
+5. If anything failed and `AUTOFIX_ENABLED=true`, runs one headless
+   `claude` fix session **per failing concern** (each failing check is a
+   concern), and opens a separate single-concern draft PR for each on its
+   own branch `maint-fix/<concern>/<run_id>`. A concern that already has an
+   open autofix PR is skipped (no duplicate while a fix is in review); a
+   novel concern still gets its own PR.
 6. Renders/updates a static dashboard at `$MAINT_PUBLIC_DIR/index.html`.
 7. Tears down any docker compose stack the e2e tier brought up.
 
 A run that finds nothing wrong is silent (apart from the dashboard
 update). A run with failures leaves logs on disk and, if autofix is
-enabled, opens a PR.
+enabled, opens a draft PR per failing concern.
 
 ## Layout
 
@@ -60,7 +64,8 @@ $MAINT_STATE_DIR/
 │   ├── dev_checks.log
 │   ├── e2e_*.log
 │   ├── doc_drift.md               # only if drift found
-│   └── autofix_*                  # only if autofix ran
+│   └── autofix_*.<concern>.*      # per failing concern, only if autofix ran
+│                                  #   (brief, session.log, summary.md, pr_url.txt)
 ├── public/                        # dashboard, point your web server here
 └── logs/                          # scheduler stdout/stderr
 ```
@@ -211,9 +216,9 @@ systemctl --user disable --now luthien-automated-maintenance.timer
 
 ## Autofix safety notes
 
-When `AUTOFIX_ENABLED=true`, a failing check spawns a headless `claude`
-session with **broad permissions**: `--permission-mode bypassPermissions`
-and `--allowedTools "Read Edit Write Glob Grep Bash"`. The session can:
+When `AUTOFIX_ENABLED=true`, each failing concern spawns its own headless
+`claude` session with **broad permissions**: `--permission-mode bypassPermissions`
+and `--allowedTools "Read Edit Write Glob Grep Bash"`. Each session can:
 
 - Edit, create, and delete files anywhere the scheduler user can write
   (in practice: the state-dir clone, plus anything else the user has
@@ -221,11 +226,15 @@ and `--allowedTools "Read Edit Write Glob Grep Bash"`. The session can:
 - Run **arbitrary shell commands** as the scheduler user, with network
   access. The intended use is `git`, `pytest`, `ruff`, etc., but the
   session is not sandboxed beyond the user's filesystem permissions.
-- Hit external HTTP services and consume API tokens, capped per run by
-  `AUTOFIX_MAX_BUDGET_USD` and `AUTOFIX_TIMEOUT`.
+- Hit external HTTP services and consume API tokens. `AUTOFIX_MAX_BUDGET_USD`
+  and `AUTOFIX_TIMEOUT` cap each **per-concern** session, so worst-case spend
+  and wall-clock for a run scale with the number of failing concerns. With the
+  default 5 checks failing at `AUTOFIX_MAX_BUDGET_USD=5` / `AUTOFIX_TIMEOUT=1800`,
+  a single run can spend up to ~$25 and run ~2.5h serially — keep that in mind
+  when tuning those env vars.
 
-It will NOT push directly — the orchestrator pushes the resulting branch
-and opens a **draft** PR for human review.
+It will NOT push directly — the orchestrator pushes each concern's branch
+and opens a single-concern **draft** PR for human review.
 
 Risks, in order:
 
@@ -237,6 +246,17 @@ Risks, in order:
 3. **Third-order**: an autofix session that times out leaves a partial
    branch. The next run wipes the state-dir clone and starts fresh, so
    this self-heals.
+
+**On per-concern dedup**: the "skip a concern that already has an open PR"
+check queries `gh pr list` and is not atomic. Two maintenance runs firing
+close together (a manual rerun during the cron fire, or two hosts pointed at
+the same repo) could both query before either opens its PR, and both open a
+duplicate for the same concern. The single-host nightly-cron deployment this
+is built for doesn't hit that (the run lock in `automated_maintenance.sh`
+serializes runs on one host); it's a deliberate trade-off, not a guarantee.
+The dedup is also age-blind: an open autofix PR for a concern suppresses new
+autofixes for that concern *indefinitely*, so a stale one languishing in
+review will keep blocking fresh fixes — close stale autofix PRs to unblock.
 
 **On account scope**: `gh pr create` runs as whatever account `gh` is
 logged in as. If you enable autofix on a workstation, autofix PRs will

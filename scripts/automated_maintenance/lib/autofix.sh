@@ -1,119 +1,141 @@
 #!/usr/bin/env bash
-# Autonomous fix attempt. Runs in MAINT_REPO_DIR on a fresh branch.
-# Spawns headless `claude` with a brief covering all failures. If the
-# session produces a non-empty diff, push branch + open draft PR.
+# Autonomous fix attempts, one per failing concern.
+#
+# Each failing check is a "concern" and gets its own focused fix attempt on
+# its own branch (maint-fix/<concern>/<run_id>) and, if it produces a diff,
+# its own single-concern draft PR. This keeps PRs reviewable and lets a
+# novel failure get its own PR even while another concern's fix is pending.
+#
+# Per-concern dedup: before attempting a concern, we check for an already-open
+# PR for that concern (branch maint-fix/<concern>/*). If one exists, we skip
+# the concern — don't stack a duplicate while a fix is in review. A different,
+# novel concern still gets its own PR.
 #
 # This is opt-in (AUTOFIX_ENABLED=true). It runs with broad permissions so
-# Claude can edit files and run tests; the assumption is that the fix
-# branch is reviewed by a human before merge.
+# Claude can edit files and run tests; fix branches are reviewed by a human
+# before merge (PRs open as drafts).
 #
 # Sourced by automated_maintenance.sh.
 
 set -euo pipefail
 
-# Build a markdown brief describing every failed check. Reads results.json
-# and concatenates the relevant log tails.
-_autofix_build_brief() {
-    local brief="$1"
-    python3 - "$MAINT_RUN_DIR" "$brief" <<'PY'
+# Build a focused brief for ONE concern. doc_drift pulls in its findings
+# report; every other check pulls in its log tail.
+_autofix_build_brief_for() {
+    local concern="$1" brief="$2"
+    python3 - "$MAINT_RUN_DIR" "$concern" "$brief" <<'PY'
 import json, pathlib, sys
 run_dir = pathlib.Path(sys.argv[1])
-brief_path = pathlib.Path(sys.argv[2])
+concern = sys.argv[2]
+brief_path = pathlib.Path(sys.argv[3])
 results = json.loads((run_dir / "results.json").read_text())
-lines = ["# Maintenance failures", ""]
-lines.append(f"Run: {results.get('run_id')}")
-lines.append("")
-for name, c in results.get("checks", {}).items():
-    if c.get("status") not in {"fail", "error"}:
-        continue
-    lines.append(f"## {name} ({c['status']}, exit {c.get('exit_code')})")
-    lines.append("")
+c = results.get("checks", {}).get(concern, {})
+lines = [
+    f"# Maintenance failure: {concern}",
+    "",
+    f"Run: {results.get('run_id')}",
+    "",
+    f"## {concern} ({c.get('status')}, exit {c.get('exit_code')})",
+    "",
+]
+if concern == "doc_drift":
+    drift = run_dir / (c.get("report") or "doc_drift.md")
+    if drift.exists():
+        lines.append(drift.read_text(errors="replace"))
+else:
     log = run_dir / c.get("log", "")
     if log.exists():
-        # errors="replace" mirrors dashboard.py — e2e logs sometimes have
-        # raw terminal escapes or non-UTF-8 bytes; one bad byte should
-        # not crash brief generation and silently skip the autofix.
+        # errors="replace": e2e logs sometimes carry raw terminal escapes or
+        # non-UTF-8 bytes; one bad byte must not crash brief generation.
         tail = log.read_text(errors="replace").splitlines()[-200:]
         lines.append("```")
         lines.extend(tail)
         lines.append("```")
-        lines.append("")
-# Doc drift findings, if any.
-drift = run_dir / "doc_drift.md"
-if drift.exists():
-    drift_text = drift.read_text(errors="replace")
-    if "No drift detected" not in drift_text:
-        lines.append("## doc_drift findings")
-        lines.append("")
-        lines.append(drift_text)
 brief_path.write_text("\n".join(lines))
 PY
 }
 
-_run_autofix() {
+# Echo the URL of an already-open autofix PR for this concern, if any.
+# rc 0 + URL on stdout when one exists; rc 1 when none; rc 2 when the GitHub
+# query itself failed (caller fails closed rather than risk a duplicate).
+#
+# Dedup correctness depends on the trailing `/`: `head:` matches by prefix, so
+# `head:maint-fix/<concern>/` matches `maint-fix/<concern>/<run_id>` but not a
+# concern whose name extends this one. This holds only while no concern name
+# is a prefix of another. Today's concerns (the check names: dev_checks,
+# e2e_sqlite, e2e_mock, e2e_real, doc_drift) are all prefix-distinct; keep it
+# that way, or this dedup could match across concerns.
+_autofix_open_pr_for() {
+    local concern="$1" url
+    url="$(gh pr list \
+        --repo "$(git -C "${MAINT_REPO_DIR}" remote get-url origin)" \
+        --state open \
+        --search "head:${AUTOFIX_BRANCH_PREFIX}/${concern}/" \
+        --json url --jq '.[0].url // empty' \
+        2>"${MAINT_RUN_DIR}/autofix_pr_query.${concern}.err")" || return 2
+    [[ -n "${url}" ]] || return 1
+    echo "${url}"
+    return 0
+}
+
+# Attempt a fix for a single concern. Returns:
+#   0    opened a draft PR
+#   65   session produced no diff
+#   2    touched forbidden paths (refused to push)
+#   66   path_gate.py crashed (couldn't classify the diff — refused to push)
+#   124  session timed out
+#   *    other error
+# Writes the PR url (on success) to autofix_pr_url.<concern>.txt.
+_run_autofix_concern() {
+    local concern="$1"
     cd "${MAINT_REPO_DIR}"
-    if ! command -v claude >/dev/null 2>&1; then
-        echo "claude CLI not on PATH — skipping autofix" >&2
-        return 64
-    fi
-    if ! command -v gh >/dev/null 2>&1; then
-        echo "gh CLI not on PATH — skipping autofix" >&2
-        return 64
-    fi
 
-    local brief="${MAINT_RUN_DIR}/autofix_brief.md"
-    _autofix_build_brief "${brief}"
+    local brief="${MAINT_RUN_DIR}/autofix_brief.${concern}.md"
+    _autofix_build_brief_for "${concern}" "${brief}"
 
-    # Branch name is unique per run (second-resolution timestamp), so a
-    # fresh branch is guaranteed — plain `git push -u` below, no need
-    # for `--force-with-lease`.
-    local branch="${AUTOFIX_BRANCH_PREFIX}/${MAINT_RUN_ID}"
+    local branch="${AUTOFIX_BRANCH_PREFIX}/${concern}/${MAINT_RUN_ID}"
     git checkout -B "${branch}" "origin/${MAINT_REPO_BRANCH}"
-    # Set the repo-level git identity so commits made by the headless
-    # `claude` session below get attributed to the bot, not whoever's
-    # global git config the scheduler user inherits. The orchestrator's
-    # fallback commit (further below) inherits the same identity, so
-    # we don't need to also pass `-c user.email=...` to that `git commit`.
-    git config user.email nightly-autofix@users.noreply.github.com
-    git config user.name "nightly-autofix"
+    # `checkout -B` only resets tracked files. Concerns run serially in the
+    # same clone, so without this any untracked leftovers from the previous
+    # concern's session (scratch files Claude wrote but never `git add`ed)
+    # would survive and get swept into THIS concern's `git add -A` below —
+    # contaminating its diff and possibly its forbidden-paths verdict.
+    git clean -fdx
 
     local prompt
     prompt="$(cat <<EOF
 You are an autonomous fix bot for luthien-proxy. The automated maintenance
-job ran and failures are described in autofix_brief.md (in the run
-directory: ${MAINT_RUN_DIR}).
+job found a problem with the "${concern}" check. It is described in
+${brief} (in the run directory: ${MAINT_RUN_DIR}).
+
+Fix ONLY the ${concern} concern in this session — nothing else. A separate
+session handles each other concern, so do not range beyond this one.
 
 Your task:
-1. Read autofix_brief.md and identify root causes.
+1. Read the brief and identify the root cause(s) of the ${concern} failure.
 2. Make minimal, targeted fixes. Do not refactor.
-3. After each edit, run the relevant check locally to confirm the fix.
-   Match the maintenance run's invocation exactly (the orchestrator runs these
-   with --fresh):
+3. Verify locally where it makes sense. Match the maintenance run's
+   invocation (the orchestrator runs these with --fresh):
      - dev_checks → ./scripts/dev_checks.sh
      - e2e_sqlite → ./scripts/run_e2e.sh sqlite --fresh --no-log
      - e2e_mock  → ./scripts/run_e2e.sh mock --fresh --no-log
-     - doc_drift findings → edit the stale reference, no test needed
+     - doc_drift → edit the stale reference to match the code; no test needed
 4. Commit each logical fix separately with a clear message.
-5. Stop when you've addressed everything you can. Don't speculate or
-   guess if you can't figure something out — leave it for a human.
+5. Stop when you've addressed what you can. Don't speculate or guess; leave
+   anything uncertain for a human.
 
 Constraints (enforced post-session, not just policy):
-- Do not edit migrations/, *.env*, or scripts/automated_maintenance/. The orchestrator
-  refuses to push a diff that touches any of these paths.
+- Do not edit migrations/, *.env*, or scripts/automated_maintenance/. The
+  orchestrator refuses to push a diff that touches any of these paths.
 - Do not push or open PRs yourself; the orchestrator does that.
-- Do not run e2e_real (ANTHROPIC_API_KEY is unset in this subshell so
-  it physically can't authenticate).
+- Do not run e2e_real (ANTHROPIC_API_KEY is unset so it can't authenticate).
 
-When done, write a summary to ${MAINT_RUN_DIR}/autofix_summary.md
-listing what you fixed, what you couldn't fix, and why.
+When done, write a summary to ${MAINT_RUN_DIR}/autofix_summary.${concern}.md
+listing what you fixed, what you couldn't, and why.
 EOF
 )"
 
-    # AUTOFIX_MAX_BUDGET_USD caps API spend per attempt. Prompt via stdin
-    # — variadic --allowedTools would otherwise eat it. ANTHROPIC_API_KEY
-    # is unset in this subshell so the session can't hit the real
-    # Anthropic API (e.g. via ./scripts/run_e2e.sh real). The prompt
-    # also asks Claude not to, but the env strip enforces it.
+    local sess_rc=0
     (
         unset ANTHROPIC_API_KEY
         printf '%s' "${prompt}" | maint_timeout "${AUTOFIX_TIMEOUT}" \
@@ -122,32 +144,30 @@ EOF
                 --permission-mode bypassPermissions \
                 --max-budget-usd "${AUTOFIX_MAX_BUDGET_USD}" \
                 --allowedTools "Read Edit Write Glob Grep Bash" \
-            > "${MAINT_RUN_DIR}/autofix_session.log" 2>&1
-    ) || true
+            > "${MAINT_RUN_DIR}/autofix_session.${concern}.log" 2>&1
+    ) || sess_rc=$?
+    # A timed-out session (gtimeout → 124) was killed mid-edit; don't push its
+    # partial, unreviewed work as if it were a finished fix. Other nonzero
+    # exits are tolerated — `claude` may exit nonzero yet still have produced a
+    # complete, valid diff, so we fall through to the diff check below.
+    if [[ ${sess_rc} -eq 124 ]]; then
+        echo "autofix(${concern}) timed out after ${AUTOFIX_TIMEOUT}s — not pushing partial work"
+        return 124
+    fi
 
-    # Did anything change? Stage everything first so untracked-but-new
-    # files don't silently vanish on push. `git diff` alone misses
-    # untracked files; `git status --porcelain` catches them.
+    # No change? Nothing to push. `git status --porcelain` catches untracked
+    # files that `git diff` alone misses.
     if [[ -z "$(git status --porcelain)" ]] && \
        git diff --quiet "origin/${MAINT_REPO_BRANCH}" -- .; then
-        echo "autofix produced no diff"
-        # Distinct sentinel: rc=65 means "no diff", not just "something
-        # in this subshell exited 1". Avoids miscategorizing a git/curl
-        # failure under `set -e` as "no diff" in the status mapping.
+        echo "autofix(${concern}) produced no diff"
         return 65
     fi
-    # Commit anything the session forgot to commit (e.g. created files
-    # but never `git add`'d them).
     if [[ -n "$(git status --porcelain)" ]]; then
         git add -A
-        git commit -m "autofix: capture uncommitted changes from session"
+        git commit -m "autofix(${concern}): capture uncommitted changes from session"
     fi
 
-    # Forbidden-paths gate: refuse to push diffs that touch sensitive
-    # areas. The prompt asks Claude to avoid these; this is the
-    # enforcement. Logic + unit-test matrix in path_gate.py.
-    # Read changed paths into an array. `mapfile` would be cleaner but
-    # macOS ships bash 3.2 which lacks it; this loop is portable.
+    # Forbidden-paths gate (logic + tests in path_gate.py).
     local changed_paths=()
     while IFS= read -r line; do
         [[ -n "${line}" ]] && changed_paths+=("${line}")
@@ -156,43 +176,34 @@ EOF
         local gate_out gate_rc=0
         gate_out="$(python3 "${MAINT_DIR}/lib/path_gate.py" "${changed_paths[@]}")" || gate_rc=$?
         case "${gate_rc}" in
-            0)
-                ;;  # all paths safe
+            0) ;;
             2)
-                echo "autofix touched forbidden paths — refusing to push:"
+                echo "autofix(${concern}) touched forbidden paths — refusing to push:"
                 while IFS= read -r line; do echo "  ${line}"; done <<< "${gate_out}"
                 return 2
                 ;;
             *)
-                # Fail-closed on any unexpected non-zero (python crash,
-                # unicode error, missing helper). We'd rather refuse to
-                # push than push something we couldn't classify.
+                # Distinct from the forbidden-paths `2` above: a crash means
+                # we couldn't classify the diff at all. Same fail-closed
+                # outcome (don't push), but record it as its own status so the
+                # dashboard doesn't mislabel a path_gate bug as a real
+                # forbidden-paths violation.
                 echo "path_gate.py exited unexpectedly (rc=${gate_rc}) — refusing to push:"
                 echo "${gate_out}"
-                return 2
+                return 66
                 ;;
         esac
     fi
 
-    # Push and open a draft PR.
     git push -u origin "${branch}"
-    # Compute the failed-checks summary via argv (not interpolation) so
-    # state-dir paths with shell metacharacters don't break the python
-    # invocation.
-    local failed_checks
-    failed_checks="$(python3 - "${MAINT_RUN_DIR}/results.json" <<'PY'
-import json, pathlib, sys
-r = json.loads(pathlib.Path(sys.argv[1]).read_text())
-print(", ".join(n for n, c in r["checks"].items() if c["status"] in {"fail", "error"}))
-PY
-)"
     local pr_body
     pr_body="$(cat <<EOF
-Automated fix attempt from maintenance run ${MAINT_RUN_ID}.
+Automated fix attempt for the **${concern}** check, from maintenance run ${MAINT_RUN_ID}.
 
-**Failed checks:** ${failed_checks}
+This PR addresses a single concern (${concern}). Other failing checks, if any,
+get their own PRs.
 
-See \`autofix_summary.md\` and \`autofix_session.log\` in
+See \`autofix_summary.${concern}.md\` and \`autofix_session.${concern}.log\` in
 \`${MAINT_STATE_DIR}/runs/${MAINT_RUN_ID}/\` for details.
 
 **Review carefully** — these changes are not human-authored.
@@ -201,21 +212,41 @@ See \`autofix_summary.md\` and \`autofix_session.log\` in
 *Posted by automated autofix*
 EOF
 )"
-    # If `gh pr create` fails (rate limit, auth, transient error), the
-    # branch we just pushed has no PR pointing at it. Clean up the
-    # remote ref so we don't accumulate orphans.
     local pr_url pr_rc=0
     pr_url="$(gh pr create --draft --base "${MAINT_REPO_BRANCH}" \
-        --title "maint-fix: ${MAINT_RUN_ID}" \
+        --title "maint-fix(${concern}): ${MAINT_RUN_ID}" \
         --body "${pr_body}")" || pr_rc=$?
     if [[ ${pr_rc} -ne 0 ]]; then
         echo "gh pr create failed (rc=${pr_rc}) — deleting orphan remote branch"
         git push origin --delete "${branch}" >/dev/null 2>&1 || true
         return "${pr_rc}"
     fi
-    echo "${pr_url}" > "${MAINT_RUN_DIR}/autofix_pr_url.txt"
-    echo "opened: ${pr_url}"
+    echo "${pr_url}" > "${MAINT_RUN_DIR}/autofix_pr_url.${concern}.txt"
+    echo "autofix(${concern}) opened: ${pr_url}"
     return 0
+}
+
+# Record one concern's autofix outcome into results.json under
+# .autofix.<concern>. Keeps each concern's status/pr independent.
+_autofix_record() {
+    local concern="$1" status="$2" duration="$3" rc="$4" pr_url="${5:-}" existing_pr="${6:-}"
+    python3 - "$MAINT_RUN_DIR" "$concern" "$status" "$duration" "$rc" "$pr_url" "$existing_pr" <<'PY'
+import json, pathlib, sys
+run_dir, concern, status, duration, rc, pr_url, existing_pr = sys.argv[1:8]
+p = pathlib.Path(run_dir, "results.json")
+data = json.loads(p.read_text())
+af = data.get("autofix")
+if not isinstance(af, dict):
+    af = {}
+entry = {"status": status, "duration_s": int(duration), "exit_code": int(rc)}
+if pr_url:
+    entry["pr_url"] = pr_url
+if existing_pr:
+    entry["existing_pr"] = existing_pr
+af[concern] = entry
+data["autofix"] = af
+p.write_text(json.dumps(data, indent=2) + "\n")
+PY
 }
 
 maint_run_autofix() {
@@ -223,52 +254,83 @@ maint_run_autofix() {
         echo "[maint] autofix disabled, skipping" >&2
         return 0
     fi
-    # Only run if at least one check failed. Pass path via argv (not
-    # shell interpolation) so state-dir paths with metacharacters
-    # don't break the python literal.
-    local any_fail
-    any_fail="$(python3 - "${MAINT_RUN_DIR}/results.json" <<'PY'
+    if ! command -v claude >/dev/null 2>&1; then
+        echo "[maint] claude CLI not on PATH — skipping autofix" >&2
+        return 0
+    fi
+    if ! command -v gh >/dev/null 2>&1; then
+        echo "[maint] gh CLI not on PATH — skipping autofix" >&2
+        return 0
+    fi
+
+    # Concerns = failing checks, in declared order. NOTE: a concern name (a
+    # check name from checks.sh / doc_drift.sh) is now load-bearing — it's
+    # interpolated into branch names, the `gh pr list --search head:` dedup
+    # query, and per-concern artifact filenames. Keep check names to
+    # [A-Za-z0-9_-] and prefix-distinct (see _autofix_open_pr_for) or those
+    # surfaces break. They're internal tokens, so we don't validate at runtime.
+    local concerns=()
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] && concerns+=("${line}")
+    done < <(python3 - "${MAINT_RUN_DIR}/results.json" <<'PY'
 import json, pathlib, sys
 r = json.loads(pathlib.Path(sys.argv[1]).read_text())
-print(any(c.get("status") in {"fail", "error"} for c in r.get("checks", {}).values()))
+for name, c in r.get("checks", {}).items():
+    if c.get("status") in {"fail", "error"}:
+        print(name)
 PY
-)"
-    if [[ "${any_fail}" != "True" ]]; then
+)
+    if [[ ${#concerns[@]} -eq 0 ]]; then
         echo "[maint] all checks passed, no autofix needed" >&2
         return 0
     fi
 
-    local log_path="${MAINT_RUN_DIR}/autofix.log"
-    local started ended duration rc=0
-    echo "[maint] >>> autofix" >&2
-    started="$(date +%s)"
-    ( _run_autofix ) >"${log_path}" 2>&1 || rc=$?
-    ended="$(date +%s)"
-    duration=$((ended - started))
-    local status
-    case "${rc}" in
-        0) status="opened_pr" ;;
-        65) status="no_diff" ;;
-        2) status="forbidden_paths" ;;
-        64) status="skip" ;;
-        124) status="timeout" ;;
-        *) status="error" ;;
-    esac
-    local pr_url=""
-    [[ -f "${MAINT_RUN_DIR}/autofix_pr_url.txt" ]] && \
-        pr_url="$(cat "${MAINT_RUN_DIR}/autofix_pr_url.txt")"
-    python3 - "$MAINT_RUN_DIR" "$status" "$duration" "$rc" "$pr_url" <<'PY'
-import json, pathlib, sys
-run_dir, status, duration, rc, pr_url = sys.argv[1:6]
-p = pathlib.Path(run_dir, "results.json")
-data = json.loads(p.read_text())
-data["autofix"] = {
-    "status": status,
-    "duration_s": int(duration),
-    "exit_code": int(rc),
-    "pr_url": pr_url or None,
-}
-p.write_text(json.dumps(data, indent=2) + "\n")
-PY
-    echo "[maint] <<< autofix ${status} (${duration}s, rc=${rc})" >&2
+    # Repo-local commit identity for the autofix branches — set once for the
+    # clone rather than per concern.
+    git -C "${MAINT_REPO_DIR}" config user.email nightly-autofix@users.noreply.github.com
+    git -C "${MAINT_REPO_DIR}" config user.name "nightly-autofix"
+
+    local concern
+    for concern in "${concerns[@]}"; do
+        echo "[maint] >>> autofix(${concern})" >&2
+
+        # Per-concern dedup: skip if an open PR already covers this concern.
+        local existing="" pr_rc=0
+        existing="$(_autofix_open_pr_for "${concern}")" || pr_rc=$?
+        if [[ ${pr_rc} -eq 0 ]]; then
+            echo "[maint] <<< autofix(${concern}) skipped — open PR: ${existing}" >&2
+            _autofix_record "${concern}" "skipped_existing_pr" 0 0 "" "${existing}"
+            continue
+        elif [[ ${pr_rc} -eq 2 ]]; then
+            # Couldn't query GitHub — fail closed (don't risk a duplicate).
+            echo "[maint] <<< autofix(${concern}) skipped — could not query open PRs" >&2
+            _autofix_record "${concern}" "skipped_query_failed" 0 0 "" ""
+            continue
+        fi
+
+        local started ended duration rc=0
+        started="$(date +%s)"
+        ( _run_autofix_concern "${concern}" ) \
+            > "${MAINT_RUN_DIR}/autofix.${concern}.log" 2>&1 || rc=$?
+        ended="$(date +%s)"
+        duration=$((ended - started))
+        local status
+        # rc=2 here means forbidden_paths only. The other potential rc=2
+        # sources are disambiguated: _autofix_open_pr_for's query failure takes
+        # the early `continue` above, and a path_gate.py crash returns 66 (not
+        # 2). Preserve both if refactoring, or this mapping becomes ambiguous.
+        case "${rc}" in
+            0) status="opened_pr" ;;
+            65) status="no_diff" ;;
+            2) status="forbidden_paths" ;;
+            66) status="path_gate_error" ;;
+            124) status="timeout" ;;
+            *) status="error" ;;
+        esac
+        local pr_url=""
+        [[ -f "${MAINT_RUN_DIR}/autofix_pr_url.${concern}.txt" ]] && \
+            pr_url="$(cat "${MAINT_RUN_DIR}/autofix_pr_url.${concern}.txt")"
+        _autofix_record "${concern}" "${status}" "${duration}" "${rc}" "${pr_url}" ""
+        echo "[maint] <<< autofix(${concern}) ${status} (${duration}s, rc=${rc})" >&2
+    done
 }
