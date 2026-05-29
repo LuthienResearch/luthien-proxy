@@ -198,7 +198,6 @@ For the full auth architecture (auth modes, OAuth passthrough details, judge key
 # REDIS_URL=redis://redis:6379
 
 # Gateway
-GATEWAY_HOST=localhost
 GATEWAY_PORT=8000
 ```
 
