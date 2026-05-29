@@ -98,3 +98,6 @@ scripts/automated_maintenance/automated_maintenance.env.bak*
 # Claude Code runtime state
 .claude/scheduled_tasks.lock
 NEXT.md
+
+# dev_checks.sh --timing output
+.dev_checks_timings.jsonl
