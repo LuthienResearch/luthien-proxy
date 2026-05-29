@@ -216,6 +216,7 @@ async def anthropic_messages(
         user_credential=forwarding_credential,
         credential_manager=credential_manager,
         webhook_sender=webhook_sender,
+        inference_provider_registry=deps.inference_provider_registry,
     )
 
 

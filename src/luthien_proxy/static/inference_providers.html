@@ -361,12 +361,6 @@
             setTimeout(() => { el.className = 'status-message'; }, 5000);
         }
 
-        function escapeHtml(s) {
-            return String(s).replace(/[&<>"']/g, c => ({
-                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-            })[c]);
-        }
-
         // Known backend types learned from the last list response.
         // Used so the create/edit dropdown reflects what the gateway can
         // actually construct (not a hardcoded JS constant).
@@ -374,9 +368,6 @@
 
         // Last-seen list, keyed by name. Lets `editProvider(name)` look up
         // the row without embedding JSON in the HTML.
-        // TODO(post-merge): refactor row buttons to `addEventListener` +
-        // dataset; inline `onclick` works today because `escapeHtml` covers
-        // the name regex but is still the wrong idiom.
         const providersByName = Object.create(null);
 
         function populateBackendDropdown(types, selected) {
@@ -457,39 +448,100 @@
 
                 const content = document.getElementById('providers-content');
                 if (data.count === 0) {
-                    content.innerHTML = '<div class="empty-state">No providers configured</div>';
+                    const empty = document.createElement('div');
+                    empty.className = 'empty-state';
+                    empty.textContent = 'No providers configured';
+                    content.replaceChildren(empty);
                 } else {
-                    let html = '<table class="providers-table"><thead><tr>';
-                    html += '<th>Name</th><th>Backend</th><th>Credential</th><th>Default model</th><th>Config</th><th></th>';
-                    html += '</tr></thead><tbody>';
-                    for (const p of data.providers) {
-                        const backendLabel = p.known_backend
-                            ? escapeHtml(p.backend_type)
-                            : escapeHtml(p.backend_type) + ' <span style="color:#fca5a5;font-size:11px;border:1px solid #f87171;padding:1px 4px;border-radius:3px">unknown</span>';
-                        const editAttrs = p.known_backend
-                            ? ''
-                            : ' disabled title="Backend type is not registered in this build — edit would coerce it to a registered type."';
-                        html += '<tr>';
-                        html += '<td class="mono">' + escapeHtml(p.name) + '</td>';
-                        html += '<td>' + backendLabel + '</td>';
-                        html += '<td>' + (p.credential_name ? escapeHtml(p.credential_name) : '<span style="color:#666">—</span>') + '</td>';
-                        html += '<td class="mono">' + escapeHtml(p.default_model) + '</td>';
-                        html += '<td class="mono">' + escapeHtml(JSON.stringify(p.config)) + '</td>';
-                        html += '<td><div class="button-row">';
-                        html += '<button onclick="editProvider(\'' + escapeHtml(p.name) + '\')"' + editAttrs + '>Edit</button>';
-                        html += '<button class="danger" onclick="deleteProvider(\'' + escapeHtml(p.name) + '\')">Delete</button>';
-                        html += '</div></td>';
-                        html += '</tr>';
+                    // DOM construction: provider name/backend_type/credential/
+                    // model/config are config-derived strings; previously they
+                    // were interpolated into inline `onclick` JS strings and HTML
+                    // (same XSS class). Build nodes, wire buttons via
+                    // addEventListener + dataset — inert by construction.
+                    const table = document.createElement('table');
+                    table.className = 'providers-table';
+                    const thead = document.createElement('thead');
+                    const headRow = document.createElement('tr');
+                    for (const h of ['Name', 'Backend', 'Credential', 'Default model', 'Config', '']) {
+                        const th = document.createElement('th');
+                        th.textContent = h;
+                        headRow.appendChild(th);
                     }
-                    html += '</tbody></table>';
-                    content.innerHTML = html;
+                    thead.appendChild(headRow);
+                    table.appendChild(thead);
+
+                    const tbody = document.createElement('tbody');
+                    for (const p of data.providers) {
+                        const row = document.createElement('tr');
+
+                        const nameTd = document.createElement('td');
+                        nameTd.className = 'mono';
+                        nameTd.textContent = p.name;
+
+                        const backendTd = document.createElement('td');
+                        backendTd.textContent = p.backend_type;
+                        if (!p.known_backend) {
+                            const unknown = document.createElement('span');
+                            unknown.textContent = 'unknown';
+                            unknown.style.color = '#fca5a5';
+                            unknown.style.fontSize = '11px';
+                            unknown.style.border = '1px solid #f87171';
+                            unknown.style.padding = '1px 4px';
+                            unknown.style.borderRadius = '3px';
+                            backendTd.append(document.createTextNode(' '), unknown);
+                        }
+
+                        const credTd = document.createElement('td');
+                        if (p.credential_name) {
+                            credTd.textContent = p.credential_name;
+                        } else {
+                            const dash = document.createElement('span');
+                            dash.style.color = '#666';
+                            dash.textContent = '—';
+                            credTd.appendChild(dash);
+                        }
+
+                        const modelTd = document.createElement('td');
+                        modelTd.className = 'mono';
+                        modelTd.textContent = p.default_model;
+
+                        const configTd = document.createElement('td');
+                        configTd.className = 'mono';
+                        configTd.textContent = JSON.stringify(p.config);
+
+                        const actionTd = document.createElement('td');
+                        const buttonRow = document.createElement('div');
+                        buttonRow.className = 'button-row';
+                        const editBtn = document.createElement('button');
+                        editBtn.textContent = 'Edit';
+                        editBtn.dataset.providerName = p.name;
+                        if (!p.known_backend) {
+                            editBtn.disabled = true;
+                            editBtn.title = 'Backend type is not registered in this build — edit would coerce it to a registered type.';
+                        }
+                        editBtn.addEventListener('click', () => editProvider(p.name));
+                        const delBtn = document.createElement('button');
+                        delBtn.className = 'danger';
+                        delBtn.textContent = 'Delete';
+                        delBtn.dataset.providerName = p.name;
+                        delBtn.addEventListener('click', () => deleteProvider(p.name));
+                        buttonRow.append(editBtn, delBtn);
+                        actionTd.appendChild(buttonRow);
+
+                        row.append(nameTd, backendTd, credTd, modelTd, configTd, actionTd);
+                        tbody.appendChild(row);
+                    }
+                    table.appendChild(tbody);
+                    content.replaceChildren(table);
                 }
 
                 document.getElementById('providers-loading').style.display = 'none';
                 content.style.display = 'block';
             } catch (e) {
-                document.getElementById('providers-loading').innerHTML =
-                    '<span style="color: #fca5a5;">Failed to load providers: ' + escapeHtml(e.message) + '</span>';
+                const errSpan = document.createElement('span');
+                errSpan.style.color = '#fca5a5';
+                errSpan.textContent = 'Failed to load providers: ' + e.message;
+                document.getElementById('providers-loading').replaceChildren(errSpan);
             }
         }
 

@@ -1,8 +1,16 @@
+// Escape for safe interpolation into both HTML text *and* quoted attributes.
+// The previous textContent/innerHTML trick escaped <, >, & but NOT " or ',
+// so values interpolated into attribute contexts (e.g. data-tool-call-id="...")
+// could break out of the attribute. Several call_id / tool_call_id values here
+// are request/model-derived, making that a stored-XSS sink. Escape all five.
 function escapeHtml(str) {
     if (str === null || str === undefined) return '';
-    const div = document.createElement('div');
-    div.textContent = String(str);
-    return div.innerHTML;
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function conversationViewer() {

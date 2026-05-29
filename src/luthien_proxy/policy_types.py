@@ -34,6 +34,7 @@ REGISTERED_BUILTINS: tuple[str, ...] = (
     "luthien_proxy.policies.presets.block_dangerous_commands:BlockDangerousCommandsPolicy",
     "luthien_proxy.policies.presets.block_sensitive_file_writes:BlockSensitiveFileWritesPolicy",
     "luthien_proxy.policies.presets.block_web_requests:BlockWebRequestsPolicy",
+    "luthien_proxy.policies.presets.deai:DeAIPolicy",
     "luthien_proxy.policies.presets.no_apologies:NoApologiesPolicy",
     "luthien_proxy.policies.presets.no_yapping:NoYappingPolicy",
     "luthien_proxy.policies.presets.plain_dashes:PlainDashesPolicy",

@@ -36,7 +36,11 @@ from anthropic.types import (
     ToolUseBlock,
 )
 
-from luthien_proxy.credentials import AuthProvider, parse_auth_provider
+from luthien_proxy.credentials import (
+    InferenceProviderRef,
+    parse_provider_ref_with_fallback,
+)
+from luthien_proxy.inference.dispatch import resolve_inference_provider
 from luthien_proxy.policies.simple_llm_utils import (
     BlockDescriptor,
     JudgeAction,
@@ -142,25 +146,27 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
     def __init__(self, config: SimpleLLMJudgeConfig | None = None):
         """Initialize with judge config.
 
-        Note: config=None will fail at runtime with ValidationError since auth_provider is required.
-        Pass an explicit SimpleLLMJudgeConfig with auth_provider set.
+        Note: config=None fails with ValidationError because `instructions` is
+        required. The inference target defaults to `user_credentials` when
+        neither `inference_provider` nor `auth_provider` is set.
         """
         parsed = self._init_config(config, SimpleLLMJudgeConfig)
 
         settings = get_settings()
-        self._config = SimpleLLMJudgeConfig(
-            model=settings.llm_judge_model or parsed.model,
-            api_base=settings.llm_judge_api_base or parsed.api_base,
-            instructions=parsed.instructions,
-            temperature=parsed.temperature,
-            max_tokens=parsed.max_tokens,
-            on_error=parsed.on_error,
-            max_retries=parsed.max_retries,
-            retry_delay=parsed.retry_delay,
-            auth_provider=parsed.auth_provider,
+        # Copy every field from `parsed`, overriding only the two the gateway
+        # settings can supersede. model_copy keeps this drift-proof — a newly
+        # added config field can't be silently dropped here.
+        self._config = parsed.model_copy(
+            update={
+                "model": settings.llm_judge_model or parsed.model,
+                "api_base": settings.llm_judge_api_base or parsed.api_base,
+            }
         )
 
-        self._auth_provider: AuthProvider = parse_auth_provider(parsed.auth_provider)
+        self._inference_provider_ref: InferenceProviderRef = parse_provider_ref_with_fallback(
+            inference_provider=parsed.inference_provider,
+            auth_provider=parsed.auth_provider,
+        )
 
         if self._config.on_error == "pass":
             logger.warning(
@@ -192,12 +198,20 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         (returning "pass" or "block") so callers never handle None.
         """
         try:
-            credential = await context.credential_manager.resolve(self._auth_provider, context)
+            dispatch = await resolve_inference_provider(
+                self._inference_provider_ref,
+                context,
+                context.inference_provider_registry,
+                passthrough_default_model=self._config.model,
+                passthrough_api_base=self._config.api_base,
+                passthrough_name="simple_llm_judge_passthrough",
+            )
             result = await call_simple_llm_judge(
                 self._config,
                 descriptor,
                 previous_blocks,
-                credential=credential,
+                provider=dispatch.provider,
+                credential_override=dispatch.credential_override,
             )
             context.record_event(
                 "policy.simple_llm.judge_result",

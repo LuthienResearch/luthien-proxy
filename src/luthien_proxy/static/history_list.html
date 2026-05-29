@@ -580,7 +580,10 @@
                 applyFilters();
 
             } catch (error) {
-                container.innerHTML = `<div class="error">Failed to load sessions: ${escapeHtml(error.message)}</div>`;
+                const errDiv = document.createElement('div');
+                errDiv.className = 'error';
+                errDiv.textContent = 'Failed to load sessions: ' + error.message;
+                container.replaceChildren(errDiv);
             }
         }
 
@@ -635,17 +638,24 @@
             return userLabels[uid] || (uid.length > 12 ? uid.substring(0, 12) + '…' : uid);
         }
 
-        function userBadgeHtml(uid) {
+        function userBadgeElement(uid) {
             const color = userColor(uid);
-            const label = userDisplay(uid);
-            // uid is attacker-controllable (X-Luthien-User-Id header / JWT sub).
-            // It only ever appears escaped inside attributes; the click is wired
-            // via a delegated listener (see init) reading data-uid — never an
-            // inline onclick.
-            return `<span class="user-badge"
-                style="color:${color};background:${color}22;"
-                data-uid="${escapeHtml(uid)}"
-                title="Click to set a display name · ${escapeHtml(uid)}">${escapeHtml(label)}</span>`;
+            // DOM construction: uid is attacker-controllable (X-Luthien-User-Id
+            // header / JWT sub). textContent / dataset / a CSS color string built
+            // from a numeric hash keep markup and quotes inert by construction.
+            const span = document.createElement('span');
+            span.className = 'user-badge';
+            span.style.color = color;
+            span.style.background = color + '22';
+            span.dataset.uid = uid;
+            span.title = 'Click to set a display name · ' + uid;
+            span.textContent = userDisplay(uid);
+            span.addEventListener('click', (e) => {
+                // Don't let the click bubble to the card's navigate handler.
+                e.stopPropagation();
+                editUserLabel(uid, e);
+            });
+            return span;
         }
 
         async function editUserLabel(uid, event) {
@@ -691,61 +701,90 @@
             // Group sessions by most recent date (last_timestamp)
             const grouped = groupByDate(sessions, today, yesterday);
 
-            let html = '';
+            // DOM construction (not HTML string interpolation): session_id was
+            // previously interpolated into an inline onclick JS string, where
+            // the escapeHtml helper does NOT escape quotes — a stored-XSS sink.
+            // preview_message is also request-derived. Building nodes and using
+            // textContent / addEventListener makes both inert by construction.
+            const frag = document.createDocumentFragment();
             for (const [dateKey, dateSessions] of Object.entries(grouped)) {
-                html += `<div class="date-header"><span class="date-pill">${dateKey}</span></div>`;
+                const dateHeader = document.createElement('div');
+                dateHeader.className = 'date-header';
+                const datePill = document.createElement('span');
+                datePill.className = 'date-pill';
+                datePill.textContent = dateKey;
+                dateHeader.appendChild(datePill);
+                frag.appendChild(dateHeader);
 
                 for (const session of dateSessions) {
                     const firstTime = new Date(session.first_timestamp);
                     const lastTime = new Date(session.last_timestamp);
                     const timeStr = formatTimeRange(firstTime, lastTime);
                     const messageCount = session.turn_count;
-
+                    const hasPreview = !!session.preview_message;
                     const previewText = session.preview_message || '(no message preview)';
 
-                    // Build meta line
-                    let metaParts = [`${messageCount} message${messageCount !== 1 ? 's' : ''}`];
+                    const card = document.createElement('div');
+                    card.className = 'session-card';
+                    card.dataset.sessionId = session.session_id;
+                    card.addEventListener('click', () => viewSession(session.session_id));
 
-                    // Policy interventions
-                    let interventionsHtml;
+                    const main = document.createElement('div');
+                    main.className = 'session-main';
+
+                    const preview = document.createElement('div');
+                    preview.className = hasPreview ? 'session-preview' : 'session-preview session-preview-empty';
+                    preview.textContent = previewText;
+
+                    const meta = document.createElement('div');
+                    meta.className = 'session-meta';
+                    meta.appendChild(document.createTextNode(
+                        `${messageCount} message${messageCount !== 1 ? 's' : ''} · `
+                    ));
+                    const interventions = document.createElement('span');
                     if (session.policy_interventions > 0) {
-                        interventionsHtml = `<span class="interventions-triggered">${session.policy_interventions} policy intervention${session.policy_interventions > 1 ? 's' : ''}</span>`;
+                        interventions.className = 'interventions-triggered';
+                        interventions.textContent =
+                            `${session.policy_interventions} policy intervention${session.policy_interventions > 1 ? 's' : ''}`;
                     } else {
-                        interventionsHtml = `<span class="interventions-none">no policies triggered</span>`;
+                        interventions.className = 'interventions-none';
+                        interventions.textContent = 'no policies triggered';
                     }
+                    meta.appendChild(interventions);
 
                     // User badges (user_ids is a list — usually 0 or 1, but a
                     // shared session_id reused across users can carry several).
-                    let userBadges = '';
+                    // Built as DOM nodes (textContent/dataset/addEventListener),
+                    // same as the rest of the card: uid is attacker-controllable
+                    // (X-Luthien-User-Id header / JWT sub) so it must never be
+                    // interpolated into markup.
                     const uids = Array.isArray(session.user_ids) ? session.user_ids : [];
-                    if (uids.length) {
-                        userBadges = ' · ' + uids.map(userBadgeHtml).join(' ');
+                    for (const uid of uids) {
+                        meta.appendChild(document.createTextNode(' · '));
+                        meta.appendChild(userBadgeElement(uid));
                     }
 
-                    const hasPreview = !!session.preview_message;
-                    // session_id is client-controllable (X-Luthien-Session-Id) and
-                    // MUST NOT go into an inline onclick: the HTML parser decodes
-                    // entities before the JS engine runs, so HTML-escaping is the
-                    // wrong escaping for an event-handler context and a quote in
-                    // session_id would still break out. Carry it in a data-attribute
-                    // (escaped for the attribute context) and wire the click via a
-                    // delegated listener (see init) that reads dataset.sessionId.
-                    html += `
-                        <div class="session-card" data-session-id="${escapeHtml(session.session_id)}">
-                            <div class="session-main">
-                                <div class="session-preview${hasPreview ? '' : ' session-preview-empty'}">${escapeHtml(previewText)}</div>
-                                <div class="session-meta">${metaParts.join(' · ')} · ${interventionsHtml}${userBadges}</div>
-                            </div>
-                            <div class="session-right">
-                                <div class="session-time">${timeStr}</div>
-                                <div class="session-arrow">→</div>
-                            </div>
-                        </div>
-                    `;
+                    main.append(preview, meta);
+
+                    const right = document.createElement('div');
+                    right.className = 'session-right';
+                    const timeEl = document.createElement('div');
+                    timeEl.className = 'session-time';
+                    // formatTimeRange may embed a <br> for multi-day ranges; the
+                    // values are all derived from Date objects (never user text),
+                    // so the limited static markup is safe to inject here.
+                    timeEl.innerHTML = timeStr;
+                    const arrow = document.createElement('div');
+                    arrow.className = 'session-arrow';
+                    arrow.textContent = '→';
+                    right.append(timeEl, arrow);
+
+                    card.append(main, right);
+                    frag.appendChild(card);
                 }
             }
 
-            container.innerHTML = html;
+            container.replaceChildren(frag);
         }
 
         function groupByDate(sessions, today, yesterday) {
@@ -840,31 +879,6 @@
                 return `${startDay} ${startMonth} ${startDateNum} ${startTime} -<br>${endDay} ${endMonth} ${endDateNum} ${endTime}`;
             }
         }
-
-        function escapeHtml(str) {
-            // textContent escapes < > &, but NOT quotes — so values interpolated
-            // into quoted attributes (title="...", data-uid="...") or JS string
-            // literals could break out. Escape quotes explicitly too.
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-        }
-
-        // Single delegated click handler for the session list. Both the user
-        // badge (uid) and the session card (session_id) carry their value in a
-        // data-attribute (escaped at render time) instead of an inline onclick,
-        // so attacker-controllable values can never become executable code.
-        // A badge click edits the label and does NOT navigate; any other click
-        // inside a card opens the conversation.
-        document.getElementById('sessions-container').addEventListener('click', (e) => {
-            const badge = e.target.closest('.user-badge');
-            if (badge) {
-                editUserLabel(badge.dataset.uid, e);
-                return;
-            }
-            const card = e.target.closest('.session-card');
-            if (card) viewSession(card.dataset.sessionId);
-        });
 
         loadUsersAndLabels();
         loadSessions();

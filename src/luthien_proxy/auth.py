@@ -120,7 +120,12 @@ def check_auth_or_redirect(request: Request, admin_key: str | None) -> RedirectR
         return None
 
     if not admin_key:
-        return None
+        # Fail closed: with no ADMIN_API_KEY configured, the admin UI must not be
+        # served. verify_admin_token rejects in the same situation; this path
+        # previously returned None (= authenticated), leaving the admin/history
+        # UI open. Localhost bypass above still lets dockerless local dev through.
+        next_url = quote(str(request.url.path), safe="")
+        return RedirectResponse(url=f"/login?error=required&next={next_url}", status_code=303)
 
     session = get_session_user(request, admin_key)
     if session:

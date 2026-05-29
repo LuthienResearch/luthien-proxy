@@ -1,4 +1,4 @@
-"""Luthien - integrated FastAPI + LiteLLM proxy with OpenTelemetry observability."""
+"""Luthien - integrated FastAPI + Anthropic SDK proxy with OpenTelemetry observability."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ import secrets
 from collections.abc import MutableMapping
 from contextlib import asynccontextmanager
 
-import litellm
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.exceptions import HTTPException as FastAPIHTTPException
@@ -197,10 +196,6 @@ def create_app(
         # Fail fast on UPSTREAM_HEADERS misconfiguration rather than silently
         # disabling the integration on first request.
         validate_upstream_headers_at_startup()
-
-        # Configure litellm globally (moved from policy file to prevent import side effects)
-        litellm.drop_params = True
-        logger.info("Configured litellm: drop_params=True")
 
         # Create event publisher (Redis or in-process)
         _event_publisher: EventPublisherProtocol
@@ -456,10 +451,17 @@ def create_app(
     async def health():
         """Liveness probe endpoint.
 
-        Always returns HTTP 200 if the process is responsive. Kept minimal:
-        a probe attacker shouldn't be able to fingerprint the gateway's auth
-        mode or recent credential activity from this endpoint. The admin UI
-        gets billing-mode signals from /api/admin/billing-status instead.
+        Always returns HTTP 200 if the process is responsive, with no
+        dependency on DB or Redis. This is deliberate: container HEALTHCHECKs
+        and k8s liveness probes consume /health, and a liveness probe that
+        fails on a transient DB blip would trigger a restart that cannot fix
+        the dependency — the textbook cascading-failure outage. Dependency
+        readiness (for traffic draining) lives on /ready; rich per-component
+        diagnostics live on the authenticated /api/admin/system-status.
+
+        Kept minimal so an unauthenticated probe attacker can't fingerprint
+        the gateway's auth mode, dependency topology, or recent credential
+        activity from this endpoint.
         """
         return {
             "status": "healthy",
@@ -636,9 +638,10 @@ def load_config_from_env(settings: Settings | None = None) -> dict:
 def configure_local_mode() -> None:
     """Force-set env vars for dockerless local mode.
 
-    Infrastructure vars (DATABASE_URL, REDIS_URL, etc.) are force-set because
-    litellm calls dotenv.load_dotenv() at import time, polluting os.environ
-    with Docker-internal values from .env.
+    Infrastructure vars (DATABASE_URL, REDIS_URL, etc.) are force-set to
+    override whatever `.env` loading populates, so the local SQLite /
+    no-Redis path stays deterministic even when a Docker-shaped `.env` is
+    checked in.
     """
     data_dir = os.path.join(os.path.expanduser("~"), ".luthien")
     os.makedirs(data_dir, exist_ok=True)

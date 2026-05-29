@@ -27,6 +27,7 @@ _PREFER_UV = "luthien_proxy.policies.presets.prefer_uv:PreferUvPolicy"
 _PLAIN_DASHES = "luthien_proxy.policies.presets.plain_dashes:PlainDashesPolicy"
 _BLOCK_DANGEROUS = "luthien_proxy.policies.presets.block_dangerous_commands:BlockDangerousCommandsPolicy"
 _NO_APOLOGIES = "luthien_proxy.policies.presets.no_apologies:NoApologiesPolicy"
+_DEAI = "luthien_proxy.policies.presets.deai:DeAIPolicy"
 _NO_YAPPING = "luthien_proxy.policies.presets.no_yapping:NoYappingPolicy"
 _BLOCK_WEB = "luthien_proxy.policies.presets.block_web_requests:BlockWebRequestsPolicy"
 _BLOCK_WRITES = "luthien_proxy.policies.presets.block_sensitive_file_writes:BlockSensitiveFileWritesPolicy"
@@ -183,6 +184,54 @@ async def test_no_apologies_removes_sorry(
 
     assert "apologize" not in turn.text.lower()
     assert "The fix is to use async." in turn.text
+
+
+# =============================================================================
+# DeAIPolicy
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_deai_rewrites_ai_patterns(
+    mock_anthropic: MockAnthropicServer,
+    gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
+):
+    """DeAIPolicy: judge rewrites text to remove AI writing patterns."""
+    mock_anthropic.enqueue(
+        text_response("This library serves as a testament to robust design and leverages a vibrant ecosystem.")
+    )
+    mock_anthropic.enqueue(_judge_replace_text("This library is well designed and has a large ecosystem."))
+
+    async with policy_context(_DEAI, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
+        session = ClaudeCodeSimulator(gateway_url, api_key)
+        turn = await session.send("Describe the library")
+
+    assert "testament" not in turn.text.lower()
+    assert "leverages" not in turn.text.lower()
+    assert "This library is well designed" in turn.text
+
+
+@pytest.mark.asyncio
+async def test_deai_passes_natural_text(
+    mock_anthropic: MockAnthropicServer,
+    gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
+):
+    """DeAIPolicy: text that already reads naturally passes through unchanged."""
+    natural = "The cache holds 500 entries and evicts the oldest when full."
+    mock_anthropic.enqueue(text_response(natural))
+    mock_anthropic.enqueue(_judge_pass())
+
+    async with policy_context(_DEAI, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
+        session = ClaudeCodeSimulator(gateway_url, api_key)
+        turn = await session.send("Describe the cache")
+
+    assert turn.text == natural
 
 
 # =============================================================================
