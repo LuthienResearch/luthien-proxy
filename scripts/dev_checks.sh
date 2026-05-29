@@ -5,6 +5,7 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 TIMING_FILE=""
+SKIP_REPORTS=0
 for arg in "$@"; do
     case "$arg" in
         --timing)
@@ -12,6 +13,29 @@ for arg in "$@"; do
             ;;
         --timing=*)
             TIMING_FILE="${arg#--timing=}"
+            ;;
+        --skip-reports)
+            SKIP_REPORTS=1
+            ;;
+        --fast)
+            # --fast is shorthand for the current fastest inner-loop combo.
+            # Today that's just --skip-reports. Additional knobs may be added
+            # here in the future without breaking --skip-reports' meaning.
+            SKIP_REPORTS=1
+            ;;
+        --help|-h)
+            cat <<'USAGE'
+Usage: dev_checks.sh [--timing[=PATH]] [--skip-reports] [--fast]
+
+  --timing[=PATH]  Record per-step wall-clock timings as JSONL
+                   (default path: .dev_checks_timings.jsonl).
+  --skip-reports   Skip report-only steps (ruff docstrings, radon) and
+                   pytest coverage. Gating checks (ruff, pyright, pytest)
+                   still run. Saves ~13s.
+  --fast           Alias for --skip-reports (may enable more inner-loop
+                   shortcuts in the future).
+USAGE
+            exit 0
             ;;
     esac
 done
@@ -153,9 +177,11 @@ fi
 echo "== Ruff lint (E/F/I/D gating) =="
 step "ruff_check" uv run ruff check
 
-echo "== Ruff docstrings (report-only) =="
-run_ruff_docstrings() { uv run ruff check --select D --exit-zero || true; }
-step "ruff_docstrings" run_ruff_docstrings
+if [[ $SKIP_REPORTS -eq 0 ]]; then
+    echo "== Ruff docstrings (report-only) =="
+    run_ruff_docstrings() { uv run ruff check --select D --exit-zero || true; }
+    step "ruff_docstrings" run_ruff_docstrings
+fi
 
 echo "== Pyright + Tests (parallel) =="
 # Pyright and pytest are independent; running them concurrently saves ~10s.
@@ -197,7 +223,11 @@ pyright_start=$(now_epoch)
 PYRIGHT_PID=$!
 
 pytest_start=$(now_epoch)
-( set +e; uv run -m pytest -q > "$PYTEST_LOG" 2>&1; rc=$?; now_epoch > "$PYTEST_END_FILE"; exit "$rc" ) &
+if [[ $SKIP_REPORTS -eq 1 ]]; then
+    ( set +e; uv run -m pytest -q --no-cov > "$PYTEST_LOG" 2>&1; rc=$?; now_epoch > "$PYTEST_END_FILE"; exit "$rc" ) &
+else
+    ( set +e; uv run -m pytest -q > "$PYTEST_LOG" 2>&1; rc=$?; now_epoch > "$PYTEST_END_FILE"; exit "$rc" ) &
+fi
 PYTEST_PID=$!
 
 set +e
@@ -236,9 +266,11 @@ if [[ $PYRIGHT_RC -ne 0 || $PYTEST_RC -ne 0 ]]; then
     exit "$PYRIGHT_RC"
 fi
 
-echo "== Radon complexity (report-only) =="
-run_radon() { uv run radon cc -s -a src || true; }
-step "radon" run_radon
+if [[ $SKIP_REPORTS -eq 0 ]]; then
+    echo "== Radon complexity (report-only) =="
+    run_radon() { uv run radon cc -s -a src || true; }
+    step "radon" run_radon
+fi
 
 echo "== Clean tree check (post) =="
 if ! git diff --quiet 2>/dev/null; then
