@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import secrets
 import time
@@ -178,13 +179,50 @@ async def resolve_anthropic_client(
     return base_client, None
 
 
+def _hashed_key_prefix(value: str) -> str:
+    """Short SHA-256 prefix of a credential, safe to log (raw value never logged)."""
+    return hashlib.sha256(value.encode()).hexdigest()[:12]
+
+
 async def check_rate_limit(
+    request: Request,
     credential: Credential = Depends(verify_token),
     rate_limiter: TokenBucketRateLimiter | None = Depends(get_rate_limiter),
 ) -> None:
-    """Enforce per-key rate limit. Raises HTTP 429 if the key's bucket is exhausted."""
-    if rate_limiter is not None:
-        await rate_limiter.check(credential.value)
+    """Enforce per-key rate limit.
+
+    Translates the limiter's transport-agnostic RateLimitDecision into HTTP:
+    raises 429 with Retry-After / X-RateLimit-* headers when denied, and stashes
+    the decision on ``request.state`` so ``RateLimitHeaderMiddleware`` can attach
+    X-RateLimit-* headers to the successful response. (The headers can't be set on
+    an injected ``Response`` here: the /v1 routes return their own
+    StreamingResponse/JSONResponse objects, which discard the dependency's
+    Response headers — hence the middleware.)
+    """
+    if rate_limiter is None:
+        return
+
+    decision = await rate_limiter.check(credential.value)
+
+    if not decision.allowed:
+        logger.warning(
+            "Rate limit exceeded for key %s (limit=%d rpm, retry_after=%ds)",
+            _hashed_key_prefix(credential.value),
+            decision.limit,
+            decision.retry_after,
+        )
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={
+                "Retry-After": str(decision.retry_after),
+                "X-RateLimit-Limit": str(decision.limit),
+                "X-RateLimit-Remaining": "0",
+                "X-RateLimit-Reset": str(decision.reset_unix),
+            },
+        )
+
+    request.state.rate_limit_decision = decision
 
 
 # === ROUTES ===
