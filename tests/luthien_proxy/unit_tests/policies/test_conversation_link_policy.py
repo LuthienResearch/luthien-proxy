@@ -1,6 +1,7 @@
 """Tests for ConversationLinkPolicy."""
 
 import pytest
+from tests.luthien_proxy.fixtures.policy_context import make_policy_context
 
 from luthien_proxy.policies.conversation_link_policy import ConversationLinkPolicy
 from luthien_proxy.policy_core.policy_context import PolicyContext
@@ -34,7 +35,7 @@ def _subsequent_turn_request():
 
 class TestConversationLinkPolicy:
     def _make_context(self, session_id: str | None = "test-session") -> PolicyContext:
-        return PolicyContext.for_testing(session_id=session_id)
+        return make_policy_context(session_id=session_id)
 
     async def _run_first_turn(
         self, policy: ConversationLinkPolicy, ctx: PolicyContext, content: str = "Hello world"
@@ -170,7 +171,7 @@ class TestConversationLinkPolicyIntegration:
     """Test through the real SimplePolicy entry point (on_anthropic_response)."""
 
     def _make_context(self, session_id: str = "test-session") -> PolicyContext:
-        return PolicyContext.for_testing(session_id=session_id)
+        return make_policy_context(session_id=session_id)
 
     @pytest.mark.asyncio
     async def test_on_anthropic_response_injects_into_first_text_block(self):

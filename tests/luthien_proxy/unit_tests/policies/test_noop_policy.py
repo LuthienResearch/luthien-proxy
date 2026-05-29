@@ -21,13 +21,13 @@ from anthropic.types import (
     TextDelta,
 )
 from tests.constants import DEFAULT_TEST_MODEL
+from tests.luthien_proxy.fixtures.policy_context import make_policy_context
 
 from luthien_proxy.policies.noop_policy import NoOpPolicy
 from luthien_proxy.policy_core import (
     AnthropicExecutionInterface,
     BasePolicy,
 )
-from luthien_proxy.policy_core.policy_context import PolicyContext
 
 # =============================================================================
 # Protocol and inheritance tests
@@ -70,7 +70,7 @@ class TestNoOpPolicyAnthropicRequest:
     async def test_on_anthropic_request_returns_same_request(self):
         """on_anthropic_request returns the exact same request object."""
         policy = NoOpPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         request = {
             "model": DEFAULT_TEST_MODEL,
@@ -86,7 +86,7 @@ class TestNoOpPolicyAnthropicRequest:
     async def test_on_anthropic_request_preserves_all_fields(self):
         """on_anthropic_request preserves all fields in a complex request."""
         policy = NoOpPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         request = {
             "model": DEFAULT_TEST_MODEL,
@@ -116,7 +116,7 @@ class TestNoOpPolicyAnthropicResponse:
     async def test_on_anthropic_response_returns_same_response(self):
         """on_anthropic_response returns the exact same response object."""
         policy = NoOpPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         response = Message.model_construct(
             id="msg_123",
@@ -136,7 +136,7 @@ class TestNoOpPolicyAnthropicResponse:
     async def test_on_anthropic_response_preserves_content(self):
         """on_anthropic_response preserves content blocks exactly."""
         policy = NoOpPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         response = Message.model_construct(
             id="msg_456",
@@ -162,7 +162,7 @@ class TestNoOpPolicyAnthropicStreaming:
     async def test_on_anthropic_stream_event_returns_same_event(self):
         """on_anthropic_stream_event returns the exact same event object."""
         policy = NoOpPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         event = RawContentBlockDeltaEvent.model_construct(
             type="content_block_delta",
@@ -178,7 +178,7 @@ class TestNoOpPolicyAnthropicStreaming:
     async def test_on_anthropic_stream_event_never_returns_empty_list(self):
         """on_anthropic_stream_event never filters out events."""
         policy = NoOpPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         events = [
             RawMessageStartEvent.model_construct(
@@ -224,7 +224,7 @@ class TestNoOpPolicyAnthropicStreaming:
     async def test_on_anthropic_stream_event_handles_all_event_types(self):
         """on_anthropic_stream_event handles all Anthropic stream event types."""
         policy = NoOpPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         message_start = RawMessageStartEvent.model_construct(
             type="message_start",

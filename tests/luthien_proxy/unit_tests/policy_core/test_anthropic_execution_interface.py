@@ -6,6 +6,7 @@ import pytest
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import RawContentBlockStartEvent
 from tests.constants import DEFAULT_TEST_MODEL
+from tests.luthien_proxy.fixtures.policy_context import make_policy_context
 
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse
 from luthien_proxy.policy_core.anthropic_execution_interface import (
@@ -78,7 +79,7 @@ class TestAnthropicExecutionInterface:
         policy = cast(AnthropicExecutionInterface, TestPolicy())
         request: AnthropicRequest = {"model": DEFAULT_TEST_MODEL, "messages": [], "max_tokens": 1}
 
-        result = await policy.on_anthropic_request(request, PolicyContext.for_testing())
+        result = await policy.on_anthropic_request(request, make_policy_context())
         assert result.get("modified") is True
 
     @pytest.mark.asyncio
@@ -111,7 +112,7 @@ class TestAnthropicExecutionInterface:
             "usage": {"input_tokens": 1, "output_tokens": 1},
         }
 
-        result = await policy.on_anthropic_response(response, PolicyContext.for_testing())
+        result = await policy.on_anthropic_response(response, make_policy_context())
         assert result["type"] == "message"
 
     @pytest.mark.asyncio
@@ -138,7 +139,7 @@ class TestAnthropicExecutionInterface:
             type="content_block_start", index=0, content_block={"type": "text", "text": ""}
         )
 
-        result = await policy.on_anthropic_stream_event(event, PolicyContext.for_testing())
+        result = await policy.on_anthropic_stream_event(event, make_policy_context())
         assert len(result) == 2
         assert result[0].type == "content_block_start"
 
@@ -162,5 +163,5 @@ class TestAnthropicExecutionInterface:
                 return []
 
         policy = cast(AnthropicExecutionInterface, TestPolicy())
-        result = await policy.on_anthropic_stream_complete(PolicyContext.for_testing())
+        result = await policy.on_anthropic_stream_complete(make_policy_context())
         assert result == []

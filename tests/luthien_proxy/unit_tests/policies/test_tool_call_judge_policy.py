@@ -21,6 +21,7 @@ from anthropic.types import (
     TextDelta,
     ToolUseBlock,
 )
+from tests.luthien_proxy.fixtures.policy_context import make_policy_context
 from tests.luthien_proxy.unit_tests.policies.anthropic_event_builders import (
     block_stop,
     event_types,
@@ -53,7 +54,7 @@ def _make_policy(**overrides) -> ToolCallJudgePolicy:
 
 def _make_context() -> PolicyContext:
     """Create a fresh PolicyContext for testing."""
-    return PolicyContext.for_testing(transaction_id="test-txn")
+    return make_policy_context(transaction_id="test-txn")
 
 
 # ============================================================================

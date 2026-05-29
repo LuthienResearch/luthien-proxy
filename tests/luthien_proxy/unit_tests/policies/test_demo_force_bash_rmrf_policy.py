@@ -19,10 +19,10 @@ from anthropic.types import (
     RawMessageStopEvent,
 )
 from tests.constants import DEFAULT_TEST_MODEL
+from tests.luthien_proxy.fixtures.policy_context import make_policy_context
 
 from luthien_proxy.policies.demo_force_bash_rmrf_policy import DemoForceBashRmRfPolicy
 from luthien_proxy.policy_core import AnthropicHookPolicy, BasePolicy
-from luthien_proxy.policy_core.policy_context import PolicyContext
 
 
 def _upstream_response() -> dict[str, Any]:
@@ -73,9 +73,7 @@ class TestNonStreaming:
     @pytest.mark.asyncio
     async def test_replaces_upstream_with_tool_use(self):
         policy = DemoForceBashRmRfPolicy(target_path="/tmp/luthien-demo/x", tool_name="Bash")
-        result = cast(
-            dict[str, Any], await policy.on_anthropic_response(_upstream_response(), PolicyContext.for_testing())
-        )  # type: ignore[arg-type]
+        result = cast(dict[str, Any], await policy.on_anthropic_response(_upstream_response(), make_policy_context()))  # type: ignore[arg-type]
 
         assert result["stop_reason"] == "tool_use"
         assert result["role"] == "assistant"
@@ -91,9 +89,7 @@ class TestNonStreaming:
     @pytest.mark.asyncio
     async def test_respects_configured_tool_name(self, tool_name: str):
         policy = DemoForceBashRmRfPolicy(tool_name=tool_name)
-        result = cast(
-            dict[str, Any], await policy.on_anthropic_response(_upstream_response(), PolicyContext.for_testing())
-        )  # type: ignore[arg-type]
+        result = cast(dict[str, Any], await policy.on_anthropic_response(_upstream_response(), make_policy_context()))  # type: ignore[arg-type]
         assert result["content"][0]["name"] == tool_name
 
 
@@ -103,14 +99,14 @@ class TestStreaming:
         policy = DemoForceBashRmRfPolicy()
         result = await policy.on_anthropic_stream_event(
             cast(Any, RawMessageStopEvent.model_construct(type="message_stop")),
-            PolicyContext.for_testing(),
+            make_policy_context(),
         )
         assert result == []
 
     @pytest.mark.asyncio
     async def test_complete_emits_six_events_in_protocol_order(self):
         policy = DemoForceBashRmRfPolicy(target_path="/tmp/luthien-demo/x", tool_name="Bash")
-        events = await policy.on_anthropic_stream_complete(PolicyContext.for_testing())
+        events = await policy.on_anthropic_stream_complete(make_policy_context())
 
         assert [type(ev) for ev in events] == [
             RawMessageStartEvent,
@@ -124,7 +120,7 @@ class TestStreaming:
     @pytest.mark.asyncio
     async def test_complete_tool_use_block_has_configured_name_and_command(self):
         policy = DemoForceBashRmRfPolicy(target_path="/tmp/luthien-demo/x", tool_name="mcp__workspace__bash")
-        events = await policy.on_anthropic_stream_complete(PolicyContext.for_testing())
+        events = await policy.on_anthropic_stream_complete(make_policy_context())
 
         # Compare via model_dump to sidestep typed-vs-dict access for fields
         # that the policy constructs with `model_construct` (validation-skipped).
@@ -140,7 +136,7 @@ class TestStreaming:
     @pytest.mark.asyncio
     async def test_complete_message_delta_signals_tool_use_stop(self):
         policy = DemoForceBashRmRfPolicy()
-        events = await policy.on_anthropic_stream_complete(PolicyContext.for_testing())
+        events = await policy.on_anthropic_stream_complete(make_policy_context())
 
         message_delta = cast(Any, events[4]).model_dump()
         assert message_delta["delta"]["stop_reason"] == "tool_use"

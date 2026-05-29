@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from opentelemetry import trace
+from tests.luthien_proxy.fixtures.policy_context import make_policy_context
 
 from luthien_proxy.policy_core.policy_context import PolicyContext
 
@@ -14,7 +15,7 @@ class TestPolicyContextSpan:
 
     def test_span_creates_child_span_with_policy_prefix(self):
         """Span names are prefixed with 'policy.' automatically."""
-        ctx = PolicyContext.for_testing(transaction_id="test-123")
+        ctx = make_policy_context(transaction_id="test-123")
 
         mock_span = MagicMock()
         mock_span.__enter__ = MagicMock(return_value=mock_span)
@@ -30,7 +31,7 @@ class TestPolicyContextSpan:
 
     def test_span_does_not_double_prefix(self):
         """If name already has policy. prefix, don't add it again."""
-        ctx = PolicyContext.for_testing(transaction_id="test-123")
+        ctx = make_policy_context(transaction_id="test-123")
 
         mock_span = MagicMock()
         mock_span.__enter__ = MagicMock(return_value=mock_span)
@@ -46,7 +47,7 @@ class TestPolicyContextSpan:
 
     def test_span_includes_transaction_id(self):
         """Spans include the transaction_id attribute."""
-        ctx = PolicyContext.for_testing(transaction_id="txn-456")
+        ctx = make_policy_context(transaction_id="txn-456")
 
         mock_span = MagicMock()
         mock_span.__enter__ = MagicMock(return_value=mock_span)
@@ -62,7 +63,7 @@ class TestPolicyContextSpan:
 
     def test_span_accepts_custom_attributes(self):
         """Custom attributes are set on the span."""
-        ctx = PolicyContext.for_testing(transaction_id="test-123")
+        ctx = make_policy_context(transaction_id="test-123")
 
         mock_span = MagicMock()
         mock_span.__enter__ = MagicMock(return_value=mock_span)
@@ -80,7 +81,7 @@ class TestPolicyContextSpan:
 
     def test_span_yields_span_for_further_customization(self):
         """The yielded span can be used to add events and attributes."""
-        ctx = PolicyContext.for_testing(transaction_id="test-123")
+        ctx = make_policy_context(transaction_id="test-123")
 
         mock_span = MagicMock()
         mock_span.__enter__ = MagicMock(return_value=mock_span)
@@ -102,7 +103,7 @@ class TestPolicyContextAddSpanEvent:
 
     def test_add_span_event_adds_to_current_span(self):
         """Events are added to the current span."""
-        ctx = PolicyContext.for_testing(transaction_id="test-123")
+        ctx = make_policy_context(transaction_id="test-123")
 
         mock_span = MagicMock()
         mock_span.is_recording.return_value = True
@@ -114,7 +115,7 @@ class TestPolicyContextAddSpanEvent:
 
     def test_add_span_event_with_attributes(self):
         """Events can include attributes."""
-        ctx = PolicyContext.for_testing(transaction_id="test-123")
+        ctx = make_policy_context(transaction_id="test-123")
 
         mock_span = MagicMock()
         mock_span.is_recording.return_value = True
@@ -128,7 +129,7 @@ class TestPolicyContextAddSpanEvent:
 
     def test_add_span_event_no_op_when_not_recording(self):
         """Adding event when span is not recording is a no-op."""
-        ctx = PolicyContext.for_testing(transaction_id="test-123")
+        ctx = make_policy_context(transaction_id="test-123")
 
         mock_span = MagicMock()
         mock_span.is_recording.return_value = False
@@ -140,18 +141,18 @@ class TestPolicyContextAddSpanEvent:
 
 
 class TestPolicyContextForTesting:
-    """Tests for PolicyContext.for_testing() factory."""
+    """Tests for make_policy_context() factory."""
 
     def test_for_testing_creates_valid_context(self):
         """for_testing() creates a usable PolicyContext."""
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         assert ctx.transaction_id == "test-txn"
         assert ctx.request is None
         assert ctx.session_id is None
 
-    def test_for_testing_accepts_custom_values(self):
-        """for_testing() accepts custom transaction_id and session_id."""
-        ctx = PolicyContext.for_testing(transaction_id="custom-txn", session_id="sess-123")
+    def test_make_policy_context_accepts_custom_values(self):
+        """make_policy_context() accepts custom transaction_id and session_id."""
+        ctx = make_policy_context(transaction_id="custom-txn", session_id="sess-123")
         assert ctx.transaction_id == "custom-txn"
         assert ctx.session_id == "sess-123"
 
@@ -200,14 +201,14 @@ class TestPolicyContextScratchpad:
 
     def test_scratchpad_is_mutable_dict(self):
         """scratchpad is a mutable dictionary."""
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         ctx.scratchpad["key"] = "value"
         assert ctx.scratchpad["key"] == "value"
 
     def test_scratchpad_persists_across_accesses(self):
         """scratchpad retains values across multiple accesses."""
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         ctx.scratchpad["counter"] = 0
         ctx.scratchpad["counter"] += 1
@@ -217,8 +218,8 @@ class TestPolicyContextScratchpad:
 
     def test_scratchpad_is_isolated_per_context(self):
         """Each context has its own scratchpad."""
-        ctx1 = PolicyContext.for_testing(transaction_id="ctx1")
-        ctx2 = PolicyContext.for_testing(transaction_id="ctx2")
+        ctx1 = make_policy_context(transaction_id="ctx1")
+        ctx2 = make_policy_context(transaction_id="ctx2")
 
         ctx1.scratchpad["value"] = "from ctx1"
         ctx2.scratchpad["value"] = "from ctx2"
@@ -232,26 +233,26 @@ class TestPolicyContextSummaries:
 
     def test_summaries_default_to_none(self):
         """Summary fields default to None."""
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         assert ctx.request_summary is None
         assert ctx.response_summary is None
 
     def test_request_summary_can_be_set(self):
         """Policies can set request_summary."""
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         ctx.request_summary = "pass_through"
         assert ctx.request_summary == "pass_through"
 
     def test_response_summary_can_be_set(self):
         """Policies can set response_summary."""
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         ctx.response_summary = "blocked rm -rf: high risk score (0.92)"
         assert ctx.response_summary == "blocked rm -rf: high risk score (0.92)"
 
     def test_summaries_are_isolated_per_context(self):
         """Each context has its own summaries."""
-        ctx1 = PolicyContext.for_testing(transaction_id="ctx1")
-        ctx2 = PolicyContext.for_testing(transaction_id="ctx2")
+        ctx1 = make_policy_context(transaction_id="ctx1")
+        ctx2 = make_policy_context(transaction_id="ctx2")
 
         ctx1.request_summary = "modified"
         ctx2.request_summary = "pass_through"
@@ -261,7 +262,7 @@ class TestPolicyContextSummaries:
 
     def test_summaries_can_be_any_string(self):
         """Summaries are free-form text fields."""
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         ctx.request_summary = "Added safety prefix to system prompt"
         ctx.response_summary = "Redacted 3 PII patterns (email, phone, SSN)"
 
@@ -274,25 +275,25 @@ class TestPolicyContextPolicyCache:
 
     def test_policy_cache_raises_without_factory(self):
         """Accessing policy_cache() without a configured factory raises RuntimeError."""
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         with pytest.raises(RuntimeError, match="PolicyCache not available"):
             ctx.policy_cache("SomePolicy")
 
     def test_has_policy_cache_false_by_default(self):
         """has_policy_cache defaults to False when no factory is configured."""
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         assert ctx.has_policy_cache is False
 
     def test_has_policy_cache_true_with_factory(self):
         """has_policy_cache is True when a factory is supplied."""
         sentinel = MagicMock(name="PolicyCacheInstance")
-        ctx = PolicyContext.for_testing(policy_cache_factory=lambda name: sentinel)
+        ctx = make_policy_context(policy_cache_factory=lambda name: sentinel)
         assert ctx.has_policy_cache is True
 
     def test_policy_cache_forwards_name_to_factory(self):
         """policy_cache() invokes the factory with the supplied policy name."""
         factory = MagicMock(return_value=MagicMock(name="PolicyCacheInstance"))
-        ctx = PolicyContext.for_testing(policy_cache_factory=factory)
+        ctx = make_policy_context(policy_cache_factory=factory)
 
         result = ctx.policy_cache("MyPolicy")
 
@@ -300,15 +301,15 @@ class TestPolicyContextPolicyCache:
         assert result is factory.return_value
 
     def test_for_testing_forwards_policy_cache_factory(self):
-        """PolicyContext.for_testing() propagates the factory through to the instance."""
+        """make_policy_context() propagates the factory through to the instance."""
         factory = lambda name: MagicMock(name=f"cache-{name}")  # noqa: E731
-        ctx = PolicyContext.for_testing(policy_cache_factory=factory)
+        ctx = make_policy_context(policy_cache_factory=factory)
         assert ctx._policy_cache_factory is factory
 
     def test_deepcopy_preserves_factory_identity(self):
         """deepcopy shares the factory reference so sub-policies hit the same infra."""
         factory = MagicMock(return_value=MagicMock())
-        ctx = PolicyContext.for_testing(policy_cache_factory=factory)
+        ctx = make_policy_context(policy_cache_factory=factory)
 
         copied = copy.deepcopy(ctx)
 

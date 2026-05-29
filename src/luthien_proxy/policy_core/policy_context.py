@@ -316,50 +316,5 @@ class PolicyContext:
 
         return new_ctx
 
-    @classmethod
-    def for_testing(
-        cls,
-        transaction_id: str = "test-txn",
-        request: Any | None = None,
-        raw_http_request: RawHttpRequest | None = None,
-        session_id: str | None = None,
-        user_id: str | None = None,
-        user_credential: Credential | None = None,
-        credential_manager: "CredentialManager | None" = None,
-        inference_provider_registry: "InferenceProviderRegistry | None" = None,
-        policy_cache_factory: "PolicyCacheFactory | None" = None,
-    ) -> "PolicyContext":
-        """Create a PolicyContext suitable for unit tests.
-
-        Uses NullEventEmitter so no external dependencies are required.
-
-        Args:
-            transaction_id: Transaction ID (defaults to "test-txn")
-            request: Optional request object
-            raw_http_request: Optional raw HTTP request data
-            session_id: Optional session ID
-            user_id: Optional user identity for tests exercising user-aware behavior
-            user_credential: Optional credential for tests exercising auth
-            credential_manager: Optional manager for tests exercising auth providers
-            inference_provider_registry: Optional provider registry for tests
-                exercising named-provider dispatch
-            policy_cache_factory: Optional cache factory for tests exercising caching
-
-        Returns:
-            PolicyContext with null implementations for external services
-        """
-        return cls(
-            transaction_id=transaction_id,
-            request=request,
-            emitter=NullEventEmitter(),
-            raw_http_request=raw_http_request,
-            session_id=session_id,
-            user_id=user_id,
-            user_credential=user_credential,
-            credential_manager=credential_manager,
-            inference_provider_registry=inference_provider_registry,
-            policy_cache_factory=policy_cache_factory,
-        )
-
 
 __all__ = ["PolicyContext"]

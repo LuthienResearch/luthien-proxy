@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
+from tests.luthien_proxy.fixtures.policy_context import make_policy_context
 
 from luthien_proxy.policy_core.anthropic_hook_policy import AnthropicHookPolicy
-from luthien_proxy.policy_core.policy_context import PolicyContext
 
 
 class TestAnthropicHookPolicyDefaults:
@@ -15,7 +15,7 @@ class TestAnthropicHookPolicyDefaults:
     async def test_on_anthropic_request_default_passthrough(self):
         """Default on_anthropic_request returns request unchanged."""
         policy = AnthropicHookPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         request = {"model": "claude-3-5-sonnet", "messages": [], "max_tokens": 100}
 
         result = await policy.on_anthropic_request(request, ctx)
@@ -26,7 +26,7 @@ class TestAnthropicHookPolicyDefaults:
     async def test_on_anthropic_response_default_passthrough(self):
         """Default on_anthropic_response returns response unchanged."""
         policy = AnthropicHookPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         response = {
             "id": "msg_test",
             "type": "message",
@@ -47,7 +47,7 @@ class TestAnthropicHookPolicyDefaults:
         from anthropic.types import RawContentBlockDeltaEvent, TextDelta
 
         policy = AnthropicHookPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         event = RawContentBlockDeltaEvent(
             type="content_block_delta",
             index=0,
@@ -62,7 +62,7 @@ class TestAnthropicHookPolicyDefaults:
     async def test_on_anthropic_stream_complete_default_returns_empty(self):
         """Default on_anthropic_stream_complete returns empty list."""
         policy = AnthropicHookPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         result = await policy.on_anthropic_stream_complete(ctx)
 

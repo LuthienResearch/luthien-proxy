@@ -27,6 +27,7 @@ from anthropic.types import (
     ToolUseBlock,
 )
 from tests.constants import DEFAULT_TEST_MODEL
+from tests.luthien_proxy.fixtures.policy_context import make_policy_context
 
 from luthien_proxy.llm.types.anthropic import (
     AnthropicRequest,
@@ -97,7 +98,7 @@ class TestSimplePolicyAnthropicRequest:
     async def test_on_request_passthrough_by_default(self):
         """Base class on_anthropic_request passes through text unchanged."""
         policy = SimplePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         request: AnthropicRequest = {
             "model": DEFAULT_TEST_MODEL,
@@ -113,7 +114,7 @@ class TestSimplePolicyAnthropicRequest:
     async def test_on_request_transforms_string_content(self):
         """Subclass simple_on_request transforms string message content."""
         policy = AnthropicUppercasePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         request: AnthropicRequest = {
             "model": DEFAULT_TEST_MODEL,
@@ -129,7 +130,7 @@ class TestSimplePolicyAnthropicRequest:
     async def test_on_request_transforms_text_block_content(self):
         """Subclass simple_on_request transforms text blocks in message content list."""
         policy = AnthropicUppercasePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         text_block: AnthropicTextBlock = {"type": "text", "text": "hello world"}
         request: AnthropicRequest = {
@@ -149,7 +150,7 @@ class TestSimplePolicyAnthropicRequest:
     async def test_on_request_ignores_tool_use_blocks(self):
         """on_anthropic_request does not transform tool_use blocks in messages."""
         policy = AnthropicUppercasePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         tool_block: AnthropicToolUseBlock = {
             "type": "tool_use",
@@ -181,7 +182,7 @@ class TestSimplePolicyAnthropicResponse:
     async def test_on_response_passthrough_by_default(self):
         """Base class on_anthropic_response passes through response unchanged."""
         policy = SimplePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         response: AnthropicResponse = {
             "id": "msg_123",
@@ -203,7 +204,7 @@ class TestSimplePolicyAnthropicResponse:
     async def test_on_response_transforms_text_content(self):
         """Subclass simple_on_response_content transforms text blocks."""
         policy = AnthropicUppercasePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         response: AnthropicResponse = {
             "id": "msg_123",
@@ -224,7 +225,7 @@ class TestSimplePolicyAnthropicResponse:
     async def test_on_response_transforms_multiple_text_blocks(self):
         """on_anthropic_response transforms all text blocks in content."""
         policy = AnthropicUppercasePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         response: AnthropicResponse = {
             "id": "msg_123",
@@ -250,7 +251,7 @@ class TestSimplePolicyAnthropicResponse:
     async def test_on_response_transforms_tool_use_blocks(self):
         """Subclass simple_on_anthropic_tool_call transforms tool_use blocks."""
         policy = AnthropicPrefixToolNamePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         tool_block: AnthropicToolUseBlock = {
             "type": "tool_use",
@@ -277,7 +278,7 @@ class TestSimplePolicyAnthropicResponse:
     async def test_on_response_mixed_content_blocks(self):
         """on_anthropic_response transforms text and tool_use blocks correctly."""
         policy = AnthropicPrefixToolNamePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         text_block: AnthropicTextBlock = {"type": "text", "text": "calling tool"}
         tool_block: AnthropicToolUseBlock = {
@@ -314,7 +315,7 @@ class TestSimplePolicyAnthropicStreamEventBasic:
     async def test_message_start_passes_through(self):
         """on_anthropic_stream_event passes message_start unchanged."""
         policy = SimplePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         event = RawMessageStartEvent.model_construct(
             type="message_start",
@@ -337,7 +338,7 @@ class TestSimplePolicyAnthropicStreamEventBasic:
     async def test_content_block_start_initializes_buffer(self):
         """on_anthropic_stream_event initializes text buffer for content_block_start."""
         policy = SimplePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         event = RawContentBlockStartEvent.model_construct(
             type="content_block_start",
@@ -355,7 +356,7 @@ class TestSimplePolicyAnthropicStreamEventBasic:
     async def test_content_block_stop_passes_through(self):
         """on_anthropic_stream_event passes through content_block_stop event."""
         policy = SimplePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         # Start block
         start_event = RawContentBlockStartEvent.model_construct(
@@ -387,7 +388,7 @@ class TestSimplePolicyAnthropicStreamEventBasic:
     async def test_message_delta_passes_through(self):
         """on_anthropic_stream_event passes message_delta unchanged."""
         policy = SimplePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         event = RawMessageDeltaEvent.model_construct(
             type="message_delta",
@@ -403,7 +404,7 @@ class TestSimplePolicyAnthropicStreamEventBasic:
     async def test_message_stop_passes_through(self):
         """on_anthropic_stream_event passes message_stop unchanged."""
         policy = SimplePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         event = RawMessageStopEvent.model_construct(type="message_stop")
 
@@ -419,7 +420,7 @@ class TestSimplePolicyAnthropicStreamEventText:
     async def test_text_delta_buffers_content(self):
         """on_anthropic_stream_event buffers TextDelta without emitting."""
         policy = SimplePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         # Start
         start_event = RawContentBlockStartEvent.model_construct(
@@ -445,7 +446,7 @@ class TestSimplePolicyAnthropicStreamEventText:
     async def test_text_delta_accumulates(self):
         """Multiple TextDeltas accumulate in the buffer."""
         policy = SimplePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         # Start
         start_event = RawContentBlockStartEvent.model_construct(
@@ -476,7 +477,7 @@ class TestSimplePolicyAnthropicStreamEventText:
     async def test_thinking_delta_passes_through(self):
         """ThinkingDelta passes through unchanged (not buffered like TextDelta)."""
         policy = SimplePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         # Start
         start_event = RawContentBlockStartEvent.model_construct(
@@ -506,7 +507,7 @@ class TestSimplePolicyAnthropicStreamEventToolUse:
     async def test_tool_use_start_initializes_buffer(self):
         """on_anthropic_stream_event initializes tool buffer for tool_use block."""
         policy = SimplePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         event = RawContentBlockStartEvent.model_construct(
             type="content_block_start",
@@ -527,7 +528,7 @@ class TestSimplePolicyAnthropicStreamEventToolUse:
     async def test_json_delta_buffers_incrementally(self):
         """InputJSONDelta accumulates in tool buffer."""
         policy = SimplePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         # Start tool_use
         start_event = RawContentBlockStartEvent.model_construct(
@@ -563,7 +564,7 @@ class TestSimplePolicyAnthropicStreamEventToolUse:
     async def test_tool_use_stop_completes_and_transforms(self):
         """on_anthropic_stream_event completes tool_use and calls transform."""
         policy = AnthropicPrefixToolNamePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         # Start
         start_event = RawContentBlockStartEvent.model_construct(
@@ -608,8 +609,8 @@ class TestSimplePolicyAnthropicBufferManagement:
     async def test_separate_contexts_have_separate_buffers(self):
         """Different PolicyContexts maintain independent buffers."""
         policy = SimplePolicy()
-        ctx_a = PolicyContext.for_testing(transaction_id="txn-a")
-        ctx_b = PolicyContext.for_testing(transaction_id="txn-b")
+        ctx_a = make_policy_context(transaction_id="txn-a")
+        ctx_b = make_policy_context(transaction_id="txn-b")
 
         # Start block in ctx_a
         start_a = RawContentBlockStartEvent.model_construct(
@@ -628,8 +629,8 @@ class TestSimplePolicyAnthropicBufferManagement:
     async def test_on_anthropic_streaming_policy_complete_cleans_state(self):
         """on_anthropic_streaming_policy_complete removes per-request state."""
         policy = SimplePolicy()
-        ctx_a = PolicyContext.for_testing(transaction_id="txn-a")
-        ctx_b = PolicyContext.for_testing(transaction_id="txn-b")
+        ctx_a = make_policy_context(transaction_id="txn-a")
+        ctx_b = make_policy_context(transaction_id="txn-b")
 
         start_a = RawContentBlockStartEvent.model_construct(
             type="content_block_start",
@@ -660,7 +661,7 @@ class TestSimplePolicyErrorHandling:
     async def test_on_stream_event_raises_on_text_delta_without_buffer(self):
         """on_anthropic_stream_event raises RuntimeError when TextDelta received without buffer."""
         policy = SimplePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         # Send text delta WITHOUT starting a block first
         text_delta = TextDelta.model_construct(type="text_delta", text="orphan delta")
@@ -681,7 +682,7 @@ class TestSimplePolicyErrorHandling:
     async def test_on_stream_event_raises_on_json_delta_without_buffer(self):
         """on_anthropic_stream_event raises RuntimeError when InputJSONDelta received without buffer."""
         policy = SimplePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         # Send JSON delta WITHOUT starting a tool block first
         json_delta = InputJSONDelta.model_construct(type="input_json_delta", partial_json='{"key":')
@@ -704,7 +705,7 @@ class TestSimplePolicyErrorHandling:
         import json as json_module
 
         policy = SimplePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         # Start tool_use block
         start_event = RawContentBlockStartEvent.model_construct(
@@ -741,7 +742,7 @@ class TestSimplePolicyErrorHandling:
     async def test_on_anthropic_response_raises_on_missing_tool_use_id(self):
         """on_anthropic_response raises ValueError when tool_use block is missing id."""
         policy = SimplePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         response: AnthropicResponse = {
             "id": "msg_123",
@@ -769,7 +770,7 @@ class TestSimplePolicyErrorHandling:
     async def test_on_anthropic_response_raises_on_missing_tool_use_name(self):
         """on_anthropic_response raises ValueError when tool_use block is missing name."""
         policy = SimplePolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         response: AnthropicResponse = {
             "id": "msg_123",
