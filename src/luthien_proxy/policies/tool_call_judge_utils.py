@@ -99,8 +99,8 @@ def parse_to_judge_result(
 ) -> JudgeResult:
     """Parse raw judge response text into a validated JudgeResult.
 
-    Clamps `probability` into `[0, 1]` and requires an explanation field
-    even if blank — callers log it for triage.
+    Clamps `probability` into `[0, 1]`. A missing `explanation` defaults to
+    an empty string (callers log it for triage), so it is never required.
     """
     data = parse_judge_response(response_text)
 
@@ -146,7 +146,7 @@ def build_judge_prompt(name: str, arguments: str, judge_instructions: str) -> li
 __all__ = [
     "JudgeConfig",
     "JudgeResult",
+    "build_judge_prompt",
     "parse_judge_response",
     "parse_to_judge_result",
-    "build_judge_prompt",
 ]

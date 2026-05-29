@@ -108,6 +108,12 @@ def parse_inference_provider(raw: str | dict | None) -> InferenceProviderRef:
     if raw is None or raw == "user_credentials":
         return UserCredentials()
     if isinstance(raw, dict):
+        # Reject ambiguous configs up front: more than one reference key means
+        # a YAML typo would otherwise silently resolve to whichever key we
+        # happen to check first.
+        present = [k for k in ("provider", "user_then_provider", "server_key", "user_then_server") if k in raw]
+        if len(present) > 1:
+            raise ValueError(f"inference_provider has multiple reference keys {present}; specify exactly one.")
         # New inner-key names
         if "provider" in raw:
             name = raw["provider"]
@@ -148,8 +154,10 @@ def _parse_user_then(val: object, *, key: str) -> UserThenProvider:
 def parse_auth_provider(raw: str | dict | None) -> InferenceProviderRef:
     """Legacy alias for `parse_inference_provider` with a deprecation warning.
 
-    Emits a one-off warning recommending callers rename the YAML field from
-    `auth_provider` to `inference_provider`. The old inner-key names
+    Logs a warning on every call recommending callers rename the YAML field
+    from `auth_provider` to `inference_provider`. Callers are policy
+    `__init__`s, and policies are singletons built once at startup, so in
+    practice this fires roughly once per policy load. The old inner-key names
     (`server_key`, `user_then_server`) are still parsed transparently —
     operators with deployed configs don't need to change anything urgently,
     they just see a log line until they migrate.
@@ -159,3 +167,26 @@ def parse_auth_provider(raw: str | dict | None) -> InferenceProviderRef:
         "The old field name will be removed in a follow-up release."
     )
     return parse_inference_provider(raw)
+
+
+def parse_provider_ref_with_fallback(
+    inference_provider: str | dict | None,
+    auth_provider: str | dict | None,
+) -> InferenceProviderRef:
+    """Parse a judge policy's inference-provider reference with legacy fallback.
+
+    Accepts either the new `inference_provider:` field or the deprecated
+    `auth_provider:` alias, but not both. `None`/`None` defaults to
+    `user_credentials`. Shared by every judge policy so the back-compat
+    semantics stay identical across them.
+    """
+    if inference_provider is not None and auth_provider is not None:
+        raise ValueError(
+            "Policy config has both 'inference_provider' and 'auth_provider'; "
+            "use only 'inference_provider' (the old name is deprecated)."
+        )
+    if inference_provider is not None:
+        return parse_inference_provider(inference_provider)
+    if auth_provider is not None:
+        return parse_auth_provider(auth_provider)
+    return parse_inference_provider(None)

@@ -52,4 +52,8 @@ policy:
 #     #
 #     # Named providers (`provider:` / `user_then_provider.name:`) look up
 #     # entries in the inference-providers registry (/inference-providers).
+#     #
+#     # DEPRECATED: the field was previously named `auth_provider:` (with inner
+#     # keys `server_key:` / `user_then_server:`). The old names still parse
+#     # but log a deprecation warning — rename to `inference_provider:`.
 #     inference_provider: "user_credentials"

@@ -55,9 +55,12 @@ logger = logging.getLogger(__name__)
 
 #: Placeholder credential used when the caller will always pass a
 #: `credential_override`. The `DirectApiProvider` records it as `_credential`
-#: but never reads it on the passthrough path.
+#: but never reads it on the passthrough path. The value is intentionally a
+#: self-describing sentinel (not an empty string) so that if a future code
+#: path ever drops the override and sends this to the backend, the resulting
+#: auth failure points straight back here instead of looking like a blank key.
 _PLACEHOLDER_CREDENTIAL = Credential(
-    value="",
+    value="PLACEHOLDER-credential-override-required",
     credential_type=CredentialType.API_KEY,
     platform="anthropic",
 )

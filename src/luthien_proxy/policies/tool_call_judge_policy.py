@@ -34,8 +34,7 @@ from pydantic import BaseModel, Field
 
 from luthien_proxy.credentials import (
     InferenceProviderRef,
-    parse_auth_provider,
-    parse_inference_provider,
+    parse_provider_ref_with_fallback,
 )
 from luthien_proxy.inference.dispatch import resolve_inference_provider
 from luthien_proxy.policies.tool_call_judge_utils import (
@@ -72,28 +71,6 @@ class ToolCallDict(TypedDict):
     id: str
     name: str
     arguments: str
-
-
-def _parse_tool_judge_provider_ref(
-    inference_provider: str | dict | None,
-    auth_provider: str | dict | None,
-) -> InferenceProviderRef:
-    """Parse inference-provider reference for the tool-call judge.
-
-    Accepts either the new `inference_provider:` field or the deprecated
-    `auth_provider:` alias (not both). `None`/`None` defaults to
-    `user_credentials`.
-    """
-    if inference_provider is not None and auth_provider is not None:
-        raise ValueError(
-            "Policy config has both 'inference_provider' and 'auth_provider'; "
-            "use only 'inference_provider' (the old name is deprecated)."
-        )
-    if inference_provider is not None:
-        return parse_inference_provider(inference_provider)
-    if auth_provider is not None:
-        return parse_auth_provider(auth_provider)
-    return parse_inference_provider(None)
 
 
 class ToolCallJudgeConfig(BaseModel):
@@ -187,7 +164,7 @@ class ToolCallJudgePolicy(BasePolicy, AnthropicHookPolicy):
             max_tokens=self.config.max_tokens,
         )
 
-        self._inference_provider_ref: InferenceProviderRef = _parse_tool_judge_provider_ref(
+        self._inference_provider_ref: InferenceProviderRef = parse_provider_ref_with_fallback(
             inference_provider=self.config.inference_provider,
             auth_provider=self.config.auth_provider,
         )

@@ -38,8 +38,7 @@ from anthropic.types import (
 
 from luthien_proxy.credentials import (
     InferenceProviderRef,
-    parse_auth_provider,
-    parse_inference_provider,
+    parse_provider_ref_with_fallback,
 )
 from luthien_proxy.inference.dispatch import resolve_inference_provider
 from luthien_proxy.policies.simple_llm_utils import (
@@ -86,28 +85,6 @@ class _PendingTool:
 def _bail_on_block(action: JudgeAction) -> bool:
     """Bail predicate: a `block` decision cancels every later tool judge."""
     return action.action == "block"
-
-
-def _parse_provider_ref(
-    inference_provider: str | dict | None,
-    auth_provider: str | dict | None,
-) -> InferenceProviderRef:
-    """Parse inference-provider reference, accepting the legacy `auth_provider` key.
-
-    Requires exactly one of the two fields to be set. Both None defaults to
-    `user_credentials` for back-compat with the pre-PR-#609 behavior that
-    PR #603 made mandatory.
-    """
-    if inference_provider is not None and auth_provider is not None:
-        raise ValueError(
-            "Policy config has both 'inference_provider' and 'auth_provider'; "
-            "use only 'inference_provider' (the old name is deprecated)."
-        )
-    if inference_provider is not None:
-        return parse_inference_provider(inference_provider)
-    if auth_provider is not None:
-        return parse_auth_provider(auth_provider)
-    return parse_inference_provider(None)
 
 
 @dataclass
@@ -186,7 +163,7 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             }
         )
 
-        self._inference_provider_ref: InferenceProviderRef = _parse_provider_ref(
+        self._inference_provider_ref: InferenceProviderRef = parse_provider_ref_with_fallback(
             inference_provider=parsed.inference_provider,
             auth_provider=parsed.auth_provider,
         )

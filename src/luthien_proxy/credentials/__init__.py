@@ -10,6 +10,7 @@ from luthien_proxy.credentials.auth_provider import (
     UserThenServer,
     parse_auth_provider,
     parse_inference_provider,
+    parse_provider_ref_with_fallback,
 )
 from luthien_proxy.credentials.credential import (
     Credential,
@@ -32,4 +33,5 @@ __all__ = [
     "UserThenServer",
     "parse_auth_provider",
     "parse_inference_provider",
+    "parse_provider_ref_with_fallback",
 ]

@@ -17,6 +17,7 @@ from luthien_proxy.credentials import (
     UserThenServer,
     parse_auth_provider,
     parse_inference_provider,
+    parse_provider_ref_with_fallback,
 )
 
 
@@ -96,6 +97,38 @@ class TestParseInferenceProviderLegacyInnerKeys:
     def test_server_key_non_string_name_raises(self):
         with pytest.raises(ValueError, match="server_key name must be a string"):
             parse_inference_provider({"server_key": 123})
+
+
+class TestMultipleReferenceKeysRejected:
+    """A dict with more than one reference key is a config error, not a precedence game."""
+
+    def test_two_new_keys_raise(self):
+        with pytest.raises(ValueError, match="multiple reference keys"):
+            parse_inference_provider({"provider": "a", "user_then_provider": "b"})
+
+    def test_mixed_new_and_legacy_keys_raise(self):
+        with pytest.raises(ValueError, match="multiple reference keys"):
+            parse_inference_provider({"provider": "a", "server_key": "b"})
+
+
+class TestParseProviderRefWithFallback:
+    """Shared judge-policy helper: accepts new or legacy field, never both."""
+
+    def test_neither_defaults_to_user_credentials(self):
+        assert isinstance(parse_provider_ref_with_fallback(None, None), UserCredentials)
+
+    def test_inference_provider_used_when_set(self):
+        result = parse_provider_ref_with_fallback({"provider": "x"}, None)
+        assert isinstance(result, Provider)
+        assert result.name == "x"
+
+    def test_auth_provider_used_when_set(self):
+        result = parse_provider_ref_with_fallback(None, "user_credentials")
+        assert isinstance(result, UserCredentials)
+
+    def test_both_set_raises(self):
+        with pytest.raises(ValueError, match="both 'inference_provider' and 'auth_provider'"):
+            parse_provider_ref_with_fallback("user_credentials", "user_credentials")
 
 
 class TestParseAuthProviderDeprecated:
