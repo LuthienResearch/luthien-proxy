@@ -626,23 +626,45 @@
                 return;
             }
 
-            let html = '<div class="diff-section"><h2 class="section-title">Recent Calls</h2>';
+            // DOM construction: call_id is request-derived and was previously
+            // interpolated into both an inline onclick JS string and HTML text,
+            // a stored-XSS sink. Building nodes makes it inert by construction.
+            const section = document.createElement('div');
+            section.className = 'diff-section';
+            const title = document.createElement('h2');
+            title.className = 'section-title';
+            title.textContent = 'Recent Calls';
+            section.appendChild(title);
 
             calls.forEach(call => {
                 const timestamp = new Date(call.latest_timestamp).toLocaleString();
-                html += `
-                    <div class="message" style="cursor: pointer;" onclick="selectCall('${call.call_id}')">
-                        <div class="message-role">Call ID: ${call.call_id}</div>
-                        <div style="display: flex; justify-content: space-between; color: #888; font-size: 12px;">
-                            <span>${timestamp}</span>
-                            <span>${call.event_count} events</span>
-                        </div>
-                    </div>
-                `;
+
+                const card = document.createElement('div');
+                card.className = 'message';
+                card.style.cursor = 'pointer';
+                card.dataset.callId = call.call_id;
+                card.addEventListener('click', () => selectCall(call.call_id));
+
+                const role = document.createElement('div');
+                role.className = 'message-role';
+                role.textContent = 'Call ID: ' + call.call_id;
+
+                const sub = document.createElement('div');
+                sub.style.display = 'flex';
+                sub.style.justifyContent = 'space-between';
+                sub.style.color = '#888';
+                sub.style.fontSize = '12px';
+                const tsSpan = document.createElement('span');
+                tsSpan.textContent = timestamp;
+                const countSpan = document.createElement('span');
+                countSpan.textContent = call.event_count + ' events';
+                sub.append(tsSpan, countSpan);
+
+                card.append(role, sub);
+                section.appendChild(card);
             });
 
-            html += '</div>';
-            container.innerHTML = html;
+            container.replaceChildren(section);
         }
 
         function selectCall(callId) {
@@ -650,13 +672,20 @@
             loadDiff();
         }
 
+        // Escapes <, >, &, " and ' so the result is safe in both HTML text and
+        // quoted-attribute contexts. (The old textContent/innerHTML form left
+        // quotes unescaped, which is unsafe the moment a value lands in an
+        // attribute.)
         function escapeHtml(text) {
             if (text === null || text === undefined) {
                 return '';
             }
-            const div = document.createElement('div');
-            div.textContent = String(text);
-            return div.innerHTML;
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
         }
 
         function formatContent(content) {

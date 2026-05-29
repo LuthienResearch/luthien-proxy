@@ -207,20 +207,50 @@ async function loadLogs() {
         return;
     }
 
-    body.innerHTML = data.logs.map(log => {
+    // Build rows via DOM construction (not HTML string interpolation): all
+    // request-derived fields (transaction_id, endpoint, model, direction) are
+    // assigned as text/dataset, so quotes and markup are inert by construction.
+    body.replaceChildren(...data.logs.map(log => {
         const time = new Date(log.started_at).toLocaleTimeString();
         const statusClass = (log.response_status && log.response_status < 400) ? 'status-ok' : 'status-err';
         const dur = log.duration_ms != null ? log.duration_ms.toFixed(0) + 'ms' : '-';
-        return `<tr onclick="showTransaction('${log.transaction_id}')">
-            <td class="mono">${time}</td>
-            <td><span class="badge ${log.direction}">${log.direction}</span></td>
-            <td class="mono">${log.endpoint || '-'}</td>
-            <td>${log.model || '-'}</td>
-            <td class="${statusClass}">${log.response_status || '-'}</td>
-            <td class="mono">${dur}</td>
-            <td>${log.is_streaming ? 'Yes' : 'No'}</td>
-        </tr>`;
-    }).join('');
+
+        const tr = document.createElement('tr');
+        tr.dataset.transactionId = log.transaction_id;
+        tr.addEventListener('click', () => showTransaction(log.transaction_id));
+
+        const timeTd = document.createElement('td');
+        timeTd.className = 'mono';
+        timeTd.textContent = time;
+
+        const dirTd = document.createElement('td');
+        const dirBadge = document.createElement('span');
+        dirBadge.className = 'badge';
+        if (log.direction) dirBadge.classList.add(log.direction);
+        dirBadge.textContent = log.direction;
+        dirTd.appendChild(dirBadge);
+
+        const epTd = document.createElement('td');
+        epTd.className = 'mono';
+        epTd.textContent = log.endpoint || '-';
+
+        const modelTd = document.createElement('td');
+        modelTd.textContent = log.model || '-';
+
+        const statusTd = document.createElement('td');
+        statusTd.className = statusClass;
+        statusTd.textContent = log.response_status || '-';
+
+        const durTd = document.createElement('td');
+        durTd.className = 'mono';
+        durTd.textContent = dur;
+
+        const streamTd = document.createElement('td');
+        streamTd.textContent = log.is_streaming ? 'Yes' : 'No';
+
+        tr.append(timeTd, dirTd, epTd, modelTd, statusTd, durTd, streamTd);
+        return tr;
+    }));
 }
 
 function updatePagination() {
@@ -254,10 +284,23 @@ async function showTransaction(txnId) {
     if (!data) { document.getElementById('detail-content').textContent = 'Failed to load'; return; }
 
     const meta = document.getElementById('detail-meta');
-    meta.innerHTML = `
-        <div class="meta-item"><label>Transaction:</label> <span class="mono">${data.transaction_id}</span></div>
-        <div class="meta-item"><label>Session:</label> <span class="mono">${data.session_id || 'none'}</span></div>
-    `;
+    // DOM construction: transaction_id / session_id are request-derived; assign
+    // as textContent so they cannot inject markup.
+    const makeMetaItem = (labelText, valueText) => {
+        const item = document.createElement('div');
+        item.className = 'meta-item';
+        const label = document.createElement('label');
+        label.textContent = labelText;
+        const value = document.createElement('span');
+        value.className = 'mono';
+        value.textContent = valueText;
+        item.append(label, document.createTextNode(' '), value);
+        return item;
+    };
+    meta.replaceChildren(
+        makeMetaItem('Transaction:', data.transaction_id),
+        makeMetaItem('Session:', data.session_id || 'none'),
+    );
 
     const tabs = [];
     if (data.inbound) {
