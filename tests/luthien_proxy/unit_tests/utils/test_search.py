@@ -40,6 +40,7 @@ def test_postgres_backfill_calls_extract_helper_once_per_row() -> None:
     update_sql = _postgres_fts_backfill_update()
     assert update_sql.count("_extract_event_search_text(") == 1
 
+
 REQUIRED_MIGRATIONS = (
     "003_add_conversation_tables.sql",
     "006_add_session_id.sql",
