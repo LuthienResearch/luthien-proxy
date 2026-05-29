@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from tests.luthien_proxy.fixtures.policy_context import make_policy_context
-
 from luthien_proxy.observability.emitter import NullEventEmitter
 from luthien_proxy.policy_core.policy_context import PolicyContext
 from luthien_proxy.types import RawHttpRequest
