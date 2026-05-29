@@ -210,11 +210,12 @@ def _make_request(headers: dict[str, str] | None = None, path: str = "/live") ->
 
 
 class TestCheckAuthOrRedirectNoKey:
-    """When admin_key is None, everything passes through."""
+    """When admin_key is None, the admin UI fails closed (redirect to login)."""
 
-    def test_returns_none_when_no_admin_key(self):
+    def test_redirects_when_no_admin_key(self):
         result = check_auth_or_redirect(_make_request(), admin_key=None)
-        assert result is None
+        assert isinstance(result, RedirectResponse)
+        assert result.status_code == 303
 
 
 class TestCheckAuthOrRedirectBearer:

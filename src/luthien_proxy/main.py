@@ -172,26 +172,7 @@ def create_app(
 
     Returns:
         Configured FastAPI application with all routes and middleware
-
-    Raises:
-        RuntimeError: if ADMIN_API_KEY is unset while LOCALHOST_AUTH_BYPASS is
-            disabled — that combination would serve the admin/history UI without
-            authentication.
     """
-    # Defense in depth: refuse to construct an app whose admin surface is
-    # unauthenticated. With no ADMIN_API_KEY and the localhost bypass disabled
-    # (i.e. a network-exposed deployment), check_auth_or_redirect would treat
-    # every request as allowed. Shipped entry points avoid reaching this state
-    # via auto_provision_defaults(), but that only runs on the
-    # `python -m luthien_proxy.main` path; pinning the invariant here also covers
-    # any other entry point (custom ASGI factory, embedding). Mirrors the
-    # fail-fast-at-startup pattern already used for UPSTREAM_HEADERS.
-    if not admin_key and not get_settings().localhost_auth_bypass:
-        raise RuntimeError(
-            "ADMIN_API_KEY is not set and LOCALHOST_AUTH_BYPASS is disabled: refusing to start "
-            "because the admin UI would be served without authentication. Set ADMIN_API_KEY, or "
-            "enable LOCALHOST_AUTH_BYPASS for trusted local-only use."
-        )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
