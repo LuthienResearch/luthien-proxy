@@ -37,28 +37,32 @@ async def list_users(db_pool: DatabasePool, *, limit: int = 500, offset: int = 0
     stays small on deployments with many calls per session.
 
     Returns ``{"users": [user_id, ...], "labels": {user_id: display_name}}``.
+
+    Single query with a fixed two-placeholder count (limit, offset): the paged
+    distinct users are LEFT JOINed to ``user_labels`` instead of fetched and
+    then re-queried with one placeholder per user. The old N-placeholder
+    ``WHERE user_id IN (...)`` form could exceed SQLite's
+    ``SQLITE_MAX_VARIABLE_NUMBER`` (999 on older builds) once a deployment had
+    more distinct users than that on a single page.
     """
     async with db_pool.connection() as conn:
         rows = await conn.fetch(
             """
-            SELECT DISTINCT user_id FROM session_summaries
-            WHERE user_id IS NOT NULL
-            ORDER BY user_id
-            LIMIT $1 OFFSET $2
+            SELECT s.user_id, ul.display_name
+            FROM (
+                SELECT DISTINCT user_id FROM session_summaries
+                WHERE user_id IS NOT NULL
+                ORDER BY user_id
+                LIMIT $1 OFFSET $2
+            ) s
+            LEFT JOIN user_labels ul ON ul.user_id = s.user_id
+            ORDER BY s.user_id
             """,
             limit,
             offset,
         )
-        user_ids = [str(row["user_id"]) for row in rows]
-        if user_ids:
-            placeholders = ",".join(f"${i + 1}" for i in range(len(user_ids)))
-            label_rows = await conn.fetch(
-                f"SELECT user_id, display_name FROM user_labels WHERE user_id IN ({placeholders})",
-                *user_ids,
-            )
-        else:
-            label_rows = []
-    labels = {str(row["user_id"]): str(row["display_name"]) for row in label_rows}
+    user_ids = [str(row["user_id"]) for row in rows]
+    labels = {str(row["user_id"]): str(row["display_name"]) for row in rows if row["display_name"] is not None}
     return {"users": user_ids, "labels": labels}
 
 

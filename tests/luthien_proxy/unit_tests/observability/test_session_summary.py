@@ -76,6 +76,17 @@ class TestExtractPreview:
     def test_probe_request_skipped(self) -> None:
         assert extract_preview(_request(text="probe", max_tokens=1)) is None
 
+    def test_non_numeric_max_tokens_not_treated_as_probe(self) -> None:
+        # A non-numeric max_tokens is swallowed (TypeError/ValueError) and the
+        # request is NOT treated as a probe — preview extraction proceeds.
+        data = {
+            "final_request": {
+                "max_tokens": "garbage",
+                "messages": [{"role": "user", "content": "real text"}],
+            }
+        }
+        assert extract_preview(data) == "real text"
+
     def test_strips_system_reminder(self) -> None:
         data = _request(text="real question <system-reminder>noise</system-reminder>")
         assert extract_preview(data) == "real question"
