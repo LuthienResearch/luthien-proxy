@@ -6,6 +6,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 TIMING_FILE=""
 SKIP_REPORTS=0
+PYTEST_WORKERS="${DEV_CHECKS_PYTEST_WORKERS:-4}"
 for arg in "$@"; do
     case "$arg" in
         --timing)
@@ -23,9 +24,12 @@ for arg in "$@"; do
             # here in the future without breaking --skip-reports' meaning.
             SKIP_REPORTS=1
             ;;
+        --workers=*)
+            PYTEST_WORKERS="${arg#--workers=}"
+            ;;
         --help|-h)
             cat <<'USAGE'
-Usage: dev_checks.sh [--timing[=PATH]] [--skip-reports] [--fast]
+Usage: dev_checks.sh [--timing[=PATH]] [--skip-reports] [--fast] [--workers=N]
 
   --timing[=PATH]  Record per-step wall-clock timings as JSONL
                    (default path: .dev_checks_timings.jsonl).
@@ -34,8 +38,17 @@ Usage: dev_checks.sh [--timing[=PATH]] [--skip-reports] [--fast]
                    still run. Saves ~13s.
   --fast           Alias for --skip-reports (may enable more inner-loop
                    shortcuts in the future).
+  --workers=N      Pytest parallel workers (pytest-xdist). Default: 4.
+                   Use 1 to disable parallelism (helpful for debugging
+                   flakes or interleaved output). Also overridable via
+                   DEV_CHECKS_PYTEST_WORKERS env var.
 USAGE
             exit 0
+            ;;
+        *)
+            echo "dev_checks.sh: unknown argument '$arg'" >&2
+            echo "Run 'dev_checks.sh --help' for usage." >&2
+            exit 2
             ;;
     esac
 done
@@ -223,10 +236,16 @@ pyright_start=$(now_epoch)
 PYRIGHT_PID=$!
 
 pytest_start=$(now_epoch)
+PYTEST_PARALLEL=()
+if [[ "$PYTEST_WORKERS" -gt 1 ]]; then
+    PYTEST_PARALLEL=(-n "$PYTEST_WORKERS")
+fi
+# `${arr[@]+"${arr[@]}"}` expands safely under `set -u` on bash 3.2 (macOS),
+# where a bare `"${arr[@]}"` on an empty array trips "unbound variable".
 if [[ $SKIP_REPORTS -eq 1 ]]; then
-    ( set +e; uv run -m pytest -q --no-cov > "$PYTEST_LOG" 2>&1; rc=$?; now_epoch > "$PYTEST_END_FILE"; exit "$rc" ) &
+    ( set +e; uv run -m pytest -q --no-cov ${PYTEST_PARALLEL[@]+"${PYTEST_PARALLEL[@]}"} > "$PYTEST_LOG" 2>&1; rc=$?; now_epoch > "$PYTEST_END_FILE"; exit "$rc" ) &
 else
-    ( set +e; uv run -m pytest -q > "$PYTEST_LOG" 2>&1; rc=$?; now_epoch > "$PYTEST_END_FILE"; exit "$rc" ) &
+    ( set +e; uv run -m pytest -q ${PYTEST_PARALLEL[@]+"${PYTEST_PARALLEL[@]}"} > "$PYTEST_LOG" 2>&1; rc=$?; now_epoch > "$PYTEST_END_FILE"; exit "$rc" ) &
 fi
 PYTEST_PID=$!
 

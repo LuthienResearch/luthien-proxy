@@ -75,6 +75,7 @@ Flags:
 | `--timing=PATH` | Same as `--timing` but write to a custom path. |
 | `--skip-reports` | Skip report-only steps (ruff docstrings, radon) and pytest coverage. Gating checks (ruff, pyright, pytest) still run. Saves ~13s (~45s → ~32s). |
 | `--fast` | Alias for `--skip-reports` (may enable more inner-loop shortcuts in the future). Use while iterating; run the full gate before pushing. |
+| `--workers=N` | Pytest parallel workers (pytest-xdist). Default: `4`. Use `--workers=1` to disable parallelism (helpful for debugging flakes or interleaved output). Also overridable via `DEV_CHECKS_PYTEST_WORKERS` env var. |
 
 Each JSONL record has `run_id`, `step`, `duration_s`, `exit_code`, `ts`. A final `__total__` record captures wall-clock for the whole run. The file is gitignored.
 
@@ -97,7 +98,7 @@ Where `dev_checks.sh` time goes (typical warm run on this repo):
 - `pyright` ≈ 10s
 - Everything else combined ≤ 2s
 
-`pytest-xdist` with `-n auto` does **not** meaningfully speed up the unit suite — individual tests are too fast and worker-distribution overhead eats the gain. If you need a faster inner loop, run `uv run pytest tests/luthien_proxy/unit_tests --no-cov` directly.
+`pytest-xdist` with `-n 4` is a measurable win (~-12s with coverage, ~-4s without — coverage instrumentation is CPU-bound and parallelizes cleanly). `dev_checks.sh` uses 4 workers by default; override with `--workers=N` or `DEV_CHECKS_PYTEST_WORKERS=N`. `-n auto` (~16 on this box) is slower than `-n 4` — worker coordination overhead dominates at higher counts.
 
 ## Architecture
 
