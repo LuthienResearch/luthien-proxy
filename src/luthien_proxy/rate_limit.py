@@ -164,9 +164,7 @@ class TokenBucketRateLimiter:
             metadata needed to build X-RateLimit-* / Retry-After headers.
         """
         if self.rpm == 0:
-            return RateLimitDecision(
-                allowed=True, remaining=0, limit=0, retry_after=0, reset_unix=int(time.time())
-            )
+            return RateLimitDecision(allowed=True, remaining=0, limit=0, retry_after=0, reset_unix=int(time.time()))
 
         hashed = self._hash_key(key)
         lock, state = await self._get_or_create_bucket(hashed)
