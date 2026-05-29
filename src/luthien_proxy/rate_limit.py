@@ -77,6 +77,9 @@ class TokenBucketRateLimiter:
     key and gets their own bucket.
     """
 
+    # Minimum seconds between eviction warnings (evictions can fire rapidly).
+    _EVICTION_LOG_INTERVAL: float = 60.0
+
     def __init__(self, rpm: int, burst: int, max_keys: int = 10_000) -> None:
         """Initialise the rate limiter.
 
