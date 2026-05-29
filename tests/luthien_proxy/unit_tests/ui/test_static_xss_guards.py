@@ -1,24 +1,37 @@
 """Regression guards against the stored-XSS class in admin UI static assets.
 
 Background: the admin UI is vanilla JS served as static HTML. Several render
-paths used to build HTML by string interpolation and rely on a hand-rolled
-`escapeHtml` that escaped ``<``, ``>``, ``&`` but NOT ``'`` or ``"``. Any
-attacker-influenced value (session_id, call_id, transaction_id, tool_call_id,
-model/endpoint names — all request- or model-derived) interpolated into an
-inline ``onclick="...('${x}')"`` JS string or a quoted HTML attribute could
-break out and execute. See PR addressing this class.
+paths built HTML by string interpolation — some via a hand-rolled escaper
+(``escapeHtml`` / ``esc``) that escaped ``<``, ``>``, ``&`` but NOT ``'`` or
+``"``, some (credentials.html) via raw concatenation with no escaper at all,
+some (activity_monitor.js) via ``JSON.stringify(event)`` straight into a
+``<pre>`` with no escaping. Any attacker-influenced value (session_id, call_id,
+transaction_id, tool_call_id, key_hash, credential/model/endpoint/provider
+names, full activity-stream event payloads, server error messages — all
+request-, model-, or server-derived) interpolated into an inline ``onclick`` JS
+string, a quoted HTML attribute, or HTML text could break out and execute.
 
-The fix:
-  * Genuinely attacker-controlled JS-string / event-handler sinks were rewritten
-    using DOM construction (``createElement`` / ``textContent`` /
+The fix (a comprehensive sweep of ``src/luthien_proxy/static/**``):
+  * Genuinely attacker-controlled JS-string / event-handler / HTML-text sinks
+    were rewritten using DOM construction (``createElement`` / ``textContent`` /
     ``addEventListener`` / ``dataset``) so quotes and markup are inert by
     construction — the browser-native, zero-dependency safe answer.
-  * The remaining hand-rolled ``escapeHtml`` helpers were hardened to also
+  * The remaining hand-rolled escapers (``escapeHtml`` in conversation_live.js /
+    diff_viewer.html, ``esc`` in config_dashboard.html) were hardened to also
     escape quotes so attribute interpolation cannot break out.
+  * Error-message ``catch`` blocks that injected ``e.message`` into innerHTML
+    were converted to textContent (server-returned text is unconstrained).
+
+Files reviewed and found already-safe (NOT in the guard list): policy_config.js
+and form_renderer.js use a quote-correct ``esc()`` and only interpolate
+internally-computed schema paths into inline handlers (deferred, like the CSP
+backstop); nav.js is full DOM construction; client_setup.html escapes its one
+server-injected value server-side; index.html / *.html shells carry no dynamic
+JS.
 
 These tests are deliberately source-text assertions (the repo has no JS test
-runtime). They are not a substitute for a real DOM test, but they pin the two
-concrete regressions that already bit this codebase twice.
+runtime). They are not a substitute for a real DOM test, but they pin the
+concrete regressions that already bit this codebase repeatedly.
 """
 
 from __future__ import annotations
@@ -36,25 +49,64 @@ DOM_MIGRATED_FILES = [
     "diff_viewer.html",
     "request_logs.html",
     "inference_providers.html",
+    "credentials.html",
+    "config_dashboard.html",
+    "activity_monitor.js",
 ]
 
-# Files that retain a hand-rolled escapeHtml used in attribute contexts; those
-# escapers must cover quotes.
+# Files that retain a hand-rolled HTML escaper (escapeHtml / esc) used in
+# attribute contexts; those escapers must cover quotes. Each entry is
+# (filename, helper_name).
 QUOTE_SAFE_ESCAPER_FILES = [
-    "conversation_live.js",
-    "diff_viewer.html",
+    ("conversation_live.js", "escapeHtml"),
+    ("diff_viewer.html", "escapeHtml"),
+    ("config_dashboard.html", "esc"),
 ]
 
 # Matches an inline event-handler attribute (onclick=, onchange=, ...) whose
-# value contains a JS string literal built from a template-literal placeholder,
-# e.g.  onclick="viewSession('${escapeHtml(session.session_id)}')"
-# This is the exact stored-XSS pattern we removed; escapeHtml does not escape
-# the surrounding single quotes, so the placeholder can break out of the JS
-# string. New occurrences should use addEventListener instead.
+# value opens a JS string literal that is then filled with a dynamic value —
+# the exact stored-XSS class we removed, because the surrounding JS quotes are
+# not escaped by any HTML escaper, so the value can break out of the string.
+#
+# Two concrete dynamic shapes are caught after the opening JS quote (' or "):
+#   * template-literal interpolation:  onclick="f('${x}')"
+#   * string concatenation:            onclick="f('" + x + "')"
+#                                      onclick='f(\'' + x + '\')'
+# Both forms appeared in this codebase (the latter in credentials.html, which
+# had no escapeHtml at all, so an escapeHtml-name grep would not surface it).
+#
+# Coverage caveats (deliberately documented rather than over-claimed):
+#   * `[^)]*?` skips any *preceding* literal args up to the first dynamic JS
+#     quote, so multi-arg shapes like onclick="f(1, '${x}')" are caught — but
+#     only the FIRST dynamic string in the handler. A handler whose first arg is
+#     a safe constant string and whose SECOND arg is dynamic via a different
+#     delimiter could slip past; in practice handlers in this repo take the
+#     dynamic id first, so this is an accepted gap, not full coverage.
+#     TODO: the regex matches the first JS-quoted token after `(`. It does NOT
+#     catch a *constant* first quoted arg followed by a *dynamic* second arg,
+#     e.g. onclick="f('static', '${x}')" — the `[^)]*?` would consume the static
+#     arg but the engine anchors on the first quote it finds, so the second
+#     dynamic quote is not re-examined. If a handler of that shape is ever added,
+#     widen this to scan every JS-string arg, or (better) ban inline handlers
+#     outright once a CSP forbids them (see the CSP Trello card).
+#   * It detects the *opening* unsafe construction; it does not parse JS, so it
+#     cannot prove the value is attacker-influenced — it flags the dangerous
+#     idiom regardless and expects addEventListener instead.
 _INLINE_HANDLER_JS_STRING = re.compile(
-    r"""on\w+\s*=\s*["'][^"']*\(\s*\\?['"]\$\{""",
+    r"""on\w+\s*=\s*["']"""  # event-handler attribute opens (HTML quote)
+    r"""[^)]*?\("""  # up to and including the call's opening paren
+    r"""[^)]*?"""  # any preceding literal args
+    r"""(?:\\?['"])"""  # the opening quote of a JS string arg (maybe \-escaped)
+    r"""(?:\$\{|"\s*\+|'\s*\+|\\?['"]\s*\+)""",  # ${...} OR a concat seam ("+ / '+)
     re.IGNORECASE,
 )
+
+
+# Matches an actual inline event-handler *attribute* (onclick=, onchange=, ...
+# followed by a quote opening the attribute value). Scoped deliberately so it
+# does not fire on the substring "onclick" appearing in a comment, a CSS class,
+# or prose — only on real attribute usage.
+_INLINE_HANDLER_ATTR = re.compile(r"""\bon\w+\s*=\s*["']""", re.IGNORECASE)
 
 
 def _read(name: str) -> str:
@@ -76,17 +128,17 @@ def test_no_inline_handler_js_string_interpolation(filename: str) -> None:
     )
 
 
-@pytest.mark.parametrize("filename", QUOTE_SAFE_ESCAPER_FILES)
-def test_escapehtml_escapes_quotes(filename: str) -> None:
-    """Any retained hand-rolled escapeHtml must escape both single and double quotes.
+@pytest.mark.parametrize(("filename", "helper"), QUOTE_SAFE_ESCAPER_FILES)
+def test_escaper_escapes_quotes(filename: str, helper: str) -> None:
+    """Any retained hand-rolled HTML escaper must escape both single and double quotes.
 
     The old textContent/innerHTML trick left quotes unescaped, so a value placed
     in a quoted attribute could break out. Assert the source escapes them.
     """
     source = _read(filename)
-    assert "escapeHtml" in source, f"{filename} no longer defines escapeHtml; update this guard."
-    assert "&quot;" in source, f"{filename}'s escapeHtml must escape double quotes (&quot;)."
-    assert "&#39;" in source or "&apos;" in source, f"{filename}'s escapeHtml must escape single quotes (&#39;)."
+    assert helper in source, f"{filename} no longer defines {helper}; update this guard."
+    assert "&quot;" in source, f"{filename}'s {helper} must escape double quotes (&quot;)."
+    assert "&#39;" in source or "&apos;" in source, f"{filename}'s {helper} must escape single quotes (&#39;)."
 
 
 def test_history_list_uses_dom_construction_for_session_id() -> None:
@@ -121,3 +173,61 @@ def test_inference_providers_uses_dom_construction_for_provider_name() -> None:
     assert "deleteProvider(\\'" not in source
     assert "addEventListener('click', () => editProvider(" in source
     assert "addEventListener('click', () => deleteProvider(" in source
+
+
+def test_credentials_uses_dom_construction_for_key_hash() -> None:
+    """key_hash must be wired via addEventListener + dataset, not concat onclick.
+
+    credentials.html built HTML by raw string concatenation with no escaper at
+    all — onclick="invalidateOne('" + cred.key_hash + "')" plus key_hash in a
+    title="" attribute. Both must be gone.
+    """
+    source = _read("credentials.html")
+    assert "invalidateOne(\\'" not in source
+    # Scoped to real attribute usage (not a whole-file "onclick=" substring,
+    # which would also match comments/CSS/prose).
+    assert not _INLINE_HANDLER_ATTR.search(source), (
+        "credentials.html must not use inline on*= handlers; wire via addEventListener."
+    )
+    assert "addEventListener('click', () => invalidateOne(" in source
+
+
+def test_activity_monitor_uses_dom_construction_for_event_payload() -> None:
+    """The activity stream is request-derived; event_type and the full event
+    payload must be rendered via DOM construction (textContent), not innerHTML.
+
+    The prior code did `JSON.stringify(event)` into a <pre> via innerHTML with no
+    escaping — a quote/markup-bearing payload field could break out.
+    """
+    source = _read("activity_monitor.js")
+    assert "pre.textContent = JSON.stringify(event" in source
+    assert "<pre>${JSON.stringify(event" not in source
+    assert not _INLINE_HANDLER_ATTR.search(source)
+
+
+def test_config_dashboard_error_uses_textcontent() -> None:
+    """The e.message catch sink in config_dashboard.html must use textContent."""
+    source = _read("config_dashboard.html")
+    assert "Error: ${e.message}" not in source
+    assert "errDiv.textContent = 'Error: ' + e.message" in source
+
+
+def test_inline_handler_guard_catches_concat_shape() -> None:
+    """The widened guard must catch the string-concat onclick shape, not just ${...}.
+
+    Self-test: the credentials.html-style concat sink and the multi-arg
+    template-literal shape must both match; a delegated/static handler must not.
+    """
+    assert _INLINE_HANDLER_JS_STRING.search('onclick="invalidateOne(\'" + cred.key_hash + "\')"')
+    assert _INLINE_HANDLER_JS_STRING.search("onclick=\"foo(1, '${x}')\"")
+    assert not _INLINE_HANDLER_JS_STRING.search('onclick="closeDetail()"')
+    assert not _INLINE_HANDLER_JS_STRING.search('data-action="srv-delete" data-name="x"')
+
+
+def test_inline_handler_attr_regex_is_scoped() -> None:
+    """The attribute-usage regex must match real handlers, not incidental substrings."""
+    assert _INLINE_HANDLER_ATTR.search('<button onclick="f()">')
+    assert _INLINE_HANDLER_ATTR.search("<input oninput='g()'>")
+    # Should NOT match the bare word in a comment / class name / prose.
+    assert not _INLINE_HANDLER_ATTR.search("// no inline onclick here")
+    assert not _INLINE_HANDLER_ATTR.search('class="onclick-styled"')

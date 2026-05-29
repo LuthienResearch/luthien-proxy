@@ -539,7 +539,10 @@
             const container = document.getElementById('sessions-container');
 
             if (sessions.length === 0) {
-                container.innerHTML = '<div class="empty-state">No sessions found</div>';
+                const empty = document.createElement('div');
+                empty.className = 'empty-state';
+                empty.textContent = 'No sessions found';
+                container.replaceChildren(empty);
                 return;
             }
 
