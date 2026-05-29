@@ -107,6 +107,7 @@
             <option value="/v1/messages">/v1/messages</option>
         </select>
         <input type="text" id="filter-model" placeholder="Model..." style="width:140px">
+        <input type="text" id="filter-user" placeholder="User ID..." style="width:140px">
         <input type="text" id="filter-search" placeholder="Body search..." style="width:160px">
         <button onclick="loadLogs()">Filter</button>
         <button class="secondary" onclick="resetFilters()">Reset</button>
@@ -184,10 +185,12 @@ function buildQueryString() {
     const dir = document.getElementById('filter-direction').value;
     const ep = document.getElementById('filter-endpoint').value;
     const model = document.getElementById('filter-model').value.trim();
+    const user = document.getElementById('filter-user').value.trim();
     const search = document.getElementById('filter-search').value.trim();
     if (dir) params.set('direction', dir);
     if (ep) params.set('endpoint', ep);
     if (model) params.set('model', model);
+    if (user) params.set('user_id', user);
     if (search) params.set('search', search);
     return params.toString();
 }
@@ -237,6 +240,7 @@ function resetFilters() {
     document.getElementById('filter-direction').value = '';
     document.getElementById('filter-endpoint').value = '';
     document.getElementById('filter-model').value = '';
+    document.getElementById('filter-user').value = '';
     document.getElementById('filter-search').value = '';
     currentOffset = 0;
     loadLogs();
@@ -257,6 +261,7 @@ async function showTransaction(txnId) {
     meta.innerHTML = `
         <div class="meta-item"><label>Transaction:</label> <span class="mono">${data.transaction_id}</span></div>
         <div class="meta-item"><label>Session:</label> <span class="mono">${data.session_id || 'none'}</span></div>
+        <div class="meta-item"><label>User:</label> <span class="mono">${data.user_id || 'none'}</span></div>
     `;
 
     const tabs = [];
