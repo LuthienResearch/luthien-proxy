@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import hashlib
 import json
 import logging
 import os
+import time
 import uuid
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import litellm
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
@@ -57,6 +59,10 @@ from luthien_proxy.utils import policy_cache as policy_cache_utils
 from luthien_proxy.webhook.sender import WebhookSender
 
 logger = logging.getLogger(__name__)
+
+# Bounded probe for /api/admin/system-status. Short enough that a hung DB or
+# Redis can't tarpit the request, long enough to absorb routine jitter.
+SYSTEM_STATUS_PROBE_TIMEOUT_SECONDS = 2.0
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -213,6 +219,27 @@ class BillingStatusResponse(BaseModel):
     auth_mode: str | None
     last_credential_type: str | None
     last_credential_at: float | None
+
+
+class ComponentCheck(BaseModel):
+    """Per-component probe result for the system-status endpoint."""
+
+    status: Literal["ok", "error", "not_configured"]
+    latency_ms: float | None = None
+    error: str | None = None
+
+
+class SystemStatusResponse(BaseModel):
+    """Rich per-component diagnostics for operators and monitoring tools.
+
+    Behind admin auth (not on unauthenticated /health) so the latency timing
+    and dependency-topology signals can't be used to fingerprint or probe the
+    gateway, and so the DB/Redis probes can't be used as an unauthenticated
+    DoS amplifier against the connection pool.
+    """
+
+    status: Literal["healthy", "degraded", "unhealthy"]
+    checks: dict[str, ComponentCheck]
 
 
 class AuthConfigUpdateRequest(BaseModel):
@@ -811,6 +838,94 @@ async def get_billing_status(
         last_credential_type=last_type,
         last_credential_at=last_at,
     )
+
+
+async def _probe_db(deps: Dependencies) -> ComponentCheck:
+    """Probe the database with a bounded SELECT 1."""
+    db_pool = deps.db_pool
+    if db_pool is None:
+        return ComponentCheck(status="not_configured")
+
+    async def _run() -> None:
+        async with db_pool.connection() as conn:
+            await conn.fetchval("SELECT 1")
+
+    t0 = time.perf_counter()
+    try:
+        await asyncio.wait_for(_run(), timeout=SYSTEM_STATUS_PROBE_TIMEOUT_SECONDS)
+        return ComponentCheck(status="ok", latency_ms=round((time.perf_counter() - t0) * 1000, 1))
+    except asyncio.TimeoutError:
+        logger.warning("system-status: DB probe timed out after %.1fs", SYSTEM_STATUS_PROBE_TIMEOUT_SECONDS)
+        return ComponentCheck(
+            status="error", latency_ms=round((time.perf_counter() - t0) * 1000, 1), error="database check timed out"
+        )
+    except Exception:
+        logger.warning("system-status: DB probe failed", exc_info=True)
+        return ComponentCheck(
+            status="error", latency_ms=round((time.perf_counter() - t0) * 1000, 1), error="database check failed"
+        )
+
+
+async def _probe_redis(deps: Dependencies) -> ComponentCheck:
+    """Probe Redis with a bounded ping."""
+    redis_client = deps.redis_client
+    if redis_client is None:
+        return ComponentCheck(status="not_configured")
+    t0 = time.perf_counter()
+    try:
+        await asyncio.wait_for(redis_client.ping(), timeout=SYSTEM_STATUS_PROBE_TIMEOUT_SECONDS)
+        return ComponentCheck(status="ok", latency_ms=round((time.perf_counter() - t0) * 1000, 1))
+    except asyncio.TimeoutError:
+        logger.warning("system-status: Redis probe timed out after %.1fs", SYSTEM_STATUS_PROBE_TIMEOUT_SECONDS)
+        return ComponentCheck(
+            status="error", latency_ms=round((time.perf_counter() - t0) * 1000, 1), error="redis check timed out"
+        )
+    except Exception:
+        logger.warning("system-status: Redis probe failed", exc_info=True)
+        return ComponentCheck(
+            status="error", latency_ms=round((time.perf_counter() - t0) * 1000, 1), error="redis check failed"
+        )
+
+
+@router.get("/system-status", response_model=SystemStatusResponse)
+async def get_system_status(
+    _: str = Depends(verify_admin_token),
+    deps: Dependencies = Depends(get_dependencies),
+) -> SystemStatusResponse:
+    """Rich per-component health diagnostics for operators and monitoring.
+
+    Probes DB and Redis in parallel (each bounded by
+    SYSTEM_STATUS_PROBE_TIMEOUT_SECONDS) and reports per-component status and
+    latency so a degraded gateway (e.g. Redis down) can be distinguished from
+    an unhealthy one (DB down).
+
+    This is deliberately NOT on /health: /health is a dependency-free liveness
+    probe for container/k8s restart logic, and /ready handles traffic-draining
+    readiness. This endpoint is for a monitoring system that parses the body,
+    and is behind admin auth so its timing and topology signals aren't exposed
+    to unauthenticated probes.
+
+    Always returns HTTP 200 — the overall verdict is in the body's `status`
+    field. Do NOT switch this to 503 on `unhealthy`: this is a body-parsed
+    diagnostics endpoint, not a probe wired to restart/drain logic (that's
+    /health and /ready). Returning non-2xx here would mislead HTTP-status
+    monitors into treating a reported-but-handled state as an endpoint outage.
+    """
+    db_check, redis_check = await asyncio.gather(_probe_db(deps), _probe_redis(deps))
+
+    # DB is required: error OR not_configured means the gateway can't serve
+    # traffic (matches /ready's 503 when db_pool is None). Redis is optional —
+    # not_configured (SQLite/local mode) stays healthy; only a Redis *error*
+    # degrades.
+    overall: Literal["healthy", "degraded", "unhealthy"]
+    if db_check.status in ("error", "not_configured"):
+        overall = "unhealthy"
+    elif redis_check.status == "error":
+        overall = "degraded"
+    else:
+        overall = "healthy"
+
+    return SystemStatusResponse(status=overall, checks={"db": db_check, "redis": redis_check})
 
 
 @router.post("/auth/config", response_model=AuthConfigResponse)

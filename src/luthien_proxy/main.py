@@ -456,10 +456,17 @@ def create_app(
     async def health():
         """Liveness probe endpoint.
 
-        Always returns HTTP 200 if the process is responsive. Kept minimal:
-        a probe attacker shouldn't be able to fingerprint the gateway's auth
-        mode or recent credential activity from this endpoint. The admin UI
-        gets billing-mode signals from /api/admin/billing-status instead.
+        Always returns HTTP 200 if the process is responsive, with no
+        dependency on DB or Redis. This is deliberate: container HEALTHCHECKs
+        and k8s liveness probes consume /health, and a liveness probe that
+        fails on a transient DB blip would trigger a restart that cannot fix
+        the dependency — the textbook cascading-failure outage. Dependency
+        readiness (for traffic draining) lives on /ready; rich per-component
+        diagnostics live on the authenticated /api/admin/system-status.
+
+        Kept minimal so an unauthenticated probe attacker can't fingerprint
+        the gateway's auth mode, dependency topology, or recent credential
+        activity from this endpoint.
         """
         return {
             "status": "healthy",
