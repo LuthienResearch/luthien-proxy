@@ -850,8 +850,8 @@ async def _probe_db(deps: Dependencies) -> ComponentCheck:
         async with db_pool.connection() as conn:
             await conn.fetchval("SELECT 1")
 
+    t0 = time.perf_counter()
     try:
-        t0 = time.perf_counter()
         await asyncio.wait_for(_run(), timeout=SYSTEM_STATUS_PROBE_TIMEOUT_SECONDS)
         return ComponentCheck(status="ok", latency_ms=round((time.perf_counter() - t0) * 1000, 1))
     except asyncio.TimeoutError:
@@ -871,8 +871,8 @@ async def _probe_redis(deps: Dependencies) -> ComponentCheck:
     redis_client = deps.redis_client
     if redis_client is None:
         return ComponentCheck(status="not_configured")
+    t0 = time.perf_counter()
     try:
-        t0 = time.perf_counter()
         await asyncio.wait_for(redis_client.ping(), timeout=SYSTEM_STATUS_PROBE_TIMEOUT_SECONDS)
         return ComponentCheck(status="ok", latency_ms=round((time.perf_counter() - t0) * 1000, 1))
     except asyncio.TimeoutError:
@@ -891,7 +891,7 @@ async def _probe_redis(deps: Dependencies) -> ComponentCheck:
 async def get_system_status(
     _: str = Depends(verify_admin_token),
     deps: Dependencies = Depends(get_dependencies),
-):
+) -> SystemStatusResponse:
     """Rich per-component health diagnostics for operators and monitoring.
 
     Probes DB and Redis in parallel (each bounded by
