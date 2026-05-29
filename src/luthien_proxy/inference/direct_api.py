@@ -346,7 +346,14 @@ def _extract_structured(
 
     if structured is None:
         # The model may have refused and emitted text instead — try
-        # parsing that as a last-resort JSON fallback.
+        # parsing that as a last-resort JSON fallback. We force tool_use via
+        # tool_choice, so reaching here means the backend didn't honor the
+        # forced tool — log loudly: if it ever becomes common it signals an
+        # SDK/API regression silently degrading every structured judge call.
+        logger.warning(
+            "%s: structured-output response had no tool_use block; falling back to parsing assistant text as JSON",
+            provider_name,
+        )
         text = _try_extract_text(response)
         if text is not None:
             try:

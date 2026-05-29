@@ -59,7 +59,7 @@ class TestUserCredentials:
     @pytest.mark.asyncio
     async def test_missing_user_cred_raises(self):
         context = PolicyContext.for_testing(user_credential=None)
-        with pytest.raises(CredentialError, match="No user credential"):
+        with pytest.raises(CredentialError, match="no user credential"):
             await resolve_inference_provider(
                 UserCredentials(),
                 context,

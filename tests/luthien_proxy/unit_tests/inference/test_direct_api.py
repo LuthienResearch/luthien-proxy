@@ -262,6 +262,7 @@ class TestErrorTranslation:
 class TestStructuredOutputSuccess:
     """When the model produces schema-valid JSON, we return it structured."""
 
+    @pytest.mark.asyncio
     async def test_structured_output_extracted_from_tool_use(self):
         """Tool input becomes the `structured` payload."""
         payload = {"city": "Paris", "population": 2_161_000}

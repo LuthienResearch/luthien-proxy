@@ -178,7 +178,12 @@ def _passthrough(
 ) -> DispatchResult:
     """Build a throwaway `DirectApiProvider` that the caller will override."""
     if context.user_credential is None:
-        raise CredentialError("No user credential on request context")
+        raise CredentialError(
+            "inference_provider resolves to 'user_credentials' but the request "
+            "carries no user credential. Send a client API key, or configure a "
+            "server-side provider via {'provider': 'name'} / "
+            "{'user_then_provider': {'name': 'x', 'on_fallback': 'warn'}}."
+        )
     provider = DirectApiProvider(
         name=passthrough_name,
         credential=_PLACEHOLDER_CREDENTIAL,

@@ -176,17 +176,14 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         parsed = self._init_config(config, SimpleLLMJudgeConfig)
 
         settings = get_settings()
-        self._config = SimpleLLMJudgeConfig(
-            model=settings.llm_judge_model or parsed.model,
-            api_base=settings.llm_judge_api_base or parsed.api_base,
-            instructions=parsed.instructions,
-            temperature=parsed.temperature,
-            max_tokens=parsed.max_tokens,
-            on_error=parsed.on_error,
-            max_retries=parsed.max_retries,
-            retry_delay=parsed.retry_delay,
-            inference_provider=parsed.inference_provider,
-            auth_provider=parsed.auth_provider,
+        # Copy every field from `parsed`, overriding only the two the gateway
+        # settings can supersede. model_copy keeps this drift-proof — a newly
+        # added config field can't be silently dropped here.
+        self._config = parsed.model_copy(
+            update={
+                "model": settings.llm_judge_model or parsed.model,
+                "api_base": settings.llm_judge_api_base or parsed.api_base,
+            }
         )
 
         self._inference_provider_ref: InferenceProviderRef = _parse_provider_ref(

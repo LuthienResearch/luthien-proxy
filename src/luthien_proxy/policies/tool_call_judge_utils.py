@@ -4,7 +4,7 @@ This module provides the core judging pieces used by ToolCallJudgePolicy:
 - Building judge prompts
 - Parsing judge responses into a validated `JudgeResult`
 
-As of PR #609 there is no LiteLLM-based helper here; the actual judge call
+As of PR #776 there is no LiteLLM-based helper here; the actual judge call
 runs through an `InferenceProvider` that the caller resolves from its
 `inference_provider:` YAML config.
 """

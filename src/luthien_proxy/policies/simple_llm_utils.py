@@ -4,7 +4,7 @@ Handles prompt construction, judge invocation, and response parsing for
 the simple LLM policy that applies plain-English instructions to response
 blocks.
 
-As of PR #609 this module talks to `InferenceProvider` instances (usually
+As of PR #776 this module talks to `InferenceProvider` instances (usually
 a `DirectApiProvider` against Anthropic) instead of LiteLLM. The caller
 passes the resolved provider + optional credential override directly; we
 don't own credential resolution at this layer.
