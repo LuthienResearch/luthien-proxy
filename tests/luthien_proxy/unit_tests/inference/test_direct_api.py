@@ -16,6 +16,7 @@ import httpx
 import pytest
 
 from luthien_proxy.credentials.credential import Credential, CredentialType
+from luthien_proxy.inference import direct_api
 from luthien_proxy.inference.base import (
     MAX_SCHEMA_SERIALIZED_BYTES,
     InferenceInvalidCredentialError,
@@ -25,6 +26,30 @@ from luthien_proxy.inference.base import (
     InferenceTimeoutError,
 )
 from luthien_proxy.inference.direct_api import DirectApiProvider
+
+
+#: The genuine `_cached_client`, captured before any autouse patching so
+#: caching-specific tests can exercise the real cache path.
+_REAL_CACHED_CLIENT = direct_api._cached_client
+
+
+@pytest.fixture(autouse=True)
+def _cached_client_delegates_to_build(monkeypatch):
+    """Route the stable-credential cache lookup through `_build_client`.
+
+    The bulk of the suite patches `_build_client` (the per-call passthrough
+    constructor) and exercises the no-override path. With client caching,
+    that path now calls `_cached_client`. To keep those request-shape and
+    error-translation tests focused on translation (not caching), make the
+    real `_cached_client` defer to whatever `_build_client` currently is.
+    Tests that specifically pin caching behavior call `_REAL_CACHED_CLIENT`
+    directly and bypass this delegation.
+    """
+
+    async def _delegate(credential, api_base):
+        return direct_api._build_client(credential, api_base)
+
+    monkeypatch.setattr(direct_api, "_cached_client", _delegate)
 
 SIMPLE_SCHEMA = {
     "type": "object",
@@ -139,6 +164,64 @@ class TestCredentialSelection:
                 credential_override=user_cred,
             )
         assert mock_build.call_args.args[0] is user_cred
+
+
+class TestClientLifecycle:
+    """Stable credentials reuse a cached client; passthrough builds + closes."""
+
+    @pytest.mark.asyncio
+    async def test_stable_credential_reuses_cached_client(self):
+        """Repeated no-override calls fetch from the cache and never close it."""
+        client = _mock_client(_text_response("ok"))
+        cached = AsyncMock(return_value=client)
+        provider = _provider()
+        with (
+            patch("luthien_proxy.inference.direct_api._cached_client", new=cached),
+            patch("luthien_proxy.inference.direct_api._build_client") as mock_build,
+        ):
+            for _ in range(3):
+                await provider.complete(messages=[{"role": "user", "content": "hi"}])
+
+        # All three calls went through the cache, not the per-call builder.
+        assert cached.await_count == 3
+        mock_build.assert_not_called()
+        # The cache owns the client lifecycle — provider must not close it.
+        client.close.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_stable_credential_passes_credential_and_base_to_cache(self):
+        """The cache is keyed by the configured server credential + api_base."""
+        server_cred = _api_key_cred("sk-ant-SERVER")
+        provider = DirectApiProvider(
+            name="judge",
+            credential=server_cred,
+            default_model="claude-sonnet-4-6",
+            api_base="https://judge.example",
+        )
+        cached = AsyncMock(return_value=_mock_client(_text_response("ok")))
+        with patch("luthien_proxy.inference.direct_api._cached_client", new=cached):
+            await provider.complete(messages=[{"role": "user", "content": "hi"}])
+
+        assert cached.await_args.args == (server_cred, "https://judge.example")
+
+    @pytest.mark.asyncio
+    async def test_passthrough_builds_and_closes_per_call(self):
+        """Override calls build a fresh client and close it (no cache use)."""
+        user_cred = _oauth_cred("sk-ant-oat01-USER")
+        client = _mock_client(_text_response("ok"))
+        cached = AsyncMock()
+        with (
+            patch("luthien_proxy.inference.direct_api._cached_client", new=cached),
+            patch("luthien_proxy.inference.direct_api._build_client", return_value=client) as mock_build,
+        ):
+            await _provider().complete(
+                messages=[{"role": "user", "content": "hi"}],
+                credential_override=user_cred,
+            )
+
+        mock_build.assert_called_once()
+        cached.assert_not_awaited()
+        client.close.assert_awaited_once()
 
 
 class TestRequestShape:
@@ -435,6 +518,43 @@ class TestMultiBlockContent:
                     ],
                 )
         mock_build.assert_not_called()
+
+
+class TestCachedClientIdentity:
+    """`_cached_client` returns the same instance for a repeated credential."""
+
+    @pytest.mark.asyncio
+    async def test_repeated_stable_credential_returns_same_client(self):
+        """Two lookups with the same credential + base reuse one client."""
+        from luthien_proxy.llm import anthropic_client_cache
+
+        anthropic_client_cache.clear()
+        try:
+            with patch.object(anthropic_client_cache, "AnthropicClient") as mock_cls:
+                mock_cls.side_effect = lambda **_: MagicMock()
+                cred = _api_key_cred("sk-ant-STABLE")
+                first = await _REAL_CACHED_CLIENT(cred, "https://judge.example")
+                second = await _REAL_CACHED_CLIENT(cred, "https://judge.example")
+            assert first is second
+            assert mock_cls.call_count == 1
+        finally:
+            anthropic_client_cache.clear()
+
+    @pytest.mark.asyncio
+    async def test_distinct_credentials_get_distinct_clients(self):
+        """Different credential values yield different cached clients."""
+        from luthien_proxy.llm import anthropic_client_cache
+
+        anthropic_client_cache.clear()
+        try:
+            with patch.object(anthropic_client_cache, "AnthropicClient") as mock_cls:
+                mock_cls.side_effect = lambda **_: MagicMock()
+                first = await _REAL_CACHED_CLIENT(_api_key_cred("sk-ant-A"), None)
+                second = await _REAL_CACHED_CLIENT(_api_key_cred("sk-ant-B"), None)
+            assert first is not second
+            assert mock_cls.call_count == 2
+        finally:
+            anthropic_client_cache.clear()
 
 
 class TestStructuredTextConsistency:
