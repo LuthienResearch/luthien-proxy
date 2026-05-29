@@ -372,3 +372,31 @@ class TestWriteDbAtomicity:
         assert len(events) == 1
         assert len(summaries) == 1
         assert summaries[0]["event_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_sqlite_write_error_increments_dropped_counter(self, pool) -> None:
+        """A SQLite-path failure must tick dropped_db_writes, not vanish.
+
+        Regression guard: the _write_db except clause caught only asyncpg/OSError;
+        a sqlite3.Error from the (new, SQL-heavy) session_summaries update would
+        otherwise escape _write_db and be silently absorbed by emit()'s
+        gather(return_exceptions=True), leaving the counter flat."""
+        import sqlite3
+
+        emitter = EventEmitter(db_pool=pool, stdout_enabled=False)
+        data = {"session_id": "sess-3", "user_id": "u3", "payload": "x"}
+
+        with patch(
+            "luthien_proxy.observability.emitter.update_session_summary",
+            new_callable=AsyncMock,
+            side_effect=sqlite3.OperationalError("disk I/O error"),
+        ):
+            before = EventEmitter.dropped_db_writes
+            # emit() is fire-and-forget; it must swallow the DB error, not raise.
+            await emitter.emit("tx-3", "transaction.request_recorded", data)
+            assert EventEmitter.dropped_db_writes == before + 1
+
+        # And the failed write rolled back — no orphaned event row.
+        async with pool.connection() as conn:
+            events = await conn.fetch("SELECT * FROM conversation_events WHERE call_id = $1", "tx-3")
+        assert events == []

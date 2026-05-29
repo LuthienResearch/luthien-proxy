@@ -13,6 +13,7 @@ import asyncio
 import base64
 import json
 import logging
+import sqlite3
 import sys
 from datetime import UTC, datetime
 from typing import Any, Protocol, cast
@@ -296,7 +297,14 @@ class EventEmitter:
                         )
 
             logger.debug(f"Wrote event to db: {event_type} (transaction_id={transaction_id})")
-        except (OSError, asyncpg.PostgresError, asyncpg.InternalClientError) as e:
+        # Driver-agnostic DB failure handling: Postgres raises asyncpg errors,
+        # SQLite (aiosqlite) raises sqlite3.Error subclasses. Both must tick the
+        # dropped counter — without sqlite3.Error, a failed SQLite write (e.g. in
+        # the session_summaries update, the widest SQL surface here) would escape
+        # _write_db and be silently absorbed by emit()'s gather(return_exceptions=
+        # True), leaving dropped_db_writes misleadingly flat. Genuine logic bugs
+        # (TypeError/ValueError/etc.) intentionally still propagate.
+        except (OSError, asyncpg.PostgresError, asyncpg.InternalClientError, sqlite3.Error) as e:
             EventEmitter.dropped_db_writes += 1
             logger.warning(
                 f"Failed to write event to database ({EventEmitter.dropped_db_writes} total dropped): {repr(e)}",

@@ -43,7 +43,11 @@ SELECT
     (SELECT cc.user_id FROM conversation_calls cc
        WHERE cc.session_id = ce.session_id AND cc.user_id IS NOT NULL
        ORDER BY cc.created_at LIMIT 1),
-    (SELECT string_agg(DISTINCT m.model, ',')
+    -- ORDER BY m.model makes the aggregation deterministic (Postgres requires
+    -- the ORDER BY key to match the DISTINCT expression). Order isn't semantically
+    -- meaningful — the LIKE-based dedupe is order-insensitive — but determinism
+    -- keeps the backfilled value stable across runs.
+    (SELECT string_agg(DISTINCT m.model, ',' ORDER BY m.model)
        FROM (
          SELECT ce2.payload->>'final_model' AS model
          FROM conversation_events ce2

@@ -347,4 +347,36 @@ orchestrator.process_streaming_response(stream, obs_ctx, policy_ctx)
 
 ---
 
+## session_summaries write is atomic with the canonical event write (2026-05-29)
+
+**Decision**: `EventEmitter._write_db` (PR #780) wraps three statements in a
+single `conn.transaction()`: the `conversation_calls` upsert, the
+`conversation_events` insert, and the incremental `session_summaries` update. If
+the summary update fails, the whole transaction rolls back — **including the
+canonical `conversation_events` row**.
+
+**Why drop the event rather than keep it**: a committed event with a failed
+summary update permanently drifts the materialized `session_summaries` (the
+migration-021 backfill uses `ON CONFLICT DO NOTHING` / `INSERT OR IGNORE`, so it
+won't repair an existing row). Drift is silent and hard to detect; a dropped
+event is counted (`EventEmitter.dropped_db_writes`) and logged. We prefer a
+visible, counted loss over silent inconsistency. `_write_db` is fire-and-forget
+telemetry, so dropping an occasional event is acceptable; corrupting the
+summary that the history page reads is not.
+
+**Rejected alternative**: a SAVEPOINT around only the summary update (keeping the
+event row even when the summary blows up). That preserves the event but
+reintroduces exactly the drift we're avoiding, and adds complexity for a
+fire-and-forget path. Not worth it.
+
+**Consequence to remember**: if a `session_summary.py` regression ever makes the
+summary update throw, *events for sessions will start disappearing*, not just
+summaries. The dropped-writes counter is the signal. Both DB backends are
+covered by the except clause (asyncpg errors + `sqlite3.Error`).
+
+**Canonical reference**: `src/luthien_proxy/observability/emitter.py`
+`_write_db`, and `observability/session_summary.py`.
+
+---
+
 (Add new decisions as they're made with timestamps: YYYY-MM-DD)

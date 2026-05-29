@@ -13,9 +13,12 @@ from datetime import datetime, timezone
 
 from luthien_proxy.utils.db import DatabasePool
 
-# Matches the user_labels.display_name column (no length limit in DDL, but the
-# API bounds input). Kept here so the service can enforce non-blank input even
-# when called outside the route.
+# Display-name length bound. Enforced at the request boundary by the route's
+# UserLabelRequest Pydantic model (max_length); this constant is the single
+# source of truth that model imports. The service intentionally does NOT
+# re-check length — length is a boundary/storage concern owned by the route,
+# while set_label owns only the semantic non-blank invariant (which Pydantic
+# can't express). The column itself has no length limit in the DDL.
 MAX_DISPLAY_NAME_LENGTH = 255
 
 
