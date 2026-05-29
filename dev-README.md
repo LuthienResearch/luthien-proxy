@@ -109,8 +109,9 @@ The gateway is a single FastAPI application:
   - Event-driven policy system with streaming support
   - OpenTelemetry instrumentation for observability
 
-- **Orchestration** (`src/luthien_proxy/orchestration/`): Request processing coordination
-  - `PolicyOrchestrator` coordinates the streaming pipeline
+- **Pipeline** (`src/luthien_proxy/pipeline/`): Request processing coordination
+  - `process_anthropic_request` coordinates the streaming pipeline and policy execution
+  - Client formatters for Anthropic format (`pipeline/client_format.py`)
   - Real-time event publishing for UI updates
   - Trace context propagation
 
@@ -122,10 +123,6 @@ The gateway is a single FastAPI application:
   - Policy protocol definitions
   - Request/response contexts for policy processing
   - Chunk builders for streaming
-
-- **Streaming** (`src/luthien_proxy/streaming/`): Streaming support
-  - Policy executor for stream processing
-  - Client formatters for Anthropic format
 
 - **UI** (`src/luthien_proxy/ui/`): Real-time monitoring and debugging
   - `/history` - Conversation history view
@@ -154,7 +151,7 @@ The gateway is a single FastAPI application:
 - `GET /history` - Conversation history view (HTML)
 - `GET /conversation/live/{id}` - Live conversation view with SSE streaming
 - `GET /config` - Config dashboard (all settings with provenance)
-- `GET /debug` - Debug information viewer
+- `GET /debug/activity` - Raw activity SSE viewer
 - `GET /policy-config` - Policy configuration UI
 - `GET /credentials` - Credential management UI
 - `GET /request-logs/viewer` - Request log viewer
@@ -249,7 +246,7 @@ The gateway uses an event-driven policy architecture with streaming support.
 
 - `src/luthien_proxy/policy_core/base_policy.py` - Abstract policy interface
 - `src/luthien_proxy/policies/simple_policy.py` - Base class for custom policies
-- `src/luthien_proxy/orchestration/policy_orchestrator.py` - Policy orchestration
+- `src/luthien_proxy/pipeline/anthropic_processor.py` - request lifecycle / policy execution
 - `src/luthien_proxy/gateway_routes.py` - API endpoint handlers with policy integration
 - `config/policy_config.yaml` - Policy configuration
 
