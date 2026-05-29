@@ -336,6 +336,48 @@
             border: 1px solid #3d0a0a;
             border-radius: 8px;
         }
+
+        .user-badge {
+            display: inline-block;
+            padding: 1px 7px;
+            border-radius: 10px;
+            font-family: monospace;
+            font-size: 0.72em;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid transparent;
+            vertical-align: middle;
+        }
+
+        .user-badge:hover {
+            border-color: currentColor;
+        }
+
+        select.user-filter-select {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 16px;
+            padding: 4px 26px 4px 12px;
+            font-size: 12px;
+            color: #888;
+            cursor: pointer;
+            outline: none;
+            appearance: none;
+            margin-left: 4px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23888' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+        }
+
+        select.user-filter-select:hover {
+            border-color: #555;
+            color: #e5e5e5;
+        }
+
+        select.user-filter-select option {
+            background: #1a1a1a;
+            color: #e5e5e5;
+        }
     </style>
 </head>
 <body>
@@ -371,6 +413,9 @@
             <span class="quick-filter" data-filter="lastweek" onclick="applyQuickFilter('lastweek')">Last week <span class="count" id="count-lastweek"></span></span>
             <span class="quick-filter" data-filter="30days" onclick="applyQuickFilter('30days')">Last 30 days <span class="count" id="count-30days"></span></span>
             <span class="quick-filter" data-filter="claude" onclick="applyQuickFilter('claude')">Claude Code <span class="count" id="count-claude"></span></span>
+            <select id="user-filter" class="user-filter-select" onchange="onUserFilterChange()" title="Filter by user">
+                <option value="">All users</option>
+            </select>
             <div class="filter-dropdown">
                 <span class="filter-dropdown-btn" onclick="toggleDropdown()">More filters ▾</span>
                 <div class="filter-dropdown-menu" id="filter-dropdown">
@@ -397,6 +442,9 @@
         let allSessions = [];
         let currentFilter = 'all';
         let currentSort = 'newest';
+        let userLabels = {};        // user_id -> display_name
+        let allKnownUsers = [];     // every user_id seen, for the dropdown
+        let currentUserId = null;   // active server-side user filter, or null
 
         function toggleDropdown() {
             document.getElementById('filter-dropdown').classList.toggle('show');
@@ -511,7 +559,11 @@
             const container = document.getElementById('sessions-container');
 
             try {
-                const response = await fetch('/api/history/sessions?limit=10000', {
+                let url = '/api/history/sessions?limit=10000';
+                if (currentUserId) {
+                    url += `&user_id=${encodeURIComponent(currentUserId)}`;
+                }
+                const response = await fetch(url, {
                     headers: {
                         'Accept': 'application/json'
                     }
@@ -522,7 +574,7 @@
                 }
 
                 const data = await response.json();
-                allSessions = data.sessions;
+                allSessions = data.sessions || [];
 
                 updateFilterCounts();
                 applyFilters();
@@ -532,6 +584,117 @@
                 errDiv.className = 'error';
                 errDiv.textContent = 'Failed to load sessions: ' + error.message;
                 container.replaceChildren(errDiv);
+            }
+        }
+
+        // --- User differentiation: labels, dropdown, badges ---
+
+        async function loadUsersAndLabels() {
+            try {
+                const resp = await fetch('/api/history/users', { headers: { 'Accept': 'application/json' } });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    allKnownUsers = data.users || [];
+                    userLabels = data.labels || {};
+                }
+            } catch (e) {
+                // Non-critical; the dropdown just stays empty. Reset both so
+                // populateUserFilter and userBadgeElement stay consistent.
+                allKnownUsers = [];
+                userLabels = {};
+            }
+            populateUserFilter();
+        }
+
+        function populateUserFilter() {
+            const sel = document.getElementById('user-filter');
+            if (!sel) return;
+            // Preserve the active filter even if that user isn't in the freshly
+            // loaded user list (e.g. paged out): re-add it as an option so the
+            // dropdown's displayed value stays in sync with currentUserId rather
+            // than silently snapping back to "All users".
+            const selected = currentUserId || sel.value;
+            const uids = [...allKnownUsers];
+            if (selected && !uids.includes(selected)) uids.push(selected);
+            while (sel.options.length > 1) sel.remove(1);
+            uids.sort().forEach(uid => {
+                const opt = document.createElement('option');
+                opt.value = uid;
+                opt.textContent = userDisplay(uid);
+                sel.appendChild(opt);
+            });
+            sel.value = selected || '';
+        }
+
+        function onUserFilterChange() {
+            currentUserId = document.getElementById('user-filter').value || null;
+            loadSessions();
+        }
+
+        // Deterministic color per user_id so the same user reads the same in
+        // every card. HSL with fixed S/L keeps badges legible on the dark bg.
+        function userColor(uid) {
+            let hash = 0;
+            for (let i = 0; i < uid.length; i++) {
+                hash = (hash * 31 + uid.charCodeAt(i)) | 0;
+            }
+            const hue = Math.abs(hash) % 360;
+            return `hsl(${hue}, 60%, 70%)`;
+        }
+
+        function userDisplay(uid) {
+            return userLabels[uid] || (uid.length > 12 ? uid.substring(0, 12) + '…' : uid);
+        }
+
+        function userBadgeElement(uid) {
+            const color = userColor(uid);
+            // DOM construction: uid is attacker-controllable (X-Luthien-User-Id
+            // header / JWT sub). textContent / dataset / a CSS color string built
+            // from a numeric hash keep markup and quotes inert by construction.
+            const span = document.createElement('span');
+            span.className = 'user-badge';
+            span.style.color = color;
+            span.style.background = color + '22';
+            span.dataset.uid = uid;
+            span.title = 'Click to set a display name · ' + uid;
+            span.textContent = userDisplay(uid);
+            span.addEventListener('click', (e) => {
+                // Don't let the click bubble to the card's navigate handler.
+                e.stopPropagation();
+                editUserLabel(uid, e);
+            });
+            return span;
+        }
+
+        async function editUserLabel(uid, event) {
+            if (event) event.stopPropagation();
+            const current = userLabels[uid] || '';
+            const name = prompt('Display name for this user (blank to clear):', current);
+            if (name === null) return; // cancelled
+            const previous = userLabels[uid];
+            try {
+                if (name.trim() === '') {
+                    const resp = await fetch('/api/history/user-labels/' + encodeURIComponent(uid), { method: 'DELETE' });
+                    if (!resp.ok) throw new Error(`DELETE failed: ${resp.status}`);
+                    delete userLabels[uid];
+                } else {
+                    const resp = await fetch('/api/history/user-labels/' + encodeURIComponent(uid), {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ display_name: name.trim() }),
+                    });
+                    if (!resp.ok) throw new Error(`PUT failed: ${resp.status}`);
+                    userLabels[uid] = name.trim();
+                }
+                applyFilters();
+                populateUserFilter();
+            } catch (err) {
+                // Roll back the optimistic local mutation AND re-render the
+                // dropdown/list so the displayed label matches the restored state.
+                if (previous !== undefined) { userLabels[uid] = previous; } else { delete userLabels[uid]; }
+                applyFilters();
+                populateUserFilter();
+                alert('Failed to update user label: ' + (err && err.message ? err.message : err));
             }
         }
 
@@ -603,6 +766,18 @@
                         interventions.textContent = 'no policies triggered';
                     }
                     meta.appendChild(interventions);
+
+                    // User badges (user_ids is a list — usually 0 or 1, but a
+                    // shared session_id reused across users can carry several).
+                    // Built as DOM nodes (textContent/dataset/addEventListener),
+                    // same as the rest of the card: uid is attacker-controllable
+                    // (X-Luthien-User-Id header / JWT sub) so it must never be
+                    // interpolated into markup.
+                    const uids = Array.isArray(session.user_ids) ? session.user_ids : [];
+                    for (const uid of uids) {
+                        meta.appendChild(document.createTextNode(' · '));
+                        meta.appendChild(userBadgeElement(uid));
+                    }
 
                     main.append(preview, meta);
 
@@ -720,7 +895,13 @@
             }
         }
 
-        loadSessions();
+        // Load labels BEFORE the first session render so badges show assigned
+        // display names rather than truncated uids. loadUsersAndLabels swallows
+        // its own errors (labels are non-critical), so sessions always load.
+        (async () => {
+            await loadUsersAndLabels();
+            await loadSessions();
+        })();
     </script>
     <script defer src="/static/vendor/alpine.min.js"></script>
     <script src="/static/nav.js"></script>

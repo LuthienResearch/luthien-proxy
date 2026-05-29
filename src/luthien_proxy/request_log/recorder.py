@@ -41,6 +41,7 @@ class _PendingLog:
     direction: str
     transaction_id: str
     session_id: str | None = None
+    user_id: str | None = None
     http_method: str | None = None
     url: str | None = None
     request_headers: dict[str, str] | None = None
@@ -75,21 +76,22 @@ async def _insert_log_row(
         await conn.execute(  # type: ignore[union-attr]
             """
             INSERT INTO request_logs (
-                transaction_id, session_id, direction,
+                transaction_id, session_id, user_id, direction,
                 http_method, url, request_headers, request_body,
                 response_status, response_headers, response_body,
                 started_at, completed_at, duration_ms,
                 model, is_streaming, endpoint, error
             ) VALUES (
-                $1, $2, $3,
-                $4, $5, $6::jsonb, $7::jsonb,
-                $8, $9::jsonb, $10::jsonb,
-                to_timestamp($11), to_timestamp($12), $13,
-                $14, $15, $16, $17
+                $1, $2, $3, $4,
+                $5, $6, $7::jsonb, $8::jsonb,
+                $9, $10::jsonb, $11::jsonb,
+                to_timestamp($12), to_timestamp($13), $14,
+                $15, $16, $17, $18
             )
             """,
             pending.transaction_id,
             pending.session_id,
+            pending.user_id,
             pending.direction,
             pending.http_method,
             pending.url,
@@ -143,6 +145,7 @@ class RequestLogRecorder:
         headers: dict[str, str],
         body: dict[str, Any],
         session_id: str | None = None,
+        user_id: str | None = None,
         model: str | None = None,
         is_streaming: bool = False,
         endpoint: str | None = None,
@@ -153,6 +156,7 @@ class RequestLogRecorder:
         self._inbound.request_headers = sanitize_headers(headers)
         self._inbound.request_body = body
         self._inbound.session_id = session_id
+        self._inbound.user_id = user_id
         self._inbound.model = model
         self._inbound.is_streaming = is_streaming
         self._inbound.endpoint = endpoint
@@ -191,6 +195,7 @@ class RequestLogRecorder:
         self._outbound.url = url
         self._outbound.request_body = body
         self._outbound.session_id = self._inbound.session_id
+        self._outbound.user_id = self._inbound.user_id
         self._outbound.model = model
         self._outbound.is_streaming = is_streaming
         self._outbound.endpoint = endpoint
@@ -267,6 +272,7 @@ class NoOpRequestLogRecorder(RequestLogRecorder):
         headers: dict[str, str],
         body: dict[str, Any],
         session_id: str | None = None,
+        user_id: str | None = None,
         model: str | None = None,
         is_streaming: bool = False,
         endpoint: str | None = None,

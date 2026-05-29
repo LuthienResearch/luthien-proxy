@@ -468,13 +468,13 @@ class TestRequestLogRecorder:
         call_args = mock_conn.execute.call_args_list[0]
         args = call_args[0]
 
-        # Args: [sql, txn_id, session_id, direction, method, url, headers, body, ...]
+        # Args: [sql, txn_id, session_id, user_id, direction, method, url, headers, body, ...]
         # Headers should be JSON serialized
-        headers_arg = args[6]
+        headers_arg = args[7]
         assert headers_arg == json.dumps({"content-type": "application/json"})
 
         # Body should be JSON serialized
-        body_arg = args[7]
+        body_arg = args[8]
         assert body_arg == json.dumps({"nested": {"data": "structure"}})
 
     @pytest.mark.asyncio
@@ -502,7 +502,7 @@ class TestRequestLogRecorder:
 
         # Headers should be None (empty dict in record_inbound_request, but let's check)
         # Body should be None
-        body_arg = args[7]
+        body_arg = args[8]
         assert body_arg is None
 
     @pytest.mark.asyncio
@@ -644,12 +644,12 @@ class TestRequestLogRecorderIntegration:
         # Verify first call is inbound log
         inbound_call = mock_conn.execute.call_args_list[0]
         inbound_args = inbound_call[0]
-        assert inbound_args[3] == "inbound"  # direction
+        assert inbound_args[4] == "inbound"  # direction
 
         # Verify second call is outbound log
         outbound_call = mock_conn.execute.call_args_list[1]
         outbound_args = outbound_call[0]
-        assert outbound_args[3] == "outbound"  # direction
+        assert outbound_args[4] == "outbound"  # direction
 
         # Both should have same transaction_id
         assert inbound_args[1] == "txn-456"
