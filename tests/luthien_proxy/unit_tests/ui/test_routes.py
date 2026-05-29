@@ -7,13 +7,31 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from luthien_proxy.dependencies import get_admin_key
+from luthien_proxy.settings import clear_settings_cache
 from luthien_proxy.ui.routes import router
 
 app = FastAPI()
 app.include_router(router)
-# With no admin key configured, check_auth_or_redirect treats requests as
-# authenticated — matches the dockerless/unconfigured dev default.
+# No admin key configured. These tests reach the routes via the localhost
+# bypass (ASGITransport presents as a loopback client), not because an unset
+# admin key grants access — check_auth_or_redirect now fails closed in that case.
 app.dependency_overrides[get_admin_key] = lambda: None
+
+
+@pytest.fixture(autouse=True)
+def _force_localhost_bypass(monkeypatch: pytest.MonkeyPatch):
+    """Pin the localhost dev bypass on for these UI page-render tests.
+
+    Without an admin key, check_auth_or_redirect fails closed, so these tests
+    rely on the localhost bypass (the real dockerless-dev path). Pinning it
+    makes them independent of env left by earlier tests — notably the Railway
+    auto-provision test, which writes LOCALHOST_AUTH_BYPASS=false straight into
+    os.environ.
+    """
+    monkeypatch.setenv("LOCALHOST_AUTH_BYPASS", "true")
+    clear_settings_cache()
+    yield
+    clear_settings_cache()
 
 
 @pytest.fixture
