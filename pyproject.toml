@@ -47,8 +47,8 @@ dependencies = [
 
 [project.optional-dependencies]
 # S3 conversation archiving (retention/archiver.py) is opt-in via
-# ARCHIVE_S3_BUCKET. boto3 was previously pulled in transitively by
-# litellm[proxy]; with LiteLLM retired it must be declared explicitly.
+# ARCHIVE_S3_BUCKET. boto3 was previously pulled in transitively by the
+# LiteLLM proxy extra; with LiteLLM retired it must be declared explicitly.
 # Operators who enable S3 archiving install `luthien-proxy[archive]`.
 archive = ["boto3>=1.34"]
 
