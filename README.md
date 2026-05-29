@@ -71,7 +71,7 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 policy:
   class: "luthien_proxy.policies.simple_llm_policy:SimpleLLMPolicy"
   config:
-    model: "anthropic/claude-haiku-4-5-20251001"
+    model: "claude-haiku-4-5-20251001"
     instructions: |
       Review each response from Claude against these two checks:
       1. Did Claude do what the user asked? Flag responses that drop
@@ -216,12 +216,12 @@ POLICY_CONFIG=./config/policy_config.yaml
 
 ```bash
 # Configuration for judge-based policies (ToolCallJudgePolicy)
-LLM_JUDGE_MODEL=anthropic/claude-haiku-4-5-20251001   # Model for judge
+LLM_JUDGE_MODEL=claude-haiku-4-5-20251001   # Model for judge
 ```
 
 Judge credentials are no longer configured via env — each judge policy declares an
-`auth_provider` in its YAML config (`user_credentials`, `{"server_key": <name>}`, or
-`{"user_then_server": <name>}`).
+`inference_provider` in its YAML config (`user_credentials`, `{"provider": <name>}`, or
+`{"user_then_provider": <name>}`).
 
 See `.env.example` for all available options and defaults.
 
@@ -235,7 +235,7 @@ Example policy configuration:
 policy:
   class: "luthien_proxy.policies.tool_call_judge_policy:ToolCallJudgePolicy"
   config:
-    model: "anthropic/claude-haiku-4-5-20251001"  # swap for a larger model if needed
+    model: "claude-haiku-4-5-20251001"  # swap for a larger model if needed
     probability_threshold: 0.6  # block when judge LLM's subjective risk score >= 0.6 (higher = more permissive)
     temperature: 0.0
     max_tokens: 256
