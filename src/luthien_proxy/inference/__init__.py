@@ -8,8 +8,8 @@ through the policy pipeline would create a circular dependency.
 
 Two backends are currently provided:
 
-- `DirectApiProvider` — wraps the existing LiteLLM path. Used for
-  API-key-backed server credentials and for user-credential passthrough
+- `DirectApiProvider` — HTTP-backed inference via the Anthropic SDK. Used
+  for API-key-backed server credentials and for user-credential passthrough
   (via the `credential_override` argument to `complete()`).
 - `ClaudeCodeProvider` — spawns `claude -p --bare` as a subprocess,
   authenticated with an operator-provisioned OAuth access token. Lets the

@@ -43,7 +43,7 @@ from luthien_proxy.admin.routes import (
     update_telemetry_config,
 )
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CachedCredential, CredentialManager
-from luthien_proxy.credentials import Credential, CredentialError, CredentialType
+from luthien_proxy.credentials import CredentialError, CredentialType
 from luthien_proxy.dependencies import require_credential_manager
 from luthien_proxy.policy_manager import PolicyEnableResult
 
@@ -222,21 +222,16 @@ class TestSetPolicyRoute:
 class TestGetAvailableModels:
     """Test get_available_models function."""
 
-    @patch("luthien_proxy.admin.routes.litellm")
-    def test_returns_models_from_litellm(self, mock_litellm):
-        """Test that get_available_models returns filtered Anthropic models from litellm."""
-        mock_litellm.anthropic_models = [
-            "claude-3-5-sonnet-20241022",
-            "claude-3-haiku-20240307",
-            "some-other-model",  # Should be filtered out (no 'claude')
-        ]
-
+    def test_returns_curated_claude_list(self):
+        """Test that get_available_models returns the curated Claude model list."""
         models = get_available_models()
 
-        # Check that only Anthropic models are returned
-        assert "claude-3-5-sonnet-20241022" in models
-        assert "claude-3-haiku-20240307" in models
-        assert "some-other-model" not in models
+        # Curated list — every entry should be a Claude model.
+        assert all("claude" in m for m in models)
+        # Sorted descending so newest (highest version) appears first.
+        assert models == sorted(models, reverse=True)
+        # Non-empty and contains at least one of the currently shipped tiers.
+        assert any(tier in m for tier in ("opus", "sonnet", "haiku") for m in models)
 
 
 class TestListModelsRoute:
@@ -819,11 +814,11 @@ class TestSendChatRoute:
         """End-to-end: a SimpleLLMPolicy runs through the test endpoint with a real PolicyContext.
 
         Mocks at the Anthropic-client and judge boundaries only — the policy's
-        own machinery (block descriptors, credential resolution via
-        credential_manager.resolve, judge invocation, response rebuilding)
-        runs unmodified. This pins that the test endpoint can preview the
-        most operationally-interesting class of policies (LLM judges) and
-        not just trivial response transformers.
+        own machinery (block descriptors, inference-provider dispatch from the
+        request's user credential, judge invocation, response rebuilding) runs
+        unmodified. This pins that the test endpoint can preview the most
+        operationally-interesting class of policies (LLM judges) and not just
+        trivial response transformers.
         """
         from luthien_proxy.policies.simple_llm_policy import SimpleLLMPolicy
         from luthien_proxy.policies.simple_llm_utils import (
@@ -835,7 +830,7 @@ class TestSendChatRoute:
         config = SimpleLLMJudgeConfig(
             instructions="Replace any mention of 'cat' with 'dog'.",
             on_error="pass",
-            auth_provider="user_credentials",
+            inference_provider="user_credentials",
         )
         policy = SimpleLLMPolicy(config=config)
 
@@ -845,41 +840,35 @@ class TestSendChatRoute:
         client.complete = AsyncMock(return_value=before)
         mock_get_client.return_value = client
 
-        # credential_manager.resolve must return a Credential (the user_credential
-        # from the test ctx, since auth_provider='user_credentials').
-        cred_mgr = MagicMock()
-        cred_mgr.resolve = AsyncMock(
-            return_value=Credential(
-                value="sk-test-1",
-                credential_type=CredentialType.API_KEY,
-                platform="anthropic",
-            )
-        )
-
         deps = _make_deps(policy=policy, anthropic_client=None)
         request = ChatRequest(model="claude-haiku-4-5", message="tell me about cats", api_key="sk-test-1")
 
+        judge_mock = AsyncMock(
+            return_value=JudgeAction(
+                action="replace",
+                blocks=(ReplacementBlock(type="text", text="I love dogs."),),
+            )
+        )
         with patch(
             "luthien_proxy.policies.simple_llm_policy.call_simple_llm_judge",
-            new=AsyncMock(
-                return_value=JudgeAction(
-                    action="replace",
-                    blocks=(ReplacementBlock(type="text", text="I love dogs."),),
-                )
-            ),
+            new=judge_mock,
         ):
             result = await send_chat(
                 body=request,
-                **_send_chat_kwargs(deps=deps, credential_manager=cred_mgr),
+                **_send_chat_kwargs(deps=deps),
             )
 
         assert result.success is True
         assert result.before_content == "I love cats."
         assert result.content == "I love dogs."
-        # credential_manager.resolve was actually called by the policy — proves
-        # the full PolicyContext (with credential_manager wired) threaded
-        # through the hooks.
-        cred_mgr.resolve.assert_awaited()
+        # The judge was invoked with the request's user credential as the
+        # dispatch credential_override — proves the full PolicyContext
+        # (with user_credential built from body.api_key) threaded through the
+        # hooks and the inference-provider dispatch resolved 'user_credentials'.
+        judge_mock.assert_awaited()
+        override = judge_mock.await_args.kwargs["credential_override"]
+        assert override is not None
+        assert override.value == "sk-test-1"
 
     @pytest.mark.asyncio
     async def test_in_place_mutating_request_hook_still_triggers_second_llm_call(self):

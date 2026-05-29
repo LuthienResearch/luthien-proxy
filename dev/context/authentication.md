@@ -53,21 +53,23 @@ context.raw_http_request.headers.get("authorization")  # "Bearer sk-ant-..."
 context.raw_http_request.headers.get("x-api-key")      # "sk-ant-..."
 ```
 
-Headers are stored lowercase. The gateway extracts the bearer token in `verify_token()` and forwards it as `context.user_credential` in `passthrough`/`both` auth modes.
+Headers are stored lowercase. `BasePolicy._extract_passthrough_key(raw_http_request)` handles extraction (checks `authorization` Bearer first, then `x-api-key`).
 
 ---
 
-## Judge LLM Key Resolution (2026-03-17, updated 2026-04-23)
+## Judge LLM Credential Resolution (2026-03-17, updated 2026-04-23)
 
-Both `SimpleLLMPolicy` and `ToolCallJudgePolicy` issue a separate judge-model call per decision. Judge calls are routed through `luthien_proxy.llm.judge_client.judge_completion`, which wraps `litellm.acompletion` — LiteLLM is intentionally scoped to this judge path only and is not on the main request pipeline.
+Both `SimpleLLMPolicy` and `ToolCallJudgePolicy` issue a separate judge-model call per decision. Judge calls go through an `InferenceProvider` resolved by `inference.dispatch.resolve_inference_provider(ref, context, registry)`, where `ref` is the parsed `inference_provider:` YAML field on the policy config. Nothing on the judge path is shared with a third-party LLM aggregator.
 
-Each judge policy's YAML config declares a required `auth_provider` field. The gateway's `CredentialManager.resolve(provider, context)` turns that declaration into a concrete credential at call time:
+The resolver returns a `DispatchResult(provider, credential_override)`; the policy then calls `provider.complete(..., credential_override=...)`. Three cases:
 
-- **`"user_credentials"`** — forward the client's incoming credential (`context.user_credential`, populated by the gateway from `Authorization: Bearer` or `x-api-key` in passthrough/both modes). Fails with `CredentialError` if no user credential is on the request. This is the default behavior shipped in `config/policy_config.yaml` and the bundled presets.
-- **`{"server_key": "<name>"}`** — look up an operator-provisioned key stored in the `server_credentials` DB table.
-- **`{"user_then_server": "<name>"}`** — try user credentials first, fall back to the named server key (with `on_fallback` = `"fallback"` / `"warn"` / `"fail"`).
+1. **`inference_provider: user_credentials`** (default) — build a throwaway `DirectApiProvider` and pass the request's `Credential` (from `PolicyContext.user_credential`) as `credential_override`. Raises `CredentialError` if the request has no user credential.
+2. **`inference_provider: {provider: "<name>"}`** — look the name up in the `InferenceProviderRegistry`; the registered provider already has its credential resolved, so `credential_override=None`.
+3. **`inference_provider: {user_then_provider: {name: "<name>", on_fallback: "warn|fail|fallback"}}`** — try the user credential first; fall back to the named provider per `on_fallback` when the request has no user credential.
 
-The resolved `Credential` is passed as `api_key=` kwarg to `judge_completion()`. There is no env-var fallback — `LLM_JUDGE_API_KEY` and `LITELLM_MASTER_KEY` were removed in PR #603.
+The legacy `auth_provider:` YAML key still parses (as an alias emitting a deprecation warning). Legacy inner-key names (`server_key:` / `user_then_server:`) map transparently to `provider:` / `user_then_provider:`.
+
+**Why user-credentials-first**: in the common case where the client authenticates with their own Anthropic key, judge calls should use the same key — no extra server configuration needed. Operators who need to use a different judge backend (e.g., a shared org key or a `claude -p` subprocess) create an entry in the inference-provider registry and reference it by name.
 
 ---
 
@@ -89,8 +91,7 @@ Claude Code authenticates via OAuth (Claude Pro/Max accounts). The transport hea
 | `src/luthien_proxy/gateway_routes.py` | `verify_token()`, `resolve_anthropic_client()` |
 | `src/luthien_proxy/credential_manager.py` | `CredentialManager`, auth mode config, credential validation/caching |
 | `src/luthien_proxy/llm/anthropic_client.py` | `AnthropicClient` — wraps `AsyncAnthropic`, handles api_key vs auth_token |
-| `src/luthien_proxy/credentials/auth_provider.py` | `AuthProvider` types (`UserCredentials`, `ServerKey`, `UserThenServer`) and `parse_auth_provider()` |
-| `src/luthien_proxy/credential_manager.py` | `CredentialManager.resolve(provider, context)` — turns a policy's `auth_provider` into a `Credential` |
-| `src/luthien_proxy/policies/simple_llm_policy.py` | Declares `auth_provider` in `SimpleLLMJudgeConfig`; resolves via `CredentialManager` before each judge call |
-| `src/luthien_proxy/policies/tool_call_judge_policy.py` | Declares `auth_provider` in `ToolCallJudgeConfig`; resolves via `CredentialManager` before each judge call |
+| `src/luthien_proxy/policy_core/base_policy.py` | `_extract_passthrough_key()` |
+| `src/luthien_proxy/policies/simple_llm_policy.py` | `_resolve_api_key()` for judge calls |
+| `src/luthien_proxy/policies/tool_call_judge_policy.py` | `_resolve_api_key()` for judge calls |
 | `src/luthien_proxy/types.py` | `RawHttpRequest` — stores headers for policy access |

@@ -63,6 +63,34 @@ def _make_context() -> PolicyContext:
     return PolicyContext.for_testing(transaction_id="test-txn")
 
 
+def test_init_preserves_all_config_fields():
+    """__init__ must not silently drop config fields when rebuilding _config.
+
+    Regression guard: the gateway-settings overlay rebuilds the config from the
+    parsed one, overriding only model/api_base. A prior version reconstructed
+    the config field-by-field and dropped max_retries/retry_delay. Pin that
+    every non-overridden field round-trips.
+    """
+    config = SimpleLLMJudgeConfig(
+        instructions="test instructions",
+        on_error="block",
+        temperature=0.7,
+        max_tokens=1234,
+        max_retries=5,
+        retry_delay=2.5,
+        inference_provider="user_credentials",
+    )
+    policy = SimpleLLMPolicy(config)
+
+    assert policy._config.instructions == "test instructions"
+    assert policy._config.on_error == "block"
+    assert policy._config.temperature == 0.7
+    assert policy._config.max_tokens == 1234
+    assert policy._config.max_retries == 5
+    assert policy._config.retry_delay == 2.5
+    assert policy._config.inference_provider == "user_credentials"
+
+
 # ============================================================================
 # Text block streaming
 # ============================================================================

@@ -1,9 +1,12 @@
 """Utilities for tool call judging with LLM.
 
-This module provides the core judging functionality used by ToolCallJudgePolicy:
+This module provides the core judging pieces used by ToolCallJudgePolicy:
 - Building judge prompts
-- Parsing judge responses
-- Creating blocked response messages
+- Parsing judge responses into a validated `JudgeResult`
+
+As of PR #776 there is no LiteLLM-based helper here; the actual judge call
+runs through an `InferenceProvider` that the caller resolves from its
+`inference_provider:` YAML config.
 """
 
 from __future__ import annotations
@@ -21,14 +24,14 @@ logger = logging.getLogger(__name__)
 
 
 class JudgeConfig(BaseModel):
-    """Configuration for LLM judge."""
+    """Configuration for LLM judge (runtime view the policy passes to the provider)."""
 
     model: str = Field(
-        description="Any LiteLLM model string, e.g. 'claude-haiku-4-5', 'anthropic/claude-sonnet-4-5', 'ollama/llama3'",
+        description="Model identifier used for the judge call (e.g. 'claude-haiku-4-5').",
     )
     api_base: str | None = Field(
         default=None,
-        description="Optional. Leave blank to use the model's default backend. Set to override, e.g. for a proxy or local endpoint.",
+        description="Optional override for the judge backend endpoint. Used for the passthrough provider.",
     )
     probability_threshold: float = Field(
         default=0.6,
@@ -94,7 +97,11 @@ def parse_to_judge_result(
     response_text: str,
     prompt: list[dict[str, str]],
 ) -> JudgeResult:
-    """Parse raw judge response text into a validated JudgeResult."""
+    """Parse raw judge response text into a validated JudgeResult.
+
+    Clamps `probability` into `[0, 1]`. A missing `explanation` defaults to
+    an empty string (callers log it for triage), so it is never required.
+    """
     data = parse_judge_response(response_text)
 
     if "probability" not in data:
