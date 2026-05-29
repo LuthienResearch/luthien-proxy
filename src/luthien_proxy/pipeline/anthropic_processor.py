@@ -406,6 +406,7 @@ async def process_anthropic_request(
             headers=raw_http_request.headers,
             body=dict(raw_http_request.body),
             session_id=session_id,
+            user_id=user_id,
             model=model,
             is_streaming=is_streaming,
             endpoint="/v1/messages",

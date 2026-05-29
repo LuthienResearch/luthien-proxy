@@ -21,6 +21,7 @@ import asyncpg
 from opentelemetry import trace
 
 from luthien_proxy.observability.event_publisher import EventPublisherProtocol
+from luthien_proxy.observability.session_summary import update_session_summary
 from luthien_proxy.utils.constants import OTEL_SPAN_ID_HEX_LENGTH, OTEL_TRACE_ID_HEX_LENGTH
 from luthien_proxy.utils.db import DatabasePool
 
@@ -272,6 +273,19 @@ class EventEmitter:
                     timestamp,
                     session_id,
                 )
+
+                # Incrementally maintain the materialized session_summaries row.
+                # Only sessions with a session_id are listed by the history page,
+                # so events without one contribute nothing here.
+                if isinstance(session_id, str) and session_id:
+                    await update_session_summary(
+                        conn,
+                        session_id=session_id,
+                        event_type=event_type,
+                        data=data,
+                        user_id=user_id if isinstance(user_id, str) else None,
+                        timestamp=timestamp,
+                    )
 
             logger.debug(f"Wrote event to db: {event_type} (transaction_id={transaction_id})")
         except (OSError, asyncpg.PostgresError, asyncpg.InternalClientError) as e:

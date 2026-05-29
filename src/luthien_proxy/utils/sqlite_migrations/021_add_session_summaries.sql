@@ -27,7 +27,9 @@ SELECT
     MIN(ce.created_at),
     MAX(ce.created_at),
     COUNT(*),
-    COUNT(DISTINCT ce.call_id),
+    -- call_count counts request-recorded events (one per call), matching the
+    -- incremental maintenance in observability/session_summary.py.
+    SUM(CASE WHEN ce.event_type = 'transaction.request_recorded' THEN 1 ELSE 0 END),
     SUM(CASE
         WHEN ce.event_type LIKE 'policy.%'
         AND ce.event_type NOT LIKE 'policy.judge.evaluation%'
