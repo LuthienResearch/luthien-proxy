@@ -528,7 +528,10 @@
                 applyFilters();
 
             } catch (error) {
-                container.innerHTML = `<div class="error">Failed to load sessions: ${escapeHtml(error.message)}</div>`;
+                const errDiv = document.createElement('div');
+                errDiv.className = 'error';
+                errDiv.textContent = 'Failed to load sessions: ' + error.message;
+                container.replaceChildren(errDiv);
             }
         }
 
@@ -547,46 +550,78 @@
             // Group sessions by most recent date (last_timestamp)
             const grouped = groupByDate(sessions, today, yesterday);
 
-            let html = '';
+            // DOM construction (not HTML string interpolation): session_id was
+            // previously interpolated into an inline onclick JS string, where
+            // the escapeHtml helper does NOT escape quotes — a stored-XSS sink.
+            // preview_message is also request-derived. Building nodes and using
+            // textContent / addEventListener makes both inert by construction.
+            const frag = document.createDocumentFragment();
             for (const [dateKey, dateSessions] of Object.entries(grouped)) {
-                html += `<div class="date-header"><span class="date-pill">${dateKey}</span></div>`;
+                const dateHeader = document.createElement('div');
+                dateHeader.className = 'date-header';
+                const datePill = document.createElement('span');
+                datePill.className = 'date-pill';
+                datePill.textContent = dateKey;
+                dateHeader.appendChild(datePill);
+                frag.appendChild(dateHeader);
 
                 for (const session of dateSessions) {
                     const firstTime = new Date(session.first_timestamp);
                     const lastTime = new Date(session.last_timestamp);
                     const timeStr = formatTimeRange(firstTime, lastTime);
                     const messageCount = session.turn_count;
-
+                    const hasPreview = !!session.preview_message;
                     const previewText = session.preview_message || '(no message preview)';
 
-                    // Build meta line
-                    let metaParts = [`${messageCount} message${messageCount !== 1 ? 's' : ''}`];
+                    const card = document.createElement('div');
+                    card.className = 'session-card';
+                    card.dataset.sessionId = session.session_id;
+                    card.addEventListener('click', () => viewSession(session.session_id));
 
-                    // Policy interventions
-                    let interventionsHtml;
+                    const main = document.createElement('div');
+                    main.className = 'session-main';
+
+                    const preview = document.createElement('div');
+                    preview.className = hasPreview ? 'session-preview' : 'session-preview session-preview-empty';
+                    preview.textContent = previewText;
+
+                    const meta = document.createElement('div');
+                    meta.className = 'session-meta';
+                    meta.appendChild(document.createTextNode(
+                        `${messageCount} message${messageCount !== 1 ? 's' : ''} · `
+                    ));
+                    const interventions = document.createElement('span');
                     if (session.policy_interventions > 0) {
-                        interventionsHtml = `<span class="interventions-triggered">${session.policy_interventions} policy intervention${session.policy_interventions > 1 ? 's' : ''}</span>`;
+                        interventions.className = 'interventions-triggered';
+                        interventions.textContent =
+                            `${session.policy_interventions} policy intervention${session.policy_interventions > 1 ? 's' : ''}`;
                     } else {
-                        interventionsHtml = `<span class="interventions-none">no policies triggered</span>`;
+                        interventions.className = 'interventions-none';
+                        interventions.textContent = 'no policies triggered';
                     }
+                    meta.appendChild(interventions);
 
-                    const hasPreview = !!session.preview_message;
-                    html += `
-                        <div class="session-card" onclick="viewSession('${escapeHtml(session.session_id)}')">
-                            <div class="session-main">
-                                <div class="session-preview${hasPreview ? '' : ' session-preview-empty'}">${escapeHtml(previewText)}</div>
-                                <div class="session-meta">${metaParts.join(' · ')} · ${interventionsHtml}</div>
-                            </div>
-                            <div class="session-right">
-                                <div class="session-time">${timeStr}</div>
-                                <div class="session-arrow">→</div>
-                            </div>
-                        </div>
-                    `;
+                    main.append(preview, meta);
+
+                    const right = document.createElement('div');
+                    right.className = 'session-right';
+                    const timeEl = document.createElement('div');
+                    timeEl.className = 'session-time';
+                    // formatTimeRange may embed a <br> for multi-day ranges; the
+                    // values are all derived from Date objects (never user text),
+                    // so the limited static markup is safe to inject here.
+                    timeEl.innerHTML = timeStr;
+                    const arrow = document.createElement('div');
+                    arrow.className = 'session-arrow';
+                    arrow.textContent = '→';
+                    right.append(timeEl, arrow);
+
+                    card.append(main, right);
+                    frag.appendChild(card);
                 }
             }
 
-            container.innerHTML = html;
+            container.replaceChildren(frag);
         }
 
         function groupByDate(sessions, today, yesterday) {
@@ -680,12 +715,6 @@
 
                 return `${startDay} ${startMonth} ${startDateNum} ${startTime} -<br>${endDay} ${endMonth} ${endDateNum} ${endTime}`;
             }
-        }
-
-        function escapeHtml(str) {
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML;
         }
 
         loadSessions();
