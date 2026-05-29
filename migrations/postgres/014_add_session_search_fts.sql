@@ -49,10 +49,18 @@ $$ LANGUAGE plpgsql IMMUTABLE;
 ALTER TABLE conversation_events
     ADD COLUMN IF NOT EXISTS search_vector TSVECTOR;
 
-UPDATE conversation_events
-SET search_vector = to_tsvector('english', COALESCE(_extract_event_search_text(payload), ''))
-WHERE event_type = 'transaction.request_recorded'
-  AND _extract_event_search_text(payload) IS NOT NULL;
+-- Backfill existing rows. Compute _extract_event_search_text(payload) ONCE per
+-- row via a subquery, then both set the tsvector and filter on the result --
+-- calling the function twice (once in SET, once in WHERE) doubled the work.
+UPDATE conversation_events AS ce
+SET search_vector = to_tsvector('english', extracted.search_text)
+FROM (
+    SELECT id, _extract_event_search_text(payload) AS search_text
+    FROM conversation_events
+    WHERE event_type = 'transaction.request_recorded'
+) AS extracted
+WHERE ce.id = extracted.id
+  AND extracted.search_text IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_conversation_events_search_vector
     ON conversation_events USING GIN (search_vector)
