@@ -15,6 +15,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse
+from pydantic import BaseModel, Field
 
 from luthien_proxy.auth import check_auth_or_redirect, verify_admin_token
 from luthien_proxy.dependencies import get_admin_key, get_db_pool
@@ -24,8 +25,19 @@ from luthien_proxy.utils.constants import (
 )
 from luthien_proxy.utils.db import DatabasePool
 
+from . import user_labels as user_labels_service
 from .models import SessionDetail, SessionListResponse, SessionSearchParams
 from .service import export_session_jsonl, export_session_markdown, fetch_session_detail, fetch_session_list
+
+
+class UserLabelRequest(BaseModel):
+    """Request body for assigning a display name to a user_id."""
+
+    display_name: str = Field(
+        ...,
+        max_length=user_labels_service.MAX_DISPLAY_NAME_LENGTH,
+        description="Human-readable display name for the user",
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +140,60 @@ async def list_sessions(
         policy_intervention=policy_intervention,
     )
     return await fetch_session_list(limit, db_pool, offset, user_id=user_id, search=search)
+
+
+# --- User labels ---
+
+
+@api_router.get("/users")
+async def list_users(
+    _: str = Depends(verify_admin_token),
+    db_pool: DatabasePool = Depends(get_db_pool),
+    limit: int = Query(default=500, ge=1, le=5000, description="Max users to return"),
+    offset: int = Query(default=0, ge=0, description="Users to skip for pagination"),
+) -> dict[str, object]:
+    """List distinct user_ids seen across sessions, with any assigned labels.
+
+    Returns ``{"users": [...], "labels": {user_id: display_name}}``. Backs the
+    history UI's per-user filter dropdown so it can list every known user, not
+    just the ones on the currently loaded page of sessions.
+    """
+    return await user_labels_service.list_users(db_pool, limit=limit, offset=offset)
+
+
+@api_router.get("/user-labels")
+async def list_user_labels(
+    _: str = Depends(verify_admin_token),
+    db_pool: DatabasePool = Depends(get_db_pool),
+) -> dict[str, dict[str, str]]:
+    """Return all user labels as ``{"labels": {user_id: display_name}}``."""
+    return {"labels": await user_labels_service.list_labels(db_pool)}
+
+
+@api_router.put("/user-labels/{user_id}")
+async def set_user_label(
+    user_id: str,
+    body: UserLabelRequest,
+    _: str = Depends(verify_admin_token),
+    db_pool: DatabasePool = Depends(get_db_pool),
+) -> dict[str, str]:
+    """Create or update the display name for a user_id."""
+    try:
+        display_name = await user_labels_service.set_label(db_pool, user_id, body.display_name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    return {"user_id": user_id, "display_name": display_name}
+
+
+@api_router.delete("/user-labels/{user_id}")
+async def delete_user_label(
+    user_id: str,
+    _: str = Depends(verify_admin_token),
+    db_pool: DatabasePool = Depends(get_db_pool),
+) -> dict[str, bool]:
+    """Remove a user label (no-op if none exists)."""
+    await user_labels_service.delete_label(db_pool, user_id)
+    return {"deleted": True}
 
 
 @api_router.get("/sessions/{session_id}", response_model=SessionDetail)
