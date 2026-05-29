@@ -56,6 +56,7 @@ class Settings(_SettingsBase):
     # ── rate_limiting ───────────────────────────────────────────────
     rate_limit_rpm: int = 0
     rate_limit_burst: int = 0
+    rate_limit_max_keys: int = 10000
 
     # ── policy ──────────────────────────────────────────────────────
     policy_source: str = "db-fallback-file"

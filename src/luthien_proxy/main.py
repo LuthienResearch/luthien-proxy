@@ -299,8 +299,15 @@ def create_app(
 
         _rate_limiter: TokenBucketRateLimiter | None = None
         if settings.rate_limit_rpm > 0:
-            _rate_limiter = TokenBucketRateLimiter(rpm=settings.rate_limit_rpm, burst=settings.rate_limit_burst)
-            logger.info(f"Rate limiting enabled: {settings.rate_limit_rpm} RPM, burst={int(_rate_limiter.burst)}")
+            _rate_limiter = TokenBucketRateLimiter(
+                rpm=settings.rate_limit_rpm,
+                burst=settings.rate_limit_burst,
+                max_keys=settings.rate_limit_max_keys,
+            )
+            logger.info(
+                f"Rate limiting enabled: {settings.rate_limit_rpm} RPM, "
+                f"burst={int(_rate_limiter.burst)}, max_keys={_rate_limiter.max_keys}"
+            )
         else:
             logger.info("Rate limiting disabled (RATE_LIMIT_RPM=0)")
 
