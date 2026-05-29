@@ -42,6 +42,10 @@ SELECT
     (SELECT cc.user_id FROM conversation_calls cc
        WHERE cc.session_id = ce.session_id AND cc.user_id IS NOT NULL
        ORDER BY cc.created_at LIMIT 1),
+    -- models_used order is not significant (the dedupe membership test is
+    -- order-insensitive and no reader relies on order). SQLite's
+    -- GROUP_CONCAT(DISTINCT ...) does not accept an ORDER BY, so unlike the
+    -- Postgres backfill this aggregation order is left unspecified.
     (SELECT GROUP_CONCAT(DISTINCT json_extract(ce2.payload, '$.final_model'))
        FROM conversation_events ce2
        WHERE ce2.session_id = ce.session_id

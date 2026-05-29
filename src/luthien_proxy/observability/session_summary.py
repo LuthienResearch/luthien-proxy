@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any
+
+from luthien_proxy.utils.db import ConnectionProtocol
 
 # Preview is the first user-message text from the request that opened the
 # session. Trimmed to keep the row small and the list page snappy.
@@ -29,10 +31,6 @@ PREVIEW_MAX_LENGTH = 200
 # Claude Code injects <system-reminder>...</system-reminder> blocks into the
 # first user turn; strip them so the preview shows the actual user text.
 _SYSTEM_REMINDER_RE = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
-
-
-class _Conn(Protocol):
-    async def execute(self, query: str, *args: object) -> object: ...
 
 
 def _is_policy_event(event_type: str) -> bool:
@@ -54,9 +52,11 @@ def extract_preview(data: dict[str, Any]) -> str | None:
     """Extract a short preview from the first user message of a request payload.
 
     Returns None for probe requests (``max_tokens <= 1``) and when no usable
-    user text is present. The text is whitespace-collapsed, has
-    ``<system-reminder>`` blocks stripped, and is truncated to
-    ``PREVIEW_MAX_LENGTH``.
+    user text is present. The text is whitespace-collapsed and has
+    ``<system-reminder>`` blocks stripped. When longer than
+    ``PREVIEW_MAX_LENGTH`` it is cut at that many characters and a literal
+    ``"..."`` ellipsis is appended (so the stored value can be up to
+    ``PREVIEW_MAX_LENGTH + 3`` characters).
     """
     request = data.get("final_request") or data.get("original_request")
     if not isinstance(request, dict):
@@ -79,7 +79,11 @@ def extract_preview(data: dict[str, Any]) -> str | None:
             continue
         content = msg.get("content")
         if isinstance(content, list):
-            texts = [b["text"] for b in content if isinstance(b, dict) and b.get("type") == "text" and b.get("text")]
+            texts = [
+                b["text"]
+                for b in content
+                if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str) and b["text"]
+            ]
             content = " ".join(texts)
         if not isinstance(content, str):
             continue
@@ -95,7 +99,7 @@ def extract_preview(data: dict[str, Any]) -> str | None:
 
 
 async def update_session_summary(
-    conn: _Conn,
+    conn: ConnectionProtocol,
     *,
     session_id: str,
     event_type: str,

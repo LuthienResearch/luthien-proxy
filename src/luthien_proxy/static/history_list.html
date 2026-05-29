@@ -598,8 +598,10 @@
                     userLabels = data.labels || {};
                 }
             } catch (e) {
-                // Non-critical; the dropdown just stays empty.
+                // Non-critical; the dropdown just stays empty. Reset both so
+                // populateUserFilter and userBadgeElement stay consistent.
                 allKnownUsers = [];
+                userLabels = {};
             }
             populateUserFilter();
         }
@@ -607,15 +609,21 @@
         function populateUserFilter() {
             const sel = document.getElementById('user-filter');
             if (!sel) return;
-            const selected = sel.value;
+            // Preserve the active filter even if that user isn't in the freshly
+            // loaded user list (e.g. paged out): re-add it as an option so the
+            // dropdown's displayed value stays in sync with currentUserId rather
+            // than silently snapping back to "All users".
+            const selected = currentUserId || sel.value;
+            const uids = [...allKnownUsers];
+            if (selected && !uids.includes(selected)) uids.push(selected);
             while (sel.options.length > 1) sel.remove(1);
-            [...allKnownUsers].sort().forEach(uid => {
+            uids.sort().forEach(uid => {
                 const opt = document.createElement('option');
                 opt.value = uid;
                 opt.textContent = userDisplay(uid);
                 sel.appendChild(opt);
             });
-            sel.value = selected;
+            sel.value = selected || '';
         }
 
         function onUserFilterChange() {
@@ -681,7 +689,11 @@
                 applyFilters();
                 populateUserFilter();
             } catch (err) {
+                // Roll back the optimistic local mutation AND re-render the
+                // dropdown/list so the displayed label matches the restored state.
                 if (previous !== undefined) { userLabels[uid] = previous; } else { delete userLabels[uid]; }
+                applyFilters();
+                populateUserFilter();
                 alert('Failed to update user label: ' + (err && err.message ? err.message : err));
             }
         }
@@ -880,8 +892,13 @@
             }
         }
 
-        loadUsersAndLabels();
-        loadSessions();
+        // Load labels BEFORE the first session render so badges show assigned
+        // display names rather than truncated uids. loadUsersAndLabels swallows
+        // its own errors (labels are non-critical), so sessions always load.
+        (async () => {
+            await loadUsersAndLabels();
+            await loadSessions();
+        })();
     </script>
     <script defer src="/static/vendor/alpine.min.js"></script>
     <script src="/static/nav.js"></script>

@@ -91,6 +91,30 @@ class TestExtractPreview:
         data = {"final_request": {"messages": [{"role": "assistant", "content": "hi"}]}}
         assert extract_preview(data) is None
 
+    def test_missing_request_returns_none(self) -> None:
+        # Neither final_request nor original_request present.
+        assert extract_preview({}) is None
+        assert extract_preview({"final_request": "not-a-dict"}) is None
+
+    def test_non_string_content_block_text_ignored(self) -> None:
+        # A malformed content block where 'text' isn't a string must not crash
+        # the join; only the well-formed string block contributes.
+        data = {
+            "final_request": {
+                "max_tokens": 100,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": {"unexpected": "dict"}},
+                            {"type": "text", "text": "real text"},
+                        ],
+                    }
+                ],
+            }
+        }
+        assert extract_preview(data) == "real text"
+
 
 class TestUpdateSessionSummary:
     async def _row(self, pool: DatabasePool, session_id: str) -> dict:
