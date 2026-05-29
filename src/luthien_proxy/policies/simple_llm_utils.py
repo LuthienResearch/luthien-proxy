@@ -19,9 +19,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
-from luthien_proxy.policies.tool_call_judge_utils import parse_judge_response
-
 from luthien_proxy.inference.base import InferenceInvalidCredentialError
+from luthien_proxy.policies.tool_call_judge_utils import parse_judge_response
 
 if TYPE_CHECKING:
     from luthien_proxy.credentials.credential import Credential

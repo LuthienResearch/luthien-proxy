@@ -27,7 +27,6 @@ from luthien_proxy.inference.base import (
 )
 from luthien_proxy.inference.direct_api import DirectApiProvider
 
-
 #: The genuine `_cached_client`, captured before any autouse patching so
 #: caching-specific tests can exercise the real cache path.
 _REAL_CACHED_CLIENT = direct_api._cached_client
@@ -50,6 +49,7 @@ def _cached_client_delegates_to_build(monkeypatch):
         return direct_api._build_client(credential, api_base)
 
     monkeypatch.setattr(direct_api, "_cached_client", _delegate)
+
 
 SIMPLE_SCHEMA = {
     "type": "object",
