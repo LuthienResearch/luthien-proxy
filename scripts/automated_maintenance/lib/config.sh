@@ -101,7 +101,14 @@ maint_timeout() {
 # Usage: maint_record_check <name> <status> <log_relpath> [extra_json]
 # status: pass|fail|skip|error
 maint_record_check() {
-    local name="$1" status="$2" log="$3" extra="${4:-{}}"
+    # NOTE: do not collapse the `extra` default into `${4:-{}}` — bash parses
+    # that as `${4:-{}` plus a literal `}`, appending a stray brace to any
+    # value (every value passed here ends in `}`). That made `json.loads(extra)`
+    # below fail with "Extra data" and silently dropped every check from
+    # results.json (checks: {}, overall: unknown).
+    local name="$1" status="$2" log="$3"
+    local extra="${4:-}"
+    [[ -n "${extra}" ]] || extra='{}'
     local results="${MAINT_RUN_DIR}/results.json"
     python3 - "$results" "$name" "$status" "$log" "$extra" <<'PY'
 import json, sys, pathlib
