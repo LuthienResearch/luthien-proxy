@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Any, TypedDict, cast
 
 from luthien_proxy.utils.db import DatabasePool, parse_db_ts
+from luthien_proxy.utils.search import session_fts_filter_sql
 
 from .models import (
     ConversationMessage,
@@ -23,6 +24,7 @@ from .models import (
     PolicyAnnotation,
     SessionDetail,
     SessionListResponse,
+    SessionSearchParams,
     SessionSummary,
 )
 
@@ -352,12 +354,103 @@ def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None
     return None
 
 
+def _build_session_filter_sql(
+    search: SessionSearchParams,
+    db_pool: DatabasePool,
+    args: list[Any],
+    *,
+    user_scope_sql: str = "",
+) -> tuple[list[str], list[str]]:
+    """Build session-qualifying WHERE gates and HAVING clauses for a search.
+
+    Appends bound parameters to ``args`` (asyncpg-style ``$N``, 1-indexed over
+    the final args list) and returns ``(where_gates, having)``:
+
+    * ``where_gates`` are *session-level* predicates over ``conversation_events
+      ce`` — each of the form ``ce.session_id IN (...)``. Because they constrain
+      ``session_id`` rather than individual events, a qualifying session keeps
+      *all* of its events in the aggregation, so per-session stats (turn_count,
+      models, policy_interventions) stay correct.
+    * ``having`` are aggregate predicates ANDed into ``GROUP BY ... HAVING``.
+
+    ``user_scope_sql`` (when non-empty) is an ``AND ce.call_id IN (...)`` clause
+    using an already-allocated user_id placeholder; it is appended inside the
+    model/q gate subqueries so a session can only qualify on *this* user's
+    events. The time/policy HAVING clauses need no scoping — they run over the
+    caller's session_stats, which is already user-scoped.
+
+    SECURITY INVARIANT: every user-supplied value is bound via ``args`` and
+    referenced only by a ``$N`` placeholder the builder controls; no user input
+    is interpolated into SQL text. ``session_fts_filter_sql`` owns sanitizing
+    the free-text ``q`` for each backend.
+    """
+    where_gates: list[str] = []
+    having: list[str] = []
+
+    def add_param(value: Any) -> str:
+        args.append(value)
+        return f"${len(args)}"
+
+    if search.model is not None:
+        model_col = "ce.payload->>'final_model'" if db_pool.is_postgres else "json_extract(ce.payload, '$.final_model')"
+        placeholder = add_param(search.model)
+        where_gates.append(
+            "ce.session_id IN ("
+            "SELECT ce.session_id FROM conversation_events ce "
+            f"WHERE ce.event_type = 'transaction.request_recorded' AND {model_col} = {placeholder} "
+            f"{user_scope_sql})"
+        )
+
+    if search.q and search.q.strip():
+        # session_fts_filter_sql inlines the placeholder verbatim, so reserve the
+        # next slot first, then bind the (sanitized) value it returns into it.
+        placeholder = f"${len(args) + 1}"
+        fragment, bind_value = session_fts_filter_sql(db_pool, search.q, placeholder=placeholder)
+        add_param(bind_value)
+        where_gates.append(
+            f"ce.session_id IN (SELECT ce.session_id FROM conversation_events ce WHERE {fragment} {user_scope_sql})"
+        )
+
+    if search.from_time is not None:
+        placeholder = add_param(search.from_time if db_pool.is_postgres else search.from_time.isoformat())
+        having.append(f"MAX(ce.created_at) >= {placeholder}")
+
+    if search.to_time is not None:
+        placeholder = add_param(search.to_time if db_pool.is_postgres else search.to_time.isoformat())
+        having.append(f"MAX(ce.created_at) <= {placeholder}")
+
+    if search.policy_intervention:
+        if db_pool.is_postgres:
+            having.append(
+                "COUNT(*) FILTER (WHERE ce.event_type LIKE 'policy.%' "
+                "AND ce.event_type NOT LIKE 'policy.%judge.evaluation%') > 0"
+            )
+        else:
+            having.append(
+                "SUM(CASE WHEN ce.event_type LIKE 'policy.%' "
+                "AND ce.event_type NOT LIKE 'policy.%judge.evaluation%' THEN 1 ELSE 0 END) > 0"
+            )
+
+    return where_gates, having
+
+
+def _gate_clause(where_gates: list[str]) -> str:
+    """Render session-qualifying gates as a WHERE continuation (``AND ...``) or ``""``."""
+    return ("AND " + " AND ".join(where_gates)) if where_gates else ""
+
+
+def _having_clause(having: list[str]) -> str:
+    """Render aggregate predicates as a ``HAVING ...`` clause or ``""``."""
+    return ("HAVING " + " AND ".join(having)) if having else ""
+
+
 async def fetch_session_list(
     limit: int,
     db_pool: DatabasePool,
     offset: int = 0,
     *,
     user_id: str | None = None,
+    search: SessionSearchParams | None = None,
 ) -> SessionListResponse:
     """Fetch list of recent sessions with summaries.
 
@@ -367,13 +460,17 @@ async def fetch_session_list(
         offset: Number of sessions to skip for pagination
         user_id: If provided, only return sessions whose conversation_calls
             row has this exact user_id. Used to attribute traffic per user.
+        search: Optional server-side filters (model, time range, full-text
+            ``q``, policy_intervention). When None/empty the unfiltered hot path
+            runs unchanged. ``total`` reflects the filtered count.
 
     Returns:
         List of session summaries ordered by most recent activity
     """
+    search = search or SessionSearchParams()
     if db_pool.is_sqlite:
-        return await _fetch_session_list_sqlite(limit, db_pool, offset, user_id=user_id)
-    return await _fetch_session_list_pg(limit, db_pool, offset, user_id=user_id)
+        return await _fetch_session_list_sqlite(limit, db_pool, offset, user_id=user_id, search=search)
+    return await _fetch_session_list_pg(limit, db_pool, offset, user_id=user_id, search=search)
 
 
 async def _fetch_session_list_pg(
@@ -382,35 +479,63 @@ async def _fetch_session_list_pg(
     offset: int = 0,
     *,
     user_id: str | None = None,
+    search: SessionSearchParams | None = None,
 ) -> SessionListResponse:
     """PostgreSQL version using PG-specific features (FILTER, DISTINCT ON, array_agg)."""
-    # SECURITY INVARIANT: user_id is bound as a query parameter, never
-    # interpolated into the SQL string. The placeholder slot is fixed,
-    # only the WHERE-clause presence is conditional on whether a filter
-    # was requested. See test_fetch_session_list_user_filter_sql_injection.
+    # SECURITY INVARIANT: user_id and every search value are bound as query
+    # parameters, never interpolated into the SQL string. The user_id slot is
+    # fixed at $3; search params (built by _build_session_filter_sql) occupy
+    # $4+ when present. See test_fetch_session_list_user_filter_sql_injection.
     #
     # PERF: the user_id-population join to conversation_calls is intentionally
     # OUT of the main aggregation query. When no filter is requested we never
     # touch conversation_calls in the hot CTE — user_ids come from a separate
     # post-query keyed on the page's session_ids (mirrors the SQLite pattern).
+    search = search or SessionSearchParams()
     async with db_pool.connection() as conn:
-        if user_id is not None:
-            total_count = await conn.fetchval(
-                """
-                SELECT COUNT(DISTINCT ce.session_id)
-                FROM conversation_events ce
-                JOIN conversation_calls cc ON ce.call_id = cc.call_id
-                WHERE ce.session_id IS NOT NULL AND cc.user_id = $1
-                """,
-                user_id,
-            )
+        if search.is_empty():
+            if user_id is not None:
+                total_count = await conn.fetchval(
+                    """
+                    SELECT COUNT(DISTINCT ce.session_id)
+                    FROM conversation_events ce
+                    JOIN conversation_calls cc ON ce.call_id = cc.call_id
+                    WHERE ce.session_id IS NOT NULL AND cc.user_id = $1
+                    """,
+                    user_id,
+                )
+            else:
+                total_count = await conn.fetchval(
+                    """
+                    SELECT COUNT(DISTINCT session_id)
+                    FROM conversation_events
+                    WHERE session_id IS NOT NULL
+                    """
+                )
         else:
+            # Filtered count: count sessions that survive the same qualifying
+            # gates + HAVING as the page query. user_id (when set) is $1 here.
+            count_args: list[Any] = []
+            count_user_filter = ""
+            if user_id is not None:
+                count_args.append(user_id)
+                count_user_filter = "AND ce.call_id IN (SELECT call_id FROM conversation_calls WHERE user_id = $1)"
+            count_gates, count_having = _build_session_filter_sql(
+                search, db_pool, count_args, user_scope_sql=count_user_filter
+            )
             total_count = await conn.fetchval(
-                """
-                SELECT COUNT(DISTINCT session_id)
-                FROM conversation_events
-                WHERE session_id IS NOT NULL
-                """
+                f"""
+                SELECT COUNT(*) FROM (
+                    SELECT ce.session_id
+                    FROM conversation_events ce
+                    WHERE ce.session_id IS NOT NULL
+                    {count_user_filter}
+                    {_gate_clause(count_gates)}
+                    GROUP BY ce.session_id
+                    {_having_clause(count_having)}
+                ) AS qualifying
+                """,
+                *count_args,
             )
 
         # When the caller filters by user_id we restrict the events under
@@ -425,6 +550,11 @@ async def _fetch_session_list_pg(
         query_args: list[Any] = [limit, offset]
         if user_id is not None:
             query_args.append(user_id)
+
+        # Search params occupy $4+ (after limit=$1, offset=$2, user_id=$3).
+        where_gates, having = _build_session_filter_sql(search, db_pool, query_args, user_scope_sql=user_call_filter)
+        gate_clause = _gate_clause(where_gates)
+        having_clause = _having_clause(having)
 
         rows = await conn.fetch(
             f"""
@@ -442,7 +572,9 @@ async def _fetch_session_list_pg(
                 FROM conversation_events ce
                 WHERE ce.session_id IS NOT NULL
                 {user_call_filter}
+                {gate_clause}
                 GROUP BY ce.session_id
+                {having_clause}
             ),
             session_models AS (
                 SELECT DISTINCT
@@ -551,6 +683,7 @@ async def _fetch_session_list_sqlite(
     offset: int = 0,
     *,
     user_id: str | None = None,
+    search: SessionSearchParams | None = None,
 ) -> SessionListResponse:
     """SQLite version: 3 queries total (vs PostgreSQL's 2).
 
@@ -558,26 +691,52 @@ async def _fetch_session_list_sqlite(
     query each, then merging in Python. PostgreSQL uses array_agg/DISTINCT ON
     in a single CTE; SQLite lacks those, so we use IN (session_ids) instead.
     """
-    # SECURITY INVARIANT: user_id is bound as a query parameter, never
-    # interpolated into the SQL string.
+    # SECURITY INVARIANT: user_id and every search value are bound as query
+    # parameters, never interpolated into the SQL string. user_id occupies $3
+    # in the page query ($1 in the filtered count); search params follow.
+    search = search or SessionSearchParams()
     async with db_pool.connection() as conn:
-        if user_id is not None:
-            total_count = await conn.fetchval(
-                """
-                SELECT COUNT(DISTINCT ce.session_id)
-                FROM conversation_events ce
-                JOIN conversation_calls cc ON ce.call_id = cc.call_id
-                WHERE ce.session_id IS NOT NULL AND cc.user_id = $1
-                """,
-                user_id,
-            )
+        if search.is_empty():
+            if user_id is not None:
+                total_count = await conn.fetchval(
+                    """
+                    SELECT COUNT(DISTINCT ce.session_id)
+                    FROM conversation_events ce
+                    JOIN conversation_calls cc ON ce.call_id = cc.call_id
+                    WHERE ce.session_id IS NOT NULL AND cc.user_id = $1
+                    """,
+                    user_id,
+                )
+            else:
+                total_count = await conn.fetchval(
+                    """
+                    SELECT COUNT(DISTINCT session_id)
+                    FROM conversation_events
+                    WHERE session_id IS NOT NULL
+                    """
+                )
         else:
+            count_args: list[Any] = []
+            count_user_filter = ""
+            if user_id is not None:
+                count_args.append(user_id)
+                count_user_filter = "AND ce.call_id IN (SELECT call_id FROM conversation_calls WHERE user_id = $1)"
+            count_gates, count_having = _build_session_filter_sql(
+                search, db_pool, count_args, user_scope_sql=count_user_filter
+            )
             total_count = await conn.fetchval(
-                """
-                SELECT COUNT(DISTINCT session_id)
-                FROM conversation_events
-                WHERE session_id IS NOT NULL
-                """
+                f"""
+                SELECT COUNT(*) FROM (
+                    SELECT ce.session_id
+                    FROM conversation_events ce
+                    WHERE ce.session_id IS NOT NULL
+                    {count_user_filter}
+                    {_gate_clause(count_gates)}
+                    GROUP BY ce.session_id
+                    {_having_clause(count_having)}
+                ) AS qualifying
+                """,
+                *count_args,
             )
 
         # PERF: only filter through conversation_calls when a user filter is
@@ -593,6 +752,9 @@ async def _fetch_session_list_sqlite(
         query_args: list[Any] = [limit, offset]
         if user_id is not None:
             query_args.append(user_id)
+
+        # Search params occupy $4+ (after limit=$1, offset=$2, user_id=$3).
+        where_gates, having = _build_session_filter_sql(search, db_pool, query_args, user_scope_sql=user_call_filter)
 
         rows = await conn.fetch(
             f"""
@@ -610,7 +772,9 @@ async def _fetch_session_list_sqlite(
             FROM conversation_events ce
             WHERE ce.session_id IS NOT NULL
             {user_call_filter}
+            {_gate_clause(where_gates)}
             GROUP BY ce.session_id
+            {_having_clause(having)}
             ORDER BY last_ts DESC
             LIMIT $1 OFFSET $2
             """,

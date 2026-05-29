@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -23,7 +24,7 @@ from luthien_proxy.utils.constants import (
 )
 from luthien_proxy.utils.db import DatabasePool
 
-from .models import SessionDetail, SessionListResponse
+from .models import SessionDetail, SessionListResponse, SessionSearchParams
 from .service import export_session_jsonl, export_session_markdown, fetch_session_detail, fetch_session_list
 
 logger = logging.getLogger(__name__)
@@ -79,14 +80,50 @@ async def list_sessions(
             "X-Luthien-User-Id header (when TRUST_USER_ID_HEADER=true) or JWT sub claim."
         ),
     ),
+    model: str | None = Query(
+        default=None,
+        description="Filter to sessions that used this exact model (matches final_model on any turn).",
+    ),
+    from_time: datetime | None = Query(
+        default=None,
+        alias="from",
+        description="Lower bound (inclusive) on session last activity, ISO 8601.",
+    ),
+    to_time: datetime | None = Query(
+        default=None,
+        alias="to",
+        description="Upper bound (inclusive) on session last activity, ISO 8601.",
+    ),
+    q: str | None = Query(
+        default=None,
+        description=(
+            "Full-text content search over conversation text (porter-stemmed, "
+            "terms ANDed). A session matches if any turn matches. Note: the index "
+            "currently includes gateway-injected policy-context text, so queries "
+            "for policy-context terms may over-match on policy-active sessions."
+        ),
+    ),
+    policy_intervention: bool = Query(
+        default=False,
+        description="When true, return only sessions that had at least one policy intervention.",
+    ),
 ) -> SessionListResponse:
     """List recent sessions with summaries.
 
     Returns a list of session summaries ordered by most recent activity,
     including turn counts, policy interventions, and models used.
-    Supports pagination via limit and offset parameters.
+    Supports pagination via limit and offset, plus optional server-side
+    filters (user_id, model, from/to time range, full-text q, policy_intervention).
+    ``total`` reflects the count after filters are applied.
     """
-    return await fetch_session_list(limit, db_pool, offset, user_id=user_id)
+    search = SessionSearchParams(
+        model=model,
+        from_time=from_time,
+        to_time=to_time,
+        q=q,
+        policy_intervention=policy_intervention,
+    )
+    return await fetch_session_list(limit, db_pool, offset, user_id=user_id, search=search)
 
 
 @api_router.get("/sessions/{session_id}", response_model=SessionDetail)
