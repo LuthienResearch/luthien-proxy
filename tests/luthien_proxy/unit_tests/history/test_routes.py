@@ -340,3 +340,66 @@ class TestExportSessionRoute:
             assert ">" not in disposition
             assert "(" not in disposition
             assert ")" not in disposition
+
+
+class TestUserLabelRoutes:
+    """User label endpoints, exercised against a real in-memory SQLite pool."""
+
+    @pytest.fixture
+    async def pool(self):
+        from luthien_proxy.utils.db import DatabasePool
+        from luthien_proxy.utils.migration_check import check_migrations
+
+        p = DatabasePool("sqlite://:memory:")
+        await check_migrations(p)
+        return p
+
+    @pytest.mark.asyncio
+    async def test_set_then_list_then_delete(self, pool):
+        from luthien_proxy.history.routes import (
+            UserLabelRequest,
+            delete_user_label,
+            list_user_labels,
+            set_user_label,
+        )
+
+        set_result = await set_user_label(
+            user_id="alice", body=UserLabelRequest(display_name="Alice"), _=AUTH_TOKEN, db_pool=pool
+        )
+        assert set_result == {"user_id": "alice", "display_name": "Alice"}
+
+        listed = await list_user_labels(_=AUTH_TOKEN, db_pool=pool)
+        assert listed == {"labels": {"alice": "Alice"}}
+
+        deleted = await delete_user_label(user_id="alice", _=AUTH_TOKEN, db_pool=pool)
+        assert deleted == {"deleted": True}
+        assert await list_user_labels(_=AUTH_TOKEN, db_pool=pool) == {"labels": {}}
+
+    @pytest.mark.asyncio
+    async def test_set_blank_returns_400(self, pool):
+        from luthien_proxy.history.routes import UserLabelRequest, set_user_label
+
+        with pytest.raises(HTTPException) as exc:
+            await set_user_label(
+                user_id="alice", body=UserLabelRequest(display_name="   "), _=AUTH_TOKEN, db_pool=pool
+            )
+        assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_list_users(self, pool):
+        from datetime import UTC, datetime
+
+        from luthien_proxy.history.routes import list_users
+        from luthien_proxy.observability.session_summary import update_session_summary
+
+        async with pool.connection() as conn:
+            await update_session_summary(
+                conn,
+                session_id="s1",
+                event_type="transaction.request_recorded",
+                data={"final_model": "m", "final_request": {"messages": [{"role": "user", "content": "hi"}]}},
+                user_id="bob",
+                timestamp=datetime.now(UTC),
+            )
+        result = await list_users(_=AUTH_TOKEN, db_pool=pool, limit=500, offset=0)
+        assert result == {"users": ["bob"], "labels": {}}

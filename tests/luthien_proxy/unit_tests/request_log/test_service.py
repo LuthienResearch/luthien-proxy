@@ -69,6 +69,7 @@ class TestRowToEntry:
             "id": 1,
             "transaction_id": "txn-123",
             "session_id": "sess-456",
+            "user_id": "user-789",
             "direction": "inbound",
             "http_method": "POST",
             "url": "http://example.com/api/chat",
@@ -218,6 +219,7 @@ class TestListRequestLogs:
             "id": 1,
             "transaction_id": "txn-123",
             "session_id": "sess-456",
+            "user_id": "user-789",
             "direction": "inbound",
             "http_method": "POST",
             "url": "http://example.com/api/chat",
@@ -353,6 +355,41 @@ class TestListRequestLogs:
         assert len(result.logs) == 1
 
     @pytest.mark.asyncio
+    async def test_list_request_logs_user_id_filter(self) -> None:
+        """user_id filter is bound as a query parameter, not interpolated."""
+        captured: dict[str, Any] = {}
+
+        async def fake_fetchrow(query: str, *args: Any) -> dict[str, Any]:
+            captured["count_sql"] = query
+            captured["count_args"] = args
+            return {"cnt": 1}
+
+        async def fake_fetch(query: str, *args: Any) -> list[dict[str, Any]]:
+            captured["page_sql"] = query
+            captured["page_args"] = args
+            return [self._make_row(user_id="user-xyz")]
+
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow.side_effect = fake_fetchrow
+        mock_conn.fetch.side_effect = fake_fetch
+
+        @asynccontextmanager
+        async def mock_connection() -> Any:  # type: ignore[misc]
+            yield mock_conn
+
+        mock_pool = MagicMock()
+        mock_pool.connection = mock_connection
+
+        result = await list_request_logs(mock_pool, user_id="user-xyz")
+
+        assert len(result.logs) == 1
+        assert result.logs[0].user_id == "user-xyz"
+        # The filter must be parameterized, never inlined.
+        assert "user_id = $1" in captured["count_sql"]
+        assert "user-xyz" in captured["count_args"]
+        assert "user-xyz" not in captured["count_sql"]
+
+    @pytest.mark.asyncio
     async def test_list_request_logs_status_filter(self) -> None:
         """Status filter should be applied."""
         rows = [self._make_row(response_status=404)]
@@ -414,6 +451,7 @@ class TestGetTransactionLogs:
             "id": 1,
             "transaction_id": "txn-123",
             "session_id": "sess-456",
+            "user_id": "user-789",
             "direction": "inbound",
             "http_method": "POST",
             "url": "http://example.com/api/chat",
