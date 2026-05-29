@@ -1,12 +1,13 @@
 """Regression guards against the stored-XSS class in admin UI static assets.
 
 Background: the admin UI is vanilla JS served as static HTML. Several render
-paths used to build HTML by string interpolation and rely on a hand-rolled
-`escapeHtml` that escaped ``<``, ``>``, ``&`` but NOT ``'`` or ``"``. Any
-attacker-influenced value (session_id, call_id, transaction_id, tool_call_id,
-model/endpoint names — all request- or model-derived) interpolated into an
-inline ``onclick="...('${x}')"`` JS string or a quoted HTML attribute could
-break out and execute. See PR addressing this class.
+paths built HTML by string interpolation — some via a hand-rolled `escapeHtml`
+that escaped ``<``, ``>``, ``&`` but NOT ``'`` or ``"``, some (credentials.html)
+via raw concatenation with no escaper at all. Any attacker-influenced value
+(session_id, call_id, transaction_id, tool_call_id, key_hash, credential/model/
+endpoint/provider names, server error messages — all request-, model-, or
+server-derived) interpolated into an inline ``onclick`` JS string or a quoted
+HTML attribute could break out and execute.
 
 The fix:
   * Genuinely attacker-controlled JS-string / event-handler sinks were rewritten
@@ -17,8 +18,8 @@ The fix:
     escape quotes so attribute interpolation cannot break out.
 
 These tests are deliberately source-text assertions (the repo has no JS test
-runtime). They are not a substitute for a real DOM test, but they pin the two
-concrete regressions that already bit this codebase twice.
+runtime). They are not a substitute for a real DOM test, but they pin the
+concrete regressions that already bit this codebase repeatedly.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ DOM_MIGRATED_FILES = [
     "diff_viewer.html",
     "request_logs.html",
     "inference_providers.html",
+    "credentials.html",
 ]
 
 # Files that retain a hand-rolled escapeHtml used in attribute contexts; those
@@ -46,13 +48,33 @@ QUOTE_SAFE_ESCAPER_FILES = [
 ]
 
 # Matches an inline event-handler attribute (onclick=, onchange=, ...) whose
-# value contains a JS string literal built from a template-literal placeholder,
-# e.g.  onclick="viewSession('${escapeHtml(session.session_id)}')"
-# This is the exact stored-XSS pattern we removed; escapeHtml does not escape
-# the surrounding single quotes, so the placeholder can break out of the JS
-# string. New occurrences should use addEventListener instead.
+# value opens a JS string literal that is then filled with a dynamic value —
+# the exact stored-XSS class we removed, because the surrounding JS quotes are
+# not escaped by any HTML escaper, so the value can break out of the string.
+#
+# Two concrete dynamic shapes are caught after the opening JS quote (' or "):
+#   * template-literal interpolation:  onclick="f('${x}')"
+#   * string concatenation:            onclick="f('" + x + "')"
+#                                      onclick='f(\'' + x + '\')'
+# Both forms appeared in this codebase (the latter in credentials.html, which
+# had no escapeHtml at all, so an escapeHtml-name grep would not surface it).
+#
+# Coverage caveats (deliberately documented rather than over-claimed):
+#   * `[^)]*?` skips any *preceding* literal args up to the first dynamic JS
+#     quote, so multi-arg shapes like onclick="f(1, '${x}')" are caught — but
+#     only the FIRST dynamic string in the handler. A handler whose first arg is
+#     a safe constant string and whose SECOND arg is dynamic via a different
+#     delimiter could slip past; in practice handlers in this repo take the
+#     dynamic id first, so this is an accepted gap, not full coverage.
+#   * It detects the *opening* unsafe construction; it does not parse JS, so it
+#     cannot prove the value is attacker-influenced — it flags the dangerous
+#     idiom regardless and expects addEventListener instead.
 _INLINE_HANDLER_JS_STRING = re.compile(
-    r"""on\w+\s*=\s*["'][^"']*\(\s*\\?['"]\$\{""",
+    r"""on\w+\s*=\s*["']"""  # event-handler attribute opens (HTML quote)
+    r"""[^)]*?\("""  # up to and including the call's opening paren
+    r"""[^)]*?"""  # any preceding literal args
+    r"""(?:\\?['"])"""  # the opening quote of a JS string arg (maybe \-escaped)
+    r"""(?:\$\{|"\s*\+|'\s*\+|\\?['"]\s*\+)""",  # ${...} OR a concat seam ("+ / '+)
     re.IGNORECASE,
 )
 
@@ -121,3 +143,28 @@ def test_inference_providers_uses_dom_construction_for_provider_name() -> None:
     assert "deleteProvider(\\'" not in source
     assert "addEventListener('click', () => editProvider(" in source
     assert "addEventListener('click', () => deleteProvider(" in source
+
+
+def test_credentials_uses_dom_construction_for_key_hash() -> None:
+    """key_hash must be wired via addEventListener + dataset, not concat onclick.
+
+    credentials.html built HTML by raw string concatenation with no escaper at
+    all — onclick="invalidateOne('" + cred.key_hash + "')" plus key_hash in a
+    title="" attribute. Both must be gone.
+    """
+    source = _read("credentials.html")
+    assert "invalidateOne(\\'" not in source
+    assert "onclick=" not in source, "credentials.html must not use inline onclick handlers."
+    assert "addEventListener('click', () => invalidateOne(" in source
+
+
+def test_inline_handler_guard_catches_concat_shape() -> None:
+    """The widened guard must catch the string-concat onclick shape, not just ${...}.
+
+    Self-test: the credentials.html-style concat sink and the multi-arg
+    template-literal shape must both match; a delegated/static handler must not.
+    """
+    assert _INLINE_HANDLER_JS_STRING.search('onclick="invalidateOne(\'" + cred.key_hash + "\')"')
+    assert _INLINE_HANDLER_JS_STRING.search("onclick=\"foo(1, '${x}')\"")
+    assert not _INLINE_HANDLER_JS_STRING.search('onclick="closeDetail()"')
+    assert not _INLINE_HANDLER_JS_STRING.search('data-action="srv-delete" data-name="x"')
