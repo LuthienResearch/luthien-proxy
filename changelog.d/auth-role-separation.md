@@ -1,0 +1,2 @@
+- Security: Admin UI routes now fail closed when `ADMIN_API_KEY` is unset — previously they were served unauthenticated in that configuration (issue #555).
+- Added: presenting the proxy key (`CLIENT_API_KEY`) on an admin endpoint or the login form now returns a clear message pointing at `ADMIN_API_KEY`, instead of a generic auth failure (issue #555).

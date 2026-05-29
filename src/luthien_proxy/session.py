@@ -18,7 +18,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from luthien_proxy.dependencies import get_admin_key
+from luthien_proxy.dependencies import get_admin_key, get_api_key
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -135,6 +135,7 @@ async def login(
     response: Response,
     password: str = Form(...),
     admin_key: str | None = Depends(get_admin_key),
+    client_api_key: str | None = Depends(get_api_key),
     next_url: str = Form(default="/"),
 ) -> RedirectResponse:
     """Handle login form submission.
@@ -151,9 +152,15 @@ async def login(
     safe_next_url = _validate_next_url(next_url)
 
     if not secrets.compare_digest(password, admin_key):
+        # Role separation: if the operator pasted the proxy key, say so instead
+        # of a generic "invalid password". Checked only after the admin-key
+        # comparison so the shared-key case still logs in.
+        error = "invalid"
+        if client_api_key and secrets.compare_digest(password, client_api_key):
+            error = "proxy_key"
         # Redirect back to login with error (URL-encode next_url for query param)
         return RedirectResponse(
-            url=f"/login?error=invalid&next={quote(safe_next_url, safe='')}",
+            url=f"/login?error={error}&next={quote(safe_next_url, safe='')}",
             status_code=303,
         )
 
@@ -209,6 +216,16 @@ def get_login_page_html(error: str | None = None, next_url: str = "/") -> str:
         error_html = '<div class="error">Invalid password. Please try again.</div>'
     elif error == "required":
         error_html = '<div class="error">Login required to access this page.</div>'
+    elif error == "proxy_key":
+        error_html = (
+            '<div class="error">That is the proxy key (CLIENT_API_KEY), which cannot access '
+            "admin pages. Sign in with the admin key (ADMIN_API_KEY).</div>"
+        )
+    elif error == "not_configured":
+        error_html = (
+            '<div class="error">Admin access is not configured (ADMIN_API_KEY not set). '
+            "Contact your administrator.</div>"
+        )
 
     # Escape the next_url to prevent XSS
     safe_next_url = _escape_html_attr(next_url)
