@@ -114,6 +114,11 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         "Per-key burst capacity (absolute token bucket cap). 0 defaults to RPM value. Must be >= 1 if set.",
         category="rate_limiting", restart_required=True,
     ),
+    ConfigFieldMeta(
+        "rate_limit_max_keys", "RATE_LIMIT_MAX_KEYS", int, 10_000,
+        "Maximum number of per-key rate-limit buckets held in memory (LRU eviction when exceeded). Bounds memory under high key cardinality. Raise it if RATE_LIMIT_MAX_KEYS-exceeded eviction warnings appear in logs.",
+        category="rate_limiting", restart_required=True,
+    ),
 
     # ── policy ────────────────────────────────────────────────────────────
     ConfigFieldMeta(

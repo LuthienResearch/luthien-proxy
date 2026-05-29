@@ -299,8 +299,15 @@ def create_app(
 
         _rate_limiter: TokenBucketRateLimiter | None = None
         if settings.rate_limit_rpm > 0:
-            _rate_limiter = TokenBucketRateLimiter(rpm=settings.rate_limit_rpm, burst=settings.rate_limit_burst)
-            logger.info(f"Rate limiting enabled: {settings.rate_limit_rpm} RPM, burst={int(_rate_limiter.burst)}")
+            _rate_limiter = TokenBucketRateLimiter(
+                rpm=settings.rate_limit_rpm,
+                burst=settings.rate_limit_burst,
+                max_keys=settings.rate_limit_max_keys,
+            )
+            logger.info(
+                f"Rate limiting enabled: {settings.rate_limit_rpm} RPM, "
+                f"burst={int(_rate_limiter.burst)}, max_keys={_rate_limiter.max_keys}"
+            )
         else:
             logger.info("Rate limiting disabled (RATE_LIMIT_RPM=0)")
 
@@ -434,6 +441,26 @@ def create_app(
             return response
 
     app.add_middleware(StaticCacheMiddleware)
+
+    # Attach X-RateLimit-* headers to successful /v1/ responses. The rate-limit
+    # dependency stashes its RateLimitDecision on request.state; we read it here
+    # because the /v1 routes return their own Response objects (StreamingResponse
+    # / JSONResponse), which discard headers set on a dependency-injected Response.
+    class RateLimitHeaderMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            response = await call_next(request)
+            decision = getattr(request.state, "rate_limit_decision", None)
+            if decision is not None:
+                response.headers["X-RateLimit-Limit"] = str(decision.limit)
+                response.headers["X-RateLimit-Remaining"] = str(decision.remaining)
+                # Emit Reset on success too, for parity with the 429 path — a
+                # client that keys off X-RateLimit-Reset shouldn't see it appear
+                # and vanish depending on whether it was throttled. On the
+                # allowed path reset_unix is "now" (capacity available now).
+                response.headers["X-RateLimit-Reset"] = str(decision.reset_unix)
+            return response
+
+    app.add_middleware(RateLimitHeaderMiddleware)
 
     # Include routers
     app.include_router(gateway_router)  # /v1/messages

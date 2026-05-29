@@ -4,11 +4,37 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import math
 import time
 from collections import OrderedDict
+from dataclasses import dataclass
 
-from fastapi import HTTPException
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class RateLimitDecision:
+    """Transport-agnostic result of a rate-limit check.
+
+    The limiter returns this instead of raising an HTTP error so it can be used
+    from non-HTTP entry points (CLI, background jobs, future RPC). HTTP semantics
+    (status code, Retry-After / X-RateLimit-* headers) are applied by the caller.
+
+    Attributes:
+        allowed: Whether the request is permitted.
+        remaining: Whole tokens left in the bucket after this check (0 when denied).
+        limit: The configured RPM (the X-RateLimit-Limit value).
+        retry_after: Seconds until the next token is available. 0 when allowed.
+        reset_unix: Wall-clock unix timestamp when capacity for one request
+            becomes available. Equals "now" when allowed.
+    """
+
+    allowed: bool
+    remaining: int
+    limit: int
+    retry_after: int
+    reset_unix: int
 
 
 class TokenBucketRateLimiter:
@@ -51,6 +77,9 @@ class TokenBucketRateLimiter:
     key and gets their own bucket.
     """
 
+    # Minimum seconds between eviction warnings (evictions can fire rapidly).
+    _EVICTION_LOG_INTERVAL: float = 60.0
+
     def __init__(self, rpm: int, burst: int, max_keys: int = 10_000) -> None:
         """Initialise the rate limiter.
 
@@ -72,6 +101,10 @@ class TokenBucketRateLimiter:
         self.rpm = rpm
         self.burst: float = float(burst if burst > 0 else rpm)
         self.max_keys = max_keys
+        # Eviction observability: total count plus a throttle timestamp so the
+        # warning fires at most once per _EVICTION_LOG_INTERVAL seconds.
+        self.eviction_count = 0
+        self._last_eviction_log = float("-inf")
         # Per-key state: (asyncio.Lock, mutable_state)
         # mutable_state is [tokens: float, last_refill_time: float]
         # Keys are SHA-256 hex digests — raw credential values are never stored.
@@ -93,21 +126,48 @@ class TokenBucketRateLimiter:
                 self._buckets[key] = (asyncio.Lock(), [self.burst, time.monotonic()])
                 if len(self._buckets) > self.max_keys:
                     self._buckets.popitem(last=False)
+                    self._note_eviction()
             else:
                 self._buckets.move_to_end(key)
             return self._buckets[key]
 
-    async def check(self, key: str) -> None:
-        """Check whether key is within rate limit, raising HTTP 429 if exceeded.
+    def _note_eviction(self) -> None:
+        """Record an eviction and emit a rate-limited warning.
+
+        Frequent eviction means active key cardinality exceeds max_keys, so rate
+        limiting silently degrades (evicted keys get a fresh full-burst bucket).
+        Logging every eviction would be far too noisy under that condition, so we
+        warn at most once per _EVICTION_LOG_INTERVAL seconds with a running count.
+        """
+        self.eviction_count += 1
+        now = time.monotonic()
+        if now - self._last_eviction_log >= self._EVICTION_LOG_INTERVAL:
+            logger.warning(
+                "Rate limiter evicting buckets (max_keys=%d exceeded): %d total evictions. "
+                "Active key cardinality exceeds capacity; rate limiting is degrading "
+                "(evicted keys reset to a full burst). Consider raising RATE_LIMIT_MAX_KEYS.",
+                self.max_keys,
+                self.eviction_count,
+            )
+            self._last_eviction_log = now
+
+    async def check(self, key: str) -> RateLimitDecision:
+        """Check whether key is within its rate limit.
+
+        Returns a transport-agnostic decision rather than raising an HTTP error,
+        so the limiter is reusable outside the FastAPI route layer. The caller is
+        responsible for translating a denied decision into the appropriate
+        transport response (e.g. HTTP 429).
 
         Args:
             key: Rate limit key (e.g. credential token value). Hashed internally.
 
-        Raises:
-            HTTPException: 429 with Retry-After, X-RateLimit-* headers if exceeded.
+        Returns:
+            RateLimitDecision describing whether the request is allowed plus the
+            metadata needed to build X-RateLimit-* / Retry-After headers.
         """
         if self.rpm == 0:
-            return
+            return RateLimitDecision(allowed=True, remaining=0, limit=0, retry_after=0, reset_unix=int(time.time()))
 
         hashed = self._hash_key(key)
         lock, state = await self._get_or_create_bucket(hashed)
@@ -128,18 +188,23 @@ class TokenBucketRateLimiter:
                 # timestamp, not a monotonic offset.
                 reset_unix = int(time.time()) + retry_after
                 state[0] = tokens
-                raise HTTPException(
-                    status_code=429,
-                    detail="Rate limit exceeded",
-                    headers={
-                        "Retry-After": str(retry_after),
-                        "X-RateLimit-Limit": str(self.rpm),
-                        "X-RateLimit-Remaining": "0",
-                        "X-RateLimit-Reset": str(reset_unix),
-                    },
+                return RateLimitDecision(
+                    allowed=False,
+                    remaining=0,
+                    limit=self.rpm,
+                    retry_after=retry_after,
+                    reset_unix=reset_unix,
                 )
 
-            state[0] = tokens - 1.0
+            tokens -= 1.0
+            state[0] = tokens
+            return RateLimitDecision(
+                allowed=True,
+                remaining=int(tokens),
+                limit=self.rpm,
+                retry_after=0,
+                reset_unix=int(time.time()),
+            )
 
 
-__all__ = ["TokenBucketRateLimiter"]
+__all__ = ["RateLimitDecision", "TokenBucketRateLimiter"]

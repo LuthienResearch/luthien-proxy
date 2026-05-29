@@ -241,6 +241,22 @@ python -m luthien_proxy.main --gateway-port 9000 --log-level debug --dogfood-mod
 
 **Config dashboard:** Visit `/config` in the admin UI to see all active config with color-coded provenance badges (which source each value came from) and inline editing.
 
+## Rate Limiting
+
+`/v1/` traffic can be rate-limited per authenticated key with an in-process token bucket (`RATE_LIMIT_RPM`, `RATE_LIMIT_BURST`, `RATE_LIMIT_MAX_KEYS`). `RATE_LIMIT_RPM=0` (the default) disables it. The limiter keys on the auth credential; in `AUTH_MODE=client_key` all users share one bucket (a global limit), while in `passthrough` each user gets their own.
+
+**The configured RPM is per process, not per deployment.** The effective per-key limit a client actually sees is:
+
+```
+effective RPM per key = RATE_LIMIT_RPM × uvicorn_workers × replicas
+```
+
+Each uvicorn worker process and each replica maintains its own independent in-memory buckets — there is no shared (e.g. Redis) backend, so limits do not coordinate across processes. Worked example: `RATE_LIMIT_RPM=60` with **4 uvicorn workers × 3 replicas** allows up to **720 RPM per key** in aggregate. To get a target aggregate limit, divide it by `workers × replicas` when setting `RATE_LIMIT_RPM`.
+
+This is acceptable for coarse abuse protection. For exact cross-process limiting you would need a shared backend, which this implementation does not provide.
+
+**Operational signals:** rejections log a `warning` with a hashed key prefix, the RPM, and `retry_after`; successful responses carry `X-RateLimit-Limit` / `X-RateLimit-Remaining` so clients can self-throttle. If you see throttled "evicting buckets (max_keys=… exceeded)" warnings, active key cardinality exceeds `RATE_LIMIT_MAX_KEYS` and rate limiting is degrading (evicted keys reset to a full burst) — raise `RATE_LIMIT_MAX_KEYS`.
+
 ## Policy System
 
 The gateway uses an event-driven policy architecture with streaming support.
