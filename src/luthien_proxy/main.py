@@ -8,7 +8,6 @@ import enum
 import logging
 import os
 import secrets
-import time
 from collections.abc import MutableMapping
 from contextlib import asynccontextmanager
 
@@ -454,58 +453,24 @@ def create_app(
 
     # Simple utility endpoints
     @app.get("/health")
-    async def health(request: Request):
+    async def health():
         """Liveness probe endpoint.
 
-        Probes DB and Redis in parallel and reports per-component status so
-        operators and monitoring tools can distinguish degraded from unhealthy.
-        Returns HTTP 200 always — callers must inspect the body for status.
+        Always returns HTTP 200 if the process is responsive, with no
+        dependency on DB or Redis. This is deliberate: container HEALTHCHECKs
+        and k8s liveness probes consume /health, and a liveness probe that
+        fails on a transient DB blip would trigger a restart that cannot fix
+        the dependency — the textbook cascading-failure outage. Dependency
+        readiness (for traffic draining) lives on /ready; rich per-component
+        diagnostics live on the authenticated /api/admin/system-status.
 
-        Kept free of auth-mode and credential signals: a probe attacker
-        shouldn't be able to fingerprint the gateway's auth configuration or
-        recent credential activity from this unauthenticated endpoint. The
-        admin UI gets those signals from /api/admin/billing-status instead.
+        Kept minimal so an unauthenticated probe attacker can't fingerprint
+        the gateway's auth mode, dependency topology, or recent credential
+        activity from this endpoint.
         """
-        deps = getattr(request.app.state, "dependencies", None)
-
-        async def _check_db() -> dict[str, object]:
-            db_pool = getattr(deps, "db_pool", None) if deps else None
-            if db_pool is None:
-                return {"status": "not_configured"}
-            try:
-                t0 = time.perf_counter()
-                async with db_pool.connection() as conn:
-                    await conn.execute("SELECT 1")
-                return {"status": "ok", "latency_ms": round((time.perf_counter() - t0) * 1000, 1)}
-            except Exception:
-                logger.warning("Health check: DB probe failed", exc_info=True)
-                return {"status": "error", "error": "database check failed"}
-
-        async def _check_redis() -> dict[str, object]:
-            redis_client = getattr(deps, "redis_client", None) if deps else None
-            if redis_client is None:
-                return {"status": "not_configured"}
-            try:
-                t0 = time.perf_counter()
-                await redis_client.ping()
-                return {"status": "ok", "latency_ms": round((time.perf_counter() - t0) * 1000, 1)}
-            except Exception:
-                logger.warning("Health check: Redis probe failed", exc_info=True)
-                return {"status": "error", "error": "redis check failed"}
-
-        db_check, redis_check = await asyncio.gather(_check_db(), _check_redis())
-
-        if db_check["status"] == "error":
-            overall = "unhealthy"
-        elif redis_check["status"] == "error":
-            overall = "degraded"
-        else:
-            overall = "healthy"
-
         return {
-            "status": overall,
+            "status": "healthy",
             "version": PROXY_DISPLAY_VERSION,
-            "checks": {"db": db_check, "redis": redis_check},
         }
 
     @app.get("/ready")
