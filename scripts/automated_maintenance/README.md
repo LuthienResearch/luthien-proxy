@@ -228,7 +228,10 @@ and `--allowedTools "Read Edit Write Glob Grep Bash"`. Each session can:
   session is not sandboxed beyond the user's filesystem permissions.
 - Hit external HTTP services and consume API tokens. `AUTOFIX_MAX_BUDGET_USD`
   and `AUTOFIX_TIMEOUT` cap each **per-concern** session, so worst-case spend
-  for a run scales with the number of failing concerns.
+  and wall-clock for a run scale with the number of failing concerns. With the
+  default 5 checks failing at `AUTOFIX_MAX_BUDGET_USD=5` / `AUTOFIX_TIMEOUT=1800`,
+  a single run can spend up to ~$25 and run ~2.5h serially — keep that in mind
+  when tuning those env vars.
 
 It will NOT push directly — the orchestrator pushes each concern's branch
 and opens a single-concern **draft** PR for human review.
@@ -251,6 +254,9 @@ the same repo) could both query before either opens its PR, and both open a
 duplicate for the same concern. The single-host nightly-cron deployment this
 is built for doesn't hit that (the run lock in `automated_maintenance.sh`
 serializes runs on one host); it's a deliberate trade-off, not a guarantee.
+The dedup is also age-blind: an open autofix PR for a concern suppresses new
+autofixes for that concern *indefinitely*, so a stale one languishing in
+review will keep blocking fresh fixes — close stale autofix PRs to unblock.
 
 **On account scope**: `gh pr create` runs as whatever account `gh` is
 logged in as. If you enable autofix on a workstation, autofix PRs will

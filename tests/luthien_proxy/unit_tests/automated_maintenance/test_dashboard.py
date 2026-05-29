@@ -185,7 +185,7 @@ def test_render_run_legacy_autofix_section(tmp_path):
     assert "https://x/pr/legacy" in html_out
 
 
-@pytest.mark.parametrize("status", ["skipped_existing_pr", "skipped_query_failed"])
+@pytest.mark.parametrize("status", ["skipped_existing_pr", "skipped_query_failed", "path_gate_error"])
 def test_new_autofix_statuses_have_distinct_colors(status):
     """New autofix statuses are mapped — they must not fall through to grey unknown."""
     assert status in dashboard.STATUS_COLOR

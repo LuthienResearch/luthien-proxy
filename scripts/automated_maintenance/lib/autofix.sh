@@ -71,17 +71,20 @@ _autofix_open_pr_for() {
         --repo "$(git -C "${MAINT_REPO_DIR}" remote get-url origin)" \
         --state open \
         --search "head:${AUTOFIX_BRANCH_PREFIX}/${concern}/" \
-        --json url --jq '.[0].url // empty' 2>/dev/null)" || return 2
+        --json url --jq '.[0].url // empty' \
+        2>"${MAINT_RUN_DIR}/autofix_pr_query.${concern}.err")" || return 2
     [[ -n "${url}" ]] || return 1
     echo "${url}"
     return 0
 }
 
 # Attempt a fix for a single concern. Returns:
-#   0   opened a draft PR
-#   65  session produced no diff
-#   2   touched forbidden paths (refused to push)
-#   *   other error
+#   0    opened a draft PR
+#   65   session produced no diff
+#   2    touched forbidden paths (refused to push)
+#   66   path_gate.py crashed (couldn't classify the diff — refused to push)
+#   124  session timed out
+#   *    other error
 # Writes the PR url (on success) to autofix_pr_url.<concern>.txt.
 _run_autofix_concern() {
     local concern="$1"
@@ -180,9 +183,14 @@ EOF
                 return 2
                 ;;
             *)
+                # Distinct from the forbidden-paths `2` above: a crash means
+                # we couldn't classify the diff at all. Same fail-closed
+                # outcome (don't push), but record it as its own status so the
+                # dashboard doesn't mislabel a path_gate bug as a real
+                # forbidden-paths violation.
                 echo "path_gate.py exited unexpectedly (rc=${gate_rc}) — refusing to push:"
                 echo "${gate_out}"
-                return 2
+                return 66
                 ;;
         esac
     fi
@@ -255,7 +263,12 @@ maint_run_autofix() {
         return 0
     fi
 
-    # Concerns = failing checks, in declared order.
+    # Concerns = failing checks, in declared order. NOTE: a concern name (a
+    # check name from checks.sh / doc_drift.sh) is now load-bearing — it's
+    # interpolated into branch names, the `gh pr list --search head:` dedup
+    # query, and per-concern artifact filenames. Keep check names to
+    # [A-Za-z0-9_-] and prefix-distinct (see _autofix_open_pr_for) or those
+    # surfaces break. They're internal tokens, so we don't validate at runtime.
     local concerns=()
     while IFS= read -r line; do
         [[ -n "${line}" ]] && concerns+=("${line}")
@@ -302,14 +315,15 @@ PY
         ended="$(date +%s)"
         duration=$((ended - started))
         local status
-        # rc=2 here can only mean forbidden_paths: the other rc=2 source
-        # (_autofix_open_pr_for query failure) takes the early `continue`
-        # above and never reaches _run_autofix_concern. Keep that early-out
-        # if refactoring, or this mapping becomes ambiguous.
+        # rc=2 here means forbidden_paths only. The other potential rc=2
+        # sources are disambiguated: _autofix_open_pr_for's query failure takes
+        # the early `continue` above, and a path_gate.py crash returns 66 (not
+        # 2). Preserve both if refactoring, or this mapping becomes ambiguous.
         case "${rc}" in
             0) status="opened_pr" ;;
             65) status="no_diff" ;;
             2) status="forbidden_paths" ;;
+            66) status="path_gate_error" ;;
             124) status="timeout" ;;
             *) status="error" ;;
         esac

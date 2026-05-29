@@ -22,10 +22,10 @@ from pathlib import Path
 #   - check statuses (`pass`, `fail`, `skip`, `error`) come from
 #     `maint_run_check` in `checks.sh` and `maint_run_doc_drift` in
 #     `doc_drift.sh` (`status` field in `results.json`).
-#   - autofix statuses (`opened_pr`, `no_diff`, `forbidden_paths`, `timeout`,
-#     `error`, `skipped_existing_pr`, `skipped_query_failed`) come from
-#     `maint_run_autofix` in `autofix.sh` (per-concern under `autofix.<concern>`
-#     in `results.json`).
+#   - autofix statuses (`opened_pr`, `no_diff`, `forbidden_paths`,
+#     `path_gate_error`, `timeout`, `error`, `skipped_existing_pr`,
+#     `skipped_query_failed`) come from `maint_run_autofix` in `autofix.sh`
+#     (per-concern under `autofix.<concern>` in `results.json`).
 # If you add a new status on either side, also add it here — unmapped
 # statuses fall through to the grey `unknown` color silently.
 STATUS_COLOR = {
@@ -40,6 +40,7 @@ STATUS_COLOR = {
     "forbidden_paths": "#c53030",
     "skipped_existing_pr": "#718096",  # benign: a fix is already in review
     "skipped_query_failed": "#dd6b20",  # operational: couldn't reach GitHub
+    "path_gate_error": "#dd6b20",  # operational: path_gate.py couldn't classify
 }
 
 CSS = """
