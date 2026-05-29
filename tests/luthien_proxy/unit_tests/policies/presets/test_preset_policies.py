@@ -8,6 +8,7 @@ import pytest
 from luthien_proxy.policies.presets.block_dangerous_commands import BlockDangerousCommandsPolicy
 from luthien_proxy.policies.presets.block_sensitive_file_writes import BlockSensitiveFileWritesPolicy
 from luthien_proxy.policies.presets.block_web_requests import BlockWebRequestsPolicy
+from luthien_proxy.policies.presets.deai import DeAIPolicy
 from luthien_proxy.policies.presets.no_apologies import NoApologiesPolicy
 from luthien_proxy.policies.presets.no_yapping import NoYappingPolicy
 from luthien_proxy.policies.presets.plain_dashes import PlainDashesPolicy
@@ -21,6 +22,7 @@ ALL_PRESETS = [
     NoYappingPolicy,
     BlockWebRequestsPolicy,
     BlockSensitiveFileWritesPolicy,
+    DeAIPolicy,
 ]
 
 
@@ -59,6 +61,7 @@ def test_preset_class_refs_are_importable():
         ("luthien_proxy.policies.presets.no_yapping", "NoYappingPolicy"),
         ("luthien_proxy.policies.presets.block_web_requests", "BlockWebRequestsPolicy"),
         ("luthien_proxy.policies.presets.block_sensitive_file_writes", "BlockSensitiveFileWritesPolicy"),
+        ("luthien_proxy.policies.presets.deai", "DeAIPolicy"),
     ]
     for module_path, class_name in preset_modules:
         module = importlib.import_module(module_path)
