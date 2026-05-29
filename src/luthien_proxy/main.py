@@ -453,6 +453,11 @@ def create_app(
             if decision is not None:
                 response.headers["X-RateLimit-Limit"] = str(decision.limit)
                 response.headers["X-RateLimit-Remaining"] = str(decision.remaining)
+                # Emit Reset on success too, for parity with the 429 path — a
+                # client that keys off X-RateLimit-Reset shouldn't see it appear
+                # and vanish depending on whether it was throttled. On the
+                # allowed path reset_unix is "now" (capacity available now).
+                response.headers["X-RateLimit-Reset"] = str(decision.reset_unix)
             return response
 
     app.add_middleware(RateLimitHeaderMiddleware)
