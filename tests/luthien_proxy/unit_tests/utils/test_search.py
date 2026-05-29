@@ -12,6 +12,34 @@ from luthien_proxy.utils.db_sqlite import SqliteConnection
 from luthien_proxy.utils.search import session_fts_filter_sql
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[4] / "migrations" / "sqlite"
+POSTGRES_MIGRATIONS_DIR = Path(__file__).resolve().parents[4] / "migrations" / "postgres"
+
+
+def _postgres_fts_backfill_update() -> str:
+    """Return the backfill UPDATE statement from the Postgres FTS migration.
+
+    Naive `;`-splitting is unsafe here -- the migration contains `$$`-quoted
+    PL/pgSQL function bodies with embedded semicolons. Instead, slice from the
+    first top-level `UPDATE conversation_events` to its terminating `;`, which
+    sits outside any function body.
+    """
+    sql = (POSTGRES_MIGRATIONS_DIR / "014_add_session_search_fts.sql").read_text()
+    start = sql.index("UPDATE conversation_events")
+    end = sql.index(";", start)
+    return sql[start:end]
+
+
+def test_postgres_backfill_calls_extract_helper_once_per_row() -> None:
+    """The Postgres backfill must evaluate _extract_event_search_text once per row.
+
+    Regression guard for the PR #614 review finding: the original backfill called
+    `_extract_event_search_text(payload)` twice (once in SET, once in WHERE),
+    doubling the work. The corrected statement computes it once in a subquery and
+    reuses the result for both the value and the NULL filter.
+    """
+    update_sql = _postgres_fts_backfill_update()
+    assert update_sql.count("_extract_event_search_text(") == 1
+
 
 REQUIRED_MIGRATIONS = (
     "003_add_conversation_tables.sql",
