@@ -81,7 +81,7 @@ class TestDebugLoggingPolicyAnthropicRequest:
     async def test_on_anthropic_request_returns_same_request(self):
         """on_anthropic_request returns the exact same request object unchanged."""
         policy = DebugLoggingPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         request: AnthropicRequest = {
             "model": DEFAULT_TEST_MODEL,
@@ -97,7 +97,7 @@ class TestDebugLoggingPolicyAnthropicRequest:
     async def test_on_anthropic_request_preserves_all_fields(self):
         """on_anthropic_request preserves all fields in a complex request."""
         policy = DebugLoggingPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         request: AnthropicRequest = {
             "model": DEFAULT_TEST_MODEL,
@@ -150,7 +150,7 @@ class TestDebugLoggingPolicyAnthropicResponse:
     async def test_on_anthropic_response_returns_same_response(self):
         """on_anthropic_response returns the exact same response object unchanged."""
         policy = DebugLoggingPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         response: AnthropicResponse = {
             "id": "msg_123",
@@ -170,7 +170,7 @@ class TestDebugLoggingPolicyAnthropicResponse:
     async def test_on_anthropic_response_preserves_content(self):
         """on_anthropic_response preserves content blocks exactly."""
         policy = DebugLoggingPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         text_block: AnthropicTextBlock = {"type": "text", "text": "Complex response text"}
         response: AnthropicResponse = {
@@ -223,7 +223,7 @@ class TestDebugLoggingPolicyAnthropicStreamEvent:
     async def test_on_anthropic_stream_event_returns_same_event(self):
         """on_anthropic_stream_event returns the exact same event object unchanged."""
         policy = DebugLoggingPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         event = RawContentBlockDeltaEvent.model_construct(
             type="content_block_delta",
@@ -239,7 +239,7 @@ class TestDebugLoggingPolicyAnthropicStreamEvent:
     async def test_on_anthropic_stream_event_never_returns_empty_list(self):
         """on_anthropic_stream_event never filters out events (returns empty list)."""
         policy = DebugLoggingPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         events = [
             RawMessageStartEvent.model_construct(
@@ -304,7 +304,7 @@ class TestDebugLoggingPolicyAnthropicStreamEvent:
     async def test_on_anthropic_stream_event_passes_through_all_event_types(self):
         """on_anthropic_stream_event handles all Anthropic stream event types."""
         policy = DebugLoggingPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         message_start = RawMessageStartEvent.model_construct(
             type="message_start",
@@ -369,7 +369,7 @@ class TestDebugLoggingPolicyLogging:
     async def test_on_anthropic_request_logs_at_info_level(self, caplog):
         """on_anthropic_request logs request data at INFO level."""
         policy = DebugLoggingPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         request: AnthropicRequest = {
             "model": DEFAULT_TEST_MODEL,
@@ -387,7 +387,7 @@ class TestDebugLoggingPolicyLogging:
     async def test_on_anthropic_response_logs_at_info_level(self, caplog):
         """on_anthropic_response logs response data at INFO level."""
         policy = DebugLoggingPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         response: AnthropicResponse = {
             "id": "msg_123",
@@ -409,7 +409,7 @@ class TestDebugLoggingPolicyLogging:
     async def test_on_anthropic_stream_event_logs_at_info_level(self, caplog):
         """on_anthropic_stream_event logs event data at INFO level."""
         policy = DebugLoggingPolicy()
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         event = RawContentBlockDeltaEvent.model_construct(
             type="content_block_delta",

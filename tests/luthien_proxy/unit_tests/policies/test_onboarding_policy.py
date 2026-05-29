@@ -16,6 +16,7 @@ from anthropic.types import (
     ToolUseBlock,
 )
 from anthropic.types.raw_message_delta_event import Delta
+from tests.luthien_proxy.fixtures.policy_context import make_policy_context
 
 from luthien_proxy.policies.onboarding_policy import (
     OnboardingPolicy,
@@ -26,7 +27,6 @@ from luthien_proxy.policy_core import (
     BasePolicy,
     TextModifierPolicy,
 )
-from luthien_proxy.policy_core.policy_context import PolicyContext
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def policy():
 
 @pytest.fixture
 def context():
-    return PolicyContext.for_testing()
+    return make_policy_context()
 
 
 # =============================================================================

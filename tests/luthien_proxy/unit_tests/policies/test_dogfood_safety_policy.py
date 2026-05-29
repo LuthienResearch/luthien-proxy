@@ -15,6 +15,7 @@ from anthropic.types import (
     RawMessageDeltaEvent,
     ToolUseBlock,
 )
+from tests.luthien_proxy.fixtures.policy_context import make_policy_context
 from tests.luthien_proxy.unit_tests.policies.anthropic_event_builders import message_delta
 
 from luthien_proxy.policies.dogfood_safety_policy import (
@@ -39,7 +40,7 @@ def _make_policy(
 
 
 def _make_context(transaction_id: str = "test-txn") -> PolicyContext:
-    return PolicyContext.for_testing(transaction_id=transaction_id)
+    return make_policy_context(transaction_id=transaction_id)
 
 
 # ============================================================================

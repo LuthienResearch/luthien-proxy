@@ -14,6 +14,7 @@ from anthropic.types import (
     TextDelta,
 )
 from tests.constants import DEFAULT_TEST_MODEL
+from tests.luthien_proxy.fixtures.policy_context import make_policy_context
 from tests.luthien_proxy.unit_tests.policies.multi_policy_helpers import (
     AnthropicOnlyPolicy,
     OpenAIOnlyPolicy,
@@ -83,7 +84,7 @@ class TestMultiSerialAnthropicRequest:
     @pytest.mark.asyncio
     async def test_passes_through_with_noop(self):
         policy = MultiSerialPolicy(policies=[noop_config()])
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         request: AnthropicRequest = {
             "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello"}],
@@ -104,7 +105,7 @@ class TestMultiSerialAnthropicResponse:
     @pytest.mark.asyncio
     async def test_allcaps_transforms_text(self):
         policy = MultiSerialPolicy(policies=[allcaps_config()])
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         response = make_anthropic_response("hello world")
 
         result = await policy.on_anthropic_response(response, ctx)
@@ -121,7 +122,7 @@ class TestMultiSerialAnthropicResponse:
                 allcaps_config(),
             ]
         )
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         response = make_anthropic_response("hello world")
 
         result = await policy.on_anthropic_response(response, ctx)
@@ -139,7 +140,7 @@ class TestMultiSerialAnthropicStreamEvent:
     @pytest.mark.asyncio
     async def test_text_delta_chained_through_allcaps(self):
         policy = MultiSerialPolicy(policies=[allcaps_config()])
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         text_delta = TextDelta.model_construct(type="text_delta", text="hello")
         event = RawContentBlockDeltaEvent.model_construct(type="content_block_delta", index=0, delta=text_delta)
 
@@ -153,7 +154,7 @@ class TestMultiSerialAnthropicStreamEvent:
     @pytest.mark.asyncio
     async def test_non_text_events_pass_through(self):
         policy = MultiSerialPolicy(policies=[allcaps_config()])
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         event = RawMessageStartEvent.model_construct(
             type="message_start",
             message={
@@ -175,7 +176,7 @@ class TestMultiSerialAnthropicStreamEvent:
     @pytest.mark.asyncio
     async def test_empty_policy_list_passes_events_through(self):
         policy = MultiSerialPolicy(policies=[])
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         text_delta = TextDelta.model_construct(type="text_delta", text="hello")
         event = RawContentBlockDeltaEvent.model_construct(type="content_block_delta", index=0, delta=text_delta)
 
@@ -205,7 +206,7 @@ class TestMultiSerialAnthropicStreamLifecycle:
         policy = MultiSerialPolicy(policies=[])
         policy._sub_policies = [tracking]
 
-        await policy.on_anthropic_stream_complete(PolicyContext.for_testing())
+        await policy.on_anthropic_stream_complete(make_policy_context())
 
         assert tracking.complete_calls == 1
 
@@ -223,7 +224,7 @@ class TestMultiSerialAnthropicStreamLifecycle:
         policy = MultiSerialPolicy(policies=[])
         policy._sub_policies = [tracking]
 
-        await policy.on_anthropic_streaming_policy_complete(PolicyContext.for_testing())
+        await policy.on_anthropic_streaming_policy_complete(make_policy_context())
 
         assert tracking.cleanup_calls == 1
 
@@ -240,7 +241,7 @@ class TestMultiSerialAnthropicStreamLifecycle:
         onboarding = OnboardingPolicy({"gateway_url": "http://localhost:9999"})
         allcaps = AllCapsPolicy()
         serial = MultiSerialPolicy.from_instances([onboarding, allcaps])
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         # Call on_anthropic_request so OnboardingPolicy stashes the first-turn request.
         first_turn_request: AnthropicRequest = {
@@ -288,7 +289,7 @@ class TestMultiSerialInterfaceValidation:
         """Anthropic call raises TypeError when a sub-policy lacks AnthropicExecutionInterface."""
         policy = MultiSerialPolicy(policies=[noop_config()])
         policy._sub_policies = (*policy._sub_policies, OpenAIOnlyPolicy())
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         request: AnthropicRequest = {
             "model": DEFAULT_TEST_MODEL,
             "messages": [{"role": "user", "content": "Hello"}],
@@ -303,7 +304,7 @@ class TestMultiSerialInterfaceValidation:
         """Anthropic response call raises TypeError for incompatible sub-policy."""
         policy = MultiSerialPolicy(policies=[noop_config()])
         policy._sub_policies = (*policy._sub_policies, OpenAIOnlyPolicy())
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         response = make_anthropic_response("hello")
 
         with pytest.raises(TypeError, match="OpenAIOnly.*does not implement AnthropicExecutionInterface"):
@@ -314,7 +315,7 @@ class TestMultiSerialInterfaceValidation:
         """Anthropic stream event raises TypeError for incompatible sub-policy."""
         policy = MultiSerialPolicy(policies=[noop_config()])
         policy._sub_policies = (*policy._sub_policies, OpenAIOnlyPolicy())
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         text_delta = TextDelta.model_construct(type="text_delta", text="hello")
         event = RawContentBlockDeltaEvent.model_construct(type="content_block_delta", index=0, delta=text_delta)
 
@@ -325,7 +326,7 @@ class TestMultiSerialInterfaceValidation:
     async def test_all_compatible_policies_pass_validation(self):
         """No error when all sub-policies implement the required interface."""
         policy = MultiSerialPolicy(policies=[noop_config(), allcaps_config()])
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         response = make_anthropic_response("hello")
 
         result = await policy.on_anthropic_response(response, ctx)

@@ -24,6 +24,7 @@ from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from httpx import Request as HttpxRequest
 from httpx import Response as HttpxResponse
 from tests.constants import DEFAULT_TEST_MODEL
+from tests.luthien_proxy.fixtures.policy_context import make_policy_context
 
 from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse, build_usage
@@ -1878,7 +1879,7 @@ class TestRunPolicyHooks:
             "usage": {"input_tokens": 1, "output_tokens": 1},
         }
         io = _StubIO(request=request, response=response)
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         emissions = []
         async for emission in _run_policy_hooks(NoOpPolicy(), io, ctx):
@@ -1913,7 +1914,7 @@ class TestRunPolicyHooks:
             RawMessageStopEvent(type="message_stop"),
         ]
         io = _StubIO(request=request, stream_events=stream_events)
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         emissions = []
         async for emission in _run_policy_hooks(NoOpPolicy(), io, ctx):
@@ -1962,7 +1963,7 @@ class TestRunPolicyHooks:
             "usage": {"input_tokens": 1, "output_tokens": 1},
         }
         io = _StubIO(request=request, response=response)
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         async for _ in _run_policy_hooks(_AddMaxTokensPolicy(), io, ctx):
             pass
@@ -2012,7 +2013,7 @@ class TestRunPolicyHooks:
             ),
         ]
         io = _StubIO(request=request, stream_events=stream_events)
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         emissions = []
         async for emission in _run_policy_hooks(_AppendPolicy(), io, ctx):
@@ -2055,7 +2056,7 @@ class TestRunPolicyHooks:
             "usage": {"input_tokens": 1, "output_tokens": 2},
         }
         io = _StubIO(request=request, response=response)
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
 
         emissions = []
         async for emission in _run_policy_hooks(pipeline, io, ctx):

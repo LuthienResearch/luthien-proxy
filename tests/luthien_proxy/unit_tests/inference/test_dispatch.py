@@ -11,6 +11,7 @@ import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from tests.luthien_proxy.fixtures.policy_context import make_policy_context
 
 from luthien_proxy.credentials import (
     Credential,
@@ -22,7 +23,6 @@ from luthien_proxy.credentials import (
 )
 from luthien_proxy.inference.base import InferenceProvider
 from luthien_proxy.inference.dispatch import resolve_inference_provider
-from luthien_proxy.policy_core.policy_context import PolicyContext
 
 
 def _user_cred() -> Credential:
@@ -46,7 +46,7 @@ class TestUserCredentials:
 
     @pytest.mark.asyncio
     async def test_happy_path_returns_passthrough_and_user_cred(self):
-        context = PolicyContext.for_testing(user_credential=_user_cred())
+        context = make_policy_context(user_credential=_user_cred())
         result = await resolve_inference_provider(
             UserCredentials(),
             context,
@@ -58,7 +58,7 @@ class TestUserCredentials:
 
     @pytest.mark.asyncio
     async def test_missing_user_cred_raises(self):
-        context = PolicyContext.for_testing(user_credential=None)
+        context = make_policy_context(user_credential=None)
         with pytest.raises(CredentialError, match="no user credential"):
             await resolve_inference_provider(
                 UserCredentials(),
@@ -73,7 +73,7 @@ class TestProvider:
 
     @pytest.mark.asyncio
     async def test_looks_up_registry_and_returns_no_override(self):
-        context = PolicyContext.for_testing(user_credential=None)
+        context = make_policy_context(user_credential=None)
         registered = _fake_registry_provider()
         registry = _mock_registry(registered)
         result = await resolve_inference_provider(
@@ -88,7 +88,7 @@ class TestProvider:
 
     @pytest.mark.asyncio
     async def test_missing_registry_raises(self):
-        context = PolicyContext.for_testing(user_credential=None)
+        context = make_policy_context(user_credential=None)
         with pytest.raises(RuntimeError, match="no InferenceProviderRegistry is configured"):
             await resolve_inference_provider(
                 Provider(name="my-judge"),
@@ -103,7 +103,7 @@ class TestUserThenProvider:
 
     @pytest.mark.asyncio
     async def test_user_cred_present_uses_passthrough(self):
-        context = PolicyContext.for_testing(user_credential=_user_cred())
+        context = make_policy_context(user_credential=_user_cred())
         registry = _mock_registry()
         result = await resolve_inference_provider(
             UserThenProvider(name="my-judge", on_fallback="warn"),
@@ -116,7 +116,7 @@ class TestUserThenProvider:
 
     @pytest.mark.asyncio
     async def test_fail_mode_raises_when_no_user_cred(self):
-        context = PolicyContext.for_testing(user_credential=None)
+        context = make_policy_context(user_credential=None)
         registry = _mock_registry()
         with pytest.raises(CredentialError, match="on_fallback='fail'"):
             await resolve_inference_provider(
@@ -129,7 +129,7 @@ class TestUserThenProvider:
 
     @pytest.mark.asyncio
     async def test_warn_mode_falls_back_and_logs(self, caplog):
-        context = PolicyContext.for_testing(user_credential=None)
+        context = make_policy_context(user_credential=None)
         registered = _fake_registry_provider()
         registry = _mock_registry(registered)
         with caplog.at_level(logging.WARNING):
@@ -145,7 +145,7 @@ class TestUserThenProvider:
 
     @pytest.mark.asyncio
     async def test_fallback_mode_silent(self, caplog):
-        context = PolicyContext.for_testing(user_credential=None)
+        context = make_policy_context(user_credential=None)
         registered = _fake_registry_provider()
         registry = _mock_registry(registered)
         with caplog.at_level(logging.WARNING):
@@ -161,7 +161,7 @@ class TestUserThenProvider:
 
     @pytest.mark.asyncio
     async def test_fallback_requires_registry_when_no_user_cred(self):
-        context = PolicyContext.for_testing(user_credential=None)
+        context = make_policy_context(user_credential=None)
         with pytest.raises(RuntimeError, match="no InferenceProviderRegistry is configured"):
             await resolve_inference_provider(
                 UserThenProvider(name="my-judge", on_fallback="fallback"),

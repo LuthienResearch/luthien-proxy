@@ -5,8 +5,6 @@ from typing import Any, cast
 
 import pytest
 
-from luthien_proxy.policy_core import PolicyContext
-
 
 @dataclass
 class _State:
@@ -19,7 +17,7 @@ class _Owner:
 
 class TestPolicyContextRequestState:
     def test_get_request_state_creates_and_reuses_by_owner_and_type(self):
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         owner = _Owner()
 
         state_a = ctx.get_request_state(owner, _State, _State)
@@ -30,7 +28,7 @@ class TestPolicyContextRequestState:
         assert state_b.values[1] == "hello"
 
     def test_get_request_state_isolated_between_owners(self):
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         owner_a = _Owner()
         owner_b = _Owner()
 
@@ -42,7 +40,7 @@ class TestPolicyContextRequestState:
         assert state_b.values == {}
 
     def test_pop_request_state_removes_owned_state(self):
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         owner = _Owner()
         ctx.get_request_state(owner, _State, _State).values[1] = "hello"
 
@@ -52,7 +50,7 @@ class TestPolicyContextRequestState:
         assert ctx.pop_request_state(owner, _State) is None
 
     def test_get_request_state_raises_if_stored_type_mismatch(self):
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         owner = _Owner()
         cast(Any, ctx)._request_state[(id(owner), _State)] = {"unexpected": "dict"}
 
@@ -60,7 +58,7 @@ class TestPolicyContextRequestState:
             ctx.get_request_state(owner, _State, _State)
 
     def test_get_request_state_raises_if_factory_returns_wrong_type(self):
-        ctx = PolicyContext.for_testing()
+        ctx = make_policy_context()
         owner = _Owner()
 
         with pytest.raises(TypeError, match="returned dict, expected _State"):

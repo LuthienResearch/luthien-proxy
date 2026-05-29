@@ -22,6 +22,7 @@ from anthropic.types import (
     ToolUseBlock,
 )
 from tests.luthien_proxy.fixtures.anthropic_stream_validator import validate_anthropic_event_ordering
+from tests.luthien_proxy.fixtures.policy_context import make_policy_context
 from tests.luthien_proxy.unit_tests.policies.anthropic_event_builders import (
     block_stop,
     event_types,
@@ -60,7 +61,7 @@ def _make_policy(on_error: str = "block") -> SimpleLLMPolicy:
 
 
 def _make_context() -> PolicyContext:
-    return PolicyContext.for_testing(transaction_id="test-txn")
+    return make_policy_context(transaction_id="test-txn")
 
 
 def test_init_preserves_all_config_fields():
