@@ -1,6 +1,6 @@
 ---
 category: Features
-pr: 516
+pr: 774
 ---
 
 **Rich infrastructure diagnostics on `/api/admin/system-status`**: A new authenticated admin endpoint probes DB (`SELECT 1`) and Redis (`ping`) in parallel — each bounded by a 2s timeout — and reports per-component status with latency. Overall `status` reflects real infrastructure state: `healthy` / `degraded` (Redis unreachable) / `unhealthy` (DB unreachable); Redis absent (SQLite/local mode) is `not_configured` and does not affect the overall status.

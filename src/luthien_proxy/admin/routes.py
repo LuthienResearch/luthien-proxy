@@ -10,7 +10,7 @@ import logging
 import os
 import time
 import uuid
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import litellm
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
@@ -224,7 +224,7 @@ class BillingStatusResponse(BaseModel):
 class ComponentCheck(BaseModel):
     """Per-component probe result for the system-status endpoint."""
 
-    status: str  # "ok" | "error" | "not_configured"
+    status: Literal["ok", "error", "not_configured"]
     latency_ms: float | None = None
     error: str | None = None
 
@@ -238,7 +238,7 @@ class SystemStatusResponse(BaseModel):
     DoS amplifier against the connection pool.
     """
 
-    status: str  # "healthy" | "degraded" | "unhealthy"
+    status: Literal["healthy", "degraded", "unhealthy"]
     checks: dict[str, ComponentCheck]
 
 
@@ -842,7 +842,7 @@ async def get_billing_status(
 
 async def _probe_db(deps: Dependencies) -> ComponentCheck:
     """Probe the database with a bounded SELECT 1."""
-    db_pool = getattr(deps, "db_pool", None)
+    db_pool = deps.db_pool
     if db_pool is None:
         return ComponentCheck(status="not_configured")
 
@@ -864,7 +864,7 @@ async def _probe_db(deps: Dependencies) -> ComponentCheck:
 
 async def _probe_redis(deps: Dependencies) -> ComponentCheck:
     """Probe Redis with a bounded ping."""
-    redis_client = getattr(deps, "redis_client", None)
+    redis_client = deps.redis_client
     if redis_client is None:
         return ComponentCheck(status="not_configured")
     try:

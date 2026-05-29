@@ -321,7 +321,7 @@ def mock_db_pool():
     mock.is_sqlite = False
 
     mock_conn = AsyncMock()
-    mock_conn.execute = AsyncMock(return_value=None)
+    mock_conn.fetchval = AsyncMock(return_value=1)
 
     @asynccontextmanager
     async def _connection():
@@ -475,6 +475,8 @@ class TestCreateApp:
             assert data["checks"]["db"]["status"] == "ok"
             assert data["checks"]["redis"]["status"] == "ok"
             assert data["checks"]["db"]["latency_ms"] is not None
+            # Lock the probe query to match /ready's contract.
+            mock_db_pool._mock_conn.fetchval.assert_called_with("SELECT 1")
 
     def test_system_status_unhealthy_when_db_error(self, policy_config_file, mock_db_pool, mock_redis_client):
         """DB probe failure → overall unhealthy; raw exception text is not leaked."""
