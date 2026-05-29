@@ -214,6 +214,26 @@ async def test_deai_rewrites_ai_patterns(
     assert "This library is well designed" in turn.text
 
 
+@pytest.mark.asyncio
+async def test_deai_passes_natural_text(
+    mock_anthropic: MockAnthropicServer,
+    gateway_healthy,
+    gateway_url,
+    api_key,
+    admin_api_key,
+):
+    """DeAIPolicy: text that already reads naturally passes through unchanged."""
+    natural = "The cache holds 500 entries and evicts the oldest when full."
+    mock_anthropic.enqueue(text_response(natural))
+    mock_anthropic.enqueue(_judge_pass())
+
+    async with policy_context(_DEAI, {}, gateway_url=gateway_url, admin_api_key=admin_api_key):
+        session = ClaudeCodeSimulator(gateway_url, api_key)
+        turn = await session.send("Describe the cache")
+
+    assert turn.text == natural
+
+
 # =============================================================================
 # NoYappingPolicy
 # =============================================================================

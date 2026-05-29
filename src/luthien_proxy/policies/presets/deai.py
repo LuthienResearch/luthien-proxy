@@ -69,7 +69,16 @@ class DeAIPolicy(SimpleLLMPolicy):
             config=SimpleLLMJudgeConfig(
                 instructions=_DEAI_INSTRUCTIONS,
                 model="claude-haiku-4-5",
-                temperature=0.7,
+                # Slightly above the sibling presets' 0.0: a prose rewrite reads
+                # more naturally with a little sampling variety than with greedy
+                # decoding. Kept well below #485's original 0.7 to limit
+                # malformed-JSON retries and cross-block style drift.
+                temperature=0.3,
+                # Doubled from the SimpleLLMJudgeConfig default (4096) because a
+                # full-block rewrite is roughly as long as the input. If a single
+                # block's rewrite still exceeds this, the judge response is
+                # truncated and fails to parse — SimpleLLMPolicy then takes the
+                # on_error="pass" path, preserving the original block unchanged.
                 max_tokens=8192,
                 on_error="pass",
                 auth_provider="user_credentials",
