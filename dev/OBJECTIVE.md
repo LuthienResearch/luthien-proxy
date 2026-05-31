@@ -57,4 +57,4 @@ UPDATE policy_type SET deprecated=TRUE WHERE definition_type='built-in'
 
 - Trello: https://trello.com/c/gw6MJIlG
 - Branch: polish/policy-types-nits
-- PR: <filled later>
+- PR: https://github.com/LuthienResearch/luthien-proxy/pull/793 (draft)
