@@ -168,12 +168,19 @@ async def sync_policy_types(
             )
             seen_class_refs.append(class_ref)
 
-        existing = await conn.fetch("SELECT class_ref FROM policy_type WHERE definition_type = 'built-in'")
-        existing_refs = {row["class_ref"] for row in existing}
-        to_deprecate = existing_refs - set(seen_class_refs)
-        for ref in to_deprecate:
+        # Deprecate every built-in row whose class_ref dropped out of the allowlist, in one
+        # statement. NOT IN () is invalid SQL, so when nothing was seen (all imports failed),
+        # deprecate all built-in rows — same outcome the per-row loop produced.
+        if seen_class_refs:
+            placeholders = ", ".join(f"${i + 2}" for i in range(len(seen_class_refs)))
             await conn.execute(
-                "UPDATE policy_type SET deprecated = $1 WHERE class_ref = $2",
+                f"UPDATE policy_type SET deprecated = $1 "
+                f"WHERE definition_type = 'built-in' AND class_ref NOT IN ({placeholders})",
                 True,
-                ref,
+                *seen_class_refs,
+            )
+        else:
+            await conn.execute(
+                "UPDATE policy_type SET deprecated = $1 WHERE definition_type = 'built-in'",
+                True,
             )
