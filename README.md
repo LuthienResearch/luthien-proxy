@@ -117,7 +117,7 @@ Luthien sits in line as a transparent proxy. Every request and response flows th
 
 No Docker required. The install command at the top of this page installs [`uv`](https://docs.astral.sh/uv/) (if needed) and the Luthien CLI, sets up the gateway with SQLite, walks you through configuration, and starts the proxy.
 
-> :speech_balloon: **Luthien is in active development.** Once you're up and running, please tell us what's working and what isn't on the [feedback page](https://luthien.cc/feedback/). Star or watch the [GitHub repo](https://github.com/LuthienResearch/luthien-proxy) to follow updates and report issues.
+> :speech_balloon: **Luthien is in active development.** Want to try it and help us out in the process? The [feedback guide](https://luthien.cc/feedback/) explains what kind of feedback is most useful, so we can learn what worked and what didn't. Star or watch the [GitHub repo](https://github.com/LuthienResearch/luthien-proxy) to follow updates and report issues.
 
 > **Claude Pro/Max users**: You don't need an API key. Luthien passes your existing Claude subscription credentials through to the Anthropic API — no extra cost, no configuration needed.
 
