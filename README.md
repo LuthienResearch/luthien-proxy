@@ -48,7 +48,7 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 
 > :rotating_light: Luthien is in active development. [Star this repo](https://github.com/LuthienResearch/luthien-proxy) to follow updates, or [Watch > Releases](https://github.com/LuthienResearch/luthien-proxy/subscription) to get notified on new versions.
 >
-> Found a bug or have a question? [Open an issue](https://github.com/LuthienResearch/luthien-proxy/issues).
+> Found a bug or have a question? [Open an issue](https://github.com/LuthienResearch/luthien-proxy/issues) or [send us feedback](https://luthien.cc/feedback/).
 
 ---
 
@@ -116,6 +116,8 @@ Luthien sits in line as a transparent proxy. Every request and response flows th
 ## Quick Start
 
 No Docker required. The install command at the top of this page installs [`uv`](https://docs.astral.sh/uv/) (if needed) and the Luthien CLI, sets up the gateway with SQLite, walks you through configuration, and starts the proxy.
+
+> :speech_balloon: **Luthien is in active development.** Once you're up and running, please tell us what's working and what isn't on the [feedback page](https://luthien.cc/feedback/). Star or watch the [GitHub repo](https://github.com/LuthienResearch/luthien-proxy) to follow updates and report issues.
 
 > **Claude Pro/Max users**: You don't need an API key. Luthien passes your existing Claude subscription credentials through to the Anthropic API — no extra cost, no configuration needed.
 
