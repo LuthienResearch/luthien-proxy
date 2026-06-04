@@ -48,9 +48,9 @@ Luthien catches the violation and auto-corrects. No human intervention needed.
 
 > :rotating_light: Luthien is in active development. [Star this repo](https://github.com/LuthienResearch/luthien-proxy) to follow updates, or [Watch > Releases](https://github.com/LuthienResearch/luthien-proxy/subscription) to get notified on new versions.
 >
-> Want to try it and help us out in the process? The [feedback guide](https://luthien.cc/feedback/) explains what kind of feedback is most useful, so we can learn what worked and what didn't.
->
 > Found a bug or have a question? [Open an issue](https://github.com/LuthienResearch/luthien-proxy/issues).
+>
+> Want to try it and help us out in the process? The [feedback guide](https://luthien.cc/feedback/) explains what kind of feedback is most useful.
 
 ---
 
