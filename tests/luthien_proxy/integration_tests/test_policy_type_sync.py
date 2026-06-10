@@ -43,7 +43,7 @@ class TestPolicyTypeSyncIntegration:
 
     @pytest.mark.asyncio
     async def test_sync_seeds_policy_types(self, db_pool_with_migrations: DatabasePool) -> None:
-        """Sync with default REGISTERED_BUILTINS populates table with 18 rows."""
+        """Sync with default REGISTERED_BUILTINS populates table with one row per registered built-in."""
         await sync_policy_types(db_pool_with_migrations)
 
         async with db_pool_with_migrations.connection() as conn:
@@ -52,7 +52,8 @@ class TestPolicyTypeSyncIntegration:
                 "WHERE definition_type = 'built-in' ORDER BY name"
             )
 
-        assert len(rows) == 18, f"Expected 18 built-in policies, got {len(rows)}"
+        expected = len(REGISTERED_BUILTINS)
+        assert len(rows) == expected, f"Expected {expected} built-in policies, got {len(rows)}"
         for row in rows:
             assert row["name"] is not None
             assert row["definition_type"] == "built-in"
@@ -80,7 +81,7 @@ class TestPolicyTypeSyncIntegration:
             created_ats_2 = {row["id"]: row["created_at"] for row in rows2}
             count2 = len(rows2)
 
-        assert count1 == count2 == 18
+        assert count1 == count2 == len(REGISTERED_BUILTINS)
         assert created_ats_1 == created_ats_2
 
     @pytest.mark.asyncio
@@ -103,6 +104,34 @@ class TestPolicyTypeSyncIntegration:
         deprecated_refs = [row["class_ref"] for row in deprecated_rows]
         assert len(deprecated_refs) == 1
         assert deprecated_refs[0] == all_refs[-1]
+
+    @pytest.mark.asyncio
+    async def test_sync_deprecates_all_when_no_classes_seen(self, db_pool_with_migrations: DatabasePool) -> None:
+        """Sync with an all-unimportable allowlist deprecates every existing built-in row.
+
+        Guards the empty-seen edge case of the batched `NOT IN (...)` deprecation: with no
+        seen class_refs, `NOT IN ()` is invalid SQL, so the implementation must fall back to
+        deprecating all built-in rows (matching the old per-row loop, where every existing row
+        would be in to_deprecate).
+        """
+        await sync_policy_types(db_pool_with_migrations)
+
+        async with db_pool_with_migrations.connection() as conn:
+            seeded = await conn.fetchval(
+                "SELECT COUNT(*) FROM policy_type WHERE definition_type = 'built-in' AND deprecated = 0"
+            )
+        assert seeded == len(REGISTERED_BUILTINS)
+
+        # Every entry fails to import -> seen_class_refs is empty.
+        await sync_policy_types(db_pool_with_migrations, class_refs=("nonexistent.module:DoesNotExist",))
+
+        async with db_pool_with_migrations.connection() as conn:
+            still_active = await conn.fetchval(
+                "SELECT COUNT(*) FROM policy_type WHERE definition_type = 'built-in' AND deprecated = 0"
+            )
+            total = await conn.fetchval("SELECT COUNT(*) FROM policy_type WHERE definition_type = 'built-in'")
+        assert total == len(REGISTERED_BUILTINS)
+        assert still_active == 0
 
     @pytest.mark.asyncio
     async def test_sync_resurrects_class_when_returned_to_list(self, db_pool_with_migrations: DatabasePool) -> None:
