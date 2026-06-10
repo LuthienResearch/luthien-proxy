@@ -118,7 +118,7 @@ All live in `src/luthien_proxy/policies/`:
 |--------|--------------|
 | `noop_policy.NoOpPolicy` | Pass-through. Default. |
 | `all_caps_policy.AllCapsPolicy` | Uppercases all text content (uses `TextModifierPolicy`). |
-| `string_replacement_policy.StringReplacementPolicy` | Regex-based text substitution. |
+| `string_replacement_policy.StringReplacementPolicy` | Literal string find-and-replace (optional case-insensitive matching). |
 | `simple_llm_policy.SimpleLLMPolicy` | Calls a judge LLM to rewrite or approve responses. |
 | `tool_call_judge_policy.ToolCallJudgePolicy` | Uses a judge LLM to allow/block tool calls; persists decisions to `conversation_judge_decisions`. |
 | `debug_logging_policy.DebugLoggingPolicy` | Writes request/response payloads to `debug_logs` for inspection. |
