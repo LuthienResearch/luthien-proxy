@@ -172,15 +172,13 @@ async def sync_policy_types(
         # statement. NOT IN () is invalid SQL, so when nothing was seen (all imports failed),
         # deprecate all built-in rows — same outcome the per-row loop produced.
         if seen_class_refs:
-            placeholders = ", ".join(f"${i + 2}" for i in range(len(seen_class_refs)))
+            placeholders = ", ".join(f"${i + 1}" for i in range(len(seen_class_refs)))
             await conn.execute(
-                f"UPDATE policy_type SET deprecated = $1 "
+                f"UPDATE policy_type SET deprecated = TRUE "
                 f"WHERE definition_type = 'built-in' AND class_ref NOT IN ({placeholders})",
-                True,
                 *seen_class_refs,
             )
         else:
             await conn.execute(
-                "UPDATE policy_type SET deprecated = $1 WHERE definition_type = 'built-in'",
-                True,
+                "UPDATE policy_type SET deprecated = TRUE WHERE definition_type = 'built-in'",
             )
