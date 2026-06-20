@@ -7,17 +7,19 @@ SQLite database with the schema applied.
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
 
+from luthien_proxy.history.models import SessionSearchParams
 from luthien_proxy.history.service import fetch_session_list
 from luthien_proxy.utils.db import DatabasePool
 from luthien_proxy.utils.db_sqlite import SqliteConnection
 
 
 @pytest.fixture
-async def sqlite_pool() -> DatabasePool:
+async def sqlite_pool() -> AsyncIterator[DatabasePool]:
     """Create an in-memory SQLite pool with schema applied."""
     pool = DatabasePool("sqlite://:memory:")
 
@@ -425,6 +427,127 @@ class TestFetchSessionListSqlite:
         result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
         assert len(result.sessions) == 1
         assert result.sessions[0].preview_message is None
+
+    @pytest.mark.asyncio
+    async def test_null_preview_is_sentinel_backfilled_and_not_rescanned(self, sqlite_pool: DatabasePool):
+        """Probe-only sessions keep None output while storing a no-preview sentinel."""
+        async with sqlite_pool.connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO conversation_calls
+                (call_id, model_name, provider, status, session_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                "call-probe-only",
+                "gpt-4",
+                "openai",
+                "completed",
+                "session-probe-only",
+                "2025-01-15T17:00:00",
+            )
+            await conn.execute(
+                """
+                INSERT INTO conversation_events
+                (id, call_id, event_type, payload, session_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                "event-probe-only",
+                "call-probe-only",
+                "transaction.request_recorded",
+                json.dumps(
+                    {
+                        "final_model": "gpt-4",
+                        "final_request": {"max_tokens": 1, "messages": [{"role": "user", "content": "probe"}]},
+                    }
+                ),
+                "session-probe-only",
+                "2025-01-15T17:00:00",
+            )
+
+        result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
+
+        async with sqlite_pool.connection() as conn:
+            stored_preview = await conn.fetchval(
+                "SELECT preview_message FROM session_summaries WHERE session_id = $1",
+                "session-probe-only",
+            )
+            remaining_nulls = await conn.fetchval(
+                "SELECT COUNT(*) FROM session_summaries WHERE preview_message IS NULL"
+            )
+
+        assert result.sessions[0].preview_message is None
+        assert stored_preview == ""
+        assert remaining_nulls == 0
+
+        second_result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
+        assert second_result.sessions[0].preview_message is None
+
+    @pytest.mark.asyncio
+    async def test_summary_list_path_matches_old_aggregation_path(self, sqlite_pool: DatabasePool):
+        """Summary hot path matches old aggregation fields field-for-field."""
+        async with sqlite_pool.connection() as conn:
+            for idx, model in enumerate(["z-model", "a-model"]):
+                await conn.execute(
+                    """
+                    INSERT INTO conversation_calls
+                    (call_id, model_name, provider, status, session_id, created_at, user_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    f"call-equiv-{idx}",
+                    model,
+                    "openai",
+                    "completed",
+                    "session-equiv",
+                    f"2025-01-15T18:0{idx}:00",
+                    "user-equiv",
+                )
+                await conn.execute(
+                    """
+                    INSERT INTO conversation_events
+                    (id, call_id, event_type, payload, session_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    f"event-equiv-req-{idx}",
+                    f"call-equiv-{idx}",
+                    "transaction.request_recorded",
+                    json.dumps(
+                        {
+                            "final_model": model,
+                            "final_request": {"messages": [{"role": "user", "content": f"Question {idx}"}]},
+                        }
+                    ),
+                    "session-equiv",
+                    f"2025-01-15T18:0{idx}:00",
+                )
+            await conn.execute(
+                """
+                INSERT INTO conversation_events
+                (id, call_id, event_type, payload, session_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                "event-equiv-policy",
+                "call-equiv-0",
+                "policy.anthropic_judge.tool_call_blocked",
+                json.dumps({"summary": "blocked"}),
+                "session-equiv",
+                "2025-01-15T18:02:00",
+            )
+
+        summary_result = await fetch_session_list(limit=10, db_pool=sqlite_pool)
+        old_result = await fetch_session_list(
+            limit=10,
+            db_pool=sqlite_pool,
+            user_id="user-equiv",
+            search=SessionSearchParams(),
+        )
+        summary = summary_result.sessions[0]
+        old = old_result.sessions[0]
+
+        assert summary_result.total == old_result.total == 1
+        assert summary.turn_count == old.turn_count
+        assert summary.models_used == old.models_used
+        assert summary.policy_interventions == old.policy_interventions
+        assert summary.preview_message == old.preview_message
 
     @pytest.mark.asyncio
     async def test_multiple_models_in_single_session(self, sqlite_pool: DatabasePool):

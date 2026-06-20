@@ -18,6 +18,7 @@ common to both backends.
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
 from typing import Any
@@ -25,8 +26,13 @@ from typing import Any
 from luthien_proxy.utils.db import ConnectionProtocol
 
 # Preview is the first user-message text from the request that opened the
-# session. Trimmed to keep the row small and the list page snappy.
-PREVIEW_MAX_LENGTH = 200
+# session. This is the SINGLE source of truth for the history list's
+# ``preview_message`` (see ``history.service._extract_preview_message``, which
+# aliases ``extract_preview``), so the value precomputed here and stored on
+# ``session_summaries`` is byte-for-byte what the list endpoint would have
+# derived from the raw payload. Truncated to keep the row small and the list
+# page snappy; matches the list's historical 100-char preview length.
+PREVIEW_MAX_LENGTH = 100
 
 # Claude Code injects <system-reminder>...</system-reminder> blocks into the
 # first user turn; strip them so the preview shows the actual user text.
@@ -36,10 +42,16 @@ _SYSTEM_REMINDER_RE = re.compile(r"<system-reminder>.*?</system-reminder>", re.D
 def _is_policy_event(event_type: str) -> bool:
     """True for policy-intervention events, excluding judge evaluations.
 
-    Mirrors the backfill predicate in migration 021 so the incremental counter
-    and the backfilled counter agree.
+    Mirrors ``history.service._INTERVENTION_PREDICATE`` exactly
+    (``event_type LIKE 'policy.%' AND event_type NOT LIKE 'policy.%judge.evaluation%'``)
+    so the incrementally-maintained ``policy_event_count`` equals the count the
+    list endpoint computes for ``policy_interventions``. The SQL ``%`` between
+    ``policy.`` and ``judge.evaluation`` matches any prefix, so production judge
+    events (``policy.anthropic_judge.evaluation_*``) are excluded -- a literal
+    ``startswith('policy.judge.evaluation')`` would NOT exclude them and would
+    over-count every policy-active session.
     """
-    return event_type.startswith("policy.") and not event_type.startswith("policy.judge.evaluation")
+    return event_type.startswith("policy.") and "judge.evaluation" not in event_type
 
 
 def extract_model(data: dict[str, Any]) -> str | None:
@@ -48,17 +60,76 @@ def extract_model(data: dict[str, Any]) -> str | None:
     return model if isinstance(model, str) and model else None
 
 
-def extract_preview(data: dict[str, Any]) -> str | None:
+def _safe_parse_json(s: str) -> dict[str, Any] | None:
+    """Parse a JSON string into a dict, returning None on failure."""
+    try:
+        result = json.loads(s)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return result if isinstance(result, dict) else None
+
+
+def _preview_text(content: object) -> str:
+    r"""Extract display text from a message ``content`` field, robustly.
+
+    Mirrors ``history.service.extract_text_content`` for the realistic shapes a
+    first user message takes (a plain string, or a list of ``text`` /
+    ``tool_result`` blocks) but never raises on a malformed block -- preview
+    extraction runs on the event-write path, so a weird payload must not abort
+    the write. The block separator (``\n``) is irrelevant downstream because the
+    caller whitespace-collapses the result.
+    """
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type")
+        if btype == "text":
+            text = block.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+        elif btype == "tool_result":
+            result_content = block.get("content")
+            if result_content is not None:
+                parts.append(_preview_text(result_content))
+    return "\n".join(parts)
+
+
+def extract_preview(data: dict[str, Any] | str | None) -> str | None:
     """Extract a short preview from the first user message of a request payload.
 
-    Returns None for probe requests (``max_tokens <= 1``) and when no usable
-    user text is present. The text is whitespace-collapsed and has
-    ``<system-reminder>`` blocks stripped. When longer than
-    ``PREVIEW_MAX_LENGTH`` it is cut at that many characters and a literal
-    ``"..."`` ellipsis is appended (so the stored value can be up to
-    ``PREVIEW_MAX_LENGTH + 3`` characters).
+    SINGLE source of truth for the history list's ``preview_message``: the
+    incremental ``session_summaries`` write path, the one-time preview backfill,
+    and ``history.service._extract_preview_message`` (the live aggregation /
+    filtered-list path, which aliases this) all use it. The value stored on
+    ``session_summaries`` is therefore byte-for-byte what the list endpoint
+    would have derived from the raw payload.
+
+    Reads from ``original_request`` FIRST so the preview reflects what the user
+    typed, not gateway-injected content (e.g. ``<policy-context>`` from
+    ``inject_policy_awareness_anthropic``); falls back to ``final_request`` for
+    older payloads recorded before ``original_request`` was stored. Accepts a
+    dict (event payload) or a JSON string (asyncpg) or None. Returns None for
+    probe requests (``max_tokens <= 1``) and when no usable user text is
+    present. ``<system-reminder>`` blocks are stripped before the text is
+    whitespace-collapsed and, when longer than ``PREVIEW_MAX_LENGTH``, cut at
+    that many characters with a literal ``"..."`` appended.
     """
-    request = data.get("final_request") or data.get("original_request")
+    if not data:
+        return None
+    if isinstance(data, str):
+        parsed = _safe_parse_json(data)
+        if not parsed:
+            return None
+        data = parsed
+
+    request = data.get("original_request") or data.get("final_request")
     if not isinstance(request, dict):
         return None
 
@@ -77,23 +148,16 @@ def extract_preview(data: dict[str, Any]) -> str | None:
     for msg in messages:
         if not isinstance(msg, dict) or msg.get("role") != "user":
             continue
-        content = msg.get("content")
-        if isinstance(content, list):
-            texts = [
-                b["text"]
-                for b in content
-                if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str) and b["text"]
-            ]
-            content = " ".join(texts)
-        if not isinstance(content, str):
+        content = _preview_text(msg.get("content"))
+        if not content:
             continue
-        text = _SYSTEM_REMINDER_RE.sub("", content).strip()
-        if not text:
+        content = _SYSTEM_REMINDER_RE.sub("", content).strip()
+        if not content:
             continue
-        text = " ".join(text.split())
-        if len(text) > PREVIEW_MAX_LENGTH:
-            text = text[:PREVIEW_MAX_LENGTH] + "..."
-        return text
+        content = " ".join(content.split())
+        if len(content) > PREVIEW_MAX_LENGTH:
+            content = content[:PREVIEW_MAX_LENGTH] + "..."
+        return content
 
     return None
 

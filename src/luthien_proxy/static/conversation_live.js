@@ -31,6 +31,12 @@ function conversationViewer() {
         renderedCallIds: new Set(),
         turnFingerprints: {},
         _rawTurns: [],
+        pageLimit: 50,
+        totalTurns: 0,
+        loadedOffset: 0,
+        loadedEnd: 0,
+        loadingOlder: false,
+        initialLoadComplete: false,
 
         init() {
             const pathParts = window.location.pathname.split('/');
@@ -99,14 +105,27 @@ function conversationViewer() {
                     return;
                 }
             });
+
+            window.addEventListener('scroll', () => {
+                if (this.initialLoadComplete && window.scrollY < 80) {
+                    this.loadOlderTurns();
+                }
+            });
+        },
+
+        async fetchPage(offset = null, limit = this.pageLimit) {
+            const params = new URLSearchParams({ limit: String(limit) });
+            if (offset !== null && offset !== undefined) params.set('offset', String(offset));
+            const resp = await fetch(
+                `/api/history/sessions/${encodeURIComponent(this.conversationId)}?${params.toString()}`,
+                { headers: { 'Accept': 'application/json' } }
+            );
+            return resp;
         },
 
         async loadInitial() {
             try {
-                const resp = await fetch(
-                    `/api/history/sessions/${encodeURIComponent(this.conversationId)}`,
-                    { headers: { 'Accept': 'application/json' } }
-                );
+                const resp = await this.fetchPage(null, this.pageLimit);
 
                 if (!resp.ok) {
                     if (resp.status === 403) {
@@ -119,11 +138,18 @@ function conversationViewer() {
                 }
 
                 const data = await resp.json();
+                this.pageLimit = data.limit || this.pageLimit;
                 this.processTurns(data);
                 this.updateStats(data);
                 this.updateTimestamp();
                 this.renderTurns();
-                this.$nextTick(() => this.autoScrollToBottom());
+                this.$nextTick(() => {
+                    // Instant jump to the newest turn. A smooth scroll animates
+                    // scrollY up from 0 and the early frames (scrollY < 80) would
+                    // spuriously fire the load-older listener even with the guard set.
+                    window.scrollTo(0, document.documentElement.scrollHeight);
+                    this.initialLoadComplete = true;
+                });
             } catch (err) {
                 this.showError(`Failed to load: ${err.message}`);
             }
@@ -201,10 +227,7 @@ function conversationViewer() {
 
         async refreshTurns() {
             try {
-                const resp = await fetch(
-                    `/api/history/sessions/${encodeURIComponent(this.conversationId)}`,
-                    { headers: { 'Accept': 'application/json' } }
-                );
+                const resp = await this.fetchPage(null, this.pageLimit);
                 if (!resp.ok) return;
                 const data = await resp.json();
                 const rawTurns = data.turns || [];
@@ -212,8 +235,8 @@ function conversationViewer() {
                 if (rawTurns.length !== newTurns.length) {
                     console.error('presentTurns must map 1:1 with rawTurns');
                 }
-                this._rawTurns = rawTurns;
-                this.turns = newTurns;
+                this.totalTurns = data.total_turns || rawTurns.length;
+                this.pageLimit = data.limit || this.pageLimit;
 
                 this.updateStats(data);
                 this.updateTimestamp();
@@ -234,19 +257,28 @@ function conversationViewer() {
                 for (let i = 0; i < newTurns.length; i++) {
                     const turn = newTurns[i];
                     const fp = JSON.stringify(rawTurns[i]);
+                    const globalIndex = (data.offset || 0) + i;
+                    const localIndex = globalIndex - this.loadedOffset;
                     if (this.renderedCallIds.has(turn.call_id)) {
+                        if (localIndex >= 0 && localIndex < this.turns.length) {
+                            this.turns[localIndex] = turn;
+                            this._rawTurns[localIndex] = rawTurns[i];
+                        }
                         if (fp !== this.turnFingerprints[turn.call_id]) {
                             const existing = container.querySelector(`[data-call-id="${CSS.escape(turn.call_id)}"]`);
                             if (existing) {
-                                existing.outerHTML = this.renderTurn(turn, i + 1);
+                                existing.outerHTML = this.renderTurn(turn, globalIndex + 1);
                             }
                             this.turnFingerprints[turn.call_id] = fp;
                         }
                     } else {
-                        // New turn — append
+                        if (globalIndex < this.loadedOffset) continue;
                         this.renderedCallIds.add(turn.call_id);
                         this.turnFingerprints[turn.call_id] = fp;
-                        const html = this.renderTurn(turn, i + 1);
+                        this._rawTurns.push(rawTurns[i]);
+                        this.turns.push(turn);
+                        this.loadedEnd = Math.max(this.loadedEnd, globalIndex + 1);
+                        const html = this.renderTurn(turn, globalIndex + 1);
                         container.insertAdjacentHTML('beforeend', html);
                         const newEl = container.lastElementChild;
                         if (newEl) newEl.classList.add('new-turn');
@@ -264,45 +296,48 @@ function conversationViewer() {
             const rawTurns = data.turns || [];
             this._rawTurns = rawTurns;
             this.turns = this.presentTurns(rawTurns);
+            this.totalTurns = data.total_turns || rawTurns.length;
+            this.loadedOffset = data.offset || 0;
+            this.loadedEnd = this.loadedOffset + rawTurns.length;
         },
 
-        // Presentation pipeline: classify preflight turns and compute
-        // display messages (dedup) entirely on the client side.
-        //
-        // The API sends the full conversation history on every request:
-        //   Turn 1: [user₀]
-        //   Turn 2: [user₀, assistant₁, user₂]
-        //   Turn 3: [user₀, assistant₁, user₂, tool_call₂, tool_result₂, user₃]
-        //
-        // user₀ (the initial message with all preamble) is re-sent identically
-        // every turn. New content appears at the end, after the previous turn's
-        // messages. So for turn N, display = request_messages.slice(prevCount).
-        // Preflight turns are excluded from the count so they don't disrupt the
-        // sequence.
-        //
-        // Invariant: the API sends a stable, strictly-growing cumulative
-        // message array. If a policy rewrites or reorders earlier messages,
-        // the slicing will produce incorrect results.
-        presentTurns(rawTurns) {
-            let prevRealMsgCount = 0;
+        async loadOlderTurns() {
+            if (this.loadingOlder || this.loadedOffset <= 0) return;
+            this.loadingOlder = true;
+            const oldHeight = document.documentElement.scrollHeight;
+            try {
+                const nextOffset = Math.max(0, this.loadedOffset - this.pageLimit);
+                const nextLimit = this.loadedOffset - nextOffset;
+                const resp = await this.fetchPage(nextOffset, nextLimit);
+                if (!resp.ok) return;
+                const data = await resp.json();
+                const rawTurns = data.turns || [];
+                const olderTurns = this.presentTurns(rawTurns);
+                this._rawTurns = [...rawTurns, ...this._rawTurns];
+                this.turns = [...olderTurns, ...this.turns];
+                this.loadedOffset = data.offset || nextOffset;
+                this.totalTurns = data.total_turns || this.totalTurns;
+                this.updateStats(data);
+                this.renderTurns();
+                this.$nextTick(() => {
+                    window.scrollBy(0, document.documentElement.scrollHeight - oldHeight);
+                });
+            } catch (err) {
+                console.error('Failed to load older turns:', err);
+            } finally {
+                this.loadingOlder = false;
+            }
+        },
 
+        // Presentation pipeline: classify preflight turns and use the server's
+        // transcript delta directly. The server applies the same running-count
+        // semantics this client used to apply: real turns advance the count;
+        // preflight turns render in full and do not advance the count.
+        presentTurns(rawTurns) {
             return rawTurns.map(turn => {
                 const isPreflight = this.classifyPreflight(turn);
                 const messages = turn.request_messages || [];
-
-                let displayMessages;
-                if (isPreflight) {
-                    displayMessages = messages;
-                } else {
-                    displayMessages = messages.slice(prevRealMsgCount);
-                    if (displayMessages.length === 0 && messages.length > 0) {
-                        console.warn('Dedup produced empty messages for turn', turn.call_id,
-                            '— cumulative array invariant may be violated');
-                    }
-                    prevRealMsgCount = messages.length;
-                }
-
-                return { ...turn, _isPreflight: isPreflight, _displayMessages: displayMessages };
+                return { ...turn, _isPreflight: isPreflight, _displayMessages: messages };
             });
         },
 
@@ -323,8 +358,7 @@ function conversationViewer() {
         },
 
         updateStats(data) {
-            const realTurns = this.turns.filter(t => !t._isPreflight);
-            this.stats.turns = realTurns.length;
+            this.stats.turns = data.total_turns || this.totalTurns || this.turns.filter(t => !t._isPreflight).length;
             this.stats.interventions = data.total_policy_interventions || 0;
             this.stats.models = [...new Set(data.models_used || [])];
             this.stats.events = Object.values(this.rawEvents).reduce((sum, events) => sum + events.length, 0);
@@ -431,7 +465,7 @@ function conversationViewer() {
             }
 
             const savedState = this.snapshotExpandState();
-            container.innerHTML = this.turns.map((turn, i) => this.renderTurn(turn, i + 1)).join('');
+            container.innerHTML = this.turns.map((turn, i) => this.renderTurn(turn, this.loadedOffset + i + 1)).join('');
             this.restoreExpandState(savedState);
         },
 
@@ -730,7 +764,7 @@ function conversationViewer() {
                 requestDiffHtml = this.renderDiffPanels(
                     'Request',
                     turn.original_request_messages,
-                    turn.request_messages
+                    turn.request_messages_full || turn.request_messages
                 );
             }
 

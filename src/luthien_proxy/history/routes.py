@@ -14,7 +14,7 @@ import os
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from luthien_proxy.auth import check_auth_or_redirect, verify_admin_token
@@ -27,7 +27,7 @@ from luthien_proxy.utils.db import DatabasePool
 
 from . import user_labels as user_labels_service
 from .models import SessionDetail, SessionListResponse, SessionSearchParams
-from .service import export_session_jsonl, export_session_markdown, fetch_session_detail, fetch_session_list
+from .service import fetch_session_list, stream_session_detail_json, stream_session_jsonl, stream_session_markdown
 
 
 class UserLabelRequest(BaseModel):
@@ -197,22 +197,32 @@ async def delete_user_label(
     return {"deleted": True}
 
 
-@api_router.get("/sessions/{session_id}", response_model=SessionDetail)
+@api_router.get("/sessions/{session_id}", responses={200: {"model": SessionDetail}})
 async def get_session(
     session_id: str,
+    offset: int | None = Query(default=None, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
     _: str = Depends(verify_admin_token),
     db_pool: DatabasePool = Depends(get_db_pool),
-) -> SessionDetail:
-    """Get full session detail with conversation turns.
+) -> StreamingResponse:
+    """Get a window of session turns in chronological display order.
 
-    Returns the complete conversation history for a session,
-    including all messages, tool calls, and policy annotations.
+    ``offset`` is a zero-based chronological turn offset. When omitted, the
+    newest page is returned. ``limit`` defaults to 50 and is capped at 200.
     """
     try:
-        return await fetch_session_detail(session_id, db_pool)
+        stream = stream_session_detail_json(session_id, db_pool, offset=offset, limit=limit)
+        first_chunk = await anext(stream)
     except ValueError as e:
         logger.warning(f"Session not found: {repr(e)}")
         raise HTTPException(status_code=404, detail="Session not found.") from None
+
+    async def body():
+        yield first_chunk
+        async for chunk in stream:
+            yield chunk
+
+    return StreamingResponse(body(), media_type="application/json")
 
 
 @api_router.get("/sessions/{session_id}/export")
@@ -220,25 +230,29 @@ async def export_session(
     session_id: str,
     _: str = Depends(verify_admin_token),
     db_pool: DatabasePool = Depends(get_db_pool),
-) -> PlainTextResponse:
+) -> StreamingResponse:
     """Export session as markdown.
 
     Returns the conversation history formatted as a markdown document,
     suitable for saving or sharing.
     """
     try:
-        session = await fetch_session_detail(session_id, db_pool)
+        stream = stream_session_markdown(session_id, db_pool)
+        first_chunk = await anext(stream)
     except ValueError as e:
         logger.warning(f"Session not found for export: {repr(e)}")
         raise HTTPException(status_code=404, detail="Session not found.") from None
 
-    markdown = export_session_markdown(session)
-
     # Sanitize session_id for filename
     safe_id = "".join(c if c.isalnum() or c in "-_" else "_" for c in session_id)
 
-    return PlainTextResponse(
-        content=markdown,
+    async def body():
+        yield first_chunk
+        async for chunk in stream:
+            yield chunk
+
+    return StreamingResponse(
+        body(),
         media_type="text/markdown",
         headers={"Content-Disposition": f'attachment; filename="conversation_{safe_id}.md"'},
     )
@@ -249,23 +263,27 @@ async def export_session_jsonl_endpoint(
     session_id: str,
     _: str = Depends(verify_admin_token),
     db_pool: DatabasePool = Depends(get_db_pool),
-) -> PlainTextResponse:
+) -> StreamingResponse:
     """Export session as JSONL (one JSON line per turn).
 
     Returns the conversation history as JSONL, suitable for
     programmatic analysis and log ingestion.
     """
     try:
-        session = await fetch_session_detail(session_id, db_pool)
+        stream = stream_session_jsonl(session_id, db_pool)
+        first_chunk = await anext(stream)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from None
 
-    jsonl = export_session_jsonl(session)
-
     safe_id = "".join(c if c.isalnum() or c in "-_" else "_" for c in session_id)
 
-    return PlainTextResponse(
-        content=jsonl,
+    async def body():
+        yield first_chunk
+        async for chunk in stream:
+            yield chunk
+
+    return StreamingResponse(
+        body(),
         media_type="application/x-ndjson",
         headers={"Content-Disposition": f'attachment; filename="conversation_{safe_id}.jsonl"'},
     )
