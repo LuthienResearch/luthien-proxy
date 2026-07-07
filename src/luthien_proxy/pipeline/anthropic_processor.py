@@ -58,7 +58,10 @@ from luthien_proxy.pipeline.session import (
     extract_user_id_from_authorization_header,
     extract_user_id_from_headers,
 )
-from luthien_proxy.pipeline.stream_protocol_validator import validate_anthropic_event_ordering
+from luthien_proxy.pipeline.stream_protocol_validator import (
+    StreamingProtocolValidator,
+    StreamViolation,
+)
 from luthien_proxy.pipeline.upstream_headers import expand_upstream_headers, merge_forwarded_headers
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicExecutionInterface,
@@ -739,8 +742,10 @@ async def _handle_execution_streaming(
             emitted_any = False
             stream_completed = False
             cancelled = False
+            protocol_aborted = False
             final_status = 200
             accumulated_events: list[MessageStreamEvent] = []
+            protocol_validator = StreamingProtocolValidator()
             with tracer.start_as_current_span("process_response") as response_span:
                 response_span.set_attribute("luthien.phase", "process_response")
                 response_span.set_attribute("luthien.streaming", True)
@@ -755,12 +760,67 @@ async def _handle_execution_streaming(
                                     "not full response objects."
                                 )
                             io.ensure_request_recorded()
-                            emitted_any = True
                             cast_emitted = cast(MessageStreamEvent, emitted)
+                            # Incremental protocol enforcement: check the event
+                            # BEFORE forwarding it. A corrupted outbound stream
+                            # (e.g. content blocks after message_delta, the
+                            # PR #356 bug class) must never reach the client —
+                            # the client would reconstruct a malformed assistant
+                            # message, resend it on every subsequent turn, and
+                            # brick the session with persistent 400s. Instead we
+                            # withhold the corrupting event, emit a structured
+                            # error event the client can parse, and end the
+                            # stream. The turn fails cleanly; the session
+                            # stays usable.
+                            violations = protocol_validator.observe(cast_emitted)
+                            if violations:
+                                protocol_aborted = True
+                                final_status = 500
+                                violation_details = [
+                                    {"rule": v.rule, "message": v.message, "event_index": v.event_index}
+                                    for v in violations
+                                ]
+                                logger.error(
+                                    "[%s] Streaming protocol violation detected mid-stream; "
+                                    "withholding corrupted event and emitting client error event: %s",
+                                    call_id,
+                                    violation_details,
+                                )
+                                policy_ctx.record_event(
+                                    "streaming.protocol_violation",
+                                    {
+                                        "summary": (
+                                            "Outbound stream violates Anthropic event ordering; "
+                                            "stream aborted with structured client error event"
+                                        ),
+                                        "violations": violation_details,
+                                        "aborted": True,
+                                    },
+                                )
+                                response_span.set_attribute("streaming.protocol_valid", False)
+                                yield _format_sse_event(_build_protocol_violation_error_event(violations, call_id))
+                                break
+                            emitted_any = True
                             accumulated_events.append(cast_emitted)
                             chunk_count += 1
                             yield _format_sse_event(cast_emitted)
-                    stream_completed = True
+                    stream_completed = not protocol_aborted
+                    if protocol_aborted:
+                        # Close the policy emission generator promptly so the
+                        # policy/backend stops producing; otherwise it stays
+                        # suspended until garbage collection. getattr guard:
+                        # emissions is typed AsyncIterator, which does not
+                        # guarantee aclose (a manually-implemented __aiter__
+                        # object would lack it); async generators always have it.
+                        aclose = getattr(emissions, "aclose", None)
+                        if aclose is not None:
+                            try:
+                                await aclose()
+                            except Exception:
+                                logger.exception(
+                                    "[%s] Failed to close policy emission stream after protocol abort",
+                                    call_id,
+                                )
                 except asyncio.CancelledError:
                     # CancelledError is BaseException; without this branch
                     # cancelled-before-emit would mis-classify as empty-stream
@@ -811,7 +871,13 @@ async def _handle_execution_streaming(
                     # emitted nothing." Both are server-side empty deliveries
                     # from the receiver's POV, so 500 is defensible — flagged
                     # for clarity, not a code change.
-                    is_empty_stream = not emitted_any and not caught_exception and not cancelled
+                    # protocol_aborted is excluded: the abort path already
+                    # yielded its own structured error event; yielding the
+                    # empty-stream error too would send the client two error
+                    # events for one failure.
+                    is_empty_stream = (
+                        not emitted_any and not caught_exception and not cancelled and not protocol_aborted
+                    )
                     if is_empty_stream:
                         io.ensure_request_recorded()
                         logger.warning(
@@ -856,7 +922,12 @@ async def _handle_execution_streaming(
                     # empty-stream branch), to avoid reporting a false success
                     # for a partial delivery. Cancelled-before-emit hits
                     # `not emitted_any` and fires with success=False, http_status=499.
-                    if stream_completed or caught_exception or not emitted_any:
+                    # protocol_aborted is included: the client received a
+                    # well-formed error event (clean delivery of a failed
+                    # turn), so the webhook fires with success=False,
+                    # http_status=500 — same accounting as the mid-stream
+                    # exception path.
+                    if stream_completed or caught_exception or protocol_aborted or not emitted_any:
                         # Belt for the load-bearing-comment below: if both
                         # `stream_completed` and `not emitted_any` are true,
                         # `final_status` MUST already be 500 from the
@@ -889,28 +960,35 @@ async def _handle_execution_streaming(
                             http_status=final_status,
                         )
 
-                    # Validate streaming protocol compliance (log-and-warn).
-                    # Only validate complete streams — partial/error streams will
-                    # always fail completeness checks (missing message_stop, etc.)
-                    # and produce noisy false positives.
+                    # End-of-stream protocol checks (log-and-warn). Per-event
+                    # ordering rules are ENFORCED inline above (corrupted event
+                    # withheld, structured error event emitted, stream aborted).
+                    # The rules checked here — message_stop last, all blocks
+                    # closed — are only decidable once the stream has ended,
+                    # when every event has already been forwarded, so they
+                    # cannot gate forwarding and stay advisory.
                     #
-                    # Validation is **advisory**: a malformed stream that was still
-                    # delivered to the client keeps `success=True, http_status=200`
-                    # in the webhook payload. The bytes did get sent; the
-                    # protocol issue is for operator/policy debugging, not
-                    # delivery accounting. Consumers wanting strict
-                    # protocol-conformant accounting should also subscribe to
-                    # the `streaming.protocol_violation` event from the emitter.
+                    # Only checked for complete streams — partial/error streams
+                    # will always fail completeness checks (missing
+                    # message_stop, etc.) and produce noisy false positives.
+                    #
+                    # Advisory means: a stream flagged here was still delivered,
+                    # so the webhook keeps `success=True, http_status=200`. The
+                    # bytes did get sent; the protocol issue is for
+                    # operator/policy debugging, not delivery accounting.
+                    # Consumers wanting strict protocol-conformant accounting
+                    # should also subscribe to the
+                    # `streaming.protocol_violation` event from the emitter.
                     if accumulated_events and final_status == 200:
                         # Wrap so SDK shape drift / a validator regression
                         # can't propagate into the cleanup path and skip
                         # recorder.flush + downstream emitter calls.
                         try:
-                            validation = validate_anthropic_event_ordering(accumulated_events)
-                            if not validation.valid:
+                            end_of_stream_violations = protocol_validator.finalize()
+                            if end_of_stream_violations:
                                 violation_details = [
                                     {"rule": v.rule, "message": v.message, "event_index": v.event_index}
-                                    for v in validation.violations
+                                    for v in end_of_stream_violations
                                 ]
                                 logger.warning(
                                     "[%s] Streaming protocol violation detected: %s",
@@ -933,7 +1011,14 @@ async def _handle_execution_streaming(
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
 
-                    if reconstructed is not None:
+                    # protocol_aborted excluded: on abort, `reconstructed` is
+                    # only the clean prefix of a response that was never
+                    # delivered. Recording it as streaming_response_recorded
+                    # would let downstream consumers (history, activity
+                    # monitor) mistake a partial, undelivered response for a
+                    # delivered one; the `streaming.protocol_violation` event
+                    # with aborted=true is the authoritative record instead.
+                    if reconstructed is not None and not protocol_aborted:
                         # Use raw backend events for original response if buffered,
                         # Trade-off: for streaming requests, raw events are NOT buffered
                         # separately (_AnthropicPolicyIO sets _buffer_raw_events=not is_streaming).
@@ -1213,6 +1298,38 @@ def _build_error_event(e: Exception, call_id: str) -> _StreamErrorEvent:
         error=_ErrorDetail(
             type=error_type,
             message=message,
+        ),
+    )
+
+
+def _build_protocol_violation_error_event(violations: list[StreamViolation], call_id: str) -> _StreamErrorEvent:
+    """Build a client-parseable error event for a corrupted outbound stream.
+
+    Emitted mid-stream (HTTP headers already sent, so no HTTP error is
+    possible) when the incremental protocol validator detects an event that
+    violates Anthropic's streaming event ordering. The corrupting event is
+    never forwarded; the client receives this error event instead and fails
+    the turn cleanly, rather than reconstructing a malformed assistant
+    message that bricks the session (the PR #356 failure mode).
+
+    Args:
+        violations: Violations detected for the withheld event.
+        call_id: Transaction ID, included so users can report the failure
+                 and operators can find the matching log/trace records.
+
+    Returns:
+        Error event dict in Anthropic's error-event format.
+    """
+    rules = ", ".join(sorted({v.rule for v in violations}))
+    return _StreamErrorEvent(
+        type="error",
+        error=_ErrorDetail(
+            type="api_error",
+            message=(
+                f"Luthien proxy detected a corrupted response stream (protocol violation: {rules}) "
+                "and stopped it before it could corrupt this session. The response was not delivered. "
+                f"If retrying hits the same error, report transaction {call_id} to your administrator."
+            ),
         ),
     )
 

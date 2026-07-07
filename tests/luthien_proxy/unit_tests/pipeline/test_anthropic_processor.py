@@ -1046,6 +1046,197 @@ class TestEmptyStreamErrorEvent:
         assert "policy evaluation unavailable" in last_event
 
 
+class TestProtocolViolationAbortsStream:
+    """Corrupted outbound streams are aborted with a structured client error.
+
+    COE follow-up for PR #356: the streaming protocol validator used to be
+    log-and-warn only, so a corrupted stream (content blocks after
+    message_delta) was silently forwarded, the client reconstructed a
+    malformed assistant message, and the session was bricked with persistent
+    400s. Now the corrupting event is withheld and the client receives a
+    well-formed SSE error event instead, so the turn fails cleanly and the
+    session stays usable.
+    """
+
+    @pytest.fixture
+    def mock_policy(self):
+        return NoOpPolicy()
+
+    @staticmethod
+    def _message_start_event() -> RawMessageStartEvent:
+        return RawMessageStartEvent(
+            type="message_start",
+            message={  # type: ignore[arg-type]
+                "id": "msg_123",
+                "type": "message",
+                "role": "assistant",
+                "content": [],
+                "model": "claude-3-5-sonnet-20241022",
+                "stop_reason": None,
+                "stop_sequence": None,
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            },
+        )
+
+    @staticmethod
+    def _text_block_events(index: int) -> list:
+        return [
+            RawContentBlockStartEvent(
+                type="content_block_start",
+                index=index,
+                content_block={"type": "text", "text": ""},  # type: ignore[arg-type]
+            ),
+            RawContentBlockDeltaEvent(
+                type="content_block_delta",
+                index=index,
+                delta=TextDelta(type="text_delta", text="hi"),
+            ),
+            RawContentBlockStopEvent(type="content_block_stop", index=index),
+        ]
+
+    @staticmethod
+    def _message_delta_event() -> RawMessageDeltaEvent:
+        return RawMessageDeltaEvent(
+            type="message_delta",
+            delta={"stop_reason": "end_turn", "stop_sequence": None},  # type: ignore[arg-type]
+            usage={"output_tokens": 5},  # type: ignore[arg-type]
+        )
+
+    @staticmethod
+    def _recorded_event_types(emitter) -> list[str]:
+        """Event types recorded on the emitter (robust to args vs kwargs call style)."""
+        types = []
+        for recorded_call in emitter.record.call_args_list:
+            if len(recorded_call.args) > 1:
+                types.append(recorded_call.args[1])
+            else:
+                types.append(recorded_call.kwargs.get("event_type"))
+        return types
+
+    async def _collect_stream_chunks(self, mock_policy, backend_events: list, emitter) -> list[str]:
+        """Run a streaming request through the pipeline and collect SSE chunks."""
+        anthropic_body: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+            "stream": True,
+        }
+
+        async def backend_stream(req, extra_headers=None):
+            for event in backend_events:
+                yield event
+
+        mock_client = MagicMock()
+        mock_client.stream = backend_stream
+
+        mock_fastapi_request = MagicMock()
+        mock_fastapi_request.headers = {}
+        mock_fastapi_request.method = "POST"
+        mock_fastapi_request.url = MagicMock()
+        mock_fastapi_request.url.path = "/v1/messages"
+        mock_fastapi_request.json = AsyncMock(return_value=anthropic_body)
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await process_anthropic_request(
+                request=mock_fastapi_request,
+                policy=mock_policy,
+                anthropic_client=mock_client,
+                emitter=emitter,
+            )
+
+            chunks = []
+            async for chunk in response.body_iterator:
+                chunks.append(chunk)
+        return chunks
+
+    @pytest.mark.asyncio
+    async def test_corrupted_stream_yields_error_event_and_withholds_corrupted_events(self, mock_policy):
+        """The PR #356 fixture: content block injected after message_delta."""
+        corrupted_events = [
+            self._message_start_event(),
+            *self._text_block_events(0),
+            self._message_delta_event(),
+            # Corruption: a second content block AFTER message_delta.
+            *self._text_block_events(1),
+            RawMessageStopEvent(type="message_stop"),
+        ]
+        emitter = MagicMock()
+
+        chunks = await self._collect_stream_chunks(mock_policy, corrupted_events, emitter)
+
+        # The clean prefix (message_start .. message_delta) was forwarded.
+        assert sum(1 for c in chunks if "event: message_start" in c) == 1
+        assert sum(1 for c in chunks if "event: message_delta" in c) == 1
+
+        # The stream ends with exactly one well-formed error event.
+        error_chunks = [c for c in chunks if "event: error" in c]
+        assert len(error_chunks) == 1
+        assert chunks[-1] == error_chunks[0]
+        error_payload = json.loads(error_chunks[0].split("data: ", 1)[1])
+        assert error_payload["type"] == "error"
+        assert error_payload["error"]["type"] == "api_error"
+        assert "corrupted response stream" in error_payload["error"]["message"]
+        assert "content_before_message_delta" in error_payload["error"]["message"]
+
+        # The corrupting events were withheld: no block-1 events, no message_stop.
+        assert not any('"index": 1' in c for c in chunks)
+        assert not any("event: message_stop" in c for c in chunks)
+
+        # The violation was recorded for observability, and the partial
+        # (undelivered) response was NOT recorded as a delivered response.
+        recorded_event_types = self._recorded_event_types(emitter)
+        assert "streaming.protocol_violation" in recorded_event_types
+        assert "transaction.streaming_response_recorded" not in recorded_event_types
+
+    @pytest.mark.asyncio
+    async def test_corrupted_first_event_yields_exactly_one_error_event(self, mock_policy):
+        """A violation on the first event must not also trigger the empty-stream error."""
+        corrupted_events = [
+            # Corruption: stream starts with a delta (no message_start, no block start).
+            RawContentBlockDeltaEvent(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta(type="text_delta", text="hi"),
+            ),
+        ]
+        emitter = MagicMock()
+
+        chunks = await self._collect_stream_chunks(mock_policy, corrupted_events, emitter)
+
+        error_chunks = [c for c in chunks if "event: error" in c]
+        assert len(error_chunks) == 1
+        assert len(chunks) == 1  # nothing else was forwarded
+        error_payload = json.loads(error_chunks[0].split("data: ", 1)[1])
+        assert error_payload["error"]["type"] == "api_error"
+        assert "corrupted response stream" in error_payload["error"]["message"]
+
+    @pytest.mark.asyncio
+    async def test_healthy_stream_is_unaffected(self, mock_policy):
+        """A protocol-conformant stream passes through with no error event."""
+        healthy_events = [
+            self._message_start_event(),
+            *self._text_block_events(0),
+            *self._text_block_events(1),
+            self._message_delta_event(),
+            RawMessageStopEvent(type="message_stop"),
+        ]
+        emitter = MagicMock()
+
+        chunks = await self._collect_stream_chunks(mock_policy, healthy_events, emitter)
+
+        assert len(chunks) == len(healthy_events)
+        assert not any("event: error" in c for c in chunks)
+        assert "event: message_stop" in chunks[-1]
+
+        recorded_event_types = self._recorded_event_types(emitter)
+        assert "streaming.protocol_violation" not in recorded_event_types
+        assert "transaction.streaming_response_recorded" in recorded_event_types
+
+
 class TestHandleAnthropicError:
     """Tests for _handle_anthropic_error error classification.
 
@@ -2141,11 +2332,24 @@ class TestStreamingWebhookGate:
 
     @staticmethod
     def _make_event() -> MessageStreamEvent:
-        """Build a minimal valid MessageStreamEvent for streaming."""
-        return RawContentBlockDeltaEvent(
-            type="content_block_delta",
-            index=0,
-            delta=TextDelta(type="text_delta", text="hi"),
+        """Build a protocol-valid opening stream event (message_start).
+
+        Must be protocol-valid: the pipeline enforces streaming protocol
+        ordering and aborts corrupted streams with a client error event,
+        which would change the webhook-gate outcomes these tests lock in.
+        """
+        return RawMessageStartEvent(
+            type="message_start",
+            message={  # type: ignore[arg-type]
+                "id": "msg_gate",
+                "type": "message",
+                "role": "assistant",
+                "content": [],
+                "model": "claude-3-5-sonnet-20241022",
+                "stop_reason": None,
+                "stop_sequence": None,
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            },
         )
 
     @staticmethod
@@ -2274,8 +2478,16 @@ class TestStreamingWebhookGate:
 
         async def emissions():
             yield self._make_event()
-            yield self._make_event()
-            yield self._make_event()
+            yield RawContentBlockStartEvent(
+                type="content_block_start",
+                index=0,
+                content_block={"type": "text", "text": ""},  # type: ignore[arg-type]
+            )
+            yield RawContentBlockDeltaEvent(
+                type="content_block_delta",
+                index=0,
+                delta=TextDelta(type="text_delta", text="hi"),
+            )
 
         io, span, ctx, recorder, emitter = self._make_deps()
         webhook = MagicMock()
@@ -2638,10 +2850,20 @@ class TestWebhookFireIsolation:
         from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
 
         async def emissions():
-            yield RawContentBlockDeltaEvent(
-                type="content_block_delta",
-                index=0,
-                delta=TextDelta(type="text_delta", text="hi"),
+            # Protocol-valid opening event; a corrupted stream would divert
+            # into the protocol-abort path and change the webhook payload.
+            yield RawMessageStartEvent(
+                type="message_start",
+                message={  # type: ignore[arg-type]
+                    "id": "msg_iso",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": "claude-3-5-sonnet-20241022",
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                },
             )
 
         io = MagicMock()
