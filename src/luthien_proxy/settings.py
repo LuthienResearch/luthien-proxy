@@ -64,6 +64,7 @@ class Settings(_SettingsBase):
     inject_policy_context: bool = True
     dogfood_mode: bool = False
     policy_cache_max_entries: int = 10000
+    passthrough_fallback_enabled: bool = False
 
     # ── database ────────────────────────────────────────────────────
     database_url: str = ""
