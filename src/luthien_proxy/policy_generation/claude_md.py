@@ -24,6 +24,7 @@ import hashlib
 import re
 import sys
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -62,6 +63,7 @@ _BULLET_PATTERN = re.compile(r"^(\s*)(?:[-*+]|\d+\.)\s+(.*)$")
 _FENCE_PATTERN = re.compile(r"^\s*(```|~~~)")
 _HEADING_PATTERN = re.compile(r"^\s*#{1,6}\s")
 _LINK_PATTERN = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_BLOCKQUOTE_PATTERN = re.compile(r"^(\s*)>\s?")
 
 # Rules shorter than this (after markdown stripping) are fragments, not rules.
 _MIN_RULE_CHARS = 12
@@ -82,18 +84,26 @@ class ExtractedRule:
     line: int
 
 
+@dataclass(frozen=True)
+class ExtractionResult:
+    """Outcome of a rule-extraction pass.
+
+    Attributes:
+        rules: Extracted rules in document order.
+        skipped_too_long: Normative candidates dropped for exceeding the
+            rule-length cap (surfaced so long rules never vanish silently).
+    """
+
+    rules: tuple[ExtractedRule, ...]
+    skipped_too_long: int
+
+
 def _strip_markdown(text: str) -> str:
     """Remove markdown decoration, keeping the readable text."""
     text = _LINK_PATTERN.sub(r"\1", text)
     text = text.replace("**", "")
     text = text.replace("`", "")
     return re.sub(r"\s+", " ", text).strip()
-
-
-def _looks_like_command(text: str) -> bool:
-    """Reject lines that are shell invocations rather than behavioral rules."""
-    stripped = text.strip()
-    return stripped.startswith(("$", ">", "cd ", "git ", "uv ", "npm ", "./", "export "))
 
 
 @dataclass
@@ -113,34 +123,41 @@ def _is_candidate_break(line: str) -> bool:
     return not stripped or bool(_HEADING_PATTERN.match(line)) or stripped.startswith("|")
 
 
-def extract_rules(markdown: str) -> list[ExtractedRule]:
+def extract_rules(markdown: str, *, max_rule_chars: int = _MAX_RULE_CHARS) -> ExtractionResult:
     """Extract enforceable behavioral rules from CLAUDE.md content.
 
     Walks the document line by line, skipping fenced code blocks, headings,
-    and tables. Bullets and short paragraphs qualify as rules when they carry
-    a normative marker (never / always / must / avoid / prefer / ...). Rules
-    keep the 1-based line number where they start.
+    and tables. Bullets, blockquotes, and short paragraphs qualify as rules
+    when they carry a normative marker (never / always / must / avoid /
+    prefer / ...). Rules keep the 1-based line number where they start.
 
     Args:
         markdown: Full text of a CLAUDE.md / AGENTS.md file.
+        max_rule_chars: Candidates longer than this (after markdown stripping)
+            are counted in `skipped_too_long` instead of extracted.
 
     Returns:
-        Rules in document order, deduplicated case-insensitively.
+        Extraction result with rules in document order (deduplicated
+        case-insensitively) plus a count of normative candidates skipped
+        for exceeding `max_rule_chars`.
     """
     rules: list[ExtractedRule] = []
     seen: set[str] = set()
     in_fence = False
     candidate: _Candidate | None = None
+    skipped_too_long = 0
 
     def flush(current: _Candidate | None) -> None:
+        nonlocal skipped_too_long
         if current is None:
             return
         text = current.text()
-        if not (_MIN_RULE_CHARS <= len(text) <= _MAX_RULE_CHARS):
+        if len(text) < _MIN_RULE_CHARS:
             return
         if not _NORMATIVE_PATTERN.search(text):
             return
-        if _looks_like_command(text):
+        if len(text) > max_rule_chars:
+            skipped_too_long += 1
             return
         key = text.casefold()
         if key in seen:
@@ -148,14 +165,17 @@ def extract_rules(markdown: str) -> list[ExtractedRule]:
         seen.add(key)
         rules.append(ExtractedRule(text=text, line=current.first_line))
 
-    for lineno, line in enumerate(markdown.splitlines(), start=1):
-        if _FENCE_PATTERN.match(line):
+    for lineno, raw_line in enumerate(markdown.splitlines(), start=1):
+        if _FENCE_PATTERN.match(raw_line):
             flush(candidate)
             candidate = None
             in_fence = not in_fence
             continue
         if in_fence:
             continue
+
+        # Blockquoted rules (callout style) participate like normal text.
+        line = _BLOCKQUOTE_PATTERN.sub(r"\1", raw_line)
 
         if _is_candidate_break(line):
             flush(candidate)
@@ -174,10 +194,10 @@ def extract_rules(markdown: str) -> list[ExtractedRule]:
             candidate = _Candidate(first_line=lineno, parts=[line.strip()])
 
     flush(candidate)
-    return rules
+    return ExtractionResult(rules=tuple(rules), skipped_too_long=skipped_too_long)
 
 
-def _build_instructions(rules: list[ExtractedRule], source_name: str) -> str:
+def _build_instructions(rules: Sequence[ExtractedRule], source_name: str) -> str:
     """Compose judge instructions from extracted rules, tagged with source lines."""
     numbered = "\n".join(f"{i}. [{source_name}:{rule.line}] {rule.text}" for i, rule in enumerate(rules, start=1))
     return (
@@ -207,11 +227,12 @@ _LiteralDumper.add_representer(str, _represent_multiline_str)
 
 
 def generate_policy_yaml(
-    rules: list[ExtractedRule],
+    rules: Sequence[ExtractedRule],
     source_path: Path,
     *,
     model: str = DEFAULT_MODEL,
     on_error: str = "pass",
+    source_text: str | None = None,
 ) -> str:
     """Render a SimpleLLMPolicy YAML document from extracted rules.
 
@@ -220,6 +241,8 @@ def generate_policy_yaml(
         source_path: The CLAUDE.md file the rules came from (for provenance).
         model: Judge model identifier.
         on_error: Judge failure behavior ("pass" or "block").
+        source_text: The source file's content, if the caller already read it
+            (avoids a second read). Read from `source_path` when None.
 
     Returns:
         A YAML string loadable by `luthien_proxy.config.load_policy_from_yaml`.
@@ -230,7 +253,8 @@ def generate_policy_yaml(
     if not rules:
         raise ValueError("Cannot generate a policy from zero rules")
 
-    source_text = source_path.read_text(encoding="utf-8")
+    if source_text is None:
+        source_text = source_path.read_text(encoding="utf-8")
     digest = hashlib.sha256(source_text.encode("utf-8")).hexdigest()[:12]
 
     document = {
@@ -247,10 +271,10 @@ def generate_policy_yaml(
     body = yaml.dump(document, Dumper=_LiteralDumper, sort_keys=False, width=100, allow_unicode=True)
     header = (
         f"# Luthien policy generated from {source_path.name}\n"
-        f"# Source: {source_path} (sha256 {digest})\n"
+        f"# Source: {source_path.name} (sha256 {digest})\n"
         f"# Rules extracted: {len(rules)} (each tagged [{source_path.name}:<line>] below)\n"
         "# Regenerate: uv run python -m luthien_proxy.policy_generation.claude_md "
-        f"{source_path}\n"
+        f"{source_path.name}\n"
     )
     return header + body
 
@@ -296,13 +320,27 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Skip round-trip validation through the policy loader",
     )
+    parser.add_argument(
+        "--max-rule-chars",
+        type=int,
+        default=_MAX_RULE_CHARS,
+        help=f"Skip rules longer than this many characters (default: {_MAX_RULE_CHARS})",
+    )
     args = parser.parse_args(argv)
 
     if not args.input.is_file():
         print(f"error: {args.input} is not a file", file=sys.stderr)
         return 1
 
-    rules = extract_rules(args.input.read_text(encoding="utf-8"))
+    source_text = args.input.read_text(encoding="utf-8")
+    result = extract_rules(source_text, max_rule_chars=args.max_rule_chars)
+    rules = result.rules
+    if result.skipped_too_long:
+        print(
+            f"note: skipped {result.skipped_too_long} rule candidate(s) longer than "
+            f"{args.max_rule_chars} characters (raise with --max-rule-chars)",
+            file=sys.stderr,
+        )
     if not rules:
         print(
             f"error: no enforceable rules found in {args.input}. "
@@ -312,7 +350,13 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    yaml_text = generate_policy_yaml(rules, args.input, model=args.model, on_error=args.on_error)
+    yaml_text = generate_policy_yaml(
+        rules,
+        args.input,
+        model=args.model,
+        on_error=args.on_error,
+        source_text=source_text,
+    )
 
     if not args.no_validate:
         try:
