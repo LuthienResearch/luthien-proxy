@@ -491,7 +491,13 @@ async def _fetch_session_list_pg(
     user_id: str | None = None,
     search: SessionSearchParams | None = None,
 ) -> SessionListResponse:
-    """PostgreSQL version using PG-specific features (FILTER, DISTINCT ON, array_agg)."""
+    """PostgreSQL version: metadata page query + page-scoped payload lookups.
+
+    Same 5-query shape as the SQLite path (count, page aggregate, models,
+    previews, user_ids); the payload-bearing lookups are keyed on the page's
+    session_ids so payload detoasting stays proportional to the page instead
+    of the whole table.
+    """
     # SECURITY INVARIANT: user_id and every search value are bound as query
     # parameters, never interpolated into the SQL string. The user_id slot is
     # fixed at $3; search params (built by _build_session_filter_sql) occupy
@@ -566,95 +572,127 @@ async def _fetch_session_list_pg(
         gate_clause = _gate_clause(where_gates)
         having_clause = _having_clause(having)
 
+        # PERF: the page query aggregates *metadata only* (timestamps, counts).
+        # models_used and preview_message are fetched by separate post-queries
+        # keyed on the page's session_ids (mirroring the SQLite path). The
+        # previous single-query shape probed ce.payload for EVERY
+        # 'transaction.request_recorded' row in the table (final_model and the
+        # max_tokens gate), which detoasts every stored payload. Agent-session
+        # payloads are cumulative (each request re-sends the whole
+        # conversation), so that scan was O(total conversation bytes) on every
+        # list load — the "history takes many seconds" admin-dashboard
+        # slowness.
         rows = await conn.fetch(
             f"""
-            WITH session_stats AS (
-                SELECT
-                    ce.session_id,
-                    MIN(ce.created_at) as first_ts,
-                    MAX(ce.created_at) as last_ts,
-                    COUNT(*) as total_events,
-                    COUNT(DISTINCT ce.call_id) as turn_count,
-                    {_intervention_count_expr(True)} as policy_interventions
-                FROM conversation_events ce
-                WHERE ce.session_id IS NOT NULL
-                {user_call_filter}
-                {gate_clause}
-                GROUP BY ce.session_id
-                {having_clause}
-            ),
-            session_models AS (
-                SELECT DISTINCT
-                    ce.session_id,
-                    ce.payload->>'final_model' as model
-                FROM conversation_events ce
-                WHERE ce.session_id IS NOT NULL
-                AND ce.event_type = 'transaction.request_recorded'
-                AND ce.payload->>'final_model' IS NOT NULL
-                {user_call_filter}
-            ),
-            session_first_message AS (
-                SELECT DISTINCT ON (ce.session_id)
-                    ce.session_id,
-                    ce.payload as request_payload
-                FROM conversation_events ce
-                WHERE ce.session_id IS NOT NULL
-                AND ce.event_type = 'transaction.request_recorded'
-                -- Skip probe requests: max_tokens=1 means internal probe (token counting, quota).
-                -- COALESCE to 2 so requests without max_tokens are not skipped.
-                AND COALESCE((ce.payload->'final_request'->>'max_tokens')::int, 2) > 1
-                {user_call_filter}
-                ORDER BY ce.session_id, ce.created_at ASC
-            )
             SELECT
-                s.session_id,
-                s.first_ts,
-                s.last_ts,
-                s.total_events,
-                s.turn_count,
-                s.policy_interventions,
-                COALESCE(
-                    array_agg(DISTINCT m.model) FILTER (WHERE m.model IS NOT NULL),
-                    ARRAY[]::text[]
-                ) as models,
-                f.request_payload
-            FROM session_stats s
-            LEFT JOIN session_models m ON s.session_id = m.session_id
-            LEFT JOIN session_first_message f ON s.session_id = f.session_id
-            GROUP BY s.session_id, s.first_ts, s.last_ts,
-                     s.total_events, s.turn_count, s.policy_interventions,
-                     f.request_payload
-            ORDER BY s.last_ts DESC
+                ce.session_id,
+                MIN(ce.created_at) as first_ts,
+                MAX(ce.created_at) as last_ts,
+                COUNT(*) as total_events,
+                COUNT(DISTINCT ce.call_id) as turn_count,
+                {_intervention_count_expr(True)} as policy_interventions
+            FROM conversation_events ce
+            WHERE ce.session_id IS NOT NULL
+            {user_call_filter}
+            {gate_clause}
+            GROUP BY ce.session_id
+            {having_clause}
+            ORDER BY last_ts DESC
             LIMIT $1 OFFSET $2
             """,
             *query_args,
         )
 
-        # Separate user_ids lookup keyed on the page's session_ids. Distinct
-        # users only — never collapse via MIN/MAX. When a user filter is in
-        # effect the same scoping is applied so the response doesn't leak the
-        # *existence* of other users sharing the session.
+        models_by_session: dict[str, list[str]] = {}
+        preview_by_session: dict[str, str | None] = {}
         user_ids_by_session: dict[str, list[str]] = {}
         if rows:
             session_ids_on_page = [str(row["session_id"]) for row in rows]
-            placeholders = ", ".join(f"${i + 1}" for i in range(len(session_ids_on_page)))
+
+            # When a user_id filter is in effect, restrict the model/preview/
+            # user-id lookups to that user's call_ids — without this,
+            # preview_message and models_used can leak content from other
+            # users' calls that happen to share the session_id.
             if user_id is not None:
-                user_id_filter_clause = f"AND cc.user_id = ${len(session_ids_on_page) + 1}"
-                user_id_extra_args: list[Any] = [user_id]
+                lookup_user_filter = "AND ce.call_id IN (SELECT call_id FROM conversation_calls WHERE user_id = $2)"
+                lookup_extra_args: list[Any] = [user_id]
+            else:
+                lookup_user_filter = ""
+                lookup_extra_args = []
+
+            # One query for all models on this page. Only final_model is
+            # extracted, but restricting to page sessions keeps the detoast
+            # cost proportional to the page.
+            model_rows = await conn.fetch(
+                f"""
+                SELECT DISTINCT
+                    ce.session_id,
+                    ce.payload->>'final_model' as model
+                FROM conversation_events ce
+                WHERE ce.session_id = ANY($1::text[])
+                AND ce.event_type = 'transaction.request_recorded'
+                AND ce.payload->>'final_model' IS NOT NULL
+                {lookup_user_filter}
+                """,
+                session_ids_on_page,
+                *lookup_extra_args,
+            )
+            for r in model_rows:
+                sid = str(r["session_id"])
+                model = str(r["model"])
+                session_models = models_by_session.setdefault(sid, [])
+                if model not in session_models:
+                    session_models.append(model)
+
+            # First qualifying (non-probe) request payload per page session.
+            # LATERAL LIMIT 1 walks each session's events in created_at order
+            # and stops at the first row passing the max_tokens gate, so only
+            # a handful of payloads per session are detoasted instead of all
+            # of them. COALESCE to 2 so requests without max_tokens are not
+            # skipped; max_tokens=1 means internal probe (token counting,
+            # quota).
+            preview_rows = await conn.fetch(
+                f"""
+                SELECT s.sid as session_id, fm.payload as request_payload
+                FROM unnest($1::text[]) AS s(sid)
+                JOIN LATERAL (
+                    SELECT ce.payload
+                    FROM conversation_events ce
+                    WHERE ce.session_id = s.sid
+                    AND ce.event_type = 'transaction.request_recorded'
+                    AND COALESCE((ce.payload->'final_request'->>'max_tokens')::int, 2) > 1
+                    {lookup_user_filter}
+                    ORDER BY ce.created_at ASC
+                    LIMIT 1
+                ) fm ON true
+                """,
+                session_ids_on_page,
+                *lookup_extra_args,
+            )
+            for r in preview_rows:
+                sid = str(r["session_id"])
+                if sid not in preview_by_session:
+                    preview_by_session[sid] = _extract_preview_message(cast(_PreviewPayload, r["request_payload"]))
+
+            # Separate user_ids lookup keyed on the page's session_ids. Distinct
+            # users only — never collapse via MIN/MAX. When a user filter is in
+            # effect the same scoping is applied so the response doesn't leak the
+            # *existence* of other users sharing the session.
+            if user_id is not None:
+                user_id_filter_clause = "AND cc.user_id = $2"
             else:
                 user_id_filter_clause = ""
-                user_id_extra_args = []
             user_id_rows = await conn.fetch(
                 f"""
                 SELECT DISTINCT ce.session_id, cc.user_id
                 FROM conversation_events ce
                 JOIN conversation_calls cc ON ce.call_id = cc.call_id
-                WHERE ce.session_id IN ({placeholders})
+                WHERE ce.session_id = ANY($1::text[])
                 AND cc.user_id IS NOT NULL
                 {user_id_filter_clause}
                 """,
-                *session_ids_on_page,
-                *user_id_extra_args,
+                session_ids_on_page,
+                *lookup_extra_args,
             )
             for r in user_id_rows:
                 sid = str(r["session_id"])
@@ -671,8 +709,8 @@ async def _fetch_session_list_pg(
             turn_count=int(row["turn_count"]),  # type: ignore[arg-type]
             total_events=int(row["total_events"]),  # type: ignore[arg-type]
             policy_interventions=int(row["policy_interventions"]),  # type: ignore[arg-type]
-            models_used=list(row["models"]) if row["models"] else [],  # type: ignore[arg-type]
-            preview_message=_extract_preview_message(cast(_PreviewPayload, row["request_payload"])),
+            models_used=models_by_session.get(str(row["session_id"]), []),
+            preview_message=preview_by_session.get(str(row["session_id"])),
             user_ids=user_ids_by_session.get(str(row["session_id"]), []),
         )
         for row in rows
@@ -692,11 +730,10 @@ async def _fetch_session_list_sqlite(
     user_id: str | None = None,
     search: SessionSearchParams | None = None,
 ) -> SessionListResponse:
-    """SQLite version: 3 queries total (vs PostgreSQL's 2).
+    """SQLite version.
 
     Avoids N+1 by batching models and previews for the whole page in one
-    query each, then merging in Python. PostgreSQL uses array_agg/DISTINCT ON
-    in a single CTE; SQLite lacks those, so we use IN (session_ids) instead.
+    query each (keyed on the page's session_ids), then merging in Python.
     """
     # SECURITY INVARIANT: user_id and every search value are bound as query
     # parameters, never interpolated into the SQL string. user_id occupies $3
@@ -822,19 +859,31 @@ async def _fetch_session_list_sqlite(
             *extra_args,
         )
 
-        # One query for first qualifying preview per session on this page
+        # One query for the first qualifying (non-probe) preview payload per
+        # session on this page. ROW_NUMBER keeps only the earliest qualifying
+        # row per session *inside* SQLite, so exactly one payload per session
+        # crosses into Python. Request payloads are cumulative (agent clients
+        # re-send the whole conversation each request), so the previous shape
+        # — shipping every request payload for the page's sessions to Python —
+        # transferred O(total conversation bytes) per list load.
         preview_rows = await conn.fetch(
             f"""
-            SELECT ce.session_id, ce.payload as request_payload
-            FROM conversation_events ce
-            WHERE ce.session_id IN ({placeholders})
-            AND ce.event_type = 'transaction.request_recorded'
-            AND COALESCE(
-                CAST(json_extract(ce.payload, '$.final_request.max_tokens') AS INTEGER),
-                2
-            ) > 1
-            {user_call_filter_lookups}
-            ORDER BY ce.session_id, ce.created_at ASC
+            SELECT session_id, request_payload FROM (
+                SELECT
+                    ce.session_id,
+                    ce.payload as request_payload,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY ce.session_id ORDER BY ce.created_at ASC
+                    ) as qualifying_rank
+                FROM conversation_events ce
+                WHERE ce.session_id IN ({placeholders})
+                AND ce.event_type = 'transaction.request_recorded'
+                AND COALESCE(
+                    CAST(json_extract(ce.payload, '$.final_request.max_tokens') AS INTEGER),
+                    2
+                ) > 1
+                {user_call_filter_lookups}
+            ) WHERE qualifying_rank = 1
             """,
             *session_ids,
             *extra_args,
@@ -973,6 +1022,8 @@ async def fetch_session_detail(session_id: str, db_pool: DatabasePool) -> Sessio
         if turn.had_policy_intervention:
             total_interventions += len(turn.annotations)
 
+    _dedup_cumulative_request_messages(turns)
+
     first_ts_str = parse_db_ts(rows[0]["created_at"]).isoformat()
     last_ts_str = parse_db_ts(rows[-1]["created_at"]).isoformat()
 
@@ -1103,6 +1154,81 @@ def _build_turn(call_id: str, events: list[StoredEvent]) -> ConversationTurn:
     )
 
 
+# Preflight (non-conversational) request classification, mirrored by the
+# activity-monitor frontend (conversation_live.js classifyPreflight):
+#   - Quota/token-count probe: max_tokens == 1
+#   - Title generation: json_schema output format with a small token budget
+_PREFLIGHT_TITLE_MAX_TOKENS = 256
+
+
+def _is_preflight_turn(request_params: dict[str, Any] | None) -> bool:
+    """True for standalone probe/title-generation requests.
+
+    Preflight requests are independent one-shot calls (quota probes, title
+    generation) interleaved into a session. They are not part of the
+    cumulative conversation thread, so they neither get deduplicated nor
+    advance the dedup baseline.
+    """
+    if not request_params:
+        return False
+    max_tokens = request_params.get("max_tokens")
+    if max_tokens == 1:
+        return True
+    output_config = request_params.get("output_config")
+    format_type = None
+    if isinstance(output_config, dict):
+        fmt = output_config.get("format")
+        if isinstance(fmt, dict):
+            format_type = fmt.get("type")
+    return format_type == "json_schema" and isinstance(max_tokens, int) and max_tokens <= _PREFLIGHT_TITLE_MAX_TOKENS
+
+
+def _dedup_cumulative_request_messages(turns: list[ConversationTurn]) -> None:
+    """Strip re-sent conversation history from each turn's request messages.
+
+    Agent clients (Claude Code and friends) send the entire conversation so
+    far on every request, so turn N's parsed ``request_messages`` repeats all
+    of turn N-1's messages plus the new ones. Left as-is, the session-detail
+    response payload grows O(turns^2) with session length — the "loading a
+    transcript takes a minute" admin-dashboard slowness under realistic agent
+    volumes. This pass keeps only each turn's *new* messages, making the
+    payload O(total messages).
+
+    Rules (mutating ``turns`` in place):
+      - Preflight turns (quota probes / title generation) are standalone
+        requests: kept whole, and they do not advance the dedup baseline.
+      - Unmodified turns: ``request_messages`` is replaced by the delta (the
+        messages beyond the previous turn's count); ``request_delta_start``
+        stays 0.
+      - Policy-modified turns: full arrays are kept so original-vs-final
+        diffs still line up index-by-index; ``request_delta_start`` marks
+        where this turn's new messages begin.
+      - If a turn's message count *shrinks* (context compaction, or a policy
+        rewrote history — the cumulative invariant is broken), the turn is
+        kept whole and the baseline resets to its length.
+
+    Invariant note: like the previous client-side implementation, this trusts
+    the cumulative-count invariant (prior messages are re-sent unchanged); it
+    does not diff message contents.
+    """
+    prev_count = 0
+    for turn in turns:
+        if _is_preflight_turn(turn.request_params):
+            continue
+        count = len(turn.request_messages)
+        if count < prev_count:
+            # Invariant broken: keep the full array, restart the baseline.
+            turn.request_delta_start = 0
+            prev_count = count
+            continue
+        if turn.request_was_modified:
+            turn.request_delta_start = prev_count
+        else:
+            turn.request_messages = turn.request_messages[prev_count:]
+            turn.request_delta_start = 0
+        prev_count = count
+
+
 def _extract_policy_name(event_type: str) -> str:
     """Extract policy name from event type like 'policy.judge.tool_call_blocked'."""
     parts = event_type.split(".")
@@ -1143,8 +1269,10 @@ def export_session_markdown(session: SessionDetail) -> str:
             lines.append(f"*Model: {turn.model}*")
         lines.append("")
 
-        # Request messages
-        for msg in turn.request_messages:
+        # Request messages new to this turn (request_messages is already the
+        # delta for unmodified turns; modified turns keep full arrays with
+        # request_delta_start marking where the new messages begin).
+        for msg in turn.request_messages[turn.request_delta_start :]:
             lines.append(_format_message_markdown(msg))
             lines.append("")
 
@@ -1179,7 +1307,10 @@ def export_session_jsonl(session: SessionDetail) -> str:
             "session_id": session.session_id,
             "timestamp": turn.timestamp,
             "model": turn.model,
-            "request_messages": [m.model_dump(mode="json") for m in turn.request_messages],
+            # Delta only: messages new to this turn. Agent clients re-send the
+            # whole conversation each request; exporting the cumulative arrays
+            # per turn made exports O(turns^2).
+            "request_messages": [m.model_dump(mode="json") for m in turn.request_messages[turn.request_delta_start :]],
             "response_messages": [m.model_dump(mode="json") for m in turn.response_messages],
             "annotations": [a.model_dump(mode="json") for a in turn.annotations],
             "had_policy_intervention": turn.had_policy_intervention,
