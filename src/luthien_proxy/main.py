@@ -273,6 +273,14 @@ def create_app(
         elif api_key is None and _resolved_mode == "both":
             logger.info("CLIENT_API_KEY is not set — shared-key auth unavailable, using passthrough only")
 
+        if get_settings().localhost_auth_bypass:
+            logger.warning(
+                "LOCALHOST_AUTH_BYPASS is enabled — admin, history, and debug routes skip auth for "
+                "direct loopback connections, so any local process can read stored conversations. "
+                "Requests carrying reverse-proxy forwarding headers (X-Forwarded-For etc.) never "
+                "bypass, but behind a same-host reverse proxy set LOCALHOST_AUTH_BYPASS=false."
+            )
+
         # Check if request logging is enabled
         _enable_request_logging = get_settings().enable_request_logging
         if _enable_request_logging:
