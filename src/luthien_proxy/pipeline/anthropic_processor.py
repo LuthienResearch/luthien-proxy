@@ -51,7 +51,15 @@ from luthien_proxy.llm.types.anthropic import (
 )
 from luthien_proxy.observability.emitter import EventEmitterProtocol
 from luthien_proxy.pipeline.client_format import ClientFormat
+from luthien_proxy.pipeline.error_advice import (
+    CONNECTION_ERROR_ADVICE,
+    CREDENTIAL_ERROR_ADVICE,
+    INTERNAL_ERROR_ADVICE,
+    append_advice,
+    get_error_advice,
+)
 from luthien_proxy.pipeline.policy_context_injection import inject_policy_awareness_anthropic
+from luthien_proxy.pipeline.request_repair import attempt_request_fix
 from luthien_proxy.pipeline.session import (
     extract_session_id_from_anthropic_body,
     extract_session_id_from_headers,
@@ -182,14 +190,62 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
             endpoint="/v1/messages",
         )
 
+    def _attempt_fixable_400_repair(
+        self, request: AnthropicRequest, error: AnthropicStatusError
+    ) -> AnthropicRequest | None:
+        """Return a repaired request for a known-fixable 400 error, or None.
+
+        The repair is observable, never silent: a warning is logged and a
+        ``pipeline.retry_with_fix`` event is recorded (including the raw
+        upstream error and the removed field) before the caller retries.
+        Callers issue at most one retry per request; a failure of the
+        repaired request propagates normally.
+        """
+        if (error.status_code or 0) != 400:
+            return None
+        fix = attempt_request_fix(request, str(error.message))
+        if fix is None:
+            return None
+        logger.warning(
+            "[%s] Fixable 400 from upstream (%s); retrying once with repaired request",
+            self._call_id,
+            fix.description,
+        )
+        self._emitter.record(
+            self._call_id,
+            "pipeline.retry_with_fix",
+            {
+                "original_error": str(error.message),
+                "removed_field": fix.removed_field,
+                "description": fix.description,
+                "session_id": self._session_id,
+                "user_id": self._user_id,
+            },
+        )
+        return fix.request
+
     async def complete(self, request: AnthropicRequest | None = None) -> AnthropicResponse:
-        """Execute a non-streaming backend request."""
+        """Execute a non-streaming backend request.
+
+        Known-fixable 400 errors (e.g. an unrecognized extra field) trigger a
+        single retry with the repaired request; see _attempt_fixable_400_repair.
+        """
         final_request = request or self._request
         self._record_backend_request(final_request)
 
         with tracer.start_as_current_span("send_upstream") as span:
             span.set_attribute("luthien.phase", "send_upstream")
-            response = await self._anthropic_client.complete(final_request, extra_headers=self._extra_headers)
+            try:
+                response = await self._anthropic_client.complete(final_request, extra_headers=self._extra_headers)
+            except AnthropicStatusError as e:
+                fixed_request = self._attempt_fixable_400_repair(final_request, e)
+                if fixed_request is None:
+                    raise
+                # One retry max: the repaired call is not wrapped, so a second
+                # failure propagates to the normal error handling path.
+                self.set_request(fixed_request)
+                self._record_backend_request(fixed_request)
+                response = await self._anthropic_client.complete(fixed_request, extra_headers=self._extra_headers)
 
         if self._first_backend_response is None:
             # Deep-copy to preserve pre-policy content (policies may mutate in-place)
@@ -197,22 +253,46 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         return response
 
     def stream(self, request: AnthropicRequest | None = None) -> AsyncIterator[MessageStreamEvent]:
-        """Execute a streaming backend request."""
+        """Execute a streaming backend request.
+
+        Known-fixable 400 errors trigger a single retry with the repaired
+        request, but only when the failure happens before any event has been
+        yielded (a later retry would duplicate events already delivered to
+        the policy/client).
+        """
         final_request = request or self._request
         self._record_backend_request(final_request)
 
         extra_headers = self._extra_headers
 
+        async def _iterate(req: AnthropicRequest) -> AsyncIterator[MessageStreamEvent]:
+            async for event in self._anthropic_client.stream(req, extra_headers=extra_headers):
+                # RawMessageStreamEvent members are a subset of MessageStreamEvent;
+                # cast bridges Pyright's strict union checking.
+                mse = cast(MessageStreamEvent, event)
+                if self._buffer_raw_events:
+                    self._raw_backend_events.append(mse)
+                yield mse
+
         async def _stream() -> AsyncIterator[MessageStreamEvent]:
             with tracer.start_as_current_span("send_upstream") as span:
                 span.set_attribute("luthien.phase", "send_upstream")
-                async for event in self._anthropic_client.stream(final_request, extra_headers=extra_headers):
-                    # RawMessageStreamEvent members are a subset of MessageStreamEvent;
-                    # cast bridges Pyright's strict union checking.
-                    mse = cast(MessageStreamEvent, event)
-                    if self._buffer_raw_events:
-                        self._raw_backend_events.append(mse)
-                    yield mse
+                yielded_any = False
+                try:
+                    async for mse in _iterate(final_request):
+                        yielded_any = True
+                        yield mse
+                except AnthropicStatusError as e:
+                    if yielded_any:
+                        raise
+                    fixed_request = self._attempt_fixable_400_repair(final_request, e)
+                    if fixed_request is None:
+                        raise
+                    # One retry max: errors from the repaired stream propagate.
+                    self.set_request(fixed_request)
+                    self._record_backend_request(fixed_request)
+                    async for mse in _iterate(fixed_request):
+                        yield mse
 
         return _stream()
 
@@ -1040,7 +1120,10 @@ async def _handle_execution_non_streaming(
                 logger.error("[%s] Unexpected error in non-streaming policy execution: %s", call_id, e)
                 raise BackendAPIError(
                     status_code=500,
-                    message=client_error_detail(str(e), "An internal error occurred while processing the request."),
+                    message=append_advice(
+                        client_error_detail(str(e), "An internal error occurred while processing the request."),
+                        INTERNAL_ERROR_ADVICE,
+                    ),
                     error_type="api_error",
                     client_format=ClientFormat.ANTHROPIC,
                 ) from e
@@ -1197,15 +1280,22 @@ def _build_error_event(e: Exception, call_id: str) -> _StreamErrorEvent:
     """
     if isinstance(e, AnthropicStatusError):
         error_type = _ANTHROPIC_STATUS_ERROR_TYPE_MAP.get(e.status_code or 500, "api_error")
-        message = str(e.message)
-        logger.warning(f"[{call_id}] Mid-stream Anthropic API error: {e.status_code} {message}")
+        raw_message = str(e.message)
+        message = append_advice(raw_message, get_error_advice(e.status_code, raw_message))
+        logger.warning(f"[{call_id}] Mid-stream Anthropic API error: {e.status_code} {raw_message}")
     elif isinstance(e, AnthropicConnectionError):
         error_type = "api_connection_error"
-        message = client_error_detail(str(e), "An error occurred while connecting to the API.")
+        message = append_advice(
+            client_error_detail(str(e), "An error occurred while connecting to the API."),
+            CONNECTION_ERROR_ADVICE,
+        )
         logger.warning(f"[{call_id}] Mid-stream Anthropic connection error: {repr(e)}")
     else:
         error_type = "api_error"
-        message = client_error_detail(str(e), "An internal error occurred while processing the request.")
+        message = append_advice(
+            client_error_detail(str(e), "An internal error occurred while processing the request."),
+            INTERNAL_ERROR_ADVICE,
+        )
         logger.error(f"[{call_id}] Mid-stream error: {repr(e)}")
 
     return _StreamErrorEvent(
@@ -1250,9 +1340,12 @@ def _handle_anthropic_error(e: Exception, call_id: str) -> None:
         logger.warning(f"[{call_id}] Credential error during policy execution: {repr(e)}")
         raise BackendAPIError(
             status_code=502,
-            message=client_error_detail(
-                f"Credential resolution failed: {e}",
-                "The proxy could not authenticate to the backend service.",
+            message=append_advice(
+                client_error_detail(
+                    f"Credential resolution failed: {e}",
+                    "The proxy could not authenticate to the backend service.",
+                ),
+                CREDENTIAL_ERROR_ADVICE,
             ),
             error_type="credential_error",
             client_format=ClientFormat.ANTHROPIC,
@@ -1262,9 +1355,10 @@ def _handle_anthropic_error(e: Exception, call_id: str) -> None:
         status_code = e.status_code or 500
         error_type = _ANTHROPIC_STATUS_ERROR_TYPE_MAP.get(status_code, "api_error")
         logger.warning(f"[{call_id}] Anthropic API error: {status_code} {e.message}")
+        raw_message = str(e.message)
         raise BackendAPIError(
             status_code=status_code,
-            message=str(e.message),
+            message=append_advice(raw_message, get_error_advice(status_code, raw_message)),
             error_type=error_type,
             client_format=ClientFormat.ANTHROPIC,
             provider="anthropic",
@@ -1273,7 +1367,10 @@ def _handle_anthropic_error(e: Exception, call_id: str) -> None:
         logger.warning(f"[{call_id}] Anthropic connection error: {repr(e)}")
         raise BackendAPIError(
             status_code=502,
-            message=client_error_detail(str(e), "An error occurred while connecting to the API."),
+            message=append_advice(
+                client_error_detail(str(e), "An error occurred while connecting to the API."),
+                CONNECTION_ERROR_ADVICE,
+            ),
             error_type="api_connection_error",
             client_format=ClientFormat.ANTHROPIC,
             provider="anthropic",

@@ -830,7 +830,10 @@ class TestBuildErrorEvent:
 
         assert event.get("type") == "error"
         assert event.get("error", {}).get("type") == "rate_limit_error"
-        assert "Rate limit exceeded" in event.get("error", {}).get("message", "")
+        message = event.get("error", {}).get("message", "")
+        assert "Rate limit exceeded" in message
+        # Raw upstream error must be preserved AND an actionable suggestion appended.
+        assert "Suggestion:" in message
 
     def test_builds_connection_error_event(self):
         """Test building error event from AnthropicConnectionError."""
@@ -841,7 +844,9 @@ class TestBuildErrorEvent:
 
         assert event.get("type") == "error"
         assert event.get("error", {}).get("type") == "api_connection_error"
-        assert event.get("error", {}).get("message") == "An error occurred while connecting to the API."
+        message = event.get("error", {}).get("message", "")
+        assert "An error occurred while connecting to the API." in message
+        assert "Suggestion:" in message
 
     def test_builds_generic_error_event(self):
         """Generic exceptions produce a sanitized error event — internal details are not forwarded."""
@@ -851,7 +856,10 @@ class TestBuildErrorEvent:
 
         assert event.get("type") == "error"
         assert event.get("error", {}).get("type") == "api_error"
-        assert event.get("error", {}).get("message") == "An internal error occurred while processing the request."
+        message = event.get("error", {}).get("message", "")
+        assert "An internal error occurred while processing the request." in message
+        assert "Something went wrong" not in message  # internal details stay sanitized
+        assert "Suggestion:" in message
 
 
 class TestMidStreamErrorHandling:
@@ -1073,6 +1081,8 @@ class TestHandleAnthropicError:
         assert exc_info.value.status_code == 401
         assert exc_info.value.error_type == "authentication_error"
         assert "Invalid API Key" in exc_info.value.message
+        # Raw upstream message preserved AND actionable suggestion appended.
+        assert "Suggestion:" in exc_info.value.message
 
     def test_rate_limit_error_raises_backend_api_error(self):
         """429 RateLimitError should raise BackendAPIError with rate_limit_error type."""
@@ -1102,6 +1112,277 @@ class TestHandleAnthropicError:
 
         assert exc_info.value.status_code == 502
         assert exc_info.value.error_type == "api_connection_error"
+        assert "Suggestion:" in exc_info.value.message
+
+
+def _fixable_400_error(message: str = "banana_mode: Extra inputs are not permitted") -> AnthropicStatusError:
+    """Build an AnthropicStatusError shaped like a fixable extra-field 400."""
+    mock_response = HttpxResponse(
+        status_code=400,
+        request=HttpxRequest("POST", "https://api.anthropic.com/v1/messages"),
+        json={"error": {"type": "invalid_request_error", "message": message}},
+    )
+    return AnthropicStatusError(
+        message=message,
+        response=mock_response,
+        body={"error": {"type": "invalid_request_error", "message": message}},
+    )
+
+
+class TestRetryWithFix:
+    """Retry-with-fix for known-fixable 400 errors (extra field stripping)."""
+
+    @pytest.fixture
+    def mock_fastapi_request(self):
+        request = MagicMock()
+        request.headers = {}
+        request.method = "POST"
+        request.url = MagicMock()
+        request.url.path = "/v1/messages"
+        return request
+
+    @pytest.fixture
+    def mock_anthropic_response(self) -> AnthropicResponse:
+        return AnthropicResponse(
+            id="msg_retry_ok",
+            type="message",
+            role="assistant",
+            content=[{"type": "text", "text": "Recovered!"}],
+            model=DEFAULT_TEST_MODEL,
+            stop_reason="end_turn",
+            stop_sequence=None,
+            usage={"input_tokens": 10, "output_tokens": 5},
+        )
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_fixable_400_retries_once_with_fix(self, mock_fastapi_request, mock_anthropic_response):
+        """A fixable 400 strips the offending field and retries exactly once."""
+        anthropic_body: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+            "stream": False,
+            "banana_mode": True,  # type: ignore[typeddict-unknown-key]
+        }
+        mock_fastapi_request.json = AsyncMock(return_value=anthropic_body)
+
+        mock_client = MagicMock()
+        mock_client.complete = AsyncMock(side_effect=[_fixable_400_error(), mock_anthropic_response])
+        mock_emitter = MagicMock()
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await process_anthropic_request(
+                request=mock_fastapi_request,
+                policy=NoOpPolicy(),
+                anthropic_client=mock_client,
+                emitter=mock_emitter,
+            )
+
+        assert isinstance(response, JSONResponse)
+        payload = json.loads(bytes(response.body))
+        assert payload["id"] == "msg_retry_ok"
+
+        # Exactly two backend calls: original, then repaired.
+        assert mock_client.complete.call_count == 2
+        retried_request = mock_client.complete.call_args_list[1][0][0]
+        assert "banana_mode" not in retried_request
+        assert retried_request["model"] == DEFAULT_TEST_MODEL
+
+        # The repair is observable, not silent.
+        event_types = [call[0][1] for call in mock_emitter.record.call_args_list]
+        assert "pipeline.retry_with_fix" in event_types
+        for call in mock_emitter.record.call_args_list:
+            if call[0][1] == "pipeline.retry_with_fix":
+                event_payload = call[0][2]
+                assert event_payload["removed_field"] == "banana_mode"
+                assert "Extra inputs are not permitted" in event_payload["original_error"]
+                break
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_retry_capped_at_one_attempt(self, mock_fastapi_request):
+        """If the repaired request also fails, the error propagates: no retry loops."""
+        anthropic_body: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+            "stream": False,
+            "banana_mode": True,  # type: ignore[typeddict-unknown-key]
+        }
+        mock_fastapi_request.json = AsyncMock(return_value=anthropic_body)
+
+        mock_client = MagicMock()
+        mock_client.complete = AsyncMock(side_effect=[_fixable_400_error(), _fixable_400_error()])
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            with pytest.raises(BackendAPIError) as exc_info:
+                await process_anthropic_request(
+                    request=mock_fastapi_request,
+                    policy=NoOpPolicy(),
+                    anthropic_client=mock_client,
+                    emitter=MagicMock(),
+                )
+
+        assert mock_client.complete.call_count == 2
+        assert exc_info.value.status_code == 400
+        assert "Suggestion:" in exc_info.value.message
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_unfixable_400_is_not_retried(self, mock_fastapi_request):
+        """400s that don't match a fixable pattern propagate without a retry."""
+        anthropic_body: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+            "stream": False,
+        }
+        mock_fastapi_request.json = AsyncMock(return_value=anthropic_body)
+
+        mock_client = MagicMock()
+        mock_client.complete = AsyncMock(side_effect=_fixable_400_error(message="messages: roles must alternate"))
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            with pytest.raises(BackendAPIError) as exc_info:
+                await process_anthropic_request(
+                    request=mock_fastapi_request,
+                    policy=NoOpPolicy(),
+                    anthropic_client=mock_client,
+                    emitter=MagicMock(),
+                )
+
+        assert mock_client.complete.call_count == 1
+        assert exc_info.value.status_code == 400
+        assert "roles must alternate" in exc_info.value.message
+        assert "Suggestion:" in exc_info.value.message
+
+    @pytest.mark.asyncio
+    async def test_streaming_fixable_400_before_first_event_retries_with_fix(self, mock_fastapi_request):
+        """A fixable 400 raised before any stream event triggers one repaired retry."""
+        anthropic_body: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+            "stream": True,
+            "banana_mode": True,  # type: ignore[typeddict-unknown-key]
+        }
+        mock_fastapi_request.json = AsyncMock(return_value=anthropic_body)
+
+        stream_requests: list[AnthropicRequest] = []
+
+        async def stream_fn(req, extra_headers=None):
+            stream_requests.append(req)
+            if len(stream_requests) == 1:
+                raise _fixable_400_error()
+            yield RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_stream_retry",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": DEFAULT_TEST_MODEL,
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                },
+            )
+            yield RawMessageStopEvent(type="message_stop")
+
+        mock_client = MagicMock()
+        mock_client.stream = stream_fn
+        mock_emitter = MagicMock()
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await process_anthropic_request(
+                request=mock_fastapi_request,
+                policy=NoOpPolicy(),
+                anthropic_client=mock_client,
+                emitter=mock_emitter,
+            )
+
+            chunks = []
+            async for chunk in response.body_iterator:
+                chunks.append(chunk)
+
+        combined = "".join(chunks)
+        assert "msg_stream_retry" in combined
+        assert "event: error" not in combined
+
+        assert len(stream_requests) == 2
+        assert "banana_mode" not in stream_requests[1]
+
+        event_types = [call[0][1] for call in mock_emitter.record.call_args_list]
+        assert "pipeline.retry_with_fix" in event_types
+
+    @pytest.mark.asyncio
+    async def test_streaming_fixable_400_after_events_is_not_retried(self, mock_fastapi_request):
+        """Once events have been yielded, a fixable 400 must NOT retry (would duplicate events)."""
+        anthropic_body: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 1024,
+            "stream": True,
+            "banana_mode": True,  # type: ignore[typeddict-unknown-key]
+        }
+        mock_fastapi_request.json = AsyncMock(return_value=anthropic_body)
+
+        stream_calls: list[AnthropicRequest] = []
+
+        async def stream_fn(req, extra_headers=None):
+            stream_calls.append(req)
+            yield RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_partial",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": DEFAULT_TEST_MODEL,
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                },
+            )
+            raise _fixable_400_error()
+
+        mock_client = MagicMock()
+        mock_client.stream = stream_fn
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+            mock_span = MagicMock()
+            mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
+            mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
+
+            response = await process_anthropic_request(
+                request=mock_fastapi_request,
+                policy=NoOpPolicy(),
+                anthropic_client=mock_client,
+                emitter=MagicMock(),
+            )
+
+            chunks = []
+            async for chunk in response.body_iterator:
+                chunks.append(chunk)
+
+        combined = "".join(chunks)
+        assert "event: error" in combined
+        assert "Suggestion:" in combined
+        assert len(stream_calls) == 1
 
 
 class _InvalidStreamCompletePolicy:
