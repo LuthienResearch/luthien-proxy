@@ -17,6 +17,38 @@ policy:
 
 ---
 
+## Generate a Policy from Your CLAUDE.md
+
+If your project already has a CLAUDE.md (or AGENTS.md), you can turn its behavioral rules into a working policy in one step:
+
+```bash
+uv run python -m luthien_proxy.policy_generation.claude_md CLAUDE.md -o config/claude_md_policy.yaml
+export POLICY_CONFIG=config/claude_md_policy.yaml
+```
+
+The generator extracts enforceable rules (lines with normative language like "never", "always", "must", "avoid", "prefer") while skipping code blocks, build commands, and repo trivia. It emits a `SimpleLLMPolicy` config whose judge checks every response against those rules. Extraction is deterministic — no LLM call, no credentials needed at generation time.
+
+Every rule in the generated YAML is tagged with its source line, so judge decisions trace back to your CLAUDE.md:
+
+```yaml
+instructions: |-
+  ...
+  1. [CLAUDE.md:171] Formatting via Ruff: double quotes, spaces for indent.
+  2. [CLAUDE.md:208] IMPORTANT: Always write unit tests when adding or significantly modifying code.
+  ...
+```
+
+Options:
+
+- `-o / --output` — write to a file (default: stdout)
+- `--model` — judge model (default: `claude-haiku-4-5`)
+- `--on-error pass|block` — what happens when the judge call fails (default: `pass`)
+- `--no-validate` — skip the round-trip check through the policy loader
+
+The generated file is a starting point — edit the instructions freely; it's plain `SimpleLLMPolicy` YAML.
+
+---
+
 ## Quick Start Presets
 
 Ready-to-use policies with zero configuration. Each wraps `SimpleLLMPolicy` with hardcoded instructions — just set the class and go.
