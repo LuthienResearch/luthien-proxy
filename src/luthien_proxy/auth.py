@@ -12,12 +12,16 @@ The proxy route `/v1/messages` uses its own verify_token() in
 gateway_routes.py, which does NOT consult this module and is therefore
 unaffected by the bypass.
 
-WARNING: is_localhost_request() inspects request.client.host (TCP source
-IP) only; it does not parse X-Forwarded-For. A reverse proxy on the same
-host (Caddy, nginx, Traefik) forwards every external request as
-127.0.0.1 and silently unauths the admin API. Set
-LOCALHOST_AUTH_BYPASS=false for any such deployment. Railway disables
-the bypass automatically at startup.
+The bypass refuses any request that carries reverse-proxy forwarding
+headers (X-Forwarded-For, Forwarded, X-Real-IP, etc.), even when the TCP
+source IP is loopback. A reverse proxy on the same host (Caddy, nginx,
+Traefik) makes every external request arrive from 127.0.0.1; the
+forwarding headers those proxies attach are the signal that the true
+client is remote. A client can also set these headers directly, but that
+only *disables* the bypass for them (fail-safe). The residual risk is a
+same-host reverse proxy configured to strip/omit all forwarding headers
+— set LOCALHOST_AUTH_BYPASS=false for any reverse-proxy deployment.
+Railway disables the bypass automatically at startup.
 """
 
 from __future__ import annotations
@@ -37,6 +41,19 @@ security = HTTPBearer(auto_error=False)
 
 _LOCALHOST_IPS = ("127.0.0.1", "::1", "::ffff:127.0.0.1")
 
+# Headers a reverse proxy attaches when forwarding a request. Their presence
+# on a loopback connection means the true client is (or may be) remote, so
+# the localhost bypass must not apply. Standard proxies set at least one of
+# these by default: Caddy and Traefik set X-Forwarded-For automatically;
+# common nginx configs set X-Forwarded-For and/or X-Real-IP.
+_FORWARDING_HEADERS = (
+    "forwarded",  # RFC 7239
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-real-ip",
+)
+
 
 def is_localhost_request(request: Request) -> bool:
     """Check whether the request originates from a loopback address."""
@@ -46,11 +63,25 @@ def is_localhost_request(request: Request) -> bool:
     return client.host in _LOCALHOST_IPS
 
 
+def has_forwarding_headers(request: Request) -> bool:
+    """Check whether the request carries reverse-proxy forwarding headers."""
+    return any(header in request.headers for header in _FORWARDING_HEADERS)
+
+
 def _should_bypass_auth(request: Request) -> bool:
-    """Return True if auth can be skipped for this request."""
+    """Return True if auth can be skipped for this request.
+
+    Requires all three:
+    1. LOCALHOST_AUTH_BYPASS enabled (default true),
+    2. loopback TCP source address, and
+    3. no reverse-proxy forwarding headers — a proxied request is not
+       treated as local even though the proxy connects from 127.0.0.1.
+    """
     if not get_settings().localhost_auth_bypass:
         return False
-    return is_localhost_request(request)
+    if not is_localhost_request(request):
+        return False
+    return not has_forwarding_headers(request)
 
 
 async def verify_admin_token(
@@ -163,5 +194,6 @@ __all__ = [
     "security",
     "check_auth_or_redirect",
     "get_base_url",
+    "has_forwarding_headers",
     "is_localhost_request",
 ]

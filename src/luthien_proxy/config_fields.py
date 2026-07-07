@@ -99,7 +99,7 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
     ),
     ConfigFieldMeta(
         "localhost_auth_bypass", "LOCALHOST_AUTH_BYPASS", bool, True,
-        "Skip admin-route authentication for requests from localhost (proxy /v1/messages auth is unaffected; disable behind a same-host reverse proxy)",
+        "Skip admin-route authentication for direct loopback requests; requests carrying reverse-proxy forwarding headers (X-Forwarded-For etc.) never bypass (proxy /v1/messages auth is unaffected; disable behind a same-host reverse proxy)",
         category="auth", db_settable=True, restart_required=False,
     ),
 
