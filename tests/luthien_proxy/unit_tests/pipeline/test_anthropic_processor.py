@@ -1102,6 +1102,17 @@ class TestProtocolViolationAbortsStream:
             usage={"output_tokens": 5},  # type: ignore[arg-type]
         )
 
+    @staticmethod
+    def _recorded_event_types(emitter) -> list[str]:
+        """Event types recorded on the emitter (robust to args vs kwargs call style)."""
+        types = []
+        for recorded_call in emitter.record.call_args_list:
+            if len(recorded_call.args) > 1:
+                types.append(recorded_call.args[1])
+            else:
+                types.append(recorded_call.kwargs.get("event_type"))
+        return types
+
     async def _collect_stream_chunks(self, mock_policy, backend_events: list, emitter) -> list[str]:
         """Run a streaming request through the pipeline and collect SSE chunks."""
         anthropic_body: AnthropicRequest = {
@@ -1175,9 +1186,11 @@ class TestProtocolViolationAbortsStream:
         assert not any('"index": 1' in c for c in chunks)
         assert not any("event: message_stop" in c for c in chunks)
 
-        # The violation was recorded for observability.
-        recorded_event_types = [call.args[1] for call in emitter.record.call_args_list]
+        # The violation was recorded for observability, and the partial
+        # (undelivered) response was NOT recorded as a delivered response.
+        recorded_event_types = self._recorded_event_types(emitter)
         assert "streaming.protocol_violation" in recorded_event_types
+        assert "transaction.streaming_response_recorded" not in recorded_event_types
 
     @pytest.mark.asyncio
     async def test_corrupted_first_event_yields_exactly_one_error_event(self, mock_policy):
@@ -1219,8 +1232,9 @@ class TestProtocolViolationAbortsStream:
         assert not any("event: error" in c for c in chunks)
         assert "event: message_stop" in chunks[-1]
 
-        recorded_event_types = [call.args[1] for call in emitter.record.call_args_list]
+        recorded_event_types = self._recorded_event_types(emitter)
         assert "streaming.protocol_violation" not in recorded_event_types
+        assert "transaction.streaming_response_recorded" in recorded_event_types
 
 
 class TestHandleAnthropicError:

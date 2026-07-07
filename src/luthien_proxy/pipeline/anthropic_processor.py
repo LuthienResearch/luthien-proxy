@@ -808,7 +808,10 @@ async def _handle_execution_streaming(
                     if protocol_aborted:
                         # Close the policy emission generator promptly so the
                         # policy/backend stops producing; otherwise it stays
-                        # suspended until garbage collection.
+                        # suspended until garbage collection. getattr guard:
+                        # emissions is typed AsyncIterator, which does not
+                        # guarantee aclose (a manually-implemented __aiter__
+                        # object would lack it); async generators always have it.
                         aclose = getattr(emissions, "aclose", None)
                         if aclose is not None:
                             try:
@@ -1008,7 +1011,14 @@ async def _handle_execution_streaming(
                     if policy_ctx.response_summary:
                         root_span.set_attribute("luthien.policy.response_summary", policy_ctx.response_summary)
 
-                    if reconstructed is not None:
+                    # protocol_aborted excluded: on abort, `reconstructed` is
+                    # only the clean prefix of a response that was never
+                    # delivered. Recording it as streaming_response_recorded
+                    # would let downstream consumers (history, activity
+                    # monitor) mistake a partial, undelivered response for a
+                    # delivered one; the `streaming.protocol_violation` event
+                    # with aborted=true is the authoritative record instead.
+                    if reconstructed is not None and not protocol_aborted:
                         # Use raw backend events for original response if buffered,
                         # Trade-off: for streaming requests, raw events are NOT buffered
                         # separately (_AnthropicPolicyIO sets _buffer_raw_events=not is_streaming).
@@ -1317,8 +1327,8 @@ def _build_protocol_violation_error_event(violations: list[StreamViolation], cal
             type="api_error",
             message=(
                 f"Luthien proxy detected a corrupted response stream (protocol violation: {rules}) "
-                "and stopped it before it reached your client. This response was not delivered; "
-                f"please retry the request. (transaction: {call_id})"
+                "and stopped it before it could corrupt this session. The response was not delivered. "
+                f"If retrying hits the same error, report transaction {call_id} to your administrator."
             ),
         ),
     )

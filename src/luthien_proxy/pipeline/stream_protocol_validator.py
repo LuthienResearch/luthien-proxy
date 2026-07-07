@@ -248,6 +248,11 @@ class StreamingProtocolValidator:
         """Return violations only decidable at end of stream.
 
         Rules: stream non-empty, message_stop last, all started blocks stopped.
+
+        Only well-defined for streams that were intended to complete. A stream
+        aborted mid-flight (e.g. after a protocol violation) will always fail
+        these completeness rules; callers should skip finalize() for aborted
+        streams to avoid double-reporting the same failure.
         """
         if self._event_count == 0:
             return [
