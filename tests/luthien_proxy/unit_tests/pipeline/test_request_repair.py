@@ -77,6 +77,15 @@ class TestAttemptRequestFix:
 
         assert fix is None
 
+    def test_field_path_json_quoted_in_message(self):
+        request = _base_request()
+        request["banana_mode"] = True  # type: ignore[typeddict-unknown-key]
+
+        fix = attempt_request_fix(request, '"banana_mode": Extra inputs are not permitted')
+
+        assert fix is not None
+        assert fix.removed_field == "banana_mode"
+
     def test_field_path_embedded_in_longer_message(self):
         request = _base_request()
         request["banana_mode"] = True  # type: ignore[typeddict-unknown-key]

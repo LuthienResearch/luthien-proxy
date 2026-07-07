@@ -139,11 +139,14 @@ def append_advice(message: str, advice: str | None) -> str:
 
     Returns the message unchanged when advice is None or empty, or when the
     message already carries a suggestion (guards against double-appending if
-    an error is formatted twice on its way out).
+    an error is formatted twice on its way out). The double-append check
+    matches the exact join string this function produces, so an upstream
+    message that merely contains the word "Suggestion:" is not mistaken for
+    already-annotated output.
     """
     if not advice:
         return message
-    if SUGGESTION_PREFIX in message:
+    if f"\n\n{SUGGESTION_PREFIX} " in message:
         return message
     return f"{message}\n\n{SUGGESTION_PREFIX} {advice}"
 

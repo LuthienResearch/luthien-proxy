@@ -22,8 +22,11 @@ from typing import cast
 from luthien_proxy.llm.types.anthropic import AnthropicRequest
 
 # Matches "<dotted.field.path>: Extra inputs are not permitted" anywhere in the
-# upstream message. Path segments are dict keys or list indices separated by dots.
-_EXTRA_FIELD_PATTERN = re.compile(r"(?:^|[\s'\"`(])([A-Za-z0-9_][A-Za-z0-9_.\-]*): Extra inputs are not permitted")
+# upstream message. Path segments are dict keys or list indices separated by
+# dots. The field path may be bare or wrapped in quotes/backticks.
+_EXTRA_FIELD_PATTERN = re.compile(
+    r"(?:^|[\s'\"`(])([A-Za-z0-9_][A-Za-z0-9_.\-]*)['\"`]?: Extra inputs are not permitted"
+)
 
 # Fields the pipeline itself relies on; never auto-remove these even if an
 # upstream message implicates them (which would indicate a deeper problem

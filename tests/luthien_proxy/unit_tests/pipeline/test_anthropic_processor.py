@@ -1202,6 +1202,16 @@ class TestRetryWithFix:
                 assert "Extra inputs are not permitted" in event_payload["original_error"]
                 break
 
+        # Audit trail shows BOTH backend attempts (original and repaired).
+        backend_requests = [
+            call[0][2]["payload"]
+            for call in mock_emitter.record.call_args_list
+            if call[0][1] == "pipeline.backend_request"
+        ]
+        assert len(backend_requests) == 2
+        assert "banana_mode" in backend_requests[0]
+        assert "banana_mode" not in backend_requests[1]
+
     @pytest.mark.asyncio
     async def test_non_streaming_retry_capped_at_one_attempt(self, mock_fastapi_request):
         """If the repaired request also fails, the error propagates: no retry loops."""

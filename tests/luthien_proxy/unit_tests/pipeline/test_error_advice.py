@@ -46,6 +46,10 @@ class TestGetErrorAdvice:
         advice = get_error_advice(None, "mystery error")
         assert advice
 
+    def test_none_status_and_empty_message_still_gets_advice(self):
+        """Callers can rely on always getting non-empty advice."""
+        assert get_error_advice(None, "")
+
 
 class TestAppendAdvice:
     """Advice is appended without destroying the raw upstream message."""
@@ -66,6 +70,13 @@ class TestAppendAdvice:
         once = append_advice("raw error", "Do the thing.")
         twice = append_advice(once, "Do the other thing.")
         assert twice == once
+
+    def test_upstream_message_mentioning_suggestion_still_gets_advice(self):
+        """A raw message that merely contains 'Suggestion:' is not mistaken for annotated output."""
+        raw = "field Suggestion: is not a valid tool name"
+        combined = append_advice(raw, "Rename the tool.")
+        assert combined.startswith(raw)
+        assert "Rename the tool." in combined
 
     def test_module_advice_constants_are_actionable(self):
         for advice in (CONNECTION_ERROR_ADVICE, CREDENTIAL_ERROR_ADVICE, INTERNAL_ERROR_ADVICE):
