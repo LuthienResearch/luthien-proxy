@@ -986,15 +986,23 @@ class TestFetchSessionList:
                 "total_events": 10,
                 "turn_count": 3,
                 "policy_interventions": 1,
-                "models": ["gpt-4", "claude-3"],
+            },
+        ]
+        mock_model_rows = [
+            {"session_id": "session-1", "model": "gpt-4"},
+            {"session_id": "session-1", "model": "claude-3"},
+        ]
+        mock_preview_rows = [
+            {
+                "session_id": "session-1",
                 "request_payload": {"final_request": {"messages": [{"role": "user", "content": "Hello world"}]}},
             },
         ]
 
         mock_conn = AsyncMock()
         mock_conn.fetchval.return_value = 1  # Total count
-        # First fetch() = main session aggregation; second = user_ids lookup.
-        mock_conn.fetch.side_effect = [mock_rows, []]
+        # Fetches: main aggregation, then models / previews / user_ids lookups.
+        mock_conn.fetch.side_effect = [mock_rows, mock_model_rows, mock_preview_rows, []]
 
         mock_pool = MagicMock()
         mock_pool.is_sqlite = False
@@ -1024,14 +1032,14 @@ class TestFetchSessionList:
                 "total_events": 5,
                 "turn_count": 2,
                 "policy_interventions": 0,
-                "models": ["gpt-4"],
-                "request_payload": None,  # Test with no first message
             },
         ]
+        mock_model_rows = [{"session_id": "session-2", "model": "gpt-4"}]
 
         mock_conn = AsyncMock()
         mock_conn.fetchval.return_value = 100  # Total count
-        mock_conn.fetch.side_effect = [mock_rows, []]
+        # No preview row for this session (no qualifying first message).
+        mock_conn.fetch.side_effect = [mock_rows, mock_model_rows, [], []]
 
         mock_pool = MagicMock()
         mock_pool.is_sqlite = False
@@ -1385,3 +1393,275 @@ class TestExportSessionJsonl:
         assert record["request_was_modified"] is False
         assert record["original_response_messages"][0]["content"] == "Hi"
         assert "original_request_messages" not in record
+
+
+def _mock_detail_pool(rows: list[dict]) -> MagicMock:
+    """Build a mock DatabasePool whose single fetch returns the given event rows."""
+    mock_conn = AsyncMock()
+    mock_conn.fetch.return_value = rows
+    mock_pool = MagicMock()
+    mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+    return mock_pool
+
+
+def _request_event(call_id: str, minute: int, messages: list[dict], **payload_extra) -> dict:
+    """Build a transaction.request_recorded event row for a cumulative session."""
+    payload = {
+        "final_model": "claude-3-opus",
+        "final_request": {"messages": messages, "max_tokens": 4096},
+    }
+    payload.update(payload_extra)
+    return {
+        "call_id": call_id,
+        "event_type": "transaction.request_recorded",
+        "payload": payload,
+        "created_at": datetime(2025, 1, 15, 10, minute, 0),
+    }
+
+
+def _response_event(call_id: str, minute: int, text: str) -> dict:
+    return {
+        "call_id": call_id,
+        "event_type": "transaction.streaming_response_recorded",
+        "payload": {"final_response": {"role": "assistant", "content": [{"type": "text", "text": text}]}},
+        "created_at": datetime(2025, 1, 15, 10, minute, 30),
+    }
+
+
+class TestCumulativeRequestDedup:
+    """Session detail strips the re-sent conversation prefix from each turn.
+
+    Agent clients (Claude Code) re-send the full conversation history on
+    every request, so raw per-turn request payloads are cumulative and the
+    detail response used to grow O(turns^2). The service now returns only
+    each turn's new messages (request_delta_start marks the boundary for
+    turns that must keep full arrays).
+    """
+
+    @pytest.mark.asyncio
+    async def test_unmodified_turns_return_only_new_messages(self):
+        turn1_messages = [{"role": "user", "content": "Q1"}]
+        turn2_messages = [
+            {"role": "user", "content": "Q1"},
+            {"role": "assistant", "content": "A1"},
+            {"role": "user", "content": "Q2"},
+        ]
+        turn3_messages = turn2_messages + [
+            {"role": "assistant", "content": "A2"},
+            {"role": "user", "content": "Q3"},
+        ]
+        rows = [
+            _request_event("call-1", 0, turn1_messages),
+            _response_event("call-1", 0, "A1"),
+            _request_event("call-2", 1, turn2_messages),
+            _response_event("call-2", 1, "A2"),
+            _request_event("call-3", 2, turn3_messages),
+            _response_event("call-3", 2, "A3"),
+        ]
+
+        result = await fetch_session_detail("session-1", _mock_detail_pool(rows))
+
+        assert [m.content for m in result.turns[0].request_messages] == ["Q1"]
+        assert [m.content for m in result.turns[1].request_messages] == ["A1", "Q2"]
+        assert [m.content for m in result.turns[2].request_messages] == ["A2", "Q3"]
+        assert all(turn.request_delta_start == 0 for turn in result.turns)
+        # Response messages are per-turn already and must be untouched.
+        assert [m.content for m in result.turns[0].response_messages] == ["A1"]
+        assert [m.content for m in result.turns[2].response_messages] == ["A3"]
+
+    @pytest.mark.asyncio
+    async def test_payload_size_grows_linearly_not_quadratically(self):
+        """Total messages across turns equals the conversation length, not its square."""
+        n_turns = 10
+        rows = []
+        cumulative: list[dict] = []
+        for i in range(n_turns):
+            cumulative = cumulative + [
+                {"role": "user", "content": f"Q{i}"},
+            ]
+            rows.append(_request_event(f"call-{i}", i, list(cumulative)))
+            rows.append(_response_event(f"call-{i}", i, f"A{i}"))
+            cumulative = cumulative + [{"role": "assistant", "content": f"A{i}"}]
+
+        result = await fetch_session_detail("session-1", _mock_detail_pool(rows))
+
+        total_request_messages = sum(len(t.request_messages) for t in result.turns)
+        # Each turn contributes exactly its new messages (user + prior assistant),
+        # so the total is 2*n - 1, not sum(1..2n) ~ n^2.
+        assert total_request_messages == 2 * n_turns - 1
+
+    @pytest.mark.asyncio
+    async def test_modified_turn_keeps_full_arrays_with_delta_start(self):
+        turn1_messages = [{"role": "user", "content": "Q1"}]
+        turn2_original = [
+            {"role": "user", "content": "Q1"},
+            {"role": "assistant", "content": "A1"},
+            {"role": "user", "content": "Q2"},
+        ]
+        turn2_final = [
+            {"role": "user", "content": "Q1"},
+            {"role": "assistant", "content": "A1"},
+            {"role": "user", "content": "Q2 [redacted]"},
+        ]
+        turn3_messages = turn2_final + [
+            {"role": "assistant", "content": "A2"},
+            {"role": "user", "content": "Q3"},
+        ]
+        rows = [
+            _request_event("call-1", 0, turn1_messages),
+            _request_event("call-2", 1, turn2_final, original_request={"messages": turn2_original}),
+            _request_event("call-3", 2, turn3_messages),
+        ]
+
+        result = await fetch_session_detail("session-1", _mock_detail_pool(rows))
+
+        modified_turn = result.turns[1]
+        assert modified_turn.request_was_modified is True
+        # Full arrays preserved so original-vs-final diff lines up index-by-index.
+        assert len(modified_turn.request_messages) == 3
+        assert modified_turn.original_request_messages is not None
+        assert len(modified_turn.original_request_messages) == 3
+        # Delta boundary points at this turn's new messages.
+        assert modified_turn.request_delta_start == 1
+        assert [m.content for m in modified_turn.request_messages[modified_turn.request_delta_start :]] == [
+            "A1",
+            "Q2 [redacted]",
+        ]
+        # Following turn dedups against the modified turn's full length.
+        assert [m.content for m in result.turns[2].request_messages] == ["A2", "Q3"]
+
+    @pytest.mark.asyncio
+    async def test_preflight_turns_kept_whole_and_do_not_advance_baseline(self):
+        turn1_messages = [{"role": "user", "content": "Q1"}]
+        probe_messages = [{"role": "user", "content": "quota"}]
+        turn2_messages = [
+            {"role": "user", "content": "Q1"},
+            {"role": "assistant", "content": "A1"},
+            {"role": "user", "content": "Q2"},
+        ]
+        probe = _request_event("call-probe", 1, probe_messages)
+        probe["payload"]["final_request"]["max_tokens"] = 1
+        rows = [
+            _request_event("call-1", 0, turn1_messages),
+            probe,
+            _request_event("call-2", 2, turn2_messages),
+        ]
+
+        result = await fetch_session_detail("session-1", _mock_detail_pool(rows))
+
+        # Probe turn untouched.
+        assert [m.content for m in result.turns[1].request_messages] == ["quota"]
+        assert result.turns[1].request_delta_start == 0
+        # Turn after the probe still dedups against turn 1, not the probe.
+        assert [m.content for m in result.turns[2].request_messages] == ["A1", "Q2"]
+
+    @pytest.mark.asyncio
+    async def test_title_generation_preflight_kept_whole(self):
+        turn1_messages = [{"role": "user", "content": "Q1"}]
+        title_messages = [{"role": "user", "content": "Summarize this session"}]
+        title = _request_event("call-title", 1, title_messages)
+        title["payload"]["final_request"]["max_tokens"] = 128
+        title["payload"]["final_request"]["output_config"] = {"format": {"type": "json_schema", "schema": {}}}
+        rows = [
+            _request_event("call-1", 0, turn1_messages),
+            title,
+        ]
+
+        result = await fetch_session_detail("session-1", _mock_detail_pool(rows))
+
+        assert [m.content for m in result.turns[1].request_messages] == ["Summarize this session"]
+        assert result.turns[1].request_delta_start == 0
+
+    @pytest.mark.asyncio
+    async def test_shrinking_history_resets_baseline(self):
+        """Context compaction (shorter request than the previous turn) keeps the turn whole."""
+        turn1_messages = [
+            {"role": "user", "content": "Q1"},
+            {"role": "assistant", "content": "A1"},
+            {"role": "user", "content": "Q2"},
+        ]
+        compacted_messages = [{"role": "user", "content": "Summary of Q1/Q2"}]
+        turn3_messages = compacted_messages + [
+            {"role": "assistant", "content": "A3"},
+            {"role": "user", "content": "Q4"},
+        ]
+        rows = [
+            _request_event("call-1", 0, turn1_messages),
+            _request_event("call-2", 1, compacted_messages),
+            _request_event("call-3", 2, turn3_messages),
+        ]
+
+        result = await fetch_session_detail("session-1", _mock_detail_pool(rows))
+
+        # Compacted turn kept whole (previous behavior dropped it entirely).
+        assert [m.content for m in result.turns[1].request_messages] == ["Summary of Q1/Q2"]
+        assert result.turns[1].request_delta_start == 0
+        # Baseline restarts from the compacted turn.
+        assert [m.content for m in result.turns[2].request_messages] == ["A3", "Q4"]
+
+    def test_markdown_export_does_not_repeat_history(self):
+        turns = [
+            ConversationTurn(
+                call_id="call-1",
+                timestamp="2026-03-31T10:00:00",
+                model="claude-3-opus",
+                request_messages=[ConversationMessage(message_type=MessageType.USER, content="UNIQUE-Q1")],
+                response_messages=[ConversationMessage(message_type=MessageType.ASSISTANT, content="A1")],
+                annotations=[],
+            ),
+            # Modified turn: full cumulative array with delta boundary.
+            ConversationTurn(
+                call_id="call-2",
+                timestamp="2026-03-31T10:01:00",
+                model="claude-3-opus",
+                request_messages=[
+                    ConversationMessage(message_type=MessageType.USER, content="UNIQUE-Q1"),
+                    ConversationMessage(message_type=MessageType.ASSISTANT, content="A1"),
+                    ConversationMessage(message_type=MessageType.USER, content="Q2"),
+                ],
+                response_messages=[],
+                annotations=[],
+                request_was_modified=True,
+                request_delta_start=1,
+            ),
+        ]
+        session = SessionDetail(
+            session_id="sess-1",
+            first_timestamp="2026-03-31T10:00:00",
+            last_timestamp="2026-03-31T10:01:00",
+            turns=turns,
+            total_policy_interventions=0,
+            models_used=["claude-3-opus"],
+        )
+
+        markdown = export_session_markdown(session)
+
+        assert markdown.count("UNIQUE-Q1") == 1
+
+    def test_jsonl_export_respects_delta_start(self):
+        turn = ConversationTurn(
+            call_id="call-2",
+            timestamp="2026-03-31T10:01:00",
+            model="claude-3-opus",
+            request_messages=[
+                ConversationMessage(message_type=MessageType.USER, content="Q1"),
+                ConversationMessage(message_type=MessageType.ASSISTANT, content="A1"),
+                ConversationMessage(message_type=MessageType.USER, content="Q2"),
+            ],
+            response_messages=[],
+            annotations=[],
+            request_was_modified=True,
+            request_delta_start=1,
+        )
+        session = SessionDetail(
+            session_id="sess-1",
+            first_timestamp="2026-03-31T10:01:00",
+            last_timestamp="2026-03-31T10:01:00",
+            turns=[turn],
+            total_policy_interventions=0,
+            models_used=["claude-3-opus"],
+        )
+
+        record = json.loads(export_session_jsonl(session))
+
+        assert [m["content"] for m in record["request_messages"]] == ["A1", "Q2"]
