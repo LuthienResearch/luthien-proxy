@@ -96,6 +96,73 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
+# --- Streaming keepalive ------------------------------------------------------
+# Anthropic's wire stream emits `ping` events during long generations to keep the
+# connection alive, but the Anthropic SDK's typed stream (messages.create(
+# stream=True)) drops them. Without re-injecting keepalives, a model that stays
+# silent for a long pre-content phase makes the proxy->client connection idle, and
+# an intermediary (e.g. the ALB idle timeout) cuts the stream mid-flight even
+# though the request is healthy. We emit an Anthropic-style `ping` whenever the
+# upstream produces no event within STREAM_KEEPALIVE_SECONDS.
+STREAM_KEEPALIVE_SECONDS = 15.0
+_KEEPALIVE_SSE = 'event: ping\ndata: {"type": "ping"}\n\n'
+_STREAM_DONE = object()
+
+
+class _Keepalive:
+    """Sentinel yielded by `_stream_with_keepalive` during an upstream gap."""
+
+
+_KEEPALIVE = _Keepalive()
+
+
+async def _anext_or_done(iterator: AsyncIterator[AnthropicPolicyEmission]) -> object:
+    """Return the next item, or the `_STREAM_DONE` sentinel when exhausted.
+
+    Converting StopAsyncIteration into a sentinel keeps it from propagating out of
+    the wrapped Task (and avoids PEP-479 surprises inside the async generator).
+    """
+    try:
+        return await iterator.__anext__()
+    except StopAsyncIteration:
+        return _STREAM_DONE
+
+
+async def _stream_with_keepalive(
+    source: AsyncIterator[AnthropicPolicyEmission],
+    interval_seconds: float,
+) -> AsyncIterator["AnthropicPolicyEmission | _Keepalive"]:
+    """Yield items from `source`, injecting a `_KEEPALIVE` sentinel whenever the
+    next item takes longer than `interval_seconds` to arrive.
+
+    The in-flight `__anext__` is shielded from the per-wait timeout, so a slow item
+    is never dropped: the timeout only triggers a keepalive and we keep waiting on
+    the same pending item. The pending task is cancelled on close.
+    """
+    iterator = source.__aiter__()
+    pending: asyncio.Task[object] | None = None
+    try:
+        while True:
+            if pending is None:
+                pending = asyncio.ensure_future(_anext_or_done(iterator))
+            try:
+                item = await asyncio.wait_for(asyncio.shield(pending), interval_seconds)
+            except asyncio.TimeoutError:
+                yield _KEEPALIVE
+                continue
+            pending = None
+            if item is _STREAM_DONE:
+                return
+            yield cast("AnthropicPolicyEmission", item)
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
+            try:
+                await pending
+            except BaseException:
+                pass
+
+
 class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
     """Request-scoped I/O helpers for execution-oriented Anthropic policies."""
 
@@ -748,7 +815,15 @@ async def _handle_execution_streaming(
                 caught_exception = False
                 try:
                     with tracer.start_as_current_span("policy_execute"):
-                        async for emitted in emissions:
+                        async for emitted in _stream_with_keepalive(emissions, STREAM_KEEPALIVE_SECONDS):
+                            if isinstance(emitted, _Keepalive):
+                                # Upstream gap: forward an Anthropic-style ping so
+                                # the connection doesn't idle out mid-generation.
+                                # Only after message_start (emitted_any) so the
+                                # wire event ordering stays intact.
+                                if emitted_any:
+                                    yield _KEEPALIVE_SSE
+                                continue
                             if _is_anthropic_response_emission(emitted):
                                 raise TypeError(
                                     "Streaming Anthropic execution policies must emit streaming events, "

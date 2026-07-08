@@ -2736,3 +2736,78 @@ class TestWebhookFireIsolation:
 
         webhook.fire_and_forget.assert_called_once()
         recorder.flush.assert_called()  # cleanup completed despite webhook failure
+
+
+
+class TestStreamWithKeepalive:
+    """`_stream_with_keepalive` injects SSE keepalives during upstream gaps without
+    dropping or reordering real events. Regression: the Anthropic SDK drops upstream
+    `ping` events, so a long silent generation idled out at the ALB timeout."""
+
+    async def test_injects_keepalive_during_gap(self):
+        from luthien_proxy.pipeline.anthropic_processor import (
+            _Keepalive,
+            _stream_with_keepalive,
+        )
+
+        async def source():
+            yield "A"
+            await asyncio.sleep(0.12)  # > interval -> keepalives expected in this gap
+            yield "B"
+
+        out = [item async for item in _stream_with_keepalive(source(), 0.02)]
+        reals = [x for x in out if not isinstance(x, _Keepalive)]
+        keepalives = [x for x in out if isinstance(x, _Keepalive)]
+        assert reals == ["A", "B"]  # order preserved, nothing dropped
+        assert len(keepalives) >= 1  # the gap produced at least one keepalive
+        assert out[0] == "A" and out[-1] == "B"  # keepalives sit between real events
+
+    async def test_no_keepalive_when_fast(self):
+        from luthien_proxy.pipeline.anthropic_processor import (
+            _Keepalive,
+            _stream_with_keepalive,
+        )
+
+        async def source():
+            yield "A"
+            yield "B"
+            yield "C"
+
+        out = [item async for item in _stream_with_keepalive(source(), 0.5)]
+        assert out == ["A", "B", "C"]
+        assert not any(isinstance(x, _Keepalive) for x in out)
+
+    async def test_empty_source_terminates(self):
+        from luthien_proxy.pipeline.anthropic_processor import _stream_with_keepalive
+
+        async def source():
+            return
+            yield  # pragma: no cover - makes this an async generator
+
+        out = [item async for item in _stream_with_keepalive(source(), 0.02)]
+        assert out == []
+
+    async def test_close_cancels_pending(self):
+        from luthien_proxy.pipeline.anthropic_processor import (
+            _Keepalive,
+            _stream_with_keepalive,
+        )
+
+        cancelled = asyncio.Event()
+
+        async def source():
+            yield "A"
+            try:
+                await asyncio.sleep(10)  # long-pending item, in flight at close
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+            yield "B"  # pragma: no cover - never reached
+
+        gen = _stream_with_keepalive(source(), 0.02)
+        assert await gen.__anext__() == "A"
+        nxt = await gen.__anext__()  # pending sleep in flight -> keepalive
+        assert isinstance(nxt, _Keepalive)
+        await gen.aclose()  # must cancel the pending __anext__, not hang
+        await asyncio.sleep(0.01)
+        assert cancelled.is_set()
