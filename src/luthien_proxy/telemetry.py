@@ -28,7 +28,9 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
     OTLPSpanExporter as HttpSpanExporter,
 )
+from opentelemetry.instrumentation.asyncpg import AsyncPGInstrumentor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
@@ -204,6 +206,20 @@ def instrument_redis() -> None:
     logger.info("Redis instrumented with OpenTelemetry")
 
 
+def instrument_db() -> None:
+    """Instrument the Postgres drivers with OpenTelemetry.
+
+    Creates a span per database query for asyncpg (the primary connection-pool
+    driver) and psycopg, so slow queries surface in traces.
+    """
+    if not get_settings().otel_enabled:
+        return
+
+    AsyncPGInstrumentor().instrument()
+    PsycopgInstrumentor().instrument()
+    logger.info("Postgres (asyncpg + psycopg) instrumented with OpenTelemetry")
+
+
 def configure_logging() -> None:
     """Configure structured logging with trace correlation.
 
@@ -265,6 +281,7 @@ def setup_telemetry(app=None) -> trace.Tracer:
     tracer = configure_tracing()
     configure_logging()
     instrument_redis()
+    instrument_db()
 
     if app:
         instrument_app(app)
@@ -284,4 +301,5 @@ __all__ = [
     "configure_logging",
     "instrument_app",
     "instrument_redis",
+    "instrument_db",
 ]

@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import time
 from collections.abc import AsyncIterator
+from collections.abc import Iterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -23,9 +25,14 @@ from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from httpx import Request as HttpxRequest
 from httpx import Response as HttpxResponse
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from tests.constants import DEFAULT_TEST_MODEL
 from tests.luthien_proxy.fixtures.policy_context import make_policy_context
 
+from luthien_proxy.pipeline import anthropic_processor as anthropic_processor_mod
 from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse, build_usage
 from luthien_proxy.pipeline.anthropic_processor import (
@@ -43,6 +50,30 @@ from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicPolicyEmission,
 )
 from luthien_proxy.policy_core.policy_context import PolicyContext
+
+
+@pytest.fixture
+def span_exporter(monkeypatch: pytest.MonkeyPatch) -> Iterator[InMemorySpanExporter]:
+    previous_provider = trace._TRACER_PROVIDER
+    previous_once_done = trace._TRACER_PROVIDER_SET_ONCE._done
+    trace._TRACER_PROVIDER_SET_ONCE._done = False
+
+    provider = TracerProvider()
+    exporter = InMemorySpanExporter()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    trace.set_tracer_provider(provider)
+    monkeypatch.setattr(
+        anthropic_processor_mod,
+        "tracer",
+        provider.get_tracer(anthropic_processor_mod.__name__),
+    )
+
+    try:
+        yield exporter
+    finally:
+        provider.shutdown()
+        trace._TRACER_PROVIDER = previous_provider
+        trace._TRACER_PROVIDER_SET_ONCE._done = previous_once_done
 
 
 class TestFormatSSEEvent:
@@ -2197,6 +2228,36 @@ class TestStreamingWebhookGate:
         assert kwargs["success"] is True
         assert kwargs["http_status"] == 200
         assert kwargs["is_streaming"] is True
+
+    @pytest.mark.asyncio
+    async def test_first_stream_event_sets_span_attribute(
+        self,
+        span_exporter: InMemorySpanExporter,
+    ):
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        async def emissions():
+            yield self._make_event()
+
+        io, span, ctx, recorder, emitter = self._make_deps()
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-first-event",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            request_start_time=time.monotonic() - 0.01,
+        )
+
+        await self._drain(response)
+
+        spans = {span.name: span for span in span_exporter.get_finished_spans()}
+        attrs = spans["process_response"].attributes
+        assert attrs is not None
+        assert isinstance(attrs["luthien.stream.first_event_ms"], int)
+        assert attrs["luthien.stream.first_event_ms"] >= 0
 
     @pytest.mark.asyncio
     async def test_mid_stream_exception_fires_with_success_false(self):

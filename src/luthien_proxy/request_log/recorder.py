@@ -19,10 +19,14 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
+
 from luthien_proxy.request_log.sanitize import sanitize_headers
 from luthien_proxy.utils.db import DatabasePool, DatabaseWriteError
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 # Bodies larger than this are replaced with a truncation notice
 MAX_BODY_BYTES = 1_048_576  # 1 MB
@@ -58,11 +62,25 @@ class _PendingLog:
     error: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _SerializedBody:
+    payload: str | None
+    size_bytes: int
+    truncated: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _SerializedLogBodySizes:
+    request_body_bytes: int
+    response_body_bytes: int
+    body_truncated: bool
+
+
 async def _insert_log_row(
     conn: object,
     pending: _PendingLog,
-    serialize_body: Callable[[dict[str, Any] | None], str | None],
-) -> None:
+    serialize_body: Callable[[dict[str, Any] | None], _SerializedBody],
+) -> _SerializedLogBodySizes:
     """Insert one request_logs row via the DB-agnostic connection interface.
 
     Raises DatabaseWriteError on any failure so callers don't need to know
@@ -72,6 +90,8 @@ async def _insert_log_row(
     parameters) that breaks SQLite's ? placeholders. A None completed_at
     becomes NULL via to_timestamp(NULL) on both Postgres and SQLite.
     """
+    request_body = serialize_body(pending.request_body)
+    response_body = serialize_body(pending.response_body)
     try:
         await conn.execute(  # type: ignore[union-attr]
             """
@@ -96,10 +116,10 @@ async def _insert_log_row(
             pending.http_method,
             pending.url,
             json.dumps(pending.request_headers) if pending.request_headers else None,
-            serialize_body(pending.request_body),
+            request_body.payload,
             pending.response_status,
             json.dumps(pending.response_headers) if pending.response_headers else None,
-            serialize_body(pending.response_body),
+            response_body.payload,
             pending.started_at,
             pending.completed_at,
             pending.duration_ms,
@@ -114,6 +134,11 @@ async def _insert_log_row(
             f"transaction_id={pending.transaction_id!r}): {exc}",
             cause=exc,
         ) from exc
+    return _SerializedLogBodySizes(
+        request_body_bytes=request_body.size_bytes,
+        response_body_bytes=response_body.size_bytes,
+        body_truncated=request_body.truncated or response_body.truncated,
+    )
 
 
 class RequestLogRecorder:
@@ -230,29 +255,49 @@ class RequestLogRecorder:
             logger.debug("No running event loop; skipping request log flush")
 
     @staticmethod
-    def _serialize_body(body: dict[str, Any] | None) -> str | None:
+    def _serialize_body(body: dict[str, Any] | None) -> _SerializedBody:
         """JSON-serialize a body dict, truncating if it exceeds MAX_BODY_BYTES."""
         if body is None:
-            return None
+            return _SerializedBody(payload=None, size_bytes=0, truncated=False)
         serialized = json.dumps(body)
-        if len(serialized) > MAX_BODY_BYTES:
-            return json.dumps({"_truncated": True, "_original_size_bytes": len(serialized)})
-        return serialized
+        size_bytes = len(serialized)
+        if size_bytes > MAX_BODY_BYTES:
+            return _SerializedBody(
+                payload=json.dumps({"_truncated": True, "_original_size_bytes": size_bytes}),
+                size_bytes=size_bytes,
+                truncated=True,
+            )
+        return _SerializedBody(payload=serialized, size_bytes=size_bytes, truncated=False)
 
     async def _write_logs(self) -> None:
         """Insert both inbound and outbound rows."""
-        try:
-            async with self._db_pool.connection() as conn:
-                for pending in (self._inbound, self._outbound):
-                    await _insert_log_row(conn, pending, self._serialize_body)
-        except DatabaseWriteError as exc:
-            RequestLogRecorder.dropped_writes += 1
-            logger.warning(
-                "Failed to write request logs for %s (%d total dropped): %s",
-                self._transaction_id,
-                RequestLogRecorder.dropped_writes,
-                exc.cause,
-            )
+        write_started_at = time.monotonic()
+        request_body_bytes = 0
+        response_body_bytes = 0
+        body_truncated = False
+        with tracer.start_as_current_span("request_log.write") as span:
+            try:
+                async with self._db_pool.connection() as conn:
+                    for pending in (self._inbound, self._outbound):
+                        body_sizes = await _insert_log_row(conn, pending, self._serialize_body)
+                        request_body_bytes += body_sizes.request_body_bytes
+                        response_body_bytes += body_sizes.response_body_bytes
+                        body_truncated = body_truncated or body_sizes.body_truncated
+            except DatabaseWriteError as exc:
+                span.set_status(Status(StatusCode.ERROR, "db write failed"))
+                span.record_exception(exc)
+                RequestLogRecorder.dropped_writes += 1
+                logger.warning(
+                    "Failed to write request logs for %s (%d total dropped): %s",
+                    self._transaction_id,
+                    RequestLogRecorder.dropped_writes,
+                    exc.cause,
+                )
+            finally:
+                span.set_attribute("db.write.duration_ms", int((time.monotonic() - write_started_at) * 1000))
+                span.set_attribute("luthien.request_log.request_body_bytes", request_body_bytes)
+                span.set_attribute("luthien.request_log.response_body_bytes", response_body_bytes)
+                span.set_attribute("luthien.request_log.body_truncated", body_truncated)
 
 
 class NoOpRequestLogRecorder(RequestLogRecorder):

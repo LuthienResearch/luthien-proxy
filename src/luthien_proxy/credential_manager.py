@@ -15,6 +15,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from opentelemetry import trace
 
 from luthien_proxy.credentials.auth_provider import (
     AuthProvider,
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
     from luthien_proxy.policy_core.policy_context import PolicyContext
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 CACHE_KEY_PREFIX = "luthien:auth:cred:"
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages/count_tokens"
@@ -219,22 +221,29 @@ class CredentialManager:
         """
         key_hash = hash_credential(credential)
 
-        # Check cache
-        cached = await self._get_cached(key_hash)
-        if cached is not None:
-            await self._touch_last_used(key_hash)
-            return cached.valid
+        with tracer.start_as_current_span("auth.validate_credential") as span:
+            span.set_attribute("luthien.auth.is_bearer", is_bearer)
 
-        # Cache miss - validate against Anthropic API
-        is_valid = await self._call_count_tokens(credential, is_bearer=is_bearer)
-        if is_valid is None:
-            # Inconclusive (network error, unexpected status, or OAuth bearer that
-            # count_tokens can't validate). For OAuth tokens, pass through and let
-            # Anthropic's messages endpoint decide. For API keys, block to be safe.
-            return is_bearer
-        await self._cache_result(key_hash, is_valid)
-        logger.info(f"Credential validated: hash={key_hash[:16]}... valid={is_valid}")
-        return is_valid
+            # Check cache
+            cached = await self._get_cached(key_hash)
+            span.set_attribute("luthien.auth.cache_hit", cached is not None)
+            if cached is not None:
+                await self._touch_last_used(key_hash)
+                span.set_attribute("luthien.auth.result", "valid" if cached.valid else "invalid")
+                return cached.valid
+
+            # Cache miss - validate against Anthropic API
+            is_valid = await self._call_count_tokens(credential, is_bearer=is_bearer)
+            if is_valid is None:
+                # Inconclusive (network error, unexpected status, or OAuth bearer that
+                # count_tokens can't validate). For OAuth tokens, pass through and let
+                # Anthropic's messages endpoint decide. For API keys, block to be safe.
+                span.set_attribute("luthien.auth.result", "inconclusive")
+                return is_bearer
+            await self._cache_result(key_hash, is_valid)
+            span.set_attribute("luthien.auth.result", "valid" if is_valid else "invalid")
+            logger.info(f"Credential validated: hash={key_hash[:16]}... valid={is_valid}")
+            return is_valid
 
     async def on_backend_401(self, api_key: str) -> None:
         """Invalidate a credential that got rejected by the backend."""
@@ -365,27 +374,30 @@ class CredentialManager:
         else:
             headers["x-api-key"] = credential
 
-        try:
-            response = await self._http_client.post(
-                ANTHROPIC_API_URL,
-                headers=headers,
-                json=VALIDATION_PAYLOAD,
-            )
-            if response.status_code == 200:
-                return True
-            if response.status_code == 401:
-                if is_bearer:
-                    # OAuth bearer tokens (e.g. from claude.ai) may be valid for the
-                    # messages endpoint but rejected by count_tokens. Treat as inconclusive
-                    # so the request is forwarded and Anthropic's real endpoint decides.
-                    logger.debug("count_tokens returned 401 for bearer token; treating as inconclusive")
-                    return None
-                return False
-            logger.warning(f"Credential validation got unexpected status: {response.status_code}")
-            return None
-        except httpx.RequestError as e:
-            logger.warning(f"Credential validation network error: {repr(e)}")
-            return None
+        with tracer.start_as_current_span("auth.count_tokens") as span:
+            try:
+                response = await self._http_client.post(
+                    ANTHROPIC_API_URL,
+                    headers=headers,
+                    json=VALIDATION_PAYLOAD,
+                )
+                span.set_attribute("http.status_code", response.status_code)
+                if response.status_code == 200:
+                    return True
+                if response.status_code == 401:
+                    if is_bearer:
+                        # OAuth bearer tokens (e.g. from claude.ai) may be valid for the
+                        # messages endpoint but rejected by count_tokens. Treat as inconclusive
+                        # so the request is forwarded and Anthropic's real endpoint decides.
+                        logger.debug("count_tokens returned 401 for bearer token; treating as inconclusive")
+                        return None
+                    return False
+                logger.warning(f"Credential validation got unexpected status: {response.status_code}")
+                return None
+            except httpx.RequestError as e:
+                span.set_attribute("error.type", type(e).__name__)
+                logger.warning(f"Credential validation network error: {repr(e)}")
+                return None
 
     # ---- Auth Provider Resolution ----
 

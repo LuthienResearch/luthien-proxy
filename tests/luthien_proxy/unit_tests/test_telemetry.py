@@ -156,6 +156,15 @@ class TestInstrumentRedis:
         # No exception should be raised
 
 
+class TestInstrumentDb:
+    """Test Postgres (asyncpg + psycopg) instrumentation."""
+
+    def test_does_not_raise_exception(self):
+        """instrument_db must not raise (no-op when OTEL is disabled)."""
+        telemetry.instrument_db()
+        # No exception should be raised
+
+
 class TestConfigureLogging:
     """Test logging configuration."""
 
@@ -230,6 +239,20 @@ class TestSetupTelemetry:
         mock_instrument_redis.assert_called_once()
         mock_instrument_app.assert_called_once_with(mock_app)
         assert result == mock_tracer
+
+    @patch("luthien_proxy.telemetry.instrument_db")
+    @patch("luthien_proxy.telemetry.instrument_redis")
+    @patch("luthien_proxy.telemetry.configure_logging")
+    @patch("luthien_proxy.telemetry.configure_tracing")
+    def test_instruments_db(
+        self, mock_configure_tracing, mock_configure_logging, mock_instrument_redis, mock_instrument_db
+    ):
+        """setup_telemetry wires Postgres DB instrumentation."""
+        mock_configure_tracing.return_value = Mock()
+
+        telemetry.setup_telemetry()
+
+        mock_instrument_db.assert_called_once()
 
 
 class TestRestoreContext:

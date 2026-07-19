@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
@@ -9,8 +10,14 @@ from unittest.mock import AsyncMock, patch
 
 import asyncpg
 import pytest
+from opentelemetry import trace
+from opentelemetry.trace import StatusCode
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from pydantic import BaseModel
 
+from luthien_proxy.observability import emitter as emitter_mod
 from luthien_proxy.observability.emitter import (
     EventEmitter,
     NullEventEmitter,
@@ -27,11 +34,31 @@ def _add_transaction_cm(mock_conn: AsyncMock) -> AsyncMock:
     """
 
     @asynccontextmanager
-    async def _txn() -> Any:
+    async def _txn() -> AsyncIterator[Any]:
         yield
 
     mock_conn.transaction = _txn
     return mock_conn
+
+
+@pytest.fixture
+def span_exporter(monkeypatch: pytest.MonkeyPatch) -> Iterator[InMemorySpanExporter]:
+    previous_provider = trace._TRACER_PROVIDER
+    previous_once_done = trace._TRACER_PROVIDER_SET_ONCE._done
+    trace._TRACER_PROVIDER_SET_ONCE._done = False
+
+    provider = TracerProvider()
+    exporter = InMemorySpanExporter()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    trace.set_tracer_provider(provider)
+    monkeypatch.setattr(emitter_mod, "tracer", provider.get_tracer(emitter_mod.__name__), raising=False)
+
+    try:
+        yield exporter
+    finally:
+        provider.shutdown()
+        trace._TRACER_PROVIDER = previous_provider
+        trace._TRACER_PROVIDER_SET_ONCE._done = previous_once_done
 
 
 class TestSafeSerialize:
@@ -292,6 +319,51 @@ class TestEventEmitter:
         before = EventEmitter.dropped_db_writes
         await emitter.emit("tx-123", "test.event", {"key": "value"})
         assert EventEmitter.dropped_db_writes == before + 1
+
+    @pytest.mark.asyncio
+    async def test_write_db_emits_span_with_duration(
+        self,
+        span_exporter: InMemorySpanExporter,
+    ) -> None:
+        mock_conn = _add_transaction_cm(AsyncMock())
+
+        @asynccontextmanager
+        async def fake_connection():
+            yield mock_conn
+
+        mock_pool = AsyncMock()
+        mock_pool.connection = fake_connection
+        emitter = EventEmitter(db_pool=mock_pool, stdout_enabled=False)
+
+        await emitter._write_db("tx-123", "test.event", {"body": "secret"}, datetime.now(UTC))
+
+        spans = {span.name: span for span in span_exporter.get_finished_spans()}
+        attrs = spans["emitter.write_db"].attributes
+        assert attrs is not None
+        assert isinstance(attrs["db.write.duration_ms"], int)
+        assert attrs["db.write.duration_ms"] >= 0
+        assert "body" not in attrs
+
+    @pytest.mark.asyncio
+    async def test_write_db_marks_span_error_on_db_failure(
+        self,
+        span_exporter: InMemorySpanExporter,
+    ) -> None:
+        mock_conn = _add_transaction_cm(AsyncMock())
+        mock_conn.execute = AsyncMock(side_effect=asyncpg.PostgresError("connection lost"))
+
+        @asynccontextmanager
+        async def fake_connection():
+            yield mock_conn
+
+        mock_pool = AsyncMock()
+        mock_pool.connection = fake_connection
+        emitter = EventEmitter(db_pool=mock_pool, stdout_enabled=False)
+
+        await emitter._write_db("tx-123", "test.event", {"body": "secret"}, datetime.now(UTC))
+
+        spans = {span.name: span for span in span_exporter.get_finished_spans()}
+        assert spans["emitter.write_db"].status.status_code == StatusCode.ERROR
 
     @pytest.mark.asyncio
     async def test_write_db_does_not_catch_unrelated_exceptions(self) -> None:
