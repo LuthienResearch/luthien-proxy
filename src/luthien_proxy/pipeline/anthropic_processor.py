@@ -1167,16 +1167,19 @@ def _format_sse_event(event: MessageStreamEvent | _StreamErrorEvent) -> str:
 
     The client uses messages.create(stream=True), which yields only raw
     wire-protocol events — no synthetic SDK convenience events to filter.
-    model_dump() faithfully reproduces whatever the API sent, including any
-    new fields the SDK hasn't added to model_fields yet, making the proxy
-    as transparent as a direct connection.
+    model_dump(mode="json") faithfully reproduces whatever the API sent,
+    including any new fields the SDK hasn't added to model_fields yet, making
+    the proxy as transparent as a direct connection. JSON mode matters: some
+    wire fields are non-primitive in the SDK models (e.g. the code-execution
+    container's `expires_at` is a datetime), and python-mode dumps of those
+    crash json.dumps mid-stream.
     """
     if isinstance(event, dict):
         event_type = str(event.get("type", "unknown"))
         event_data: dict = dict(event)
     else:
         event_type = event.type
-        event_data = event.model_dump()
+        event_data = event.model_dump(mode="json")
 
     json_data = json.dumps(event_data)
     return f"event: {event_type}\ndata: {json_data}\n\n"
