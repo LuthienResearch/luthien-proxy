@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
+from typing import Iterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -23,6 +25,11 @@ from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from httpx import Request as HttpxRequest
 from httpx import Response as HttpxResponse
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import StatusCode
 from tests.constants import DEFAULT_TEST_MODEL
 from tests.luthien_proxy.fixtures.policy_context import make_policy_context
 
@@ -43,6 +50,30 @@ from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicPolicyEmission,
 )
 from luthien_proxy.policy_core.policy_context import PolicyContext
+
+
+@pytest.fixture
+def span_exporter(monkeypatch: pytest.MonkeyPatch) -> Iterator[InMemorySpanExporter]:
+    """Route `anthropic_processor`'s module-level tracer to an in-memory exporter."""
+    previous_provider = trace._TRACER_PROVIDER
+    previous_once_done = trace._TRACER_PROVIDER_SET_ONCE._done
+    trace._TRACER_PROVIDER_SET_ONCE._done = False
+
+    provider = TracerProvider()
+    exporter = InMemorySpanExporter()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    trace.set_tracer_provider(provider)
+    monkeypatch.setattr(
+        "luthien_proxy.pipeline.anthropic_processor.tracer",
+        provider.get_tracer("luthien_proxy.pipeline.anthropic_processor"),
+    )
+
+    try:
+        yield exporter
+    finally:
+        provider.shutdown()
+        trace._TRACER_PROVIDER = previous_provider
+        trace._TRACER_PROVIDER_SET_ONCE._done = previous_once_done
 
 
 class TestFormatSSEEvent:
@@ -2736,3 +2767,136 @@ class TestWebhookFireIsolation:
 
         webhook.fire_and_forget.assert_called_once()
         recorder.flush.assert_called()  # cleanup completed despite webhook failure
+
+
+class TestStreamWithKeepalive:
+    """`_stream_with_keepalive` injects SSE keepalives during upstream gaps without
+    dropping or reordering real events. Regression: the Anthropic SDK drops upstream
+    `ping` events, so a long silent generation idled out at the ALB timeout."""
+
+    async def test_injects_keepalive_during_gap(self):
+        from luthien_proxy.pipeline.anthropic_processor import (
+            _Keepalive,
+            _stream_with_keepalive,
+        )
+
+        async def source():
+            yield "A"
+            await asyncio.sleep(0.12)  # > interval -> keepalives expected in this gap
+            yield "B"
+
+        out = [item async for item in _stream_with_keepalive(source(), 0.02)]
+        reals = [x for x in out if not isinstance(x, _Keepalive)]
+        keepalives = [x for x in out if isinstance(x, _Keepalive)]
+        assert reals == ["A", "B"]  # order preserved, nothing dropped
+        assert len(keepalives) >= 1  # the gap produced at least one keepalive
+        assert out[0] == "A" and out[-1] == "B"  # keepalives sit between real events
+
+    async def test_no_keepalive_when_fast(self):
+        from luthien_proxy.pipeline.anthropic_processor import (
+            _Keepalive,
+            _stream_with_keepalive,
+        )
+
+        async def source():
+            yield "A"
+            yield "B"
+            yield "C"
+
+        out = [item async for item in _stream_with_keepalive(source(), 0.5)]
+        assert out == ["A", "B", "C"]
+        assert not any(isinstance(x, _Keepalive) for x in out)
+
+    async def test_empty_source_terminates(self):
+        from luthien_proxy.pipeline.anthropic_processor import _stream_with_keepalive
+
+        async def source():
+            return
+            yield  # pragma: no cover - makes this an async generator
+
+        out = [item async for item in _stream_with_keepalive(source(), 0.02)]
+        assert out == []
+
+    async def test_close_cancels_pending(self):
+        from luthien_proxy.pipeline.anthropic_processor import (
+            _Keepalive,
+            _stream_with_keepalive,
+        )
+
+        cancelled = asyncio.Event()
+
+        async def source():
+            yield "A"
+            try:
+                await asyncio.sleep(10)  # long-pending item, in flight at close
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+            yield "B"  # pragma: no cover - never reached
+
+        gen = _stream_with_keepalive(source(), 0.02)
+        assert await gen.__anext__() == "A"
+        nxt = await gen.__anext__()  # pending sleep in flight -> keepalive
+        assert isinstance(nxt, _Keepalive)
+        await gen.aclose()  # must cancel the pending __anext__, not hang
+        await asyncio.sleep(0.01)
+        assert cancelled.is_set()
+
+    async def test_source_exception_propagates(self):
+        """An exception raised by `source` surfaces to the consumer, not just a hang.
+
+        `_pump_to_queue` catches it and hands it back through the queue as a
+        `_StreamError` sentinel; `_stream_with_keepalive` must unwrap and re-raise it.
+        """
+        from luthien_proxy.pipeline.anthropic_processor import _stream_with_keepalive
+
+        async def source():
+            yield "A"
+            raise RuntimeError("upstream exploded")
+
+        gen = _stream_with_keepalive(source(), 0.02)
+        assert await gen.__anext__() == "A"
+        with pytest.raises(RuntimeError, match="upstream exploded"):
+            await gen.__anext__()
+
+    async def test_span_spanning_multiple_yields_detaches_cleanly(
+        self,
+        span_exporter: InMemorySpanExporter,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        """Regression for the production `Failed to detach context` ERROR storm.
+
+        `AnthropicClient.stream()` and `_AnthropicPolicyIO._stream()` each hold a
+        span open across every chunk of the upstream response — exactly this
+        shape, reproduced directly against `_stream_with_keepalive` instead of the
+        full pipeline. A keepalive gap forces at least one wait-for-timeout cycle
+        mid-span, which used to move the underlying generator's `__anext__` onto a
+        fresh `asyncio.Task` (and therefore a fresh `contextvars.Context`) on every
+        item, so the span's `__exit__` detached a token created in a different
+        Context than the one it ran in. That raised `ValueError` inside
+        `opentelemetry.context.detach()`, which logs it rather than propagating it
+        — so the only observable symptom is the ERROR log line asserted against
+        below.
+        """
+        from luthien_proxy.pipeline import anthropic_processor as mod
+        from luthien_proxy.pipeline.anthropic_processor import _Keepalive, _stream_with_keepalive
+
+        async def source():
+            with mod.tracer.start_as_current_span("fake_upstream"):
+                yield "A"
+                await asyncio.sleep(0.12)  # > interval -> forces a keepalive mid-span
+                yield "B"
+
+        with caplog.at_level(logging.ERROR, logger="opentelemetry.context"):
+            out = [item async for item in _stream_with_keepalive(source(), 0.02)]
+
+        reals = [x for x in out if not isinstance(x, _Keepalive)]
+        assert reals == ["A", "B"]
+
+        failed_detaches = [r for r in caplog.records if "Failed to detach context" in r.message]
+        assert failed_detaches == []
+
+        finished = span_exporter.get_finished_spans()
+        assert len(finished) == 1
+        assert finished[0].name == "fake_upstream"
+        assert finished[0].status.status_code == StatusCode.UNSET
