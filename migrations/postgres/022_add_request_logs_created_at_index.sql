@@ -1,0 +1,16 @@
+-- ABOUTME: Adds an index on request_logs.created_at
+-- ABOUTME: request_logs had no index on created_at, so any time-windowed query
+-- ABOUTME: (e.g. the capture-liveness monitor's "rows in the last 15 minutes"
+-- ABOUTME: check) forced a full-table Parallel Seq Scan -- a fixed cost that
+-- ABOUTME: grows with the table and is independent of live traffic.
+--
+-- CONCURRENTLY: request_logs is a live, multi-GB, multi-million-row production
+-- table. A plain CREATE INDEX takes a SHARE lock that blocks writes (INSERTs
+-- from every in-flight request) for the full build duration; CONCURRENTLY
+-- avoids that at the cost of two table scans and not running inside a
+-- transaction block. This file must contain only this one statement -- the
+-- migration runner (docker/run-migrations.sh) invokes `psql -f` per file
+-- without `-1`/`--single-transaction`, so each statement in a file already
+-- commits independently, but CONCURRENTLY additionally forbids being run
+-- inside any explicit BEGIN/COMMIT this file might otherwise add.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_request_logs_created_at ON request_logs (created_at);
