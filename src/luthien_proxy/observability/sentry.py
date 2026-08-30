@@ -2,16 +2,18 @@
 
 Layer 1 (EventScrubber): strips values by key name (api_key, token, etc.)
 Layer 2 (before_send hook): summarizes LLM content variables with type+length,
-strips cookies/server_name, redacts non-safe headers.
+strips cookies/server_name, redacts non-safe headers, and drops expected
+upstream provider errors.
 """
 
 from __future__ import annotations
 
 import logging
 from itertools import islice
-from typing import Any
+from typing import Any, Mapping
 
 import sentry_sdk
+from anthropic import APIStatusError
 from sentry_sdk.integrations.logging import ignore_logger
 from sentry_sdk.scrubber import DEFAULT_DENYLIST, EventScrubber
 from sentry_sdk.types import Event, Hint
@@ -43,6 +45,101 @@ _LLM_CONTENT_VARS = {
     "accumulated_events",
     "raw_http_request",
 }
+
+# Upstream statuses that mean the request/response is the client's or the
+# provider's problem, not a proxy defect. The pipeline already converts every
+# one of these into a BackendAPIError response for the client (see
+# _handle_anthropic_error / _build_error_event, which log at warning and
+# handle every AnthropicStatusError the same way regardless of status code)
+# and, for the throttling/availability codes, the caller retries. They arrive
+# here anyway because the Sentry Anthropic integration captures at the SDK
+# call site with handled=false, before our handler ever sees them.
+
+# 408/429/500/502/503/504/529: provider throttling or brief unavailability.
+# Structurally impossible for the proxy to have provoked — dropped
+# unconditionally (56 unhandled 429 events in three days before this filter
+# existed).
+_PROVIDER_SIDE_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504, 529})
+
+# 400/404: the client sent content Anthropic legitimately rejected —
+# malformed message content or an unknown model name (LUTHIEN-6: 1,080
+# events for one recurring 400; LUTHIEN-2: unknown-model 404s). This is a
+# property of the request body alone, independent of which credential
+# reached Anthropic. But the proxy is not always a transparent passthrough:
+# policy hooks can mutate or replace the request before it reaches
+# Anthropic, and operator-configured UPSTREAM_HEADERS or policy-context
+# injection can alter it too. Only drop these when the request carries
+# provenance (the PASSTHROUGH_TAG scope tag, set at the actual upstream
+# call boundary in _AnthropicPolicyIO) proving nothing touched it after the
+# client sent it.
+_CONTENT_DEPENDENT_STATUS_CODES = frozenset({400, 404})
+
+# 401: an invalid bearer token passed through client-credential mode
+# (LUTHIEN-D). Unlike 400/404, this is NOT solely a body/header property: in
+# client-key auth mode the *credential* forwarded upstream is the operator's
+# own ANTHROPIC_API_KEY rather than anything the client sent, so an
+# unmodified body proves nothing about whose credential caused the 401 in
+# that mode — an invalid operator credential must still report. Dropping a
+# 401 requires BOTH the PASSTHROUGH_TAG (request untouched) AND the
+# CREDENTIAL_PASSTHROUGH_TAG (credential is the client's own, not the
+# operator's shared key).
+_CREDENTIAL_DEPENDENT_STATUS_CODES = frozenset({401})
+
+_CLIENT_OR_PASSTHROUGH_STATUS_CODES = _CONTENT_DEPENDENT_STATUS_CODES | _CREDENTIAL_DEPENDENT_STATUS_CODES
+
+_EXPECTED_UPSTREAM_STATUS_CODES = _PROVIDER_SIDE_STATUS_CODES | _CLIENT_OR_PASSTHROUGH_STATUS_CODES
+
+# Scope tag set by the Anthropic pipeline (see _AnthropicPolicyIO in
+# anthropic_processor.py) immediately before the upstream call, true only
+# when the request body and headers going to Anthropic are exactly what the
+# client sent — no policy hook, header injection, or context injection
+# touched them. Says nothing about which credential was forwarded; see
+# CREDENTIAL_PASSTHROUGH_TAG for that.
+PASSTHROUGH_TAG = "luthien.request_unmodified_passthrough"
+
+# Scope tag set alongside PASSTHROUGH_TAG, true only when the credential
+# forwarded to Anthropic is the client's own (passthrough / BOTH / explicit
+# x-anthropic-api-key auth) rather than the operator's shared
+# ANTHROPIC_API_KEY substituted in client-key auth mode. Only 401 needs
+# this — a bad body/model name (400/404) is credential-independent.
+CREDENTIAL_PASSTHROUGH_TAG = "luthien.credential_client_supplied"
+
+# The decision table itself: which scope tags (all must be True) are required
+# to drop each expected-upstream status code. Empty for the provider-side
+# codes (unconditional), PASSTHROUGH_TAG alone for the content-dependent
+# codes, both tags for the credential-dependent code. Built from the sets
+# above so it cannot drift from the per-category documentation there, and a
+# status absent from every set above is absent here too, so it always
+# reports — see _is_expected_upstream_error.
+_REQUIRED_TAGS_BY_STATUS: dict[int, tuple[str, ...]] = {
+    **dict.fromkeys(_PROVIDER_SIDE_STATUS_CODES, ()),
+    **dict.fromkeys(_CONTENT_DEPENDENT_STATUS_CODES, (PASSTHROUGH_TAG,)),
+    **dict.fromkeys(_CREDENTIAL_DEPENDENT_STATUS_CODES, (PASSTHROUGH_TAG, CREDENTIAL_PASSTHROUGH_TAG)),
+}
+
+
+def tag_request_provenance(unmodified: bool) -> None:
+    """Record on the current Sentry scope whether the outgoing request is untouched.
+
+    Called at the upstream call boundary so `_sentry_before_send` can tell a
+    genuine client/provider 400/404 from one the proxy or a policy caused.
+    Safe to call even when Sentry is disabled or uninitialized —
+    `sentry_sdk.set_tag` is a no-op against the default scope in that case.
+    """
+    sentry_sdk.set_tag(PASSTHROUGH_TAG, unmodified)
+
+
+def tag_credential_provenance(client_supplied: bool) -> None:
+    """Record on the current Sentry scope whether the forwarded credential is the client's own.
+
+    Called at the upstream call boundary alongside `tag_request_provenance`
+    so `_sentry_before_send` can tell a genuine client credential failure
+    (401) from an invalid operator credential in client-key auth mode. Safe
+    to call even when Sentry is disabled or uninitialized —
+    `sentry_sdk.set_tag` is a no-op against the default scope in that case.
+    """
+    sentry_sdk.set_tag(CREDENTIAL_PASSTHROUGH_TAG, client_supplied)
+
 
 _SAFE_REQUEST_KEYS = {"model", "stream", "max_tokens", "temperature", "top_p", "top_k"}
 _SAFE_HEADERS = {"content-type", "accept", "user-agent", "x-request-id"}
@@ -80,6 +177,23 @@ def _summarize(value: Any) -> Any:
     return f"<{type(value).__name__}>"
 
 
+def _is_expected_upstream_error(exc: BaseException | None, tags: Mapping[str, object]) -> bool:
+    """True for provider errors that are the client's or provider's fault, not ours.
+
+    Matches on the SDK exception's own status_code rather than its class so a
+    provider SDK renaming or adding a status subclass cannot silently start
+    reporting again. Looks up the required scope tags for that status in
+    _REQUIRED_TAGS_BY_STATUS and drops only when every one of them is True;
+    a status with no entry there always reports.
+    """
+    if not isinstance(exc, APIStatusError):
+        return False
+    required_tags = _REQUIRED_TAGS_BY_STATUS.get(exc.status_code)
+    if required_tags is None:
+        return False
+    return all(tags.get(tag) is True for tag in required_tags)
+
+
 def _sentry_before_send(event: Event, hint: Hint) -> Event | None:
     """Selectively redact sensitive data while preserving debugging context.
 
@@ -91,8 +205,11 @@ def _sentry_before_send(event: Event, hint: Hint) -> Event | None:
     drop the event entirely, or the (mutated) event to send it.
     """
     exc_info = hint.get("exc_info")
-    if isinstance(exc_info, tuple) and exc_info[0] in {KeyboardInterrupt, SystemExit}:
-        return None
+    if isinstance(exc_info, tuple):
+        if exc_info[0] in {KeyboardInterrupt, SystemExit}:
+            return None
+        if _is_expected_upstream_error(exc_info[1], event.get("tags") or {}):
+            return None
 
     event.pop("server_name", None)
 

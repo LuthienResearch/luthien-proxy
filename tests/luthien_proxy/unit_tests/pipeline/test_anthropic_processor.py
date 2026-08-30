@@ -26,6 +26,7 @@ from httpx import Response as HttpxResponse
 from tests.constants import DEFAULT_TEST_MODEL
 from tests.luthien_proxy.fixtures.policy_context import make_policy_context
 
+from luthien_proxy.credentials import Credential, CredentialType
 from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse, build_usage
 from luthien_proxy.pipeline.anthropic_processor import (
@@ -645,6 +646,85 @@ class TestProcessAnthropicRequest:
 
         assert isinstance(response, JSONResponse)
         mock_anthropic_client.complete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_client_key_mode_tags_credential_passthrough_false_despite_unmodified_body(
+        self, mock_request, mock_policy, mock_anthropic_client, mock_emitter
+    ):
+        """Route-level regression for the PR #809 credential-provenance finding.
+
+        In client-key auth mode, resolve_anthropic_client (gateway_routes.py)
+        forwards the request with `user_credential=None` — the server's own
+        ANTHROPIC_API_KEY is used, not anything the client sent. Even with a
+        byte-identical, unmodified body, CREDENTIAL_PASSTHROUGH_TAG must be
+        False: an upstream 401 here means the *operator's* credential is
+        invalid, and dropping it from Sentry would silently hide the outage.
+        PASSTHROUGH_TAG (body/header provenance) is unaffected and still
+        tags True, since the body genuinely was untouched — 400/404 noise
+        reduction for client-key deployments must not regress.
+        """
+        anthropic_body = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "stream": False,
+        }
+        mock_request.json = AsyncMock(return_value=anthropic_body)
+
+        with (
+            patch("luthien_proxy.pipeline.anthropic_processor.tracer"),
+            patch("luthien_proxy.pipeline.anthropic_processor.tag_request_provenance") as mock_body_tag,
+            patch("luthien_proxy.pipeline.anthropic_processor.tag_credential_provenance") as mock_cred_tag,
+        ):
+            await process_anthropic_request(
+                request=mock_request,
+                policy=mock_policy,
+                anthropic_client=mock_anthropic_client,
+                emitter=mock_emitter,
+                user_credential=None,
+            )
+
+        mock_body_tag.assert_called_once_with(True)
+        mock_cred_tag.assert_called_once_with(False)
+
+    @pytest.mark.asyncio
+    async def test_passthrough_mode_with_unmodified_body_tags_both_true(
+        self, mock_request, mock_policy, mock_anthropic_client, mock_emitter
+    ):
+        """Sanity check: an unmodified body forwarded with the client's own
+        credential (passthrough / BOTH auth mode) is still a genuine
+        passthrough and must tag both PASSTHROUGH_TAG and
+        CREDENTIAL_PASSTHROUGH_TAG true — the credential check must not
+        overcorrect into always tagging False.
+        """
+        anthropic_body = {
+            "model": DEFAULT_TEST_MODEL,
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 1024,
+            "stream": False,
+        }
+        mock_request.json = AsyncMock(return_value=anthropic_body)
+        client_credential = Credential(
+            value="sk-ant-client-token",
+            credential_type=CredentialType.API_KEY,
+            platform="anthropic",
+        )
+
+        with (
+            patch("luthien_proxy.pipeline.anthropic_processor.tracer"),
+            patch("luthien_proxy.pipeline.anthropic_processor.tag_request_provenance") as mock_body_tag,
+            patch("luthien_proxy.pipeline.anthropic_processor.tag_credential_provenance") as mock_cred_tag,
+        ):
+            await process_anthropic_request(
+                request=mock_request,
+                policy=mock_policy,
+                anthropic_client=mock_anthropic_client,
+                emitter=mock_emitter,
+                user_credential=client_credential,
+            )
+
+        mock_body_tag.assert_called_once_with(True)
+        mock_cred_tag.assert_called_once_with(True)
 
     @pytest.mark.asyncio
     async def test_emits_transaction_request_recorded(
@@ -2084,6 +2164,8 @@ class TestAnthropicPolicyIOBuffering:
             user_id=None,
             request_log_recorder=MagicMock(),
             is_streaming=is_streaming,
+            client_request_unmodified=True,
+            credential_passthrough=True,
         )
 
     def test_buffer_raw_events_false_when_streaming(self):
@@ -2120,6 +2202,169 @@ class TestAnthropicPolicyIOBuffering:
 
         raw_events = accumulated_events if not io._buffer_raw_events else io._raw_backend_events
         assert raw_events is io._raw_backend_events
+
+
+class TestAnthropicPolicyIORequestProvenance:
+    """Tests for _AnthropicPolicyIO tagging Sentry with request/credential provenance.
+
+    Covers PR #809 finding: 400/404 from Anthropic must only be treated as
+    "expected" (dropped from Sentry) when the request that reached Anthropic is
+    provably what the client sent — see observability/sentry.py:PASSTHROUGH_TAG.
+    Also covers the follow-up finding that PASSTHROUGH_TAG alone is not enough
+    for a 401: in client-key auth mode the *credential* forwarded upstream is
+    the operator's own ANTHROPIC_API_KEY rather than anything the client sent,
+    so CREDENTIAL_PASSTHROUGH_TAG is tagged separately and must NOT gate
+    400/404 (which are credential-independent, and were PR #809's original
+    noise-reduction target for client-key deployments).
+    """
+
+    def _make_io(
+        self,
+        *,
+        request: AnthropicRequest,
+        client_request_unmodified: bool = True,
+        credential_passthrough: bool = True,
+    ) -> _AnthropicPolicyIO:
+        return _AnthropicPolicyIO(
+            initial_request=request,
+            anthropic_client=MagicMock(),
+            emitter=MagicMock(),
+            call_id="test-call",
+            session_id=None,
+            user_id=None,
+            request_log_recorder=MagicMock(),
+            is_streaming=False,
+            client_request_unmodified=client_request_unmodified,
+            credential_passthrough=credential_passthrough,
+        )
+
+    @pytest.mark.asyncio
+    async def test_unmodified_request_tags_passthrough_true(self):
+        """A request nothing touched must tag True."""
+        request: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "max_tokens": 100,
+            "messages": [{"role": "user", "content": "hi"}],
+        }
+        io = self._make_io(request=request)
+        io._anthropic_client.complete = AsyncMock(return_value={"id": "msg_1"})
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tag_request_provenance") as mock_tag:
+            await io.complete(request)
+
+        mock_tag.assert_called_once_with(True)
+
+    @pytest.mark.asyncio
+    async def test_policy_replaced_request_tags_passthrough_false(self):
+        """A policy hook returning a different request object must tag False."""
+        request: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "max_tokens": 100,
+            "messages": [{"role": "user", "content": "hi"}],
+        }
+        io = self._make_io(request=request)
+        io._anthropic_client.complete = AsyncMock(return_value={"id": "msg_1"})
+
+        replaced_request: AnthropicRequest = {**request, "max_tokens": 999}
+        io.set_request(replaced_request)
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tag_request_provenance") as mock_tag:
+            await io.complete(replaced_request)
+
+        mock_tag.assert_called_once_with(False)
+
+    @pytest.mark.asyncio
+    async def test_policy_mutated_request_in_place_tags_passthrough_false(self):
+        """A policy hook mutating the SAME dict in place (rather than replacing
+        it) must still be detected — _initial_request is a deep copy exactly to
+        guard against this aliasing corrupting the comparison (matches
+        _AddMaxTokensPolicy's mutate-and-return style in TestRunPolicyHooks).
+        """
+        request: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "max_tokens": 100,
+            "messages": [{"role": "user", "content": "hi"}],
+        }
+        io = self._make_io(request=request)
+        io._anthropic_client.complete = AsyncMock(return_value={"id": "msg_1"})
+
+        request["max_tokens"] = 999
+        io.set_request(request)
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tag_request_provenance") as mock_tag:
+            await io.complete(request)
+
+        mock_tag.assert_called_once_with(False)
+
+    @pytest.mark.asyncio
+    async def test_pipeline_level_modification_tags_passthrough_false_even_if_hooks_are_noop(self):
+        """client_request_unmodified=False (context injection / UPSTREAM_HEADERS
+        happened before hooks ran) must tag False even when no policy hook
+        changes anything further.
+        """
+        request: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "max_tokens": 100,
+            "messages": [{"role": "user", "content": "hi"}],
+        }
+        io = self._make_io(request=request, client_request_unmodified=False)
+        io._anthropic_client.complete = AsyncMock(return_value={"id": "msg_1"})
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tag_request_provenance") as mock_tag:
+            await io.complete(request)
+
+        mock_tag.assert_called_once_with(False)
+
+    @pytest.mark.asyncio
+    async def test_client_key_mode_tags_credential_passthrough_false_even_if_body_unmodified(self):
+        """credential_passthrough=False (client-key auth mode, server's shared
+        ANTHROPIC_API_KEY forwarded instead of anything the client sent) must
+        tag CREDENTIAL_PASSTHROUGH_TAG False even when the body and headers
+        are completely untouched — an upstream 401 in that mode means the
+        *operator's* credential is invalid, not the client's, and must not be
+        dropped from Sentry. PASSTHROUGH_TAG (body/header provenance) is
+        unaffected and still tags True, since the body genuinely was
+        untouched.
+        """
+        request: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "max_tokens": 100,
+            "messages": [{"role": "user", "content": "hi"}],
+        }
+        io = self._make_io(request=request, credential_passthrough=False)
+        io._anthropic_client.complete = AsyncMock(return_value={"id": "msg_1"})
+
+        with (
+            patch("luthien_proxy.pipeline.anthropic_processor.tag_request_provenance") as mock_body_tag,
+            patch("luthien_proxy.pipeline.anthropic_processor.tag_credential_provenance") as mock_cred_tag,
+        ):
+            await io.complete(request)
+
+        mock_body_tag.assert_called_once_with(True)
+        mock_cred_tag.assert_called_once_with(False)
+
+    @pytest.mark.asyncio
+    async def test_stream_tags_passthrough_based_on_same_rules(self):
+        """stream() must apply the identical provenance rule as complete()."""
+        request: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "max_tokens": 100,
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": True,
+        }
+        io = self._make_io(request=request)
+
+        async def _fake_stream(req, extra_headers=None):
+            return
+            yield  # pragma: no cover - makes this an async generator
+
+        io._anthropic_client.stream = _fake_stream
+
+        with patch("luthien_proxy.pipeline.anthropic_processor.tag_request_provenance") as mock_tag:
+            async for _ in io.stream(request):
+                pass
+
+        mock_tag.assert_called_once_with(True)
 
 
 class TestStreamingWebhookGate:
