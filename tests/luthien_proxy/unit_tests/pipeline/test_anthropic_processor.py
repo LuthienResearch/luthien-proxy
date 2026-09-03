@@ -16,7 +16,9 @@ from anthropic.types import (
     RawMessageDeltaEvent,
     RawMessageStartEvent,
     RawMessageStopEvent,
+    SignatureDelta,
     TextDelta,
+    ThinkingDelta,
 )
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
@@ -1715,6 +1717,93 @@ class TestReconstructResponseFromStreamEvents:
 
         assert result is not None
         assert result["usage"]["cache_read_input_tokens"] == 75
+
+    def test_captures_thinking_text_and_signature(self):
+        """A streamed thinking block lands in history with its text and signature.
+
+        Without this, a reasoning-extraction session captured through the proxy has no
+        same-run ground truth: the response looks healthy but carries no trace.
+        """
+        events = [
+            self._message_start("msg_think", input_tokens=7),
+            RawContentBlockStartEvent(
+                type="content_block_start",
+                index=0,
+                content_block={"type": "thinking", "thinking": "", "signature": ""},
+            ),
+            RawContentBlockDeltaEvent(
+                type="content_block_delta", index=0, delta=ThinkingDelta(type="thinking_delta", thinking="step one")
+            ),
+            RawContentBlockDeltaEvent(
+                type="content_block_delta", index=0, delta=ThinkingDelta(type="thinking_delta", thinking=" step two")
+            ),
+            RawContentBlockDeltaEvent(
+                type="content_block_delta", index=0, delta=SignatureDelta(type="signature_delta", signature="SIGVALUE")
+            ),
+            RawContentBlockStopEvent(type="content_block_stop", index=0),
+            RawMessageDeltaEvent(
+                type="message_delta",
+                delta={"stop_reason": "end_turn", "stop_sequence": None},
+                usage={"output_tokens": 4},
+            ),
+            RawMessageStopEvent(type="message_stop"),
+        ]
+
+        result = _reconstruct_response_from_stream_events(events)
+
+        assert result is not None
+        assert len(result["content"]) == 1
+        assert result["content"][0]["type"] == "thinking"
+        assert result["content"][0]["thinking"] == "step one step two"
+        assert result["content"][0]["signature"] == "SIGVALUE"
+
+    def test_preserves_thinking_before_text_in_block_order(self):
+        """Reasoning blocks keep their index order ahead of the visible answer."""
+        events = [
+            self._message_start(),
+            RawContentBlockStartEvent(
+                type="content_block_start",
+                index=0,
+                content_block={"type": "thinking", "thinking": "", "signature": ""},
+            ),
+            RawContentBlockDeltaEvent(
+                type="content_block_delta", index=0, delta=ThinkingDelta(type="thinking_delta", thinking="reasoned")
+            ),
+            RawContentBlockStopEvent(type="content_block_stop", index=0),
+            RawContentBlockStartEvent(type="content_block_start", index=1, content_block={"type": "text", "text": ""}),
+            RawContentBlockDeltaEvent(
+                type="content_block_delta", index=1, delta=TextDelta(type="text_delta", text="answer")
+            ),
+            RawContentBlockStopEvent(type="content_block_stop", index=1),
+            RawMessageStopEvent(type="message_stop"),
+        ]
+
+        result = _reconstruct_response_from_stream_events(events)
+
+        assert result is not None
+        assert [block["type"] for block in result["content"]] == ["thinking", "text"]
+        assert result["content"][0]["thinking"] == "reasoned"
+        assert result["content"][1]["text"] == "answer"
+
+    def test_captures_redacted_thinking_payload(self):
+        """A redacted_thinking block keeps its opaque data rather than vanishing."""
+        events = [
+            self._message_start(),
+            RawContentBlockStartEvent(
+                type="content_block_start",
+                index=0,
+                content_block={"type": "redacted_thinking", "data": "OPAQUEPAYLOAD"},
+            ),
+            RawContentBlockStopEvent(type="content_block_stop", index=0),
+            RawMessageStopEvent(type="message_stop"),
+        ]
+
+        result = _reconstruct_response_from_stream_events(events)
+
+        assert result is not None
+        assert len(result["content"]) == 1
+        assert result["content"][0]["type"] == "redacted_thinking"
+        assert result["content"][0]["data"] == "OPAQUEPAYLOAD"
 
 
 class TestBuildUsage:
