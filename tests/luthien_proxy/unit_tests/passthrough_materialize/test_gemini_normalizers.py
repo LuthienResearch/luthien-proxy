@@ -747,6 +747,7 @@ def test_stream_normalization_raises_typed_errors_when_wrapper_or_chunk_is_incom
 
     assert (exc_info.value.reason, exc_info.value.detail) == (reason, detail)
 
+
 def test_stream_normalization_falls_back_to_raw_when_chunk_has_unmodelled_field() -> None:
     # Given: a stream chunk carrying a field the google-genai SDK model doesn't
     # know about yet (usageMetadata.serviceTier is the concrete case observed in
@@ -789,6 +790,7 @@ def test_stream_normalization_falls_back_to_raw_when_chunk_has_unmodelled_field(
     assert payload["final_response"]["usage"]["input_tokens"] == 1
     assert payload["final_response"]["usage"]["output_tokens"] == 1
 
+
 def test_normalizes_gemini_request_when_content_role_is_omitted_defaults_to_user() -> None:
     # Given: Gemini API spec makes `role` OPTIONAL in contents[] (defaults to "user").
     # A minimal probe like {"contents": [{"parts": [{"text": "..."}]}]} is a valid Gemini call
@@ -796,9 +798,7 @@ def test_normalizes_gemini_request_when_content_role_is_omitted_defaults_to_user
     request = {"contents": [{"parts": [{"text": "say prod-capture-ok"}]}]}
 
     # When
-    normalized = normalize_gemini_request(
-        _generate_content_endpoint(), request, transaction_id="txn_gemini_no_role"
-    )
+    normalized = normalize_gemini_request(_generate_content_endpoint(), request, transaction_id="txn_gemini_no_role")
     payload = build_request_event_payload(normalized)
 
     # Then: the message role defaults to "user" instead of failing MISSING_REQUIRED_FIELD:contents.
