@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -357,5 +358,96 @@ class TestSqlitePool:
             # A strict `< own timestamp` filter must exclude the row itself.
             rows = await pool.fetch("SELECT id FROM t WHERE created_at < $1", ts.isoformat())
             assert [row["id"] for row in rows] == []
+        finally:
+            await pool.close()
+
+
+class TestNormalizeLegacyDatetimeBindsMigration:
+    """Regression test for migrations/sqlite/022_normalize_legacy_datetime_binds.sql.
+
+    The `_convert_arg` fix above only changes how *new* `datetime` binds are
+    serialized. A row written before the fix landed still has stdlib
+    sqlite3's legacy isoformat(" ") (space-separated) value in the database.
+    Without a backfill, a legacy same-day row always compares as "earlier"
+    than a same-day cutoff bound in the new "T" form -- regardless of actual
+    time-of-day, because ' ' (0x20) sorts before 'T' (0x54) at the
+    date/time separator. That silently makes retention purge/archive
+    (retention/purger.py, retention/archiver.py) sweep up legacy rows before
+    their real retention window elapses. Migration 022 fixes this in place.
+    """
+
+    _MIGRATION_022 = (
+        Path(__file__).resolve().parents[4] / "migrations" / "sqlite" / "022_normalize_legacy_datetime_binds.sql"
+    ).read_text()
+
+    @staticmethod
+    async def _create_migration_022_tables(pool) -> None:
+        """Create the tables migration 022's UPDATEs reference (empty schema is enough)."""
+        await pool.execute("CREATE TABLE conversation_calls (call_id TEXT PRIMARY KEY, created_at TEXT)")
+        await pool.execute("CREATE TABLE conversation_events (id INTEGER PRIMARY KEY, created_at TEXT)")
+        await pool.execute(
+            "CREATE TABLE session_summaries (session_id TEXT PRIMARY KEY, first_seen TEXT, last_seen TEXT)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_legacy_row_wrongly_precedes_new_format_cutoff_until_migrated(self):
+        pool = await create_sqlite_pool("sqlite://:memory:")
+        try:
+            await self._create_migration_022_tables(pool)
+            # A legacy row from 23:00 UTC, stored via stdlib sqlite3's
+            # pre-#806 legacy adapter (space separator) -- chronologically
+            # *after* the midnight cutoff below, so it must NOT be purged.
+            await pool.execute(
+                "INSERT INTO conversation_calls (call_id, created_at) VALUES ($1, $2)",
+                "legacy-call",
+                "2026-08-10 23:00:00+00:00",
+            )
+            # A retention cutoff computed post-#806: midnight the same day,
+            # bound as a raw `datetime` through the now-fixed `_convert_arg`.
+            cutoff = datetime(2026, 8, 10, 0, 0, 0, tzinfo=timezone.utc)
+
+            # RED: pre-migration, the legacy row wrongly satisfies `created_at
+            # < cutoff` even though 23:00 is chronologically after midnight.
+            rows = await pool.fetch("SELECT call_id FROM conversation_calls WHERE created_at < $1", cutoff)
+            assert [row["call_id"] for row in rows] == ["legacy-call"], (
+                "expected the pre-migration mixed-format bug to reproduce"
+            )
+
+            async with pool.acquire() as conn:
+                await conn.executescript(self._MIGRATION_022)
+
+            # GREEN: post-migration, the same row (now "T"-form) no longer
+            # wrongly precedes the cutoff.
+            rows = await pool.fetch("SELECT call_id FROM conversation_calls WHERE created_at < $1", cutoff)
+            assert rows == []
+
+            stored = await pool.fetchrow("SELECT created_at FROM conversation_calls WHERE call_id = $1", "legacy-call")
+            assert stored is not None
+            assert stored["created_at"] == "2026-08-10T23:00:00+00:00"
+        finally:
+            await pool.close()
+
+    @pytest.mark.asyncio
+    async def test_migration_is_idempotent_and_leaves_already_normalized_rows_alone(self):
+        pool = await create_sqlite_pool("sqlite://:memory:")
+        try:
+            await self._create_migration_022_tables(pool)
+            await pool.execute(
+                "INSERT INTO session_summaries (session_id, first_seen, last_seen) VALUES ($1, $2, $3)",
+                "s1",
+                "2026-08-10 09:00:00+00:00",
+                "2026-08-10T12:00:00+00:00",
+            )
+
+            async with pool.acquire() as conn:
+                await conn.executescript(self._MIGRATION_022)
+                # Running it a second time must not error and must not
+                # further alter already-"T" values.
+                await conn.executescript(self._MIGRATION_022)
+
+            row = await pool.fetchrow("SELECT first_seen, last_seen FROM session_summaries WHERE session_id = $1", "s1")
+            assert row is not None
+            assert row["first_seen"] == "2026-08-10T09:00:00+00:00"
+            assert row["last_seen"] == "2026-08-10T12:00:00+00:00"
         finally:
             await pool.close()
