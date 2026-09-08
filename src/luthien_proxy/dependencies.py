@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx
 from fastapi import Depends, HTTPException, Request
 from redis.asyncio import Redis
 
@@ -49,6 +50,8 @@ class Dependencies:
     rate_limiter: TokenBucketRateLimiter | None = field(default=None)
     last_credential_info: dict[str, Any] = field(default_factory=dict)
     webhook_sender: WebhookSender | None = field(default=None)
+    passthrough_streaming_client: httpx.AsyncClient | None = field(default=None)
+    passthrough_buffered_client: httpx.AsyncClient | None = field(default=None)
 
     def get_anthropic_policy(self) -> AnthropicExecutionInterface:
         """Get the current Anthropic policy.

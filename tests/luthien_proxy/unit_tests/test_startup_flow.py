@@ -110,6 +110,64 @@ class TestLifespanErrorHandling:
             assert deps.redis_client is not None
             assert deps.emitter is not None
 
+    @pytest.mark.parametrize(("enabled", "expected_worker_count"), [(False, 0), (True, 1)])
+    def test_lifespan_runs_passthrough_reconciliation_only_when_backfill_is_enabled(
+        self,
+        enabled,
+        expected_worker_count,
+        policy_config_file,
+        mock_db_pool,
+        mock_redis_client,
+        monkeypatch,
+    ):
+        # Given
+        from luthien_proxy import main as main_module
+        from luthien_proxy.settings import Settings
+        from luthien_proxy.utils.db import DatabasePool
+
+        settings = Settings.model_construct(passthrough_materialize_backfill_enabled=enabled)
+
+        class WorkerSpy:
+            def __init__(self, *, db_pool: DatabasePool, limit: int, interval_seconds: int) -> None:
+                self.db_pool = db_pool
+                self.limit = limit
+                self.interval_seconds = interval_seconds
+                self.started = False
+                self.stopped = False
+                workers.append(self)
+
+            def start(self) -> None:
+                self.started = True
+
+            async def stop(self) -> None:
+                self.stopped = True
+
+        workers: list[WorkerSpy] = []
+
+        monkeypatch.setattr(main_module, "get_settings", lambda: settings)
+        monkeypatch.setattr(main_module, "PassthroughReconcileWorker", WorkerSpy, raising=False)
+        app = create_app(
+            api_key="test-key",
+            admin_key=None,
+            db_pool=mock_db_pool,
+            redis_client=mock_redis_client,
+            startup_policy_path=policy_config_file,
+        )
+
+        # When
+        with TestClient(app):
+            pass
+
+        # Then
+        assert len(workers) == expected_worker_count
+        if enabled:
+            worker = workers[0]
+            assert worker.db_pool is mock_db_pool
+            assert worker.limit == settings.passthrough_materialize_batch_size
+            assert worker.interval_seconds == settings.passthrough_materialize_reconcile_interval_seconds
+            assert worker.started
+            assert worker.stopped
+
     def test_lifespan_does_not_close_db_pool_on_shutdown(self, policy_config_file, mock_db_pool, mock_redis_client):
         """db_pool lifetime is owned by the caller, not the app lifespan."""
         app = create_app(
