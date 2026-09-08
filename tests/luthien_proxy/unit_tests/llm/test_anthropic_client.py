@@ -2,6 +2,7 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from anthropic.types import (
     Message,
@@ -19,7 +20,7 @@ from anthropic.types import (
 from anthropic.types.raw_message_delta_event import Delta
 from tests.constants import DEFAULT_TEST_MODEL
 
-from luthien_proxy.llm.anthropic_client import AnthropicClient
+from luthien_proxy.llm.anthropic_client import AnthropicClient, AnthropicUpstreamTransportError
 from luthien_proxy.llm.types.anthropic import AnthropicRequest
 
 
@@ -429,3 +430,87 @@ class TestAnthropicClientStream:
 
         call_kwargs = mock_async_client.messages.stream.call_args.kwargs
         assert "extra_body" not in call_kwargs
+
+
+class TestAnthropicClientTransportErrorWrapping:
+    """Tests that complete()/stream() wrap raw httpx.TransportError raised during
+    the actual upstream call into AnthropicUpstreamTransportError — a distinct
+    gateway-owned type so the pipeline can tell a genuine upstream network
+    flap apart from a raw httpx.TransportError raised elsewhere (e.g. a
+    policy's own outbound call), which must NOT be downgraded the same way
+    (review finding on PR #814).
+    """
+
+    @pytest.mark.asyncio
+    async def test_complete_wraps_transport_error_from_get_final_message(self, sample_request: AnthropicRequest):
+        transport_error = httpx.RemoteProtocolError("peer closed connection")
+        mock_stream = MagicMock()
+        mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream.__aexit__ = AsyncMock(return_value=None)
+        mock_stream.get_final_message = AsyncMock(side_effect=transport_error)
+
+        client = AnthropicClient(api_key="test-key")
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.stream = MagicMock(return_value=mock_stream)
+        client._client = mock_async_client
+
+        with pytest.raises(AnthropicUpstreamTransportError) as exc_info:
+            await client.complete(sample_request)
+
+        assert exc_info.value.__cause__ is transport_error
+
+    @pytest.mark.asyncio
+    async def test_stream_wraps_transport_error_mid_iteration(self, sample_request: AnthropicRequest):
+        transport_error = httpx.ReadError("connection dropped mid-read")
+
+        async def mock_stream_iter():
+            yield RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_1",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": DEFAULT_TEST_MODEL,
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 1, "output_tokens": 0},
+                },
+            )
+            raise transport_error
+
+        mock_stream = MagicMock()
+        mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream.__aexit__ = AsyncMock(return_value=None)
+        mock_stream.__aiter__ = lambda self: mock_stream_iter()
+
+        client = AnthropicClient(api_key="test-key")
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.create = AsyncMock(return_value=mock_stream)
+        client._client = mock_async_client
+
+        events = []
+        with pytest.raises(AnthropicUpstreamTransportError) as exc_info:
+            async for event in client.stream(sample_request):
+                events.append(event)
+
+        assert len(events) == 1
+        assert exc_info.value.__cause__ is transport_error
+
+    @pytest.mark.asyncio
+    async def test_complete_does_not_wrap_non_transport_errors(self, sample_request: AnthropicRequest):
+        """A non-network error from the SDK call must propagate unwrapped —
+        only httpx.TransportError gets the upstream-boundary treatment."""
+        sdk_error = ValueError("unexpected SDK shape")
+        mock_stream = MagicMock()
+        mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream.__aexit__ = AsyncMock(return_value=None)
+        mock_stream.get_final_message = AsyncMock(side_effect=sdk_error)
+
+        client = AnthropicClient(api_key="test-key")
+        mock_async_client = AsyncMock()
+        mock_async_client.messages.stream = MagicMock(return_value=mock_stream)
+        client._client = mock_async_client
+
+        with pytest.raises(ValueError):
+            await client.complete(sample_request)

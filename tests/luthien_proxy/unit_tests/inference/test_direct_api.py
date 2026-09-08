@@ -26,6 +26,7 @@ from luthien_proxy.inference.base import (
     InferenceTimeoutError,
 )
 from luthien_proxy.inference.direct_api import DirectApiProvider
+from luthien_proxy.llm.anthropic_client import AnthropicUpstreamTransportError
 
 #: The genuine `_cached_client`, captured before any autouse patching so
 #: caching-specific tests can exercise the real cache path.
@@ -320,6 +321,21 @@ class TestErrorTranslation:
         conn_exc = anthropic.APIConnectionError(request=httpx.Request("POST", "https://example.com"))
         with patch("luthien_proxy.inference.direct_api._build_client") as mock_build:
             mock_build.return_value = _mock_client_raising(conn_exc)
+            with pytest.raises(InferenceProviderError):
+                await _provider().complete(messages=[{"role": "user", "content": "hi"}])
+
+    @pytest.mark.asyncio
+    async def test_upstream_transport_error_becomes_provider_error(self):
+        """AnthropicClient's AnthropicUpstreamTransportError → InferenceProviderError.
+
+        `AnthropicClient.complete()` wraps a raw `httpx.TransportError` from the
+        actual upstream call into this gateway-owned type (PR #814) — a distinct
+        type, not an `anthropic.APIConnectionError` subclass, so it needs its own
+        branch here or it would escape the provider's error boundary unclassified.
+        """
+        transport_exc = AnthropicUpstreamTransportError("peer closed connection")
+        with patch("luthien_proxy.inference.direct_api._build_client") as mock_build:
+            mock_build.return_value = _mock_client_raising(transport_exc)
             with pytest.raises(InferenceProviderError):
                 await _provider().complete(messages=[{"role": "user", "content": "hi"}])
 
