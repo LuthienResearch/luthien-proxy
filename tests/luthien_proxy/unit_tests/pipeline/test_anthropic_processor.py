@@ -876,8 +876,8 @@ class TestBuildErrorEvent:
         """A raw httpx.TransportError NOT raised by AnthropicClient (e.g. from a
         policy's own outbound HTTP call) is not AnthropicUpstreamTransportError,
         so it must stay on the generic error-level path — the upstream-network
-        carve-out must not swallow a policy/gateway bug (thermonuclear-deep-review
-        finding on PR #814)."""
+        carve-out must not swallow a policy/gateway bug (review finding
+        on PR #814)."""
         mock_request = HttpxRequest("POST", "https://example.com/judge")
         error = httpx.RemoteProtocolError("peer closed connection", request=mock_request)
 
@@ -1166,7 +1166,7 @@ class TestHandleAnthropicError:
         actual upstream connection drops) should raise BackendAPIError with 502
         — previously this exception type wasn't classified at all in the
         non-streaming path and propagated as an unclassified 500
-        (thermonuclear-deep-review finding on PR #814)."""
+        (review finding on PR #814)."""
         exc = AnthropicUpstreamTransportError("peer closed connection")
 
         with pytest.raises(BackendAPIError) as exc_info:

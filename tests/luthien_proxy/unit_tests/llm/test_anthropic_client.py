@@ -438,7 +438,7 @@ class TestAnthropicClientTransportErrorWrapping:
     gateway-owned type so the pipeline can tell a genuine upstream network
     flap apart from a raw httpx.TransportError raised elsewhere (e.g. a
     policy's own outbound call), which must NOT be downgraded the same way
-    (thermonuclear-deep-review finding on PR #814).
+    (review finding on PR #814).
     """
 
     @pytest.mark.asyncio

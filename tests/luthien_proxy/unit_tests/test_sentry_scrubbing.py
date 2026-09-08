@@ -199,8 +199,8 @@ class TestBeforeSend:
         """ExceptionGroup(ClientDisconnect, RuntimeError) must still report: the
         RuntimeError is a genuine proxy-side failure riding alongside the
         disconnect, and the old any()-based check would have swallowed the
-        whole event just because one member matched (thermonuclear-deep-review
-        finding on PR #814)."""
+        whole event just because one member matched (review finding
+        on PR #814)."""
         event = self._make_event(include_exception=False)
         event["exception"] = {
             "values": [
