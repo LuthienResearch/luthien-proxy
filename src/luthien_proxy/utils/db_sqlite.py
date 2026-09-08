@@ -10,6 +10,7 @@ import asyncio
 import json
 import re
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import AsyncIterator, Mapping, Sequence
 
@@ -94,8 +95,17 @@ def _translate_params(query: str, args: tuple[object, ...]) -> tuple[str, tuple[
     # LEAST(a, b) → MIN(a, b)
     translated = translated.replace("LEAST(", "MIN(")
 
-    # to_timestamp(?) → datetime(?, 'unixepoch')
-    translated = re.sub(r"to_timestamp\(\?\)", "datetime(?, 'unixepoch')", translated)
+    # to_timestamp(?) → replace(datetime(?, 'unixepoch'), ' ', 'T')
+    #
+    # SQLite's native datetime(unixepoch) always emits a space separator
+    # ("2026-08-10 12:00:00"), never "T". A raw `datetime` bind through
+    # `_convert_arg` above emits "T" (.isoformat()). request_logs.started_at/
+    # completed_at are written via to_timestamp(?) and compared in
+    # request_log/service.py against a raw `datetime` bind (`after`/`before`
+    # query filters) -- without this replace(), the two would never agree on
+    # separator and a same-day filter would silently match nothing (or
+    # everything), since ' ' (0x20) sorts before 'T' (0x54).
+    translated = re.sub(r"to_timestamp\(\?\)", "replace(datetime(?, 'unixepoch'), ' ', 'T')", translated)
 
     # NOW() → datetime('now')
     translated = re.sub(r"\bNOW\(\)", "datetime('now')", translated, flags=re.IGNORECASE)
@@ -112,6 +122,12 @@ def _convert_arg(value: object) -> object:
         return int(value)
     if isinstance(value, dict | list):
         return json.dumps(value)
+    if isinstance(value, datetime):
+        # stdlib sqlite3's legacy datetime adapter uses isoformat(" ") (space
+        # separator); the app stores/compares timestamps as ISO-8601 with a "T"
+        # (see parse_db_ts and created_at range filters). Normalize here so a
+        # datetime bind sorts/compares identically to stored ISO-8601 strings.
+        return value.isoformat()
     return value
 
 
