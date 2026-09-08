@@ -6,7 +6,7 @@ category: Features
   - Previously the `/openai/*` and `/gemini/*` passthrough routes only wrote
     raw `request_logs`; those calls never appeared in `/api/history`,
     `/api/debug/calls`, session summaries, FTS, or the JSONL export, and were
-    unreadable by downstream tooling (cybertasks).
+    unreadable by downstream tooling.
   - Adds a `passthrough_materialize` package that normalizes captured OpenAI
     (chat + Responses, buffered + streamed) and Gemini (generateContent +
     streamGenerateContent) payloads into the canonical Anthropic-shaped
