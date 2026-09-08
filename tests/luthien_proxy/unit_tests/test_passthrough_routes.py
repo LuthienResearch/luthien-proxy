@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from unittest.mock import patch
 
 import httpx
 import pytest
 from fastapi import HTTPException
+from fastapi.responses import StreamingResponse
 from starlette.requests import Request
 
 from luthien_proxy.passthrough_capture import JsonObject
@@ -259,3 +260,66 @@ async def test_require_passthrough_enabled_allows_when_enabled() -> None:
 
         # When / Then the gate permits the request (no exception)
         assert await _require_passthrough_enabled() is None
+
+
+async def test_streaming_passthrough_caps_captured_bytes_when_chunk_exceeds_remaining_budget() -> None:
+    """A chunk larger than the remaining capture budget must not push captured
+    bytes past PASSTHROUGH_STREAM_CAPTURE_MAX_BYTES.
+
+    Regression: the loop used to check `captured_bytes < max_capture` and then
+    unconditionally append the whole chunk, so a chunk that started under the
+    cap but was itself larger than the remaining budget got fully retained and
+    persisted -- defeating the bound the setting exists to enforce.
+    """
+    # Given: a tiny capture cap, and an upstream response streamed as two
+    # chunks -- the first fits under the cap (5 of 10 bytes used), the second
+    # is far larger than the 5 bytes of budget remaining.
+    max_capture = 10
+    captured_chunks: list[bytes] = []
+
+    def spy_stream_body(provider: str, request: Request, chunks: list[bytes]) -> JsonObject:
+        captured_chunks.extend(chunks)
+        return {"stream_format": "openai-sse", "events": [], "final": None}
+
+    async def body_gen() -> AsyncIterator[bytes]:
+        yield b"12345"
+        yield b"x" * 100
+
+    async def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body_gen())
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        dependencies = _PassthroughDependencies(client)
+        recorder = _CapturedRecorder()
+        with (
+            patch(
+                "luthien_proxy.passthrough_recording.get_settings",
+                return_value=_PassthroughSettings(materialize_enabled=False, trust_user_id_header=False),
+            ),
+            patch("luthien_proxy.passthrough_recording.create_recorder", return_value=recorder),
+            patch("luthien_proxy.passthrough_routes.get_dependencies", return_value=dependencies),
+            patch("luthien_proxy.passthrough_routes.get_settings") as mock_settings,
+            patch("luthien_proxy.passthrough_routes._stream_body", side_effect=spy_stream_body),
+        ):
+            mock_settings.return_value.passthrough_stream_capture_max_bytes = max_capture
+
+            # When
+            response = await _passthrough(
+                _make_passthrough_request([]),
+                _UpstreamTarget(
+                    provider="openai",
+                    path="v1/chat/completions",
+                    base_url="https://upstream.test",
+                    is_streaming=True,
+                ),
+                _RequestPayload(
+                    body_bytes=b'{"model":"gpt-4.1","stream":true}', body={"model": "gpt-4.1", "stream": True}
+                ),
+            )
+            assert isinstance(response, StreamingResponse)
+            async for _ in response.body_iterator:
+                pass
+
+    # Then: total captured (and thus persisted) bytes never exceed the cap.
+    assert sum(len(chunk) for chunk in captured_chunks) <= max_capture

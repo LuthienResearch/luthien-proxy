@@ -237,10 +237,16 @@ async def _streaming_passthrough(context: _StreamContext) -> Response:
         try:
             async for chunk in upstream.aiter_bytes():
                 if captured_bytes < max_capture:
-                    chunks.append(chunk)
-                    captured_bytes += len(chunk)
-                    if captured_bytes >= max_capture:
+                    remaining = max_capture - captured_bytes
+                    if len(chunk) > remaining:
+                        chunks.append(chunk[:remaining])
+                        captured_bytes = max_capture
                         truncated = True
+                    else:
+                        chunks.append(chunk)
+                        captured_bytes += len(chunk)
+                        if captured_bytes >= max_capture:
+                            truncated = True
                 yield chunk
         finally:
             await upstream.aclose()
