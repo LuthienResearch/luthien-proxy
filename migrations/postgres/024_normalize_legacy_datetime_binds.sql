@@ -1,4 +1,4 @@
--- ABOUTME: No-op counterpart to sqlite/022_normalize_legacy_datetime_binds.sql,
+-- ABOUTME: No-op counterpart to sqlite/024_normalize_legacy_datetime_binds.sql,
 -- ABOUTME: kept only for the migration-prefix parity check between dialects.
 --
 -- The SQLite migration backfills legacy space-separated `datetime` binds
