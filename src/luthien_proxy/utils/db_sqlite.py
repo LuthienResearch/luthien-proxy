@@ -95,8 +95,17 @@ def _translate_params(query: str, args: tuple[object, ...]) -> tuple[str, tuple[
     # LEAST(a, b) → MIN(a, b)
     translated = translated.replace("LEAST(", "MIN(")
 
-    # to_timestamp(?) → datetime(?, 'unixepoch')
-    translated = re.sub(r"to_timestamp\(\?\)", "datetime(?, 'unixepoch')", translated)
+    # to_timestamp(?) → replace(datetime(?, 'unixepoch'), ' ', 'T')
+    #
+    # SQLite's native datetime(unixepoch) always emits a space separator
+    # ("2026-08-10 12:00:00"), never "T". A raw `datetime` bind through
+    # `_convert_arg` above emits "T" (.isoformat()). request_logs.started_at/
+    # completed_at are written via to_timestamp(?) and compared in
+    # request_log/service.py against a raw `datetime` bind (`after`/`before`
+    # query filters) -- without this replace(), the two would never agree on
+    # separator and a same-day filter would silently match nothing (or
+    # everything), since ' ' (0x20) sorts before 'T' (0x54).
+    translated = re.sub(r"to_timestamp\(\?\)", "replace(datetime(?, 'unixepoch'), ' ', 'T')", translated)
 
     # NOW() → datetime('now')
     translated = re.sub(r"\bNOW\(\)", "datetime('now')", translated, flags=re.IGNORECASE)

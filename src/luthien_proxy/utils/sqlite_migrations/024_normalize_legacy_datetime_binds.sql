@@ -16,6 +16,14 @@
 -- session_summaries.last_seen/first_seen (observability/session_summary.py)
 -- ratchet backward on the next event for that session.
 --
+-- request_logs.started_at/completed_at are written through `to_timestamp(?)`
+-- (db_sqlite.py's `_translate_params`), not a raw `datetime` bind, so this
+-- backfill also covers them; the matching write-path fix (translating to a
+-- "T"-separated string, not just SQLite's native space-separated
+-- `datetime(?, 'unixepoch')`) lives in `_translate_params` alongside this
+-- migration so old and new request_logs rows compare consistently against
+-- the `after`/`before` filters in request_log/service.py.
+--
 -- The LIKE pattern only matches the legacy "YYYY-MM-DD HH:MM:SS..." shape
 -- (a literal space at position 11), so already-"T" values and NULLs are
 -- left untouched; this is safe to run more than once.
@@ -34,3 +42,11 @@ WHERE first_seen LIKE '____-__-__ __:__:__%';
 UPDATE session_summaries
 SET last_seen = REPLACE(last_seen, ' ', 'T')
 WHERE last_seen LIKE '____-__-__ __:__:__%';
+
+UPDATE request_logs
+SET started_at = REPLACE(started_at, ' ', 'T')
+WHERE started_at LIKE '____-__-__ __:__:__%';
+
+UPDATE request_logs
+SET completed_at = REPLACE(completed_at, ' ', 'T')
+WHERE completed_at LIKE '____-__-__ __:__:__%';
