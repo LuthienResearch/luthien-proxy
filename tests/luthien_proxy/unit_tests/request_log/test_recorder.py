@@ -478,6 +478,36 @@ class TestRequestLogRecorder:
         assert body_arg == json.dumps({"nested": {"data": "structure"}})
 
     @pytest.mark.asyncio
+    async def test_write_logs_sanitizes_nul_in_all_json_fields(self) -> None:
+        """JSONB-bound headers and bodies replace NULs and expose the replacement count."""
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock()
+        db_pool = MagicMock(spec=DatabasePool)
+        db_pool.connection = MagicMock()
+        db_pool.connection.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+        db_pool.connection.return_value.__aexit__ = AsyncMock(return_value=None)
+        recorder = RequestLogRecorder(db_pool, "txn-456")
+        recorder.record_inbound_request(
+            method="POST",
+            url="http://example.com",
+            headers={"x\x00request": "header"},
+            body={"request": "body\x00"},
+        )
+        recorder.record_inbound_response(
+            status=200,
+            headers={"x\x00response": "header"},
+            body={"response": "body\x00"},
+        )
+
+        await recorder._write_logs()
+
+        args = mock_conn.execute.call_args_list[0][0]
+        assert json.loads(args[7]) == {"x�request": "header", "_sanitized": {"nul_replaced": 1}}
+        assert json.loads(args[8]) == {"request": "body�", "_sanitized": {"nul_replaced": 1}}
+        assert json.loads(args[10]) == {"x�response": "header", "_sanitized": {"nul_replaced": 1}}
+        assert json.loads(args[11]) == {"response": "body�", "_sanitized": {"nul_replaced": 1}}
+
+    @pytest.mark.asyncio
     async def test_write_logs_handles_none_json_fields(self) -> None:
         """_write_logs() passes None for missing JSON fields."""
         mock_conn = AsyncMock()
@@ -517,7 +547,9 @@ class TestRequestLogRecorder:
         db_pool.connection.return_value.__aexit__ = AsyncMock(return_value=None)
 
         recorder = RequestLogRecorder(db_pool, "txn-123")
-        recorder.record_inbound_request(method="POST", url="http://example.com", headers={}, body={})
+        recorder.record_inbound_request(
+            method="POST", url="http://example.com", headers={}, body={}, session_id="sess-123"
+        )
 
         before = RequestLogRecorder.dropped_writes
         with patch("luthien_proxy.request_log.recorder.logger") as mock_logger:
@@ -525,8 +557,8 @@ class TestRequestLogRecorder:
 
             mock_logger.warning.assert_called_once()
             call_args = mock_logger.warning.call_args[0]
-            assert "Failed to write request logs" in call_args[0]
-            assert "txn-123" in call_args[1]
+            assert "call_id=%s, session_id=%s, direction=%s" in call_args[0]
+            assert call_args[1:4] == ("txn-123", "sess-123", "inbound")
 
         assert RequestLogRecorder.dropped_writes == before + 1
 
