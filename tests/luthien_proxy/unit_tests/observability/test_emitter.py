@@ -149,6 +149,15 @@ class TestSafeSerialize:
         json_str = json.dumps(result)
         assert isinstance(json_str, str)
 
+    def test_nul_characters_are_sanitized_for_jsonb(self) -> None:
+        """NUL characters must not survive the shared JSON-safe serialization path."""
+        result = _safe_serialize({"content": "before\x00after"})
+
+        assert result == {
+            "content": "before�after",
+            "_sanitized": {"nul_replaced": 1},
+        }
+
 
 class TestNullEventEmitter:
     """Tests for NullEventEmitter."""
@@ -271,7 +280,12 @@ class TestEventEmitter:
         emitter = EventEmitter(db_pool=mock_pool, stdout_enabled=False)
 
         before = EventEmitter.dropped_db_writes
-        await emitter.emit("tx-123", "test.event", {"key": "value"})
+        with patch("luthien_proxy.observability.emitter.logger") as mock_logger:
+            await emitter.emit("tx-123", "test.event", {"session_id": "sess-123"})
+
+        log_args = mock_logger.warning.call_args[0]
+        assert "call_id=%s, session_id=%s, event_type=%s" in log_args[0]
+        assert log_args[1:4] == ("tx-123", "sess-123", "test.event")
         assert EventEmitter.dropped_db_writes == before + 1
 
     @pytest.mark.asyncio
@@ -327,7 +341,10 @@ class TestWriteDbAtomicity:
 
         p = DatabasePool("sqlite://:memory:")
         await check_migrations(p)
-        return p
+        try:
+            yield p
+        finally:
+            await p.close()
 
     @pytest.mark.asyncio
     async def test_summary_failure_rolls_back_event_insert(self, pool) -> None:
@@ -372,6 +389,28 @@ class TestWriteDbAtomicity:
         assert len(events) == 1
         assert len(summaries) == 1
         assert summaries[0]["event_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_writes_nul_payload_to_sqlite(self, pool) -> None:
+        """A JSONB-bound event with NUL content stays queryable in SQLite storage."""
+        emitter = EventEmitter(db_pool=pool, stdout_enabled=False)
+        data = {
+            "session_id": "sess-4",
+            "tool\x00output": {"content": "before\x00after"},
+        }
+
+        await emitter._write_db("tx-4", "transaction.request_recorded", data, datetime.now(UTC))
+
+        async with pool.connection() as conn:
+            event = await conn.fetchrow("SELECT payload FROM conversation_events WHERE call_id = $1", "tx-4")
+        assert event is not None
+        payload_json = event["payload"]
+        assert isinstance(payload_json, str)
+        assert json.loads(payload_json) == {
+            "session_id": "sess-4",
+            "tool�output": {"content": "before�after"},
+            "_sanitized": {"nul_replaced": 2},
+        }
 
     @pytest.mark.asyncio
     async def test_sqlite_write_error_increments_dropped_counter(self, pool) -> None:
