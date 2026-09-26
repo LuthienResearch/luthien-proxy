@@ -19,7 +19,9 @@ pr: 123
 
 ### Categories
 
-Use one of: `Features`, `Fixes`, `Refactors`, `Chores & Docs`
+Use one of: `Breaking Changes`, `Features`, `Fixes`, `Refactors`, `Chores & Docs`
+
+A pending `Breaking Changes` fragment makes the next auto-tag a major version bump.
 
 If a PR spans multiple categories, create one fragment per category
 (e.g., `my-feature.md` and `my-feature-fix.md`).
