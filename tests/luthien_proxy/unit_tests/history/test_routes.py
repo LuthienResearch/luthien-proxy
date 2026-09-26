@@ -6,10 +6,11 @@ These tests focus on the HTTP layer - ensuring routes properly:
 - Return correct response models
 """
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 
 from luthien_proxy.history.models import (
     ConversationMessage,
@@ -21,12 +22,29 @@ from luthien_proxy.history.models import (
     SessionSummary,
 )
 from luthien_proxy.history.routes import (
+    api_router,
     export_session,
     get_session,
     list_sessions,
 )
 
 AUTH_TOKEN = "test-admin-key"
+
+
+async def _collect_streaming_body(response) -> bytes:
+    parts: list[bytes] = []
+    async for chunk in response.body_iterator:
+        parts.append(chunk if isinstance(chunk, bytes) else chunk.encode())
+    return b"".join(parts)
+
+
+async def _single_chunk_stream(chunk: str | bytes):
+    yield chunk
+
+
+async def _raising_stream(error: Exception):
+    raise error
+    yield b""
 
 
 class TestListSessionsRoute:
@@ -204,6 +222,15 @@ class TestListSessionsRoute:
 class TestGetSessionRoute:
     """Test get_session route handler."""
 
+    def test_openapi_documents_session_detail_schema(self):
+        """Session detail streaming route keeps its documented response schema."""
+        app = FastAPI()
+        app.include_router(api_router)
+
+        schema = app.openapi()["paths"]["/api/history/sessions/{session_id}"]["get"]["responses"]["200"]
+
+        assert schema["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/SessionDetail"}
+
     @pytest.mark.asyncio
     async def test_successful_get_session(self):
         """Test successful session detail returns response."""
@@ -225,19 +252,23 @@ class TestGetSessionRoute:
             ],
             total_policy_interventions=0,
             models_used=["gpt-4"],
+            total_turns=1,
+            offset=0,
+            limit=50,
+            has_more=False,
         )
 
         with patch(
-            "luthien_proxy.history.routes.fetch_session_detail",
-            new_callable=AsyncMock,
-            return_value=expected_detail,
-        ) as mock_fetch:
-            result = await get_session(session_id="test-session", _=AUTH_TOKEN, db_pool=mock_db_pool)
+            "luthien_proxy.history.routes.stream_session_detail_json",
+            return_value=_single_chunk_stream(expected_detail.model_dump_json()),
+        ) as mock_stream:
+            result = await get_session(
+                session_id="test-session", offset=10, limit=25, _=AUTH_TOKEN, db_pool=mock_db_pool
+            )
 
-            assert isinstance(result, SessionDetail)
-            assert result.session_id == "test-session"
-            assert len(result.turns) == 1
-            mock_fetch.assert_called_once_with("test-session", mock_db_pool)
+            body = await _collect_streaming_body(result)
+            assert json.loads(body) == expected_detail.model_dump(mode="json")
+            mock_stream.assert_called_once_with("test-session", mock_db_pool, offset=10, limit=25)
 
     @pytest.mark.asyncio
     async def test_get_session_not_found(self):
@@ -245,12 +276,11 @@ class TestGetSessionRoute:
         mock_db_pool = MagicMock()
 
         with patch(
-            "luthien_proxy.history.routes.fetch_session_detail",
-            new_callable=AsyncMock,
-            side_effect=ValueError("No events found for session_id: nonexistent"),
+            "luthien_proxy.history.routes.stream_session_detail_json",
+            return_value=_raising_stream(ValueError("No events found for session_id: nonexistent")),
         ):
             with pytest.raises(HTTPException) as exc_info:
-                await get_session(session_id="nonexistent", _=AUTH_TOKEN, db_pool=mock_db_pool)
+                await get_session(session_id="nonexistent", offset=None, limit=50, _=AUTH_TOKEN, db_pool=mock_db_pool)
 
             assert exc_info.value.status_code == 404
             assert exc_info.value.detail == "Session not found."
@@ -263,34 +293,16 @@ class TestExportSessionRoute:
     async def test_successful_export(self):
         """Test successful export returns markdown."""
         mock_db_pool = MagicMock()
-        session_detail = SessionDetail(
-            session_id="test-session",
-            first_timestamp="2025-01-15T10:00:00",
-            last_timestamp="2025-01-15T11:00:00",
-            turns=[
-                ConversationTurn(
-                    call_id="call-1",
-                    timestamp="2025-01-15T10:00:00",
-                    model="gpt-4",
-                    request_messages=[ConversationMessage(message_type=MessageType.USER, content="Hello")],
-                    response_messages=[ConversationMessage(message_type=MessageType.ASSISTANT, content="Hi!")],
-                    annotations=[],
-                    had_policy_intervention=False,
-                )
-            ],
-            total_policy_interventions=0,
-            models_used=["gpt-4"],
-        )
 
         with patch(
-            "luthien_proxy.history.routes.fetch_session_detail",
-            new_callable=AsyncMock,
-            return_value=session_detail,
+            "luthien_proxy.history.routes.stream_session_markdown",
+            return_value=_single_chunk_stream("# Conversation History: test-session"),
         ):
             result = await export_session(session_id="test-session", _=AUTH_TOKEN, db_pool=mock_db_pool)
 
             assert result.media_type == "text/markdown"
-            assert "# Conversation History: test-session" in result.body.decode()
+            body = await _collect_streaming_body(result)
+            assert "# Conversation History: test-session" in body.decode()
             assert "Content-Disposition" in result.headers
             assert 'filename="conversation_test-session.md"' in result.headers["Content-Disposition"]
 
@@ -300,9 +312,8 @@ class TestExportSessionRoute:
         mock_db_pool = MagicMock()
 
         with patch(
-            "luthien_proxy.history.routes.fetch_session_detail",
-            new_callable=AsyncMock,
-            side_effect=ValueError("No events found for session_id: nonexistent"),
+            "luthien_proxy.history.routes.stream_session_markdown",
+            return_value=_raising_stream(ValueError("No events found for session_id: nonexistent")),
         ):
             with pytest.raises(HTTPException) as exc_info:
                 await export_session(session_id="nonexistent", _=AUTH_TOKEN, db_pool=mock_db_pool)
@@ -314,19 +325,10 @@ class TestExportSessionRoute:
     async def test_export_filename_sanitization(self):
         """Test that session IDs with special characters are sanitized in filename."""
         mock_db_pool = MagicMock()
-        session_detail = SessionDetail(
-            session_id="test<script>alert(1)</script>",
-            first_timestamp="2025-01-15T10:00:00",
-            last_timestamp="2025-01-15T11:00:00",
-            turns=[],
-            total_policy_interventions=0,
-            models_used=[],
-        )
 
         with patch(
-            "luthien_proxy.history.routes.fetch_session_detail",
-            new_callable=AsyncMock,
-            return_value=session_detail,
+            "luthien_proxy.history.routes.stream_session_markdown",
+            return_value=_single_chunk_stream(""),
         ):
             result = await export_session(
                 session_id="test<script>alert(1)</script>",
