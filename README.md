@@ -243,6 +243,14 @@ policy:
     max_tokens: 256
 ```
 
+Already have a CLAUDE.md? Generate a policy from it — the generator extracts your behavioral rules (skipping build commands and repo trivia) and emits a ready-to-load `SimpleLLMPolicy` config, with each rule tagged with its source line:
+
+```bash
+uv run python -m luthien_proxy.policy_generation.claude_md CLAUDE.md -o config/claude_md_policy.yaml
+```
+
+See [Generate a Policy from Your CLAUDE.md](docs/policies.md#generate-a-policy-from-your-claudemd) for details.
+
 ### Built-in Presets
 
 Ready-to-use policies in `src/luthien_proxy/policies/presets/` — no configuration needed.
