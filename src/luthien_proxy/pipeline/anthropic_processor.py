@@ -755,6 +755,11 @@ async def _handle_execution_streaming(
                                     "not full response objects."
                                 )
                             io.ensure_request_recorded()
+                            if not emitted_any:
+                                response_span.set_attribute(
+                                    "luthien.stream.first_event_ms",
+                                    int((time.monotonic() - request_start_time) * 1000),
+                                )
                             emitted_any = True
                             cast_emitted = cast(MessageStreamEvent, emitted)
                             accumulated_events.append(cast_emitted)

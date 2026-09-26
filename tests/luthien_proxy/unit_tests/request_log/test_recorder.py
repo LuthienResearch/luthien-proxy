@@ -16,20 +16,49 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiosqlite
 import asyncpg
 import pytest
+from opentelemetry import trace
+from opentelemetry.trace import StatusCode
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
+from luthien_proxy.request_log import recorder as recorder_mod
 from luthien_proxy.request_log.recorder import (
+    MAX_BODY_BYTES,
     NoOpRequestLogRecorder,
     RequestLogRecorder,
+    _SerializedBody,
     _insert_log_row,
     _PendingLog,
     create_recorder,
 )
 from luthien_proxy.utils.db import DatabasePool, DatabaseWriteError
+
+
+@pytest.fixture
+def span_exporter(monkeypatch: pytest.MonkeyPatch) -> Iterator[InMemorySpanExporter]:
+    previous_provider = trace._TRACER_PROVIDER
+    previous_once_done = trace._TRACER_PROVIDER_SET_ONCE._done
+    trace._TRACER_PROVIDER_SET_ONCE._done = False
+
+    provider = TracerProvider()
+    exporter = InMemorySpanExporter()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    trace.set_tracer_provider(provider)
+    monkeypatch.setattr(recorder_mod, "tracer", provider.get_tracer(recorder_mod.__name__), raising=False)
+
+    try:
+        yield exporter
+    finally:
+        provider.shutdown()
+        trace._TRACER_PROVIDER = previous_provider
+        trace._TRACER_PROVIDER_SET_ONCE._done = previous_once_done
 
 
 class Test_PendingLog:
@@ -490,7 +519,8 @@ class TestRequestLogRecorder:
 
         recorder = RequestLogRecorder(db_pool, "txn-123")
         # Record inbound request with minimal data
-        recorder.record_inbound_request(method="GET", url="http://example.com", headers={}, body=None)
+        recorder.record_inbound_request(method="GET", url="http://example.com", headers={}, body={})
+        recorder._inbound.request_body = None
         # Record response with no body
         recorder.record_inbound_response(status=204)
 
@@ -587,6 +617,57 @@ class TestRequestLogRecorder:
         # Verify context manager was properly used
         mock_context_mgr.__aenter__.assert_called()
         mock_context_mgr.__aexit__.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_write_logs_emits_span_with_body_sizes(
+        self,
+        span_exporter: InMemorySpanExporter,
+    ) -> None:
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock()
+
+        db_pool = MagicMock(spec=DatabasePool)
+        db_pool.connection = MagicMock()
+        db_pool.connection.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+        db_pool.connection.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        recorder = RequestLogRecorder(db_pool, "txn-123")
+        request_body = {"prompt": "hello"}
+        response_body = {"completion": "world"}
+        recorder.record_inbound_request(method="POST", url="http://example.com", headers={}, body=request_body)
+        recorder.record_inbound_response(status=200, body=response_body)
+
+        await recorder._write_logs()
+
+        spans = {span.name: span for span in span_exporter.get_finished_spans()}
+        attrs = spans["request_log.write"].attributes
+        assert attrs is not None
+        assert attrs["luthien.request_log.request_body_bytes"] == len(json.dumps(request_body))
+        assert attrs["luthien.request_log.response_body_bytes"] == len(json.dumps(response_body))
+        assert attrs["luthien.request_log.body_truncated"] is False
+        assert isinstance(attrs["db.write.duration_ms"], int)
+        assert attrs["db.write.duration_ms"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_write_logs_marks_span_error_on_db_failure(
+        self,
+        span_exporter: InMemorySpanExporter,
+    ) -> None:
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(side_effect=asyncpg.PostgresError("connection lost"))
+
+        db_pool = MagicMock(spec=DatabasePool)
+        db_pool.connection = MagicMock()
+        db_pool.connection.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+        db_pool.connection.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        recorder = RequestLogRecorder(db_pool, "txn-123")
+        recorder.record_inbound_request(method="POST", url="http://example.com", headers={}, body={"body": "secret"})
+
+        await recorder._write_logs()
+
+        spans = {span.name: span for span in span_exporter.get_finished_spans()}
+        assert spans["request_log.write"].status.status_code == StatusCode.ERROR
 
 
 class TestRequestLogRecorderIntegration:
@@ -760,29 +841,40 @@ class TestBodyTruncation:
 
     def test_serialize_body_none_returns_none(self) -> None:
         """None body returns None."""
-        assert RequestLogRecorder._serialize_body(None) is None
+        result = RequestLogRecorder._serialize_body(None)
+        assert result.payload is None
+        assert result.size_bytes == 0
+        assert result.truncated is False
 
     def test_serialize_body_small_body_passes_through(self) -> None:
         """Small bodies are serialized without truncation."""
         body = {"message": "hello"}
         result = RequestLogRecorder._serialize_body(body)
-        assert result == json.dumps(body)
+        assert result.payload == json.dumps(body)
+        assert result.size_bytes == len(json.dumps(body))
+        assert result.truncated is False
 
     def test_serialize_body_large_body_is_truncated(self) -> None:
-        """Bodies exceeding MAX_BODY_BYTES are replaced with a truncation notice."""
-        from luthien_proxy.request_log.recorder import MAX_BODY_BYTES
-
         large_body = {"data": "x" * (MAX_BODY_BYTES + 1)}
         result = RequestLogRecorder._serialize_body(large_body)
 
-        parsed = json.loads(result)  # type: ignore[arg-type]
+        assert result.payload is not None
+        parsed = json.loads(result.payload)
         assert parsed["_truncated"] is True
         assert parsed["_original_size_bytes"] > MAX_BODY_BYTES
+        assert result.size_bytes > MAX_BODY_BYTES
+        assert result.truncated is True
+
+    def test_serialize_body_boundary_at_max_body_bytes_plus_one(self) -> None:
+        overhead = len(json.dumps({"d": ""}))
+        body = {"d": "x" * (MAX_BODY_BYTES + 1 - overhead)}
+
+        result = RequestLogRecorder._serialize_body(body)
+
+        assert result.size_bytes == MAX_BODY_BYTES + 1
+        assert result.truncated is True
 
     def test_serialize_body_exactly_at_limit_passes_through(self) -> None:
-        """Bodies exactly at the limit are not truncated."""
-        from luthien_proxy.request_log.recorder import MAX_BODY_BYTES
-
         # Build a body that serializes to exactly MAX_BODY_BYTES
         # json.dumps({"d": "xxx..."}) has overhead, so adjust
         overhead = len(json.dumps({"d": ""}))
@@ -791,7 +883,9 @@ class TestBodyTruncation:
         assert len(serialized) == MAX_BODY_BYTES
 
         result = RequestLogRecorder._serialize_body(body)
-        assert result == serialized
+        assert result.payload == serialized
+        assert result.size_bytes == MAX_BODY_BYTES
+        assert result.truncated is False
 
 
 class TestInsertLogRow:
@@ -804,6 +898,10 @@ class TestInsertLogRow:
     def _make_pending(self) -> _PendingLog:
         return _PendingLog(direction="inbound", transaction_id="txn-test")
 
+    @staticmethod
+    def _empty_serialized_body(_body: dict[str, object] | None) -> _SerializedBody:
+        return _SerializedBody(payload=None, size_bytes=0, truncated=False)
+
     @pytest.mark.asyncio
     async def test_asyncpg_error_raises_database_write_error(self) -> None:
         """asyncpg.PostgresError is wrapped in DatabaseWriteError."""
@@ -812,7 +910,7 @@ class TestInsertLogRow:
         conn.execute = AsyncMock(side_effect=cause)
 
         with pytest.raises(DatabaseWriteError) as exc_info:
-            await _insert_log_row(conn, self._make_pending(), lambda b: None)
+            await _insert_log_row(conn, self._make_pending(), self._empty_serialized_body)
 
         assert exc_info.value.cause is cause
 
@@ -824,7 +922,7 @@ class TestInsertLogRow:
         conn.execute = AsyncMock(side_effect=cause)
 
         with pytest.raises(DatabaseWriteError) as exc_info:
-            await _insert_log_row(conn, self._make_pending(), lambda b: None)
+            await _insert_log_row(conn, self._make_pending(), self._empty_serialized_body)
 
         assert exc_info.value.cause is cause
 
@@ -836,7 +934,7 @@ class TestInsertLogRow:
         conn.execute = AsyncMock(side_effect=cause)
 
         with pytest.raises(DatabaseWriteError) as exc_info:
-            await _insert_log_row(conn, self._make_pending(), lambda b: None)
+            await _insert_log_row(conn, self._make_pending(), self._empty_serialized_body)
 
         assert exc_info.value.cause is cause
 
@@ -847,7 +945,7 @@ class TestInsertLogRow:
         conn.execute = AsyncMock(side_effect=OSError("disk full"))
 
         with pytest.raises(DatabaseWriteError) as exc_info:
-            await _insert_log_row(conn, self._make_pending(), lambda b: None)
+            await _insert_log_row(conn, self._make_pending(), self._empty_serialized_body)
 
         msg = str(exc_info.value)
         assert "inbound" in msg
@@ -859,5 +957,5 @@ class TestInsertLogRow:
         conn = AsyncMock()
         conn.execute = AsyncMock()
 
-        await _insert_log_row(conn, self._make_pending(), lambda b: None)
+        await _insert_log_row(conn, self._make_pending(), self._empty_serialized_body)
         conn.execute.assert_called_once()

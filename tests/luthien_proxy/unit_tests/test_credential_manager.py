@@ -2,16 +2,42 @@
 
 import json
 import time
+from collections.abc import Iterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
+from luthien_proxy import credential_manager as credential_manager_mod
 from luthien_proxy.credential_manager import (
     AuthMode,
     CredentialManager,
     hash_credential,
 )
+
+
+@pytest.fixture
+def span_exporter(monkeypatch: pytest.MonkeyPatch) -> Iterator[InMemorySpanExporter]:
+    previous_provider = trace._TRACER_PROVIDER
+    previous_once_done = trace._TRACER_PROVIDER_SET_ONCE._done
+    trace._TRACER_PROVIDER_SET_ONCE._done = False
+
+    provider = TracerProvider()
+    exporter = InMemorySpanExporter()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    trace.set_tracer_provider(provider)
+    monkeypatch.setattr(credential_manager_mod, "tracer", provider.get_tracer(credential_manager_mod.__name__))
+
+    try:
+        yield exporter
+    finally:
+        provider.shutdown()
+        trace._TRACER_PROVIDER = previous_provider
+        trace._TRACER_PROVIDER_SET_ONCE._done = previous_once_done
 
 
 class TestHashCredential:
@@ -193,6 +219,31 @@ class TestValidateCredential:
             assert result is False
             mock_redis.setex.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_validate_credential_emits_span_with_cache_miss_result(
+        self,
+        span_exporter: InMemorySpanExporter,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        cm = CredentialManager(db_pool=None, cache=None)
+
+        async def fake_count_tokens(credential: str, *, is_bearer: bool) -> bool:
+            assert credential == "sk-ant-test"
+            assert is_bearer is False
+            return True
+
+        monkeypatch.setattr(cm, "_call_count_tokens", fake_count_tokens)
+
+        ok = await cm.validate_credential("sk-ant-test", is_bearer=False)
+
+        assert ok is True
+        spans = {span.name: span for span in span_exporter.get_finished_spans()}
+        attrs = spans["auth.validate_credential"].attributes
+        assert attrs is not None
+        assert attrs["luthien.auth.cache_hit"] is False
+        assert attrs["luthien.auth.is_bearer"] is False
+        assert attrs["luthien.auth.result"] == "valid"
+
 
 class TestCallCountTokens:
     @pytest.mark.asyncio
@@ -349,6 +400,28 @@ class TestCallCountTokens:
         result = await manager._call_count_tokens("oauth-token-xyz", is_bearer=True)
         assert result is None
 
+    @pytest.mark.asyncio
+    async def test_call_count_tokens_emits_child_span_with_status_code(
+        self,
+        span_exporter: InMemorySpanExporter,
+    ) -> None:
+        cm = CredentialManager(db_pool=None, cache=None)
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url == "https://api.anthropic.com/v1/messages/count_tokens"
+            return httpx.Response(401)
+
+        cm._http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+        is_valid = await cm._call_count_tokens("sk-ant-test", is_bearer=False)
+        await cm._http_client.aclose()
+
+        assert is_valid is False
+        spans = {span.name: span for span in span_exporter.get_finished_spans()}
+        attrs = spans["auth.count_tokens"].attributes
+        assert attrs is not None
+        assert attrs["http.status_code"] == 401
+
 
 class TestInvalidation:
     @pytest.mark.asyncio
@@ -391,6 +464,7 @@ class TestListCached:
         mock_cache = AsyncMock()
 
         async def fake_scan_iter(match=None):
+            _ = match
             yield "luthien:auth:cred:abc123"
             yield "luthien:auth:cred:def456"
 
@@ -409,6 +483,7 @@ class TestListCached:
         mock_cache = AsyncMock()
 
         async def fake_scan_iter(match=None):
+            _ = match
             yield "luthien:auth:cred:gone"
 
         mock_cache.scan_iter = fake_scan_iter
@@ -431,6 +506,7 @@ class TestInvalidateAll:
         mock_redis = AsyncMock()
 
         async def fake_scan_iter(match=None):
+            _ = match
             yield b"luthien:auth:cred:abc"
             yield b"luthien:auth:cred:def"
 
@@ -447,8 +523,9 @@ class TestInvalidateAll:
         mock_redis = AsyncMock()
 
         async def fake_scan_iter(match=None):
-            return
-            yield  # make it an async generator
+            _ = match
+            for key in ():
+                yield key
 
         mock_redis.scan_iter = fake_scan_iter
 
