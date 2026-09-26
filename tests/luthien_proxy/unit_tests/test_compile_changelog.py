@@ -129,6 +129,12 @@ class TestCollectFragments:
 
 
 class TestBuildSection:
+    def test_breaking_changes_listed_first(self) -> None:
+        grouped = {"Breaking Changes": ["**X**: renamed"], "Features": ["**A**: works"]}
+        section = build_section(grouped)
+        assert section.index("### Breaking Changes") < section.index("### Features")
+        assert "- **X**: renamed" in section
+
     def test_builds_markdown(self) -> None:
         grouped = {
             "Features": ["**A**: works"],

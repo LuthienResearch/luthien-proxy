@@ -25,7 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 FRAGMENTS_DIR = REPO_ROOT / "changelog.d"
 CHANGELOG_PATH = REPO_ROOT / "CHANGELOG.md"
 
-CATEGORY_ORDER = ["Features", "Fixes", "Refactors", "Chores & Docs"]
+CATEGORY_ORDER = ["Breaking Changes", "Features", "Fixes", "Refactors", "Chores & Docs"]
 UNRELEASED_HEADER = "## Unreleased"
 SKIP_FILES = {"README.md", ".gitkeep"}
 
@@ -77,7 +77,7 @@ def build_section(grouped: dict[str, list[str]]) -> str:
     """Build the markdown text for all new entries."""
     lines: list[str] = []
     for cat in CATEGORY_ORDER:
-        entries = grouped[cat]
+        entries = grouped.get(cat, [])
         if not entries:
             continue
         lines.append(f"### {cat}\n")
