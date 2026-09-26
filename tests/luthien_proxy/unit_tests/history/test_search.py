@@ -5,10 +5,11 @@ policy_intervention) is exercised against a real in-memory SQLite database with
 all migrations applied, so the FTS5 virtual table and its sync triggers are
 live — these are integration-grade unit tests, not mock-driven.
 
-The Postgres dialect has no test tier in this repo, so its clause shape is
+The Postgres dialect has no in-process test tier, so its clause shape is
 covered by direct unit tests of ``_build_session_filter_sql`` with a fake
-postgres pool (``test_build_session_filter_sql_*``). That catches FTS-fragment
-and aggregate-syntax regressions on the PG path without a live database.
+postgres pool (``TestBuildSessionFilterSql``) and by mock-captured SQL of the
+whole list query (``TestListQueriesAreBoundedToThePage``). The live-Postgres
+proof lives in ``integration_tests/test_history_session_list_postgres.py``.
 """
 
 from __future__ import annotations
@@ -16,13 +17,35 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from tests.luthien_proxy.unit_tests.helpers.session_summaries import rebuild_session_summaries
 
-from luthien_proxy.history.models import SessionSearchParams
-from luthien_proxy.history.service import _build_session_filter_sql, fetch_session_list
+from luthien_proxy.history import service
+from luthien_proxy.history.models import SessionListResponse, SessionSearchParams
+from luthien_proxy.history.service import _build_session_filter_sql
 from luthien_proxy.utils.db import DatabasePool
 from luthien_proxy.utils.db_sqlite import SqliteConnection
+
+
+async def fetch_session_list(
+    limit: int,
+    db_pool: DatabasePool,
+    offset: int = 0,
+    *,
+    user_id: str | None = None,
+    search: SessionSearchParams | None = None,
+) -> SessionListResponse:
+    """List sessions after rebuilding ``session_summaries`` from the seeded events.
+
+    The seed helpers below insert ``conversation_events`` directly, bypassing
+    the emitter that maintains ``session_summaries`` — the table the list
+    pages from. Mock-pool tests call ``service.fetch_session_list`` directly.
+    """
+    async with db_pool.connection() as conn:
+        await rebuild_session_summaries(conn)
+    return await service.fetch_session_list(limit, db_pool, offset, user_id=user_id, search=search)
 
 
 @pytest.fixture
@@ -486,6 +509,12 @@ class TestTimezoneNormalization:
         assert excluded.sessions == []
 
 
+# How a bounded conversation_events read announces itself in list SQL: scoped to
+# the page's sessions, or correlated to the one candidate session being probed.
+_PAGE_SCOPE = "ce.session_id IN (SELECT session_id FROM page)"
+_CANDIDATE_SCOPE = "ce.session_id = ss.session_id"
+
+
 class _FakePool:
     """Minimal DatabasePool stand-in for dialect-shape unit tests."""
 
@@ -495,63 +524,68 @@ class _FakePool:
 
 
 class TestBuildSessionFilterSql:
-    """Dialect-shape coverage for the clause builder (esp. the un-runnable PG path)."""
+    """Dialect-shape coverage for the clause builder (esp. the un-runnable PG path).
+
+    Every predicate must be answerable from the ``session_summaries ss`` row or
+    by a probe correlated to that one session — never by an unbounded read.
+    """
 
     def test_empty_search_produces_no_clauses(self):
         args: list = [1, 2]
-        gates, having = _build_session_filter_sql(SessionSearchParams(), _FakePool(is_postgres=True), args)
+        gates = _build_session_filter_sql(SessionSearchParams(), _FakePool(is_postgres=True), args)
         assert gates == []
-        assert having == []
         assert args == [1, 2]  # untouched
 
     def test_postgres_q_uses_plainto_tsquery_and_search_vector(self):
         args: list = []
-        gates, having = _build_session_filter_sql(SessionSearchParams(q="needle"), _FakePool(is_postgres=True), args)
+        gates = _build_session_filter_sql(SessionSearchParams(q="needle"), _FakePool(is_postgres=True), args)
         assert len(gates) == 1
         assert "search_vector @@ plainto_tsquery('english', $1)" in gates[0]
+        assert _CANDIDATE_SCOPE in gates[0]
         assert args == ["needle"]  # raw value bound; PG sanitizes via plainto_tsquery
 
     def test_sqlite_q_uses_fts_match_table(self):
         args: list = []
-        gates, _ = _build_session_filter_sql(SessionSearchParams(q="needle"), _FakePool(is_postgres=False), args)
+        gates = _build_session_filter_sql(SessionSearchParams(q="needle"), _FakePool(is_postgres=False), args)
         assert "conversation_events_fts MATCH $1" in gates[0]
+        assert _CANDIDATE_SCOPE in gates[0]
         assert args == ['"needle"']  # phrase-quoted for FTS5
 
     def test_postgres_model_uses_jsonb_arrow(self):
         args: list = []
-        gates, _ = _build_session_filter_sql(
+        gates = _build_session_filter_sql(
             SessionSearchParams(model="claude-opus-4-6"), _FakePool(is_postgres=True), args
         )
         assert "ce.payload->>'final_model' = $1" in gates[0]
+        assert _CANDIDATE_SCOPE in gates[0]
         assert args == ["claude-opus-4-6"]
 
     def test_sqlite_model_uses_json_extract(self):
         args: list = []
-        gates, _ = _build_session_filter_sql(SessionSearchParams(model="gpt-4"), _FakePool(is_postgres=False), args)
+        gates = _build_session_filter_sql(SessionSearchParams(model="gpt-4"), _FakePool(is_postgres=False), args)
         assert "json_extract(ce.payload, '$.final_model') = $1" in gates[0]
+        assert _CANDIDATE_SCOPE in gates[0]
 
-    def test_postgres_policy_intervention_uses_filter_aggregate(self):
+    @pytest.mark.parametrize("is_postgres", [True, False], ids=["postgres", "sqlite"])
+    def test_policy_intervention_pregates_on_summary_then_probes_exact_predicate(self, is_postgres: bool):
         args: list = []
-        _, having = _build_session_filter_sql(
-            SessionSearchParams(policy_intervention=True), _FakePool(is_postgres=True), args
+        gates = _build_session_filter_sql(
+            SessionSearchParams(policy_intervention=True), _FakePool(is_postgres=is_postgres), args
         )
-        assert any("FILTER (WHERE ce.event_type LIKE 'policy.%'" in h and "> 0" in h for h in having)
+        (gate,) = gates
+        assert gate.startswith("ss.policy_event_count > 0 AND EXISTS (")
+        assert "ce.event_type LIKE 'policy.%' AND ce.event_type NOT LIKE 'policy.%judge.evaluation%'" in gate
+        assert _CANDIDATE_SCOPE in gate
+        assert args == []
 
-    def test_sqlite_policy_intervention_uses_sum_case(self):
-        args: list = []
-        _, having = _build_session_filter_sql(
-            SessionSearchParams(policy_intervention=True), _FakePool(is_postgres=False), args
-        )
-        assert any("SUM(CASE WHEN ce.event_type LIKE 'policy.%'" in h for h in having)
-
-    def test_time_bounds_use_max_having_and_dialect_bind(self):
+    def test_time_bounds_use_summary_last_seen_and_dialect_bind(self):
         # Postgres binds the datetime object; SQLite binds an ISO string.
         dt = datetime(2026, 4, 1, 12, 0, 0)
         pg_args: list = []
-        _, pg_having = _build_session_filter_sql(
+        pg_gates = _build_session_filter_sql(
             SessionSearchParams(from_time=dt, to_time=dt), _FakePool(is_postgres=True), pg_args
         )
-        assert pg_having == ["MAX(ce.created_at) >= $1", "MAX(ce.created_at) <= $2"]
+        assert pg_gates == ["ss.last_seen >= $1", "ss.last_seen <= $2"]
         assert pg_args == [dt, dt]
 
         sqlite_args: list = []
@@ -560,13 +594,103 @@ class TestBuildSessionFilterSql:
         )
         assert sqlite_args == [dt.isoformat(), dt.isoformat()]
 
-    def test_user_scope_sql_appended_to_gate_subqueries(self):
+    def test_user_scope_sql_appended_to_every_event_probe(self):
         args: list = []
         scope = "AND ce.call_id IN (SELECT call_id FROM conversation_calls WHERE user_id = $3)"
-        gates, _ = _build_session_filter_sql(
-            SessionSearchParams(model="gpt-4"), _FakePool(is_postgres=True), args, user_scope_sql=scope
+        gates = _build_session_filter_sql(
+            SessionSearchParams(model="gpt-4", q="needle", policy_intervention=True),
+            _FakePool(is_postgres=True),
+            args,
+            user_scope_sql=scope,
         )
-        assert scope in gates[0]
+        assert len(gates) == 3
+        assert all(scope in gate for gate in gates)
+
+
+def _assert_conversation_events_reads_are_bounded(sql: str) -> None:
+    """Every read of ``conversation_events`` in a list query must be bounded.
+
+    Either to the page's candidate sessions (the stats / models / first-message
+    aggregations) or correlated to one candidate session (a gate probe such as
+    the model or ``q`` EXISTS). An unbounded read aggregates the whole table on
+    every page load — the shape that pinned production at its ACU ceiling.
+    """
+    for read in sql.split("FROM conversation_events ce")[1:]:
+        assert _PAGE_SCOPE in read or _CANDIDATE_SCOPE in read, f"unbounded conversation_events read:\n{read}"
+
+
+def _mock_pool(*, is_postgres: bool) -> tuple[MagicMock, AsyncMock]:
+    conn = AsyncMock()
+    conn.fetchval.return_value = 0
+    conn.fetch.return_value = []
+    pool = MagicMock()
+    pool.is_postgres = is_postgres
+    pool.is_sqlite = not is_postgres
+    pool.connection.return_value.__aenter__.return_value = conn
+    return pool, conn
+
+
+class TestListQueriesAreBoundedToThePage:
+    """The page comes from ``session_summaries``; events are read only for it.
+
+    Mock-captured SQL because the Postgres dialect has no in-process test tier;
+    ``integration_tests/test_history_session_list_postgres.py`` proves the same
+    property against a live Postgres by counting rows the plan actually reads.
+    """
+
+    _SEARCH = SessionSearchParams(
+        model="claude-opus-4-6",
+        from_time=datetime(2026, 4, 1),
+        to_time=datetime(2026, 4, 30, 23, 59, 59),
+        q="needle",
+        policy_intervention=True,
+    )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("is_postgres", [True, False], ids=["postgres", "sqlite"])
+    async def test_filtered_user_scoped_list_pages_from_session_summaries(self, is_postgres: bool):
+        pool, conn = _mock_pool(is_postgres=is_postgres)
+
+        await service.fetch_session_list(limit=20, db_pool=pool, offset=40, user_id="alice", search=self._SEARCH)
+
+        count_sql = conn.fetchval.await_args.args[0]
+        assert "FROM session_summaries ss" in count_sql
+        assert "GROUP BY" not in count_sql, "filtered total must not aggregate conversation_events"
+        _assert_conversation_events_reads_are_bounded(count_sql)
+
+        page_sql, *page_args = conn.fetch.await_args_list[0].args
+        assert "FROM session_summaries ss" in page_sql
+        assert "LIMIT $1 OFFSET $2" in page_sql
+        assert page_args[:2] == [20, 40]
+        _assert_conversation_events_reads_are_bounded(page_sql)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("is_postgres", [True, False], ids=["postgres", "sqlite"])
+    async def test_unfiltered_list_pages_from_session_summaries(self, is_postgres: bool):
+        pool, conn = _mock_pool(is_postgres=is_postgres)
+
+        await service.fetch_session_list(limit=10, db_pool=pool)
+
+        assert "FROM session_summaries ss" in conn.fetchval.await_args.args[0]
+        page_sql = conn.fetch.await_args_list[0].args[0]
+        assert "FROM session_summaries ss" in page_sql
+        _assert_conversation_events_reads_are_bounded(page_sql)
+
+    @pytest.mark.asyncio
+    async def test_user_scoped_list_binds_user_id_and_scopes_event_reads(self):
+        """Cross-user isolation: the user filter is bound, and every event read carries it."""
+        pool, conn = _mock_pool(is_postgres=True)
+        hostile = "alice'; DROP TABLE conversation_calls;--"
+
+        await service.fetch_session_list(
+            limit=10, db_pool=pool, user_id=hostile, search=SessionSearchParams(q="needle")
+        )
+
+        page_sql, *page_args = conn.fetch.await_args_list[0].args
+        assert hostile not in page_sql
+        assert hostile in page_args
+        for read in page_sql.split("FROM conversation_events ce")[1:]:
+            assert "conversation_calls WHERE user_id = $" in read, f"event read not scoped to the user:\n{read}"
 
 
 __all__ = []
