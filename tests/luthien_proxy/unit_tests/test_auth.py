@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 
 from luthien_proxy.auth import (
     check_auth_or_redirect,
+    has_forwarding_headers,
     is_localhost_request,
     verify_admin_token,
 )
@@ -314,6 +315,109 @@ class TestIsLocalhostRequest:
         request = MagicMock()
         request.client = None
         assert is_localhost_request(request) is False
+
+
+class TestHasForwardingHeaders:
+    """Test the has_forwarding_headers helper."""
+
+    @pytest.mark.parametrize(
+        "header",
+        ["forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip"],
+    )
+    def test_each_forwarding_header_detected(self, header):
+        request = _make_localhost_request(headers={header: "203.0.113.7"})
+        assert has_forwarding_headers(request) is True
+
+    def test_no_forwarding_headers(self):
+        request = _make_localhost_request(headers={"user-agent": "curl/8.0"})
+        assert has_forwarding_headers(request) is False
+
+
+class TestLocalhostBypassRefusesProxiedRequests:
+    """Forwarding headers on a loopback connection disable the bypass.
+
+    Regression tests for the same-host reverse proxy hole: a reverse proxy
+    (Caddy/nginx/Traefik) on the gateway's host makes every external request
+    arrive from 127.0.0.1 with X-Forwarded-For set. Those requests must not
+    get the localhost auth bypass.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clear_settings(self):
+        clear_settings_cache()
+        yield
+        clear_settings_cache()
+
+    @pytest.mark.parametrize(
+        "headers",
+        [
+            {"x-forwarded-for": "203.0.113.7"},
+            {"forwarded": "for=203.0.113.7"},
+            {"x-real-ip": "203.0.113.7"},
+            {"x-forwarded-for": "203.0.113.7", "x-forwarded-proto": "https", "x-forwarded-host": "proxy.example.com"},
+        ],
+    )
+    def test_forwarded_localhost_request_redirects(self, monkeypatch, headers):
+        monkeypatch.setenv("LOCALHOST_AUTH_BYPASS", "true")
+        request = _make_localhost_request(path="/activity/monitor", headers=headers)
+        result = check_auth_or_redirect(request, admin_key="secret123")
+        assert isinstance(result, RedirectResponse)
+        assert result.status_code == 303
+
+    def test_forwarded_request_with_valid_key_still_authenticates(self, monkeypatch):
+        monkeypatch.setenv("LOCALHOST_AUTH_BYPASS", "true")
+        request = _make_localhost_request(
+            path="/activity/monitor",
+            headers={"x-forwarded-for": "203.0.113.7", "authorization": "Bearer secret123"},
+        )
+        assert check_auth_or_redirect(request, admin_key="secret123") is None
+
+    def test_bare_localhost_request_still_bypasses(self, monkeypatch):
+        monkeypatch.setenv("LOCALHOST_AUTH_BYPASS", "true")
+        request = _make_localhost_request(path="/activity/monitor")
+        assert check_auth_or_redirect(request, admin_key="secret123") is None
+
+
+class TestLocalhostBypassRefusesProxiedAdminApi:
+    """verify_admin_token: proxied requests get 403, direct loopback bypasses."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_settings(self):
+        clear_settings_cache()
+        yield
+        clear_settings_cache()
+
+    @pytest.fixture
+    def client_from_localhost(self, app_with_admin_key, monkeypatch):
+        """TestClient whose requests appear to originate from 127.0.0.1."""
+        monkeypatch.setenv("LOCALHOST_AUTH_BYPASS", "true")
+        clear_settings_cache()
+        return TestClient(app_with_admin_key, client=("127.0.0.1", 50000))
+
+    def test_admin_api_403_when_forwarded_header_present(self, client_from_localhost):
+        with client_from_localhost as client:
+            response = client.get("/test", headers={"x-forwarded-for": "203.0.113.7"})
+            assert response.status_code == 403
+
+    def test_admin_api_403_when_rfc7239_forwarded_present(self, client_from_localhost):
+        with client_from_localhost as client:
+            response = client.get("/test", headers={"forwarded": "for=203.0.113.7"})
+            assert response.status_code == 403
+
+    def test_admin_api_bypasses_for_bare_localhost(self, client_from_localhost):
+        with client_from_localhost as client:
+            response = client.get("/test")
+            assert response.status_code == 200
+            assert response.json()["token"] == "localhost-bypass"
+
+    def test_forwarded_request_with_valid_key_authenticates(self, client_from_localhost):
+        with client_from_localhost as client:
+            response = client.get(
+                "/test",
+                headers={"x-forwarded-for": "203.0.113.7", "Authorization": "Bearer test-admin-key"},
+            )
+            assert response.status_code == 200
+            assert response.json()["token"] == "test-admin-key"
 
 
 class TestLocalhostBypassCheckAuthOrRedirect:
