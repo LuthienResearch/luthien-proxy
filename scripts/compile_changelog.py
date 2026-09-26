@@ -77,7 +77,7 @@ def build_section(grouped: dict[str, list[str]]) -> str:
     """Build the markdown text for all new entries."""
     lines: list[str] = []
     for cat in CATEGORY_ORDER:
-        entries = grouped[cat]
+        entries = grouped.get(cat, [])
         if not entries:
             continue
         lines.append(f"### {cat}\n")
