@@ -139,9 +139,20 @@ def init_sentry(settings: Settings | None = None) -> None:
         )
         return
 
-    # OTel exporter logs at ERROR when Tempo is unreachable — expected in
-    # local dev without Docker. Don't let these burn Sentry quota.
-    ignore_logger("opentelemetry.sdk.trace.export")
+    # OTel logs at ERROR for conditions that are its own concern, not ours:
+    # exporter/collector reachability (Tempo down in local dev, or the
+    # collector rejecting a batch — see LUTHIEN-C/F, which were `opentelemetry
+    # .exporter.otlp.proto.http.{trace,metric}_exporter` reporting HTTP 403
+    # from the OTel collector), and context-detach races on cross-task token
+    # resets during streaming (a ValueError OTel already catches and logs
+    # itself; the request is unaffected — this alone fired on ~every proxied
+    # request, ~86k events in 13h on 2026-08-05, and exhausted the org error
+    # quota). Telemetry-pipeline health is the collector's own monitors'
+    # job (see the Datadog monitor for luthien-proxy errors, which excludes
+    # `@logger:opentelemetry.*` for the same reason) — ignore the whole
+    # `opentelemetry.*` logger namespace here rather than chasing each
+    # sub-logger individually as new exporters/instrumentations add more.
+    ignore_logger("opentelemetry.*")
 
     sentry_sdk.init(
         dsn=settings.sentry_dsn,
