@@ -2,9 +2,11 @@
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from anthropic import APIConnectionError as AnthropicConnectionError
 from anthropic import APIStatusError as AnthropicStatusError
@@ -27,6 +29,7 @@ from tests.constants import DEFAULT_TEST_MODEL
 from tests.luthien_proxy.fixtures.policy_context import make_policy_context
 
 from luthien_proxy.exceptions import BackendAPIError
+from luthien_proxy.llm.anthropic_client import AnthropicUpstreamTransportError
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse, build_usage
 from luthien_proxy.pipeline.anthropic_processor import (
     _AnthropicPolicyIO,
@@ -315,11 +318,14 @@ class TestProcessRequest:
         assert "payload too large" in exc_info.value.detail.lower()
 
     @pytest.mark.asyncio
-    async def test_malformed_json_returns_400(self, mock_request, mock_emitter, mock_span):
+    async def test_malformed_json_returns_400(self, mock_request, mock_emitter, mock_span, caplog):
         """Test that malformed JSON in request body returns 400 error."""
         mock_request.json = AsyncMock(side_effect=json.JSONDecodeError("Expecting value", "", 0))
 
-        with patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer:
+        with (
+            patch("luthien_proxy.pipeline.anthropic_processor.tracer") as mock_tracer,
+            caplog.at_level(logging.WARNING, logger="luthien_proxy.pipeline.anthropic_processor"),
+        ):
             mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(return_value=mock_span)
             mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -332,6 +338,11 @@ class TestProcessRequest:
 
         assert exc_info.value.status_code == 400
         assert exc_info.value.detail == "Invalid JSON in request body"
+        # A client sending malformed JSON is not a proxy defect — must not be
+        # error-level, or Sentry's logging integration captures it (LUTHIEN-7/9).
+        malformed_json_records = [r for r in caplog.records if "Malformed JSON" in r.message]
+        assert malformed_json_records, f"expected a log record; got {[r.message for r in caplog.records]}"
+        assert all(r.levelno == logging.WARNING for r in malformed_json_records)
 
     @pytest.mark.asyncio
     async def test_missing_model_returns_400(self, mock_request, mock_emitter, mock_span):
@@ -843,6 +854,41 @@ class TestBuildErrorEvent:
         assert event.get("error", {}).get("type") == "api_connection_error"
         assert event.get("error", {}).get("message") == "An error occurred while connecting to the API."
 
+    def test_builds_transport_error_event_and_logs_at_warning(self, caplog):
+        """AnthropicUpstreamTransportError — raised by AnthropicClient when the
+        actual upstream connection drops mid-stream — is the backend's network,
+        not a proxy defect (LUTHIEN-A/B/G) — must log at warning, not error."""
+        error = AnthropicUpstreamTransportError(
+            "peer closed connection without sending complete message body (incomplete chunked read)"
+        )
+
+        with caplog.at_level(logging.WARNING, logger="luthien_proxy.pipeline.anthropic_processor"):
+            event = _build_error_event(error, "test-call-id")
+
+        assert event.get("type") == "error"
+        assert event.get("error", {}).get("type") == "api_connection_error"
+        assert event.get("error", {}).get("message") == "An error occurred while connecting to the API."
+        transport_records = [r for r in caplog.records if "Mid-stream transport error" in r.message]
+        assert transport_records, f"expected a log record; got {[r.message for r in caplog.records]}"
+        assert all(r.levelno == logging.WARNING for r in transport_records)
+
+    def test_builds_generic_error_event_for_policy_origin_transport_error(self, caplog):
+        """A raw httpx.TransportError NOT raised by AnthropicClient (e.g. from a
+        policy's own outbound HTTP call) is not AnthropicUpstreamTransportError,
+        so it must stay on the generic error-level path — the upstream-network
+        carve-out must not swallow a policy/gateway bug (review finding
+        on PR #814)."""
+        mock_request = HttpxRequest("POST", "https://example.com/judge")
+        error = httpx.RemoteProtocolError("peer closed connection", request=mock_request)
+
+        with caplog.at_level(logging.ERROR, logger="luthien_proxy.pipeline.anthropic_processor"):
+            event = _build_error_event(error, "test-call-id")
+
+        assert event.get("error", {}).get("type") == "api_error"
+        error_records = [r for r in caplog.records if "Mid-stream error" in r.message]
+        assert error_records, f"expected a log record; got {[r.message for r in caplog.records]}"
+        assert all(r.levelno == logging.ERROR for r in error_records)
+
     def test_builds_generic_error_event(self):
         """Generic exceptions produce a sanitized error event — internal details are not forwarded."""
         error = RuntimeError("Something went wrong")
@@ -852,6 +898,18 @@ class TestBuildErrorEvent:
         assert event.get("type") == "error"
         assert event.get("error", {}).get("type") == "api_error"
         assert event.get("error", {}).get("message") == "An internal error occurred while processing the request."
+
+    def test_builds_generic_error_event_logs_at_error(self, caplog):
+        """A genuine proxy bug mid-stream must still be error-level and visible —
+        the httpx.TransportError carve-out must not swallow real defects."""
+        error = RuntimeError("Something went wrong")
+
+        with caplog.at_level(logging.ERROR, logger="luthien_proxy.pipeline.anthropic_processor"):
+            _build_error_event(error, "test-call-id")
+
+        error_records = [r for r in caplog.records if "Mid-stream error" in r.message]
+        assert error_records, f"expected a log record; got {[r.message for r in caplog.records]}"
+        assert all(r.levelno == logging.ERROR for r in error_records)
 
 
 class TestMidStreamErrorHandling:
@@ -1096,6 +1154,20 @@ class TestHandleAnthropicError:
     def test_connection_error_raises_backend_api_error(self):
         """Connection errors should raise BackendAPIError with 502."""
         exc = AnthropicConnectionError(request=HttpxRequest("POST", "https://api.anthropic.com/v1/messages"))
+
+        with pytest.raises(BackendAPIError) as exc_info:
+            _handle_anthropic_error(exc, "test-call")
+
+        assert exc_info.value.status_code == 502
+        assert exc_info.value.error_type == "api_connection_error"
+
+    def test_upstream_transport_error_raises_backend_api_error(self):
+        """AnthropicUpstreamTransportError (raised by AnthropicClient when the
+        actual upstream connection drops) should raise BackendAPIError with 502
+        — previously this exception type wasn't classified at all in the
+        non-streaming path and propagated as an unclassified 500
+        (review finding on PR #814)."""
+        exc = AnthropicUpstreamTransportError("peer closed connection")
 
         with pytest.raises(BackendAPIError) as exc_info:
             _handle_anthropic_error(exc, "test-call")
@@ -2229,6 +2301,57 @@ class TestStreamingWebhookGate:
         kwargs = webhook.fire_and_forget.call_args.kwargs
         assert kwargs["success"] is False
         assert kwargs["http_status"] == 500
+
+    @pytest.mark.asyncio
+    async def test_mid_stream_upstream_transport_error_fires_with_503(self):
+        """AnthropicUpstreamTransportError mid-stream → error event classified as
+        api_connection_error, webhook AND request-log status 503 — the same
+        upstream-network bucket as AnthropicConnectionError, not a proxy 500.
+
+        Regression for the finding that this exception type fell through to
+        the generic `else: final_status = 500` branch, misclassifying an
+        Anthropic-side network outage as a proxy bug in the completion
+        webhook and request-log rows.
+        """
+        from luthien_proxy.llm.anthropic_client import AnthropicUpstreamTransportError
+        from luthien_proxy.pipeline.anthropic_processor import _handle_execution_streaming
+
+        transport_error = AnthropicUpstreamTransportError("peer closed connection without sending complete message")
+
+        async def emissions():
+            yield self._make_event()
+            raise transport_error
+
+        io, span, ctx, recorder, emitter = self._make_deps()
+        webhook = MagicMock()
+        webhook.enabled = True
+        webhook.fire_and_forget = MagicMock()
+
+        response = await _handle_execution_streaming(
+            emissions=emissions(),
+            io=io,
+            call_id="call-transport-error",
+            root_span=span,
+            policy_ctx=ctx,
+            request_log_recorder=recorder,
+            emitter=emitter,
+            webhook_sender=webhook,
+            request_start_time=0.0,
+        )
+        chunks = await self._drain(response)
+
+        # Emitted error event is classified as api_connection_error (_build_error_event).
+        body_text = b"".join(chunks).decode()
+        assert "event: error" in body_text
+        assert '"type": "api_connection_error"' in body_text
+
+        # Webhook AND request-log both record the upstream-network status, not 500.
+        webhook.fire_and_forget.assert_called_once()
+        kwargs = webhook.fire_and_forget.call_args.kwargs
+        assert kwargs["success"] is False
+        assert kwargs["http_status"] == 503
+        recorder.record_inbound_response.assert_called_once_with(status=503)
+        recorder.record_outbound_response.assert_called_once_with(status=503)
 
     @pytest.mark.asyncio
     async def test_empty_stream_fires_with_success_false_500(self):

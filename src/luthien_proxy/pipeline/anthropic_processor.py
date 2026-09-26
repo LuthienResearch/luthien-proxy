@@ -42,7 +42,7 @@ from luthien_proxy.credential_manager import CredentialManager
 from luthien_proxy.credentials import Credential, CredentialError
 from luthien_proxy.exceptions import BackendAPIError
 from luthien_proxy.inference.registry import InferenceProviderRegistry
-from luthien_proxy.llm.anthropic_client import AnthropicClient
+from luthien_proxy.llm.anthropic_client import AnthropicClient, AnthropicUpstreamTransportError
 from luthien_proxy.llm.types.anthropic import (
     AnthropicContentBlock,
     AnthropicRequest,
@@ -510,7 +510,9 @@ async def _process_request(
         try:
             body = await request.json()
         except json.JSONDecodeError as e:
-            logger.error(f"[{call_id}] Malformed JSON in Anthropic request: {repr(e)}")
+            # Client sent invalid JSON — not a proxy defect (LUTHIEN-7/9); the
+            # 400 below is the actionable response to the client.
+            logger.warning(f"[{call_id}] Malformed JSON in Anthropic request: {repr(e)}")
             raise HTTPException(status_code=400, detail="Invalid JSON in request body")
         headers = {k.lower(): v for k, v in request.headers.items()}
 
@@ -791,7 +793,14 @@ async def _handle_execution_streaming(
                     )
                     if isinstance(e, AnthropicStatusError):
                         final_status = e.status_code or 500
-                    elif isinstance(e, AnthropicConnectionError):
+                    elif isinstance(e, AnthropicConnectionError | AnthropicUpstreamTransportError):
+                        # AnthropicUpstreamTransportError is AnthropicClient's own
+                        # wrapper around a network-level transport failure talking
+                        # to Anthropic (see llm/anthropic_client.py) — same
+                        # upstream-network bucket as AnthropicConnectionError, not
+                        # a proxy defect. Without this branch it fell through to
+                        # the generic 500 below, misclassifying an upstream outage
+                        # as a proxy bug in the completion webhook / request log.
                         final_status = 503
                     else:
                         final_status = 500
@@ -1203,6 +1212,17 @@ def _build_error_event(e: Exception, call_id: str) -> _StreamErrorEvent:
         error_type = "api_connection_error"
         message = client_error_detail(str(e), "An error occurred while connecting to the API.")
         logger.warning(f"[{call_id}] Mid-stream Anthropic connection error: {repr(e)}")
+    elif isinstance(e, AnthropicUpstreamTransportError):
+        # Raised by AnthropicClient.complete/stream when the actual upstream
+        # connection drops (e.g. RemoteProtocolError, ReadTimeout, ReadError
+        # while mid-read of a streaming response body) — the backend's
+        # network, not a proxy defect (LUTHIEN-A/B/G). A raw
+        # httpx.TransportError raised anywhere else (e.g. a policy's own
+        # outbound call) is NOT this type and falls to the generic branch
+        # below, where it stays error-level and visible.
+        error_type = "api_connection_error"
+        message = client_error_detail(str(e), "An error occurred while connecting to the API.")
+        logger.warning(f"[{call_id}] Mid-stream transport error: {repr(e)}")
     else:
         error_type = "api_error"
         message = client_error_detail(str(e), "An internal error occurred while processing the request.")
@@ -1271,6 +1291,18 @@ def _handle_anthropic_error(e: Exception, call_id: str) -> None:
         ) from e
     elif isinstance(e, AnthropicConnectionError):
         logger.warning(f"[{call_id}] Anthropic connection error: {repr(e)}")
+        raise BackendAPIError(
+            status_code=502,
+            message=client_error_detail(str(e), "An error occurred while connecting to the API."),
+            error_type="api_connection_error",
+            client_format=ClientFormat.ANTHROPIC,
+            provider="anthropic",
+        ) from e
+    elif isinstance(e, AnthropicUpstreamTransportError):
+        # Same upstream-network carve-out as _build_error_event's mid-stream
+        # branch, for the non-streaming path — previously this fell through
+        # to "let them propagate" and surfaced as an unclassified 500.
+        logger.warning(f"[{call_id}] Anthropic upstream transport error: {repr(e)}")
         raise BackendAPIError(
             status_code=502,
             message=client_error_detail(str(e), "An error occurred while connecting to the API."),
