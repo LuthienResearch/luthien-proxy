@@ -346,4 +346,6 @@ Policies using session-level state trackers (like `ConversationLinkPolicy`'s onc
 
 ---
 
+- 2026-09-11: PostgreSQL JSONB cannot store U+0000; request-log bodies are sanitized to U+FFFD before insert.
+
 (Add gotchas as discovered with timestamps: YYYY-MM-DD)

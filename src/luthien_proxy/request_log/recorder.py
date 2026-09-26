@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -26,6 +27,16 @@ logger = logging.getLogger(__name__)
 
 # Bodies larger than this are replaced with a truncation notice
 MAX_BODY_BYTES = 1_048_576  # 1 MB
+
+# json.dumps encodes U+0000 as \u0000. PostgreSQL jsonb rejects that escape.
+# Match the NUL escape and any preceding pairs used to represent literal
+# backslashes, leaving literal "\\u0000" input unchanged.
+_JSON_NUL_ESCAPE = re.compile(r"(?<!\\)(?:\\\\)*\\u0000")
+
+
+def _replace_json_nul_escape(match: re.Match[str]) -> str:
+    """Replace the actual NUL escape while retaining literal backslashes."""
+    return f"{match.group()[: -len(r'\u0000')]}\\ufffd"
 
 
 def _log_task_exception(task: asyncio.Task[None]) -> None:
@@ -231,10 +242,18 @@ class RequestLogRecorder:
 
     @staticmethod
     def _serialize_body(body: dict[str, Any] | None) -> str | None:
-        """JSON-serialize a body dict, truncating if it exceeds MAX_BODY_BYTES."""
+        r"""JSON-serialize a body dict, sanitizing NULs and truncating oversized bodies.
+
+        PostgreSQL JSONB rejects ``\u0000`` even when JSON encodes it as an
+        escape. SQLite stores the same JSON text in TEXT, so replacing only
+        those escapes with ``\ufffd`` gives both backends one readable format;
+        U+FFFD itself visibly records the substitution without changing the body schema.
+        """
         if body is None:
             return None
         serialized = json.dumps(body)
+        if r"\u0000" in serialized:
+            serialized = _JSON_NUL_ESCAPE.sub(_replace_json_nul_escape, serialized)
         if len(serialized) > MAX_BODY_BYTES:
             return json.dumps({"_truncated": True, "_original_size_bytes": len(serialized)})
         return serialized

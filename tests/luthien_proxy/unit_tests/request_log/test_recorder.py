@@ -768,6 +768,32 @@ class TestBodyTruncation:
         result = RequestLogRecorder._serialize_body(body)
         assert result == json.dumps(body)
 
+    def test_serialize_body_replaces_nul_with_replacement_character(self) -> None:
+        """NULs in nested strings become U+FFFD in JSON text."""
+        body = {
+            "message": "before\x00after",
+            "nested": ["inner\x00value", {"count": 3, "enabled": False, "empty": None}],
+        }
+
+        result = RequestLogRecorder._serialize_body(body)
+
+        assert result is not None
+        assert "\x00" not in result
+        assert r"\u0000" not in result
+        assert json.loads(result) == {
+            "message": "before\ufffdafter",
+            "nested": ["inner\ufffdvalue", {"count": 3, "enabled": False, "empty": None}],
+        }
+
+    def test_serialize_body_without_nul_is_byte_identical(self) -> None:
+        """Bodies without NULs retain the exact json.dumps representation."""
+        body = {
+            "literal_escape": r"\u0000",
+            "nested": [{"count": 3, "enabled": False, "empty": None}],
+        }
+
+        assert RequestLogRecorder._serialize_body(body) == json.dumps(body)
+
     def test_serialize_body_large_body_is_truncated(self) -> None:
         """Bodies exceeding MAX_BODY_BYTES are replaced with a truncation notice."""
         from luthien_proxy.request_log.recorder import MAX_BODY_BYTES
