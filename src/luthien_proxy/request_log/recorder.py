@@ -21,6 +21,7 @@ from typing import Any, Callable
 
 from luthien_proxy.request_log.sanitize import sanitize_headers
 from luthien_proxy.utils.db import DatabasePool, DatabaseWriteError
+from luthien_proxy.utils.jsonb import sanitize_for_jsonb
 
 logger = logging.getLogger(__name__)
 
@@ -95,10 +96,10 @@ async def _insert_log_row(
             pending.direction,
             pending.http_method,
             pending.url,
-            json.dumps(pending.request_headers) if pending.request_headers else None,
+            json.dumps(sanitize_for_jsonb(pending.request_headers)) if pending.request_headers else None,
             serialize_body(pending.request_body),
             pending.response_status,
-            json.dumps(pending.response_headers) if pending.response_headers else None,
+            json.dumps(sanitize_for_jsonb(pending.response_headers)) if pending.response_headers else None,
             serialize_body(pending.response_body),
             pending.started_at,
             pending.completed_at,
@@ -234,22 +235,26 @@ class RequestLogRecorder:
         """JSON-serialize a body dict, truncating if it exceeds MAX_BODY_BYTES."""
         if body is None:
             return None
-        serialized = json.dumps(body)
+        serialized = json.dumps(sanitize_for_jsonb(body))
         if len(serialized) > MAX_BODY_BYTES:
             return json.dumps({"_truncated": True, "_original_size_bytes": len(serialized)})
         return serialized
 
     async def _write_logs(self) -> None:
         """Insert both inbound and outbound rows."""
+        failed_pending: _PendingLog | None = None
         try:
             async with self._db_pool.connection() as conn:
                 for pending in (self._inbound, self._outbound):
+                    failed_pending = pending
                     await _insert_log_row(conn, pending, self._serialize_body)
         except DatabaseWriteError as exc:
             RequestLogRecorder.dropped_writes += 1
             logger.warning(
-                "Failed to write request logs for %s (%d total dropped): %s",
+                "Failed to write request logs (call_id=%s, session_id=%s, direction=%s; %d total dropped): %s",
                 self._transaction_id,
+                failed_pending.session_id if failed_pending else None,
+                failed_pending.direction if failed_pending else "connection",
                 RequestLogRecorder.dropped_writes,
                 exc.cause,
             )

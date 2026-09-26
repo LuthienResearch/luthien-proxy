@@ -10,7 +10,6 @@ via global state.
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import logging
 import sqlite3
@@ -25,47 +24,12 @@ from luthien_proxy.observability.event_publisher import EventPublisherProtocol
 from luthien_proxy.observability.session_summary import update_session_summary
 from luthien_proxy.utils.constants import OTEL_SPAN_ID_HEX_LENGTH, OTEL_TRACE_ID_HEX_LENGTH
 from luthien_proxy.utils.db import DatabasePool
+from luthien_proxy.utils.jsonb import sanitize_for_jsonb
 
 
 def _safe_serialize(obj: Any) -> Any:
-    """Convert an object to a JSON-serializable form.
-
-    Handles common non-serializable types gracefully:
-    - datetime objects -> ISO format strings
-    - bytes -> base64-encoded strings (prefixed with "b64:")
-    - sets -> lists
-    - objects with __dict__ -> their __dict__
-    - other non-serializable objects -> their string representation
-
-    Returns a structure that json.dumps() can handle without raising.
-    """
-    if obj is None or isinstance(obj, (bool, int, float, str)):
-        return obj
-
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-
-    if isinstance(obj, bytes):
-        return f"b64:{base64.b64encode(obj).decode('ascii')}"
-
-    if isinstance(obj, dict):
-        return {str(k): _safe_serialize(v) for k, v in obj.items()}
-
-    if isinstance(obj, (list, tuple)):
-        return [_safe_serialize(item) for item in obj]
-
-    if isinstance(obj, set):
-        return [_safe_serialize(item) for item in sorted(obj, key=str)]
-
-    if hasattr(obj, "model_dump"):
-        # Pydantic models
-        return _safe_serialize(obj.model_dump())
-
-    if hasattr(obj, "__dict__"):
-        return _safe_serialize(obj.__dict__)
-
-    # Fallback: convert to string representation
-    return str(obj)
+    """Convert an object to a JSON-serializable form safe for JSONB storage."""
+    return sanitize_for_jsonb(obj)
 
 
 logger = logging.getLogger(__name__)
@@ -164,7 +128,7 @@ class EventEmitter:
         if self._stdout_enabled:
             tasks.append(self._write_stdout(transaction_id, event_type, safe_data, timestamp))
         if self._db_pool:
-            tasks.append(self._write_db(transaction_id, event_type, safe_data, timestamp))
+            tasks.append(self._write_db(transaction_id, event_type, data, timestamp))
         if self._event_publisher:
             tasks.append(self._write_events(transaction_id, event_type, safe_data, timestamp))
 
@@ -271,6 +235,7 @@ class EventEmitter:
                     # conversation_events — it lives on conversation_calls (which
                     # query paths join through). Denormalizing onto every event
                     # row paid a write cost for zero readers.
+                    payload = cast(dict[str, Any], sanitize_for_jsonb(data))
                     await conn.execute(
                         """
                         INSERT INTO conversation_events (call_id, event_type, payload, created_at, session_id)
@@ -278,7 +243,7 @@ class EventEmitter:
                         """,
                         transaction_id,
                         event_type,
-                        json.dumps(data),
+                        json.dumps(payload),
                         timestamp,
                         session_id,
                     )
@@ -291,7 +256,7 @@ class EventEmitter:
                             conn,
                             session_id=session_id,
                             event_type=event_type,
-                            data=data,
+                            data=payload,
                             user_id=user_id if isinstance(user_id, str) else None,
                             timestamp=timestamp,
                         )
@@ -307,7 +272,12 @@ class EventEmitter:
         except (OSError, asyncpg.PostgresError, asyncpg.InternalClientError, sqlite3.Error) as e:
             EventEmitter.dropped_db_writes += 1
             logger.warning(
-                f"Failed to write event to database ({EventEmitter.dropped_db_writes} total dropped): {repr(e)}",
+                "Failed to write event to database (call_id=%s, session_id=%s, event_type=%s; %d total dropped): %r",
+                transaction_id,
+                session_id,
+                event_type,
+                EventEmitter.dropped_db_writes,
+                e,
                 exc_info=True,
             )
 
