@@ -19,7 +19,9 @@ env:
 jobs:
   build-and-push:
     # Skip redundant builds for auto-tag changelog commits (tag-triggered build handles versioned images)
+    # ...but never skip a version-tag push: the tag points at that same commit.
     if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
       !contains(github.event.head_commit.message, '[skip auto-tag-proxy]')
     runs-on: ubuntu-latest
     permissions:
