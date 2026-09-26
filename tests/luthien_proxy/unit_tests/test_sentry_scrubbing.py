@@ -4,7 +4,15 @@ import logging
 
 import pytest
 
-from luthien_proxy.observability.sentry import _sentry_before_send, _summarize
+from luthien_proxy.observability.sentry import (
+    _CONTENT_DEPENDENT_STATUS_CODES,
+    _CREDENTIAL_DEPENDENT_STATUS_CODES,
+    _PROVIDER_SIDE_STATUS_CODES,
+    CREDENTIAL_PASSTHROUGH_TAG,
+    PASSTHROUGH_TAG,
+    _sentry_before_send,
+    _summarize,
+)
 
 pytestmark = pytest.mark.timeout(10)
 
@@ -88,9 +96,12 @@ class TestBeforeSend:
         include_cookies=True,
         include_frame_vars=True,
         frame_vars_empty=False,
+        tags=None,
     ):
         """Build a realistic Sentry event for testing."""
         event = {}
+        if tags is not None:
+            event["tags"] = tags
 
         if include_server_name:
             event["server_name"] = "gateway-prod-123"
@@ -174,6 +185,193 @@ class TestBeforeSend:
         event = self._make_event()
         result = _sentry_before_send(event, {"exc_info": "not-a-tuple"})
         assert result is not None
+
+    def _status_error(self, status_code: int):
+        """Build a real Anthropic status error, as the SDK raises it."""
+        import httpx
+        from anthropic import APIStatusError
+
+        request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        response = httpx.Response(status_code, request=request, json={"error": {"message": "upstream"}})
+        return APIStatusError("upstream", response=response, body=None)
+
+    def test_drops_upstream_rate_limit_error(self):
+        """A 429 from Anthropic is the upstream telling us to slow down, not a proxy
+        bug. The SDK integration captures it unhandled at the call site, which burned
+        56 events in three days and buries real failures."""
+        exc = self._status_error(429)
+        event = self._make_event()
+        assert _sentry_before_send(event, {"exc_info": (type(exc), exc, None)}) is None
+
+    def test_drops_upstream_overloaded_error(self):
+        exc = self._status_error(529)
+        event = self._make_event()
+        assert _sentry_before_send(event, {"exc_info": (type(exc), exc, None)}) is None
+
+    def test_drops_upstream_bad_request_error(self):
+        """A 400 means the client sent content Anthropic rejects (e.g. an unsupported
+        field). Dropped only when the request carrying the PASSTHROUGH_TAG proves the
+        proxy relayed it unchanged — see LUTHIEN-6, 1,080 events for one recurring case."""
+        exc = self._status_error(400)
+        event = self._make_event(tags={PASSTHROUGH_TAG: True})
+        assert _sentry_before_send(event, {"exc_info": (type(exc), exc, None)}) is None
+
+    def test_drops_bad_request_error_regardless_of_credential_tag(self):
+        """400 is credential-independent: a client-key-mode request (server's
+        shared ANTHROPIC_API_KEY forwarded, CREDENTIAL_PASSTHROUGH_TAG False)
+        with an unmodified body must still drop a 400 — the operator's
+        credential has nothing to do with a malformed message the client
+        sent. Regression guard for the credential-provenance fix
+        overcorrecting into gating 400/404 too."""
+        exc = self._status_error(400)
+        event = self._make_event(tags={PASSTHROUGH_TAG: True, CREDENTIAL_PASSTHROUGH_TAG: False})
+        assert _sentry_before_send(event, {"exc_info": (type(exc), exc, None)}) is None
+
+    def test_drops_upstream_not_found_error(self):
+        """A 404 means the client asked for a model Anthropic doesn't have (LUTHIEN-2),
+        and the PASSTHROUGH_TAG proves the proxy didn't rewrite the request."""
+        exc = self._status_error(404)
+        event = self._make_event(tags={PASSTHROUGH_TAG: True})
+        assert _sentry_before_send(event, {"exc_info": (type(exc), exc, None)}) is None
+
+    def test_drops_not_found_error_regardless_of_credential_tag(self):
+        """Same regression guard as the 400 case: an unknown model name is
+        credential-independent, so a 404 still drops in client-key mode."""
+        exc = self._status_error(404)
+        event = self._make_event(tags={PASSTHROUGH_TAG: True, CREDENTIAL_PASSTHROUGH_TAG: False})
+        assert _sentry_before_send(event, {"exc_info": (type(exc), exc, None)}) is None
+
+    def test_drops_upstream_authentication_error(self):
+        """A 401 means the credential passed through to Anthropic was invalid
+        (LUTHIEN-D) — the proxy correctly forwarded a bad token, it didn't mint
+        one. Dropping requires BOTH PASSTHROUGH_TAG (request untouched) AND
+        CREDENTIAL_PASSTHROUGH_TAG (the forwarded credential was the client's
+        own, not the operator's shared key)."""
+        exc = self._status_error(401)
+        event = self._make_event(tags={PASSTHROUGH_TAG: True, CREDENTIAL_PASSTHROUGH_TAG: True})
+        assert _sentry_before_send(event, {"exc_info": (type(exc), exc, None)}) is None
+
+    def test_keeps_client_key_mode_authentication_error(self):
+        """A 401 with an unmodified body (PASSTHROUGH_TAG True) but the
+        operator's shared credential forwarded instead of the client's own
+        (CREDENTIAL_PASSTHROUGH_TAG False, client-key auth mode) must still
+        report — the operator's credential is invalid, not the client's, and
+        dropping it would silently hide the outage. This is the deep-review
+        finding that PR #809's original PASSTHROUGH_TAG-only check missed."""
+        exc = self._status_error(401)
+        event = self._make_event(tags={PASSTHROUGH_TAG: True, CREDENTIAL_PASSTHROUGH_TAG: False})
+        assert _sentry_before_send(event, {"exc_info": (type(exc), exc, None)}) is not None
+
+    def test_keeps_authentication_error_when_credential_tag_absent(self):
+        """No CREDENTIAL_PASSTHROUGH_TAG at all (e.g. the tag was never set)
+        must fail closed for a 401 — absence of proof is not proof of
+        passthrough, same rule PASSTHROUGH_TAG already follows."""
+        exc = self._status_error(401)
+        event = self._make_event(tags={PASSTHROUGH_TAG: True})
+        assert _sentry_before_send(event, {"exc_info": (type(exc), exc, None)}) is not None
+
+    def test_keeps_proxy_modified_bad_request_error(self):
+        """A 400 where the request was NOT proven to be an unmodified client
+        passthrough (PASSTHROUGH_TAG missing or False) must still report — a
+        policy hook or header/context injection could have built the invalid
+        request that Anthropic rejected, and that's a proxy bug (thermonuclear
+        review finding: consensus High on PR #809)."""
+        exc = self._status_error(400)
+        event = self._make_event(tags={PASSTHROUGH_TAG: False})
+        assert _sentry_before_send(event, {"exc_info": (type(exc), exc, None)}) is not None
+
+    def test_keeps_proxy_modified_not_found_error(self):
+        """Same as the 400 case: a 404 without proven passthrough stays visible."""
+        exc = self._status_error(404)
+        event = self._make_event(tags={PASSTHROUGH_TAG: False})
+        assert _sentry_before_send(event, {"exc_info": (type(exc), exc, None)}) is not None
+
+    def test_keeps_proxy_modified_authentication_error(self):
+        """Same as the 400 case: a 401 without proven passthrough stays visible."""
+        exc = self._status_error(401)
+        event = self._make_event(tags={PASSTHROUGH_TAG: False})
+        assert _sentry_before_send(event, {"exc_info": (type(exc), exc, None)}) is not None
+
+    def test_keeps_bad_request_error_when_passthrough_tag_absent(self):
+        """No PASSTHROUGH_TAG at all (e.g. the tag was never set) must fail
+        closed — absence of proof is not proof of passthrough."""
+        exc = self._status_error(400)
+        event = self._make_event()
+        assert _sentry_before_send(event, {"exc_info": (type(exc), exc, None)}) is not None
+
+    # ------------------------------------------------------------------
+    # Decision-table coverage. Parametrized directly off the production
+    # status-code sets in observability/sentry.py, so a status silently
+    # added to (or removed from) one of those sets changes which cases these
+    # tests run without anyone having to remember to update a hand-written
+    # list here. The named tests above stay as regression pins for specific
+    # incidents; these supplement them with exhaustive tag-combination
+    # coverage.
+    # ------------------------------------------------------------------
+
+    _TAG_STATES = (True, False, None)  # None means the tag is absent entirely
+
+    def _tags_for(self, passthrough: bool | None, credential: bool | None) -> dict[str, object]:
+        tags: dict[str, object] = {}
+        if passthrough is not None:
+            tags[PASSTHROUGH_TAG] = passthrough
+        if credential is not None:
+            tags[CREDENTIAL_PASSTHROUGH_TAG] = credential
+        return tags
+
+    @pytest.mark.parametrize("status", sorted(_PROVIDER_SIDE_STATUS_CODES))
+    def test_decision_table_provider_side_drops_with_no_tags(self, status):
+        """Every status in _PROVIDER_SIDE_STATUS_CODES drops unconditionally —
+        no PASSTHROUGH_TAG or CREDENTIAL_PASSTHROUGH_TAG needed. Parametrized
+        from the set itself, so adding a status there without exercising it
+        here is not possible."""
+        exc = self._status_error(status)
+        event = self._make_event()
+        assert _sentry_before_send(event, {"exc_info": (type(exc), exc, None)}) is None
+
+    @pytest.mark.parametrize("status", sorted(_CONTENT_DEPENDENT_STATUS_CODES))
+    @pytest.mark.parametrize("credential", _TAG_STATES, ids=lambda v: f"credential={v}")
+    @pytest.mark.parametrize("passthrough", _TAG_STATES, ids=lambda v: f"passthrough={v}")
+    def test_decision_table_content_dependent(self, passthrough, credential, status):
+        """400/404 drop iff PASSTHROUGH_TAG is True; the credential tag never
+        matters, in every one of the 9 tag combinations — pinning the
+        deliberate fix that content-only statuses don't gate on credential
+        provenance."""
+        exc = self._status_error(status)
+        event = self._make_event(tags=self._tags_for(passthrough, credential))
+        result = _sentry_before_send(event, {"exc_info": (type(exc), exc, None)})
+        if passthrough is True:
+            assert result is None
+        else:
+            assert result is not None
+
+    @pytest.mark.parametrize("status", sorted(_CREDENTIAL_DEPENDENT_STATUS_CODES))
+    @pytest.mark.parametrize("credential", _TAG_STATES, ids=lambda v: f"credential={v}")
+    @pytest.mark.parametrize("passthrough", _TAG_STATES, ids=lambda v: f"passthrough={v}")
+    def test_decision_table_credential_dependent(self, passthrough, credential, status):
+        """401 drops only when BOTH PASSTHROUGH_TAG and CREDENTIAL_PASSTHROUGH_TAG
+        are True; every other one of the 9 combinations — including either
+        tag simply missing — must fail closed and still report."""
+        exc = self._status_error(status)
+        event = self._make_event(tags=self._tags_for(passthrough, credential))
+        result = _sentry_before_send(event, {"exc_info": (type(exc), exc, None)})
+        if passthrough is True and credential is True:
+            assert result is None
+        else:
+            assert result is not None
+
+    def test_keeps_upstream_status_code_outside_expected_set(self):
+        """A status code we have not classified as expected (e.g. 403) still reports,
+        so a new upstream failure mode is visible until someone evaluates it."""
+        exc = self._status_error(403)
+        event = self._make_event()
+        assert _sentry_before_send(event, {"exc_info": (type(exc), exc, None)}) is not None
+
+    def test_keeps_proxy_bugs(self):
+        """An ordinary exception from our own code must still report."""
+        exc = TypeError("Object of type datetime is not JSON serializable")
+        event = self._make_event()
+        assert _sentry_before_send(event, {"exc_info": (type(exc), exc, None)}) is not None
 
     def test_strips_server_name(self):
         event = self._make_event()
