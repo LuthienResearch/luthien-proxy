@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
@@ -9,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 import asyncpg
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
 from pydantic import BaseModel
 
 from luthien_proxy.observability.emitter import (
@@ -400,3 +402,79 @@ class TestWriteDbAtomicity:
         async with pool.connection() as conn:
             events = await conn.fetch("SELECT * FROM conversation_events WHERE call_id = $1", "tx-3")
         assert events == []
+
+
+class TestSpanEventAttributes:
+    """The span event carries only what OTel attributes can hold (the sinks get everything).
+
+    Spreading the whole JSON payload into ``add_event`` made the SDK log
+    ``Invalid type dict|NoneType for attribute ...`` for every nested or None field of every
+    event (~16.5k lines/day in production) and drop the field from the event anyway.
+    Exercised through ``emit`` on a real SDK span, per this suite's convention.
+    """
+
+    @staticmethod
+    async def _event_attributes_for(payload: dict[str, Any]) -> tuple[Any, list[str]]:
+        """Emit ``payload`` inside a real SDK span; return (the span's one event, warnings)."""
+        tracer = TracerProvider().get_tracer(__name__)
+        emitter = EventEmitter(stdout_enabled=False)
+        attribute_logger = logging.getLogger("opentelemetry.attributes")
+        records: list[logging.LogRecord] = []
+
+        class _Capture(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                records.append(record)
+
+        handler = _Capture()
+        attribute_logger.addHandler(handler)
+        try:
+            with tracer.start_as_current_span("test") as span:
+                await emitter.emit("tx-123", "policy.request", payload)
+        finally:
+            attribute_logger.removeHandler(handler)
+        events = list(getattr(span, "events", []))
+        assert len(events) == 1
+        return events[0], [r.getMessage() for r in records if "Invalid type" in r.getMessage()]
+
+    @pytest.mark.asyncio
+    async def test_emit_adds_a_clean_span_event(self) -> None:
+        """No attribute warning, and the event holds exactly the scalar subset."""
+        event, warnings = await self._event_attributes_for(
+            {
+                "user_id": None,
+                "session_id": "sess-9",
+                "original_request": {"model": "x", "messages": []},
+                "chunks": 17,
+                "flagged": True,
+                "tags": ["a", "b"],
+                "empty": [],
+            }
+        )
+        assert warnings == []
+        assert event.name == "policy.request"
+        assert dict(event.attributes or {}) == {
+            "transaction_id": "tx-123",
+            "session_id": "sess-9",
+            "chunks": 17,
+            "flagged": True,
+            "tags": ("a", "b"),
+            "empty": (),
+        }
+
+    @pytest.mark.asyncio
+    async def test_mixed_type_lists_are_left_to_the_sinks(self) -> None:
+        """A bool/int mix is not a homogeneous OTel sequence; it is omitted, not warned about."""
+        event, warnings = await self._event_attributes_for({"mixed": [True, 1], "rev": [1, True]})
+        assert warnings == []
+        assert dict(event.attributes or {}) == {"transaction_id": "tx-123"}
+
+    @pytest.mark.asyncio
+    async def test_none_inside_a_homogeneous_list_passes_as_the_sdk_allows(self) -> None:
+        """The SDK skips None elements for typing and keeps them; so does the filter."""
+        event, warnings = await self._event_attributes_for({"tags": ["a", None, "b"], "gaps": [None, None]})
+        assert warnings == []
+        assert dict(event.attributes or {}) == {
+            "transaction_id": "tx-123",
+            "tags": ("a", None, "b"),
+            "gaps": (None, None),
+        }

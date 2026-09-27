@@ -68,6 +68,59 @@ def _safe_serialize(obj: Any) -> Any:
     return str(obj)
 
 
+# What an OpenTelemetry attribute value may be: one of these scalars, or a sequence of one of
+# them. Anything else is refused by the SDK at `add_event` time with a WARNING per key and
+# silently dropped from the event.
+_SPAN_ATTRIBUTE_SCALARS = (bool, str, bytes, int, float)
+
+
+def _is_attribute_sequence(value: list[Any]) -> bool:
+    """Whether ``value`` is a sequence the SDK's ``_clean_attribute`` accepts.
+
+    The SDK's rule, mirrored here so the filter is neither looser nor stricter than what
+    ``add_event`` will take: None elements are allowed and skipped for typing; every other
+    element must be an attribute scalar, and all of them must be the same exact type as the
+    first non-None one (``type(x) is type(y)``, so ``True`` and ``1`` do not mix). An empty
+    list, or one of only Nones, is accepted.
+    """
+    first_type: type | None = None
+    for item in value:
+        if item is None:
+            continue
+        if not isinstance(item, _SPAN_ATTRIBUTE_SCALARS):
+            return False
+        if first_type is None:
+            first_type = type(item)
+        elif type(item) is not first_type:
+            return False
+    return True
+
+
+def _span_event_attributes(transaction_id: str, safe_data: dict[str, Any]) -> dict[str, Any]:
+    """The subset of an event's payload a span event can carry.
+
+    Event payloads are JSON documents: `original_request`/`final_request`/`payload` are nested
+    dicts, and `user_id`/`session_id` are None when unknown. Spreading them into `add_event`
+    made the SDK log ``Invalid type dict|NoneType for attribute ...`` for every such key on
+    every event and drop the key -- the span event ended up with neither the field nor a
+    record that it was omitted. The full payload still reaches the stdout, database and
+    publisher sinks, so the span event keeps the scalar fields that make it searchable and
+    leaves request bodies to the sinks built to hold them: a None value is skipped, scalars
+    and the lists the SDK itself accepts (``_is_attribute_sequence``) pass through,
+    everything else is left out.
+    """
+    attributes: dict[str, Any] = {"transaction_id": transaction_id}
+    for key, value in safe_data.items():
+        if value is None:
+            continue
+        if isinstance(value, _SPAN_ATTRIBUTE_SCALARS):
+            attributes[key] = value
+            continue
+        if isinstance(value, list) and _is_attribute_sequence(value):
+            attributes[key] = value
+    return attributes
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -154,10 +207,11 @@ class EventEmitter:
         # Ensure data is JSON-serializable before passing to sinks
         safe_data = _safe_serialize(data)
 
-        # Add to current OTel span as a span event
+        # Add to the current OTel span as a span event. Only the scalar subset of the payload
+        # goes on the event (see _span_event_attributes); the sinks below get all of it.
         span = trace.get_current_span()
         if span.is_recording():
-            span.add_event(event_type, {"transaction_id": transaction_id, **safe_data})
+            span.add_event(event_type, _span_event_attributes(transaction_id, safe_data))
 
         # Emit to all sinks concurrently
         tasks = []
