@@ -35,15 +35,21 @@ from luthien_proxy.pipeline.anthropic_processor import (
     _build_error_event,
     _format_sse_event,
     _handle_anthropic_error,
+    _passthrough_fallback_allowed,
     _process_request,
     _reconstruct_response_from_stream_events,
     _run_policy_hooks,
     process_anthropic_request,
 )
+from luthien_proxy.policies.dogfood_safety_policy import DogfoodSafetyPolicy
+from luthien_proxy.policies.multi_serial_policy import MultiSerialPolicy
 from luthien_proxy.policies.noop_policy import NoOpPolicy
+from luthien_proxy.policies.string_replacement_policy import StringReplacementPolicy
 from luthien_proxy.policy_core.anthropic_execution_interface import (
     AnthropicPolicyEmission,
 )
+from luthien_proxy.policy_core.anthropic_hook_policy import AnthropicHookPolicy
+from luthien_proxy.policy_core.base_policy import BasePolicy
 from luthien_proxy.policy_core.policy_context import PolicyContext
 
 
@@ -2854,3 +2860,574 @@ class TestWebhookFireIsolation:
 
         webhook.fire_and_forget.assert_called_once()
         recorder.flush.assert_called()  # cleanup completed despite webhook failure
+
+
+def _status_error(status_code: int, message: str = "bad request") -> AnthropicStatusError:
+    """Build an AnthropicStatusError with the given status code."""
+    response = HttpxResponse(
+        status_code=status_code,
+        request=HttpxRequest("POST", "https://api.anthropic.com/v1/messages"),
+        json={"error": {"type": "invalid_request_error", "message": message}},
+    )
+    return AnthropicStatusError(
+        message=message,
+        response=response,
+        body={"error": {"type": "invalid_request_error", "message": message}},
+    )
+
+
+class TestPassthroughFallback:
+    """Tests for the opt-in passthrough fallback in _AnthropicPolicyIO.
+
+    Design principle (Trello kRPRjGUx / PR #204): the proxy should never make
+    things worse than direct API access. When a policy modification causes a
+    request-shaped upstream 4xx, retry once with the original request —
+    observably, and never in a way that overrides an intentional policy block.
+    """
+
+    ORIGINAL_REQUEST: AnthropicRequest = {
+        "model": DEFAULT_TEST_MODEL,
+        "max_tokens": 100,
+        "messages": [{"role": "user", "content": "hello"}],
+    }
+
+    RESPONSE: AnthropicResponse = {
+        "id": "msg_fallback_ok",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": "ok"}],
+        "model": DEFAULT_TEST_MODEL,
+        "stop_reason": "end_turn",
+        "stop_sequence": None,
+        "usage": {"input_tokens": 1, "output_tokens": 1},
+    }
+
+    def _make_io(
+        self,
+        *,
+        enabled: bool,
+        is_streaming: bool = False,
+        client: MagicMock | None = None,
+    ) -> tuple[_AnthropicPolicyIO, MagicMock, MagicMock]:
+        """Build an _AnthropicPolicyIO with mock client + emitter.
+
+        Returns (io, client, emitter). A fresh copy of ORIGINAL_REQUEST is
+        used as the initial request so tests can mutate/replace it freely.
+        """
+        import copy as _copy
+
+        client = client or MagicMock()
+        emitter = MagicMock()
+        io = _AnthropicPolicyIO(
+            initial_request=_copy.deepcopy(self.ORIGINAL_REQUEST),
+            anthropic_client=client,
+            emitter=emitter,
+            call_id="test-fallback-call",
+            session_id="sess-fb",
+            user_id=None,
+            request_log_recorder=MagicMock(),
+            is_streaming=is_streaming,
+            passthrough_fallback_enabled=enabled,
+        )
+        return io, client, emitter
+
+    def _modified_request(self) -> AnthropicRequest:
+        return {
+            "model": DEFAULT_TEST_MODEL,
+            "max_tokens": 100,
+            "messages": [{"role": "user", "content": "POLICY-MODIFIED"}],
+        }
+
+    def _fallback_events(self, emitter: MagicMock) -> list:
+        return [c for c in emitter.record.call_args_list if c.args[1] == "pipeline.passthrough_fallback"]
+
+    # ── non-streaming ────────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_modified_request_400_falls_back_to_original(self):
+        """Modified request 400s -> original request forwarded, failure recorded."""
+        io, client, emitter = self._make_io(enabled=True)
+        client.complete = AsyncMock(side_effect=[_status_error(400), self.RESPONSE])
+
+        response = await io.complete(self._modified_request())
+
+        assert response == self.RESPONSE
+        assert client.complete.call_count == 2
+        # Second (fallback) call must carry the ORIGINAL unmodified request.
+        retry_request = client.complete.call_args_list[1].args[0]
+        assert retry_request == self.ORIGINAL_REQUEST
+        # The policy failure is observable, not silently masked.
+        fallback_events = self._fallback_events(emitter)
+        assert len(fallback_events) == 1
+        payload = fallback_events[0].args[2]
+        assert payload["status_code"] == 400
+        assert "bad request" in payload["error_message"]
+
+    @pytest.mark.asyncio
+    async def test_disabled_by_default_no_fallback(self):
+        """With the flag off (default), the 400 propagates and no retry happens."""
+        io, client, emitter = self._make_io(enabled=False)
+        client.complete = AsyncMock(side_effect=_status_error(400))
+
+        with pytest.raises(AnthropicStatusError):
+            await io.complete(self._modified_request())
+
+        assert client.complete.call_count == 1
+        assert self._fallback_events(emitter) == []
+
+    @pytest.mark.asyncio
+    async def test_unmodified_request_no_fallback(self):
+        """If the policy didn't change the request, a retry is pointless: direct
+        API access would fail identically, so the error propagates."""
+        io, client, emitter = self._make_io(enabled=True)
+        client.complete = AsyncMock(side_effect=_status_error(400))
+
+        with pytest.raises(AnthropicStatusError):
+            await io.complete()  # io._request is untouched == original
+
+        assert client.complete.call_count == 1
+        assert self._fallback_events(emitter) == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status_code", [401, 403, 429, 500, 529])
+    async def test_non_request_shaped_errors_never_fall_back(self, status_code: int):
+        """Auth, rate-limit, and server errors are not caused by body
+        modifications; retrying would waste load or mask credential issues."""
+        io, client, emitter = self._make_io(enabled=True)
+        client.complete = AsyncMock(side_effect=_status_error(status_code))
+
+        with pytest.raises(AnthropicStatusError):
+            await io.complete(self._modified_request())
+
+        assert client.complete.call_count == 1
+        assert self._fallback_events(emitter) == []
+
+    @pytest.mark.asyncio
+    async def test_fallback_retry_failure_propagates(self):
+        """If the original request ALSO fails, the client sees exactly what
+        direct API access would return — and the fallback event is still
+        recorded so the policy failure is not lost."""
+        io, client, emitter = self._make_io(enabled=True)
+        client.complete = AsyncMock(
+            side_effect=[_status_error(400, "modified bad"), _status_error(400, "original bad")]
+        )
+
+        with pytest.raises(AnthropicStatusError, match="original bad"):
+            await io.complete(self._modified_request())
+
+        assert client.complete.call_count == 2
+        assert len(self._fallback_events(emitter)) == 1
+
+    @pytest.mark.asyncio
+    async def test_in_place_policy_mutation_is_detected(self):
+        """Policies may mutate the request dict in place (same object). The
+        deepcopy snapshot must still detect the modification and restore the
+        pristine original."""
+        io, client, emitter = self._make_io(enabled=True)
+        client.complete = AsyncMock(side_effect=[_status_error(400), self.RESPONSE])
+
+        # Simulate an in-place mutating policy: same dict object, nested edit.
+        mutated = io.request
+        mutated["messages"][0]["content"] = "POLICY-MODIFIED-IN-PLACE"
+        io.set_request(mutated)
+
+        response = await io.complete(mutated)
+
+        assert response == self.RESPONSE
+        retry_request = client.complete.call_args_list[1].args[0]
+        assert retry_request["messages"][0]["content"] == "hello"
+        assert len(self._fallback_events(emitter)) == 1
+
+    # ── streaming ────────────────────────────────────────────────────────
+
+    def _stream_events(self) -> list[MessageStreamEvent]:
+        return [
+            RawMessageStartEvent(
+                type="message_start",
+                message={
+                    "id": "msg_stream_fb",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": DEFAULT_TEST_MODEL,
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 1, "output_tokens": 0},
+                },
+            ),
+            RawMessageStopEvent(type="message_stop"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_streaming_connect_failure_falls_back(self):
+        """A 400 at stream connect (zero events yielded) falls back to
+        streaming the original request."""
+        ok_events = self._stream_events()
+
+        async def failing_stream(request, extra_headers=None):
+            raise _status_error(400)
+            yield  # pragma: no cover — makes this an async generator
+
+        async def ok_stream(request, extra_headers=None):
+            for event in ok_events:
+                yield event
+
+        client = MagicMock()
+        client.stream = MagicMock(side_effect=[failing_stream(None), ok_stream(None)])
+        io, client, emitter = self._make_io(enabled=True, is_streaming=True, client=client)
+
+        received = []
+        async for event in io.stream(self._modified_request()):
+            received.append(event)
+
+        assert received == ok_events
+        assert client.stream.call_count == 2
+        retry_request = client.stream.call_args_list[1].args[0]
+        assert retry_request == self.ORIGINAL_REQUEST
+        assert len(self._fallback_events(emitter)) == 1
+
+    @pytest.mark.asyncio
+    async def test_streaming_mid_stream_error_never_falls_back(self):
+        """Once events have flowed, re-sending would duplicate content for the
+        policy/client. Mid-stream errors propagate (no mid-stream recovery)."""
+        first_event = self._stream_events()[0]
+
+        async def mid_stream_failure(request, extra_headers=None):
+            yield first_event
+            raise _status_error(400)
+
+        client = MagicMock()
+        client.stream = MagicMock(side_effect=[mid_stream_failure(None)])
+        io, client, emitter = self._make_io(enabled=True, is_streaming=True, client=client)
+
+        received = []
+        with pytest.raises(AnthropicStatusError):
+            async for event in io.stream(self._modified_request()):
+                received.append(event)
+
+        assert received == [first_event]
+        assert client.stream.call_count == 1
+        assert self._fallback_events(emitter) == []
+
+    @pytest.mark.asyncio
+    async def test_streaming_disabled_no_fallback(self):
+        """Streaming path also honors the flag being off."""
+
+        async def failing_stream(request, extra_headers=None):
+            raise _status_error(400)
+            yield  # pragma: no cover
+
+        client = MagicMock()
+        client.stream = MagicMock(side_effect=[failing_stream(None)])
+        io, client, emitter = self._make_io(enabled=False, is_streaming=True, client=client)
+
+        with pytest.raises(AnthropicStatusError):
+            async for _ in io.stream(self._modified_request()):
+                pass
+
+        assert client.stream.call_count == 1
+        assert self._fallback_events(emitter) == []
+
+    # ── intentional blocks are not failures ──────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_intentional_response_block_is_untouched(self):
+        """A policy that blocks by rewriting the response (the ToolCallJudge
+        pattern) sees no upstream error, so fallback cannot fire: the blocked
+        content reaches the client and the backend is called exactly once."""
+
+        class _BlockingPolicy:
+            async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
+                return request
+
+            async def on_anthropic_response(
+                self, response: AnthropicResponse, context: PolicyContext
+            ) -> AnthropicResponse:
+                blocked = dict(response)
+                blocked["content"] = [{"type": "text", "text": "BLOCKED by policy"}]
+                return blocked  # type: ignore[return-value]
+
+            async def on_anthropic_stream_event(
+                self, event: MessageStreamEvent, context: PolicyContext
+            ) -> list[MessageStreamEvent]:
+                return [event]
+
+            async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
+                return []
+
+        io, client, emitter = self._make_io(enabled=True)
+        client.complete = AsyncMock(return_value=dict(self.RESPONSE))
+        ctx = make_policy_context()
+
+        emissions = []
+        async for emission in _run_policy_hooks(_BlockingPolicy(), io, ctx):
+            emissions.append(emission)
+
+        assert len(emissions) == 1
+        assert emissions[0]["content"][0]["text"] == "BLOCKED by policy"
+        assert client.complete.call_count == 1
+        assert self._fallback_events(emitter) == []
+
+    @pytest.mark.asyncio
+    async def test_policy_raised_error_is_not_a_fallback_trigger(self):
+        """A policy that blocks by raising (fail-secure judge pattern) raises
+        outside the backend-call site: the error propagates, the backend is
+        never called, and no fallback fires."""
+
+        class _RaisingPolicy:
+            async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
+                raise RuntimeError("blocked: policy rejected this request")
+
+            async def on_anthropic_response(
+                self, response: AnthropicResponse, context: PolicyContext
+            ) -> AnthropicResponse:
+                return response
+
+            async def on_anthropic_stream_event(
+                self, event: MessageStreamEvent, context: PolicyContext
+            ) -> list[MessageStreamEvent]:
+                return [event]
+
+            async def on_anthropic_stream_complete(self, context: PolicyContext) -> list[AnthropicPolicyEmission]:
+                return []
+
+        io, client, emitter = self._make_io(enabled=True)
+        client.complete = AsyncMock()
+        ctx = make_policy_context()
+
+        with pytest.raises(RuntimeError, match="blocked"):
+            async for _ in _run_policy_hooks(_RaisingPolicy(), io, ctx):
+                pass
+
+        client.complete.assert_not_called()
+        assert self._fallback_events(emitter) == []
+
+    def test_snapshot_only_taken_when_enabled(self):
+        """No deepcopy cost on the default path: no-op stays no-op."""
+        io_off, _, _ = self._make_io(enabled=False)
+        io_on, _, _ = self._make_io(enabled=True)
+        assert io_off._fallback_original_request is None
+        assert io_on._fallback_original_request == self.ORIGINAL_REQUEST
+        # The snapshot is an independent copy, not an alias.
+        assert io_on._fallback_original_request is not io_on.request
+
+    # ── audit record reflects what was actually sent ─────────────────────
+
+    def _events(self, emitter: MagicMock, event_type: str) -> list[dict]:
+        return [c.args[2] for c in emitter.record.call_args_list if c.args[1] == event_type]
+
+    @pytest.mark.asyncio
+    async def test_fallback_audit_record_names_original_as_sent(self):
+        """After a fallback, transaction.request_recorded must name the ORIGINAL
+        (what upstream accepted) as final_request, and record the rejected
+        policy-modified request plus the 4xx that triggered the fallback."""
+        io, client, emitter = self._make_io(enabled=True)
+        client.complete = AsyncMock(side_effect=[_status_error(400, "modified bad"), self.RESPONSE])
+        modified = self._modified_request()
+
+        await io.complete(modified)
+
+        recorded = self._events(emitter, "transaction.request_recorded")
+        assert len(recorded) == 1, "exactly one transaction record per request"
+        assert recorded[0]["final_request"] == self.ORIGINAL_REQUEST
+        fallback_info = recorded[0]["passthrough_fallback"]
+        assert fallback_info["status_code"] == 400
+        assert "modified bad" in fallback_info["error_message"]
+        assert fallback_info["rejected_request"] == modified
+        # Both upstream attempts are visible as backend requests, in order.
+        backend = self._events(emitter, "pipeline.backend_request")
+        assert [b["payload"] for b in backend] == [modified, self.ORIGINAL_REQUEST]
+        # The request log's outbound body is the one that actually succeeded.
+        recorder = io._request_log_recorder
+        assert recorder.record_outbound_request.call_args_list[-1].kwargs["body"] == self.ORIGINAL_REQUEST
+
+    @pytest.mark.asyncio
+    async def test_armed_but_no_fallback_records_modified_request(self):
+        """Armed (flag on, modified) but the error is not fallback-eligible:
+        the deferred record still lands, naming the modified request as sent."""
+        io, client, emitter = self._make_io(enabled=True)
+        client.complete = AsyncMock(side_effect=_status_error(429))
+        modified = self._modified_request()
+
+        with pytest.raises(AnthropicStatusError):
+            await io.complete(modified)
+
+        recorded = self._events(emitter, "transaction.request_recorded")
+        assert len(recorded) == 1
+        assert recorded[0]["final_request"] == modified
+        assert "passthrough_fallback" not in recorded[0]
+
+    @pytest.mark.asyncio
+    async def test_armed_success_records_modified_request_once(self):
+        """Armed path with no error: exactly one record naming the modified request."""
+        io, client, emitter = self._make_io(enabled=True)
+        client.complete = AsyncMock(return_value=self.RESPONSE)
+        modified = self._modified_request()
+
+        await io.complete(modified)
+
+        recorded = self._events(emitter, "transaction.request_recorded")
+        assert len(recorded) == 1
+        assert recorded[0]["final_request"] == modified
+        assert "passthrough_fallback" not in recorded[0]
+
+    @pytest.mark.asyncio
+    async def test_streaming_fallback_audit_record_names_original_as_sent(self):
+        """Streaming variant of the audit-record fix."""
+        ok_events = self._stream_events()
+
+        async def failing_stream(request, extra_headers=None):
+            raise _status_error(400)
+            yield  # pragma: no cover
+
+        async def ok_stream(request, extra_headers=None):
+            for event in ok_events:
+                yield event
+
+        client = MagicMock()
+        client.stream = MagicMock(side_effect=[failing_stream(None), ok_stream(None)])
+        io, client, emitter = self._make_io(enabled=True, is_streaming=True, client=client)
+        modified = self._modified_request()
+
+        async for _ in io.stream(modified):
+            pass
+
+        recorded = self._events(emitter, "transaction.request_recorded")
+        assert len(recorded) == 1
+        assert recorded[0]["final_request"] == self.ORIGINAL_REQUEST
+        assert recorded[0]["passthrough_fallback"]["rejected_request"] == modified
+
+    @pytest.mark.asyncio
+    async def test_streaming_armed_success_records_before_first_event(self):
+        """Streaming armed path with no error: the deferred record is written
+        when the first event arrives, before it is handed on."""
+        ok_events = self._stream_events()
+
+        async def ok_stream(request, extra_headers=None):
+            for event in ok_events:
+                yield event
+
+        client = MagicMock()
+        client.stream = MagicMock(side_effect=[ok_stream(None)])
+        io, client, emitter = self._make_io(enabled=True, is_streaming=True, client=client)
+        modified = self._modified_request()
+
+        iterator = io.stream(modified)
+        await iterator.__anext__()
+        recorded = self._events(emitter, "transaction.request_recorded")
+        assert len(recorded) == 1
+        assert recorded[0]["final_request"] == modified
+        async for _ in iterator:
+            pass
+        assert len(self._events(emitter, "transaction.request_recorded")) == 1
+
+
+class _OptedInRequestRewriter(BasePolicy, AnthropicHookPolicy):
+    """Test policy that rewrites requests and declares the edit safe to lose."""
+
+    passthrough_fallback_safe = True
+
+    async def on_anthropic_request(self, request: AnthropicRequest, context: PolicyContext) -> AnthropicRequest:
+        rewritten = dict(request)
+        rewritten["messages"] = [{"role": "user", "content": "cosmetic rewrite"}]
+        return rewritten  # type: ignore[return-value]
+
+
+class TestPassthroughFallbackPolicyGate:
+    """Fallback must never undo a request-side safety edit (redaction, model
+    restriction). Policies opt in; the default is fail-closed."""
+
+    SECRET = "sk-live-SECRET-12345"
+
+    def _settings(self, enabled: bool):
+        return patch(
+            "luthien_proxy.pipeline.anthropic_processor.get_settings",
+            return_value=MagicMock(passthrough_fallback_enabled=enabled),
+        )
+
+    def _redactor(self) -> StringReplacementPolicy:
+        return StringReplacementPolicy({"replacements": [[self.SECRET, ""]], "apply_to": "request"})
+
+    def test_flag_off_disallows_even_opted_in_policy(self):
+        with self._settings(False):
+            assert _passthrough_fallback_allowed(_OptedInRequestRewriter()) is False
+
+    def test_default_policy_is_fail_closed(self):
+        with self._settings(True):
+            assert _passthrough_fallback_allowed(self._redactor()) is False
+            assert _passthrough_fallback_allowed(NoOpPolicy()) is False
+
+    def test_opted_in_policy_allowed(self):
+        with self._settings(True):
+            assert _passthrough_fallback_allowed(_OptedInRequestRewriter()) is True
+
+    def test_non_base_policy_is_fail_closed(self):
+        with self._settings(True):
+            assert _passthrough_fallback_allowed(MagicMock(spec=["on_anthropic_request"])) is False
+
+    def test_chain_requires_every_sub_policy_to_opt_in(self):
+        with self._settings(True):
+            mixed = MultiSerialPolicy.from_instances([_OptedInRequestRewriter(), self._redactor()])
+            assert _passthrough_fallback_allowed(mixed) is False
+            # DogfoodSafetyPolicy (auto-composed in dogfood mode) never edits
+            # requests and opts in, so it does not veto an opted-in chain.
+            clean = MultiSerialPolicy.from_instances([DogfoodSafetyPolicy(), _OptedInRequestRewriter()])
+            assert _passthrough_fallback_allowed(clean) is True
+
+    def _io_for(self, policy: BasePolicy, request: AnthropicRequest) -> tuple[_AnthropicPolicyIO, MagicMock]:
+        client = MagicMock()
+        io = _AnthropicPolicyIO(
+            initial_request=request,
+            anthropic_client=client,
+            emitter=MagicMock(),
+            call_id="test-gate",
+            session_id=None,
+            user_id=None,
+            request_log_recorder=MagicMock(),
+            is_streaming=False,
+            passthrough_fallback_enabled=_passthrough_fallback_allowed(policy),
+        )
+        return io, client
+
+    @pytest.mark.asyncio
+    async def test_redaction_plus_400_never_resends_secret(self):
+        """Attack: the client crafts a message whose redaction leaves an empty
+        text block, which upstream 400s. With the flag ON, fallback must NOT
+        resend the unredacted original: the 400 propagates and the secret is
+        never sent upstream."""
+        request: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "max_tokens": 100,
+            "messages": [{"role": "user", "content": [{"type": "text", "text": self.SECRET}]}],
+        }
+        policy = self._redactor()
+        with self._settings(True):
+            io, client = self._io_for(policy, request)
+        client.complete = AsyncMock(side_effect=_status_error(400, "text content blocks must be non-empty"))
+
+        with pytest.raises(AnthropicStatusError):
+            async for _ in _run_policy_hooks(policy, io, make_policy_context()):
+                pass
+
+        assert client.complete.call_count == 1
+        sent = client.complete.call_args_list[0].args[0]
+        assert self.SECRET not in json.dumps(sent)
+
+    @pytest.mark.asyncio
+    async def test_opted_in_policy_plus_400_falls_back(self):
+        """Positive control: an opted-in policy's rewrite is discarded on 400."""
+        request: AnthropicRequest = {
+            "model": DEFAULT_TEST_MODEL,
+            "max_tokens": 100,
+            "messages": [{"role": "user", "content": "hello"}],
+        }
+        policy = _OptedInRequestRewriter()
+        with self._settings(True):
+            io, client = self._io_for(policy, request)
+        client.complete = AsyncMock(side_effect=[_status_error(400), TestPassthroughFallback.RESPONSE])
+
+        emissions = [e async for e in _run_policy_hooks(policy, io, make_policy_context())]
+
+        assert len(emissions) == 1
+        assert client.complete.call_count == 2
+        assert client.complete.call_args_list[1].args[0]["messages"][0]["content"] == "hello"

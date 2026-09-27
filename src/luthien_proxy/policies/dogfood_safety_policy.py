@@ -104,6 +104,12 @@ class DogfoodSafetyPolicy(BasePolicy, AnthropicHookPolicy):
         ui_policy_preview="⛔ Blocked: Self-destructive command detected. Blocked to protect the running gateway from being torn down.",
     )
 
+    # Never modifies requests (it only inspects responses), so it cannot be the
+    # source of a request edit that passthrough fallback would discard. Opting in
+    # keeps dogfood mode, which auto-composes this policy into every chain, from
+    # silently vetoing fallback for an otherwise opted-in chain.
+    passthrough_fallback_safe = True
+
     @property
     def short_policy_name(self) -> str:
         """Policy display name."""

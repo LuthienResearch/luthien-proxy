@@ -96,6 +96,17 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
+# Upstream status codes eligible for passthrough fallback: failures plausibly
+# caused by the *content* of the request body (which a policy modification can
+# break). Deliberately excludes:
+#   401/403 — credential/permission scoped; re-sending a different body with
+#             the same credential won't change the outcome,
+#   429     — rate limited; an immediate retry amplifies load and the original
+#             request would be throttled identically,
+#   5xx/529 — server-side; the Anthropic SDK already retries these itself.
+_PASSTHROUGH_FALLBACK_STATUS_CODES: frozenset[int] = frozenset({400, 404, 413, 422})
+
+
 class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
     """Request-scoped I/O helpers for execution-oriented Anthropic policies."""
 
@@ -111,6 +122,7 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         request_log_recorder: RequestLogRecorder,
         is_streaming: bool,
         extra_headers: dict[str, str] | None = None,
+        passthrough_fallback_enabled: bool = False,
     ) -> None:
         self._request = initial_request
         self._initial_request = initial_request
@@ -124,6 +136,18 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
         self._extra_headers = extra_headers
         self._request_recorded = False
         self._first_backend_response: AnthropicResponse | None = None
+        # Pristine snapshot of the request as it entered the policy, used by
+        # passthrough fallback. deepcopy (not dict()) because policies may
+        # mutate nested message structures in place, which would corrupt a
+        # shallow copy. Taken only when fallback is allowed for this request
+        # (global flag on AND the active policy opted in) so the default path
+        # stays copy-free (no-op stays no-op).
+        self._fallback_original_request: AnthropicRequest | None = (
+            copy.deepcopy(initial_request) if passthrough_fallback_enabled else None
+        )
+        # Set when the fallback fires, so the transaction record states which
+        # request actually went upstream and why.
+        self._passthrough_fallback_info: dict[str, object] | None = None
         # Raw backend events are only buffered when needed for non-streaming
         # response reconstruction (e.g., diff recording). Streaming responses
         # can reconstruct from the post-policy accumulated_events instead,
@@ -151,23 +175,43 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
             return
 
         effective_request = final_request or self._request
-        self._emitter.record(
-            self._call_id,
-            "transaction.request_recorded",
-            {
-                "original_model": self._initial_request["model"],
-                "final_model": effective_request["model"],
-                "original_request": dict(self._initial_request),
-                "final_request": dict(effective_request),
-                "session_id": self._session_id,
-                "user_id": self._user_id,
-            },
-        )
+        payload: dict[str, object] = {
+            "original_model": self._initial_request["model"],
+            "final_model": effective_request["model"],
+            "original_request": dict(self._initial_request),
+            "final_request": dict(effective_request),
+            "session_id": self._session_id,
+            "user_id": self._user_id,
+        }
+        if self._passthrough_fallback_info is not None:
+            # final_request above is the request the upstream actually accepted
+            # (the original); this block records that the policy's version was
+            # sent first, rejected, and discarded by the fallback.
+            payload["passthrough_fallback"] = self._passthrough_fallback_info
+        self._emitter.record(self._call_id, "transaction.request_recorded", payload)
         self._request_recorded = True
 
-    def _record_backend_request(self, request: AnthropicRequest) -> None:
-        """Record backend request events."""
-        self.ensure_request_recorded(request)
+    def _fallback_armed(self, sent_request: AnthropicRequest) -> bool:
+        """True if an upstream 4xx on ``sent_request`` could trigger a fallback.
+
+        Armed means fallback is allowed for this request (flag on + policy
+        opted in) and the policy actually changed the request. While armed,
+        ``transaction.request_recorded`` is deferred until the first attempt's
+        outcome is known, so it names the request that was really sent.
+        """
+        original = self._fallback_original_request
+        return original is not None and sent_request != original
+
+    def _record_backend_request(self, request: AnthropicRequest, *, defer_transaction_record: bool = False) -> None:
+        """Record backend request events.
+
+        ``pipeline.backend_request`` and the request log are written for every
+        upstream attempt. ``transaction.request_recorded`` (one per transaction)
+        is skipped when ``defer_transaction_record`` is set; the caller must
+        then call ``ensure_request_recorded`` once the outcome is known.
+        """
+        if not defer_transaction_record:
+            self.ensure_request_recorded(request)
 
         request_payload = dict(request)
         self._emitter.record(
@@ -182,14 +226,98 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
             endpoint="/v1/messages",
         )
 
+    def _passthrough_fallback_request(
+        self, sent_request: AnthropicRequest, exc: AnthropicStatusError
+    ) -> AnthropicRequest | None:
+        """Return the original request to retry with, or None if fallback doesn't apply.
+
+        Fallback applies only when ALL of:
+        - the feature is enabled (PASSTHROUGH_FALLBACK_ENABLED) AND the active
+          policy opted in (``passthrough_fallback_safe``); otherwise no snapshot
+          exists. The opt-in is what stops a client from provoking a 4xx on a
+          redacted/restricted request to get the unredacted original resent,
+        - the upstream failure is request-shaped (400/404/413/422), and
+        - the policy actually changed the request — if the request is
+          byte-identical to what entered the policy, direct API access would
+          have failed identically and a retry is pure waste.
+
+        This deliberately lives at the backend-call site: response-side blocks
+        (response rewrites, synthetic block messages) and policy-raised errors
+        never surface as an upstream AnthropicStatusError from this call, so
+        fallback cannot override them. Request-side edits CAN be discarded,
+        which is why the policy opt-in is required.
+        """
+        original = self._fallback_original_request
+        if original is None:  # feature disabled, or active policy not opted in
+            return None
+        if exc.status_code not in _PASSTHROUGH_FALLBACK_STATUS_CODES:
+            return None
+        if sent_request == original:
+            return None
+        return original
+
+    def _record_passthrough_fallback(
+        self, exc: AnthropicStatusError, rejected_request: AnthropicRequest, fallback_request: AnthropicRequest
+    ) -> None:
+        """Make the fallback observable and keep the audit trail truthful.
+
+        Recorded BEFORE the retry is attempted so the policy failure is never
+        silently masked, even if the retry itself then succeeds or fails:
+        - WARNING log + ``pipeline.passthrough_fallback`` event,
+        - ``pipeline.backend_request`` / request log for the resent original,
+        - ``transaction.request_recorded`` with ``final_request`` = the original
+          (what was actually sent) and a ``passthrough_fallback`` block.
+        """
+        logger.warning(
+            "[%s] Policy-modified request rejected upstream (%s: %s); falling back to the original unmodified request",
+            self._call_id,
+            exc.status_code,
+            exc.message,
+        )
+        self._emitter.record(
+            self._call_id,
+            "pipeline.passthrough_fallback",
+            {
+                "summary": "Policy-modified request failed upstream; retrying with original unmodified request",
+                "status_code": exc.status_code,
+                "error_message": str(exc.message),
+                "session_id": self._session_id,
+                "user_id": self._user_id,
+            },
+        )
+        self._passthrough_fallback_info = {
+            "status_code": exc.status_code,
+            "error_message": str(exc.message),
+            "rejected_request": dict(rejected_request),
+        }
+        self._record_backend_request(fallback_request)
+
     async def complete(self, request: AnthropicRequest | None = None) -> AnthropicResponse:
         """Execute a non-streaming backend request."""
         final_request = request or self._request
-        self._record_backend_request(final_request)
+        armed = self._fallback_armed(final_request)
+        self._record_backend_request(final_request, defer_transaction_record=armed)
 
         with tracer.start_as_current_span("send_upstream") as span:
             span.set_attribute("luthien.phase", "send_upstream")
-            response = await self._anthropic_client.complete(final_request, extra_headers=self._extra_headers)
+            try:
+                try:
+                    response = await self._anthropic_client.complete(final_request, extra_headers=self._extra_headers)
+                except AnthropicStatusError as exc:
+                    fallback_request = self._passthrough_fallback_request(final_request, exc)
+                    if fallback_request is None:
+                        raise
+                    self._record_passthrough_fallback(exc, final_request, fallback_request)
+                    span.set_attribute("luthien.passthrough_fallback", True)
+                    # If this retry also fails, the error propagates normally —
+                    # the client sees exactly what direct API access would return.
+                    response = await self._anthropic_client.complete(
+                        fallback_request, extra_headers=self._extra_headers
+                    )
+            finally:
+                # No-op unless the record was deferred and no fallback fired:
+                # then the policy's request is what was sent.
+                self.ensure_request_recorded(final_request)
 
         if self._first_backend_response is None:
             # Deep-copy to preserve pre-policy content (policies may mutate in-place)
@@ -199,20 +327,58 @@ class _AnthropicPolicyIO(AnthropicPolicyIOProtocol):
     def stream(self, request: AnthropicRequest | None = None) -> AsyncIterator[MessageStreamEvent]:
         """Execute a streaming backend request."""
         final_request = request or self._request
-        self._record_backend_request(final_request)
+        armed = self._fallback_armed(final_request)
+        self._record_backend_request(final_request, defer_transaction_record=armed)
 
         extra_headers = self._extra_headers
+
+        async def _iterate(req: AnthropicRequest) -> AsyncIterator[MessageStreamEvent]:
+            async for event in self._anthropic_client.stream(req, extra_headers=extra_headers):
+                # RawMessageStreamEvent members are a subset of MessageStreamEvent;
+                # cast bridges Pyright's strict union checking.
+                mse = cast(MessageStreamEvent, event)
+                if self._buffer_raw_events:
+                    self._raw_backend_events.append(mse)
+                yield mse
 
         async def _stream() -> AsyncIterator[MessageStreamEvent]:
             with tracer.start_as_current_span("send_upstream") as span:
                 span.set_attribute("luthien.phase", "send_upstream")
-                async for event in self._anthropic_client.stream(final_request, extra_headers=extra_headers):
-                    # RawMessageStreamEvent members are a subset of MessageStreamEvent;
-                    # cast bridges Pyright's strict union checking.
-                    mse = cast(MessageStreamEvent, event)
-                    if self._buffer_raw_events:
-                        self._raw_backend_events.append(mse)
-                    yield mse
+                events_yielded = 0
+                fallback_fired = False
+                try:
+                    async for mse in _iterate(final_request):
+                        if not events_yielded:
+                            # First event: upstream accepted the policy's
+                            # request, so record it as the one sent (no-op
+                            # unless the record was deferred).
+                            self.ensure_request_recorded(final_request)
+                        events_yielded += 1
+                        yield mse
+                except AnthropicStatusError as exc:
+                    # Fallback only if the failure happened at stream connect.
+                    # After events have flowed, the policy (and possibly the
+                    # client) already consumed part of the stream — re-sending
+                    # would duplicate or interleave content. No mid-stream
+                    # recovery, matching the PR #204 design discussion.
+                    if events_yielded:
+                        raise
+                    fallback_request = self._passthrough_fallback_request(final_request, exc)
+                    if fallback_request is None:
+                        raise
+                    fallback_fired = True
+                    self._record_passthrough_fallback(exc, final_request, fallback_request)
+                    span.set_attribute("luthien.passthrough_fallback", True)
+                    # If this retry also fails, the error propagates normally —
+                    # the client sees exactly what direct API access would return.
+                    async for mse in _iterate(fallback_request):
+                        yield mse
+                finally:
+                    # No-op unless the record was deferred and neither an event
+                    # nor a fallback recorded it (e.g. connect failure that is
+                    # not fallback-eligible).
+                    if not fallback_fired:
+                        self.ensure_request_recorded(final_request)
 
         return _stream()
 
@@ -618,6 +784,20 @@ async def _run_policy_hooks(
     yield await policy.on_anthropic_response(response, ctx)
 
 
+def _passthrough_fallback_allowed(policy: AnthropicExecutionInterface) -> bool:
+    """Gate for passthrough fallback: global flag on AND the policy opted in.
+
+    The fallback resends the pre-policy request, discarding the policy's
+    request edits. Policies must opt in (``BasePolicy.passthrough_fallback_safe``)
+    so the fallback can never undo a redaction, model restriction, or other
+    request-side safety edit. Policies not derived from BasePolicy cannot
+    declare safety and are treated as fail-closed.
+    """
+    if not get_settings().passthrough_fallback_enabled:
+        return False
+    return isinstance(policy, BasePolicy) and policy.allows_passthrough_fallback()
+
+
 async def _execute_anthropic_policy(
     execution_policy: AnthropicExecutionInterface,
     initial_request: AnthropicRequest,
@@ -644,6 +824,7 @@ async def _execute_anthropic_policy(
         request_log_recorder=request_log_recorder,
         is_streaming=is_streaming,
         extra_headers=extra_headers,
+        passthrough_fallback_enabled=_passthrough_fallback_allowed(execution_policy),
     )
     emissions = _run_policy_hooks(execution_policy, io, policy_ctx)
 

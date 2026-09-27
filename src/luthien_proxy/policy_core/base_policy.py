@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import MutableMapping, MutableSequence, MutableSet
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, TypeVar
+from typing import Any, ClassVar, TypeVar
 
 from pydantic import BaseModel
 
@@ -123,6 +123,33 @@ class BasePolicy:
     (use ``dataclasses.replace(BasePolicy.ui, display_name=...)`` if you want
     to compose, but in practice each policy declares its own values).
     """
+
+    passthrough_fallback_safe: ClassVar[bool] = False
+    """Whether this policy's REQUEST modifications may be undone by passthrough fallback.
+
+    When ``PASSTHROUGH_FALLBACK_ENABLED`` is on and a policy-modified request is
+    rejected upstream with a request-shaped 4xx, the gateway can retry with the
+    original, pre-policy request. That retry discards every request-side edit
+    the policy made, so it is only allowed when the active policy declares its
+    request edits safe to lose.
+
+    Default ``False`` (fail-closed). Leave it ``False`` for any policy whose
+    request edits exist for safety or access control (redacting secrets,
+    stripping content, substituting or restricting the model, etc.): falling
+    back would send exactly what the policy meant to keep from upstream.
+    Set it ``True`` only when the request edits are cosmetic or compatibility
+    tweaks whose loss is harmless, or when the policy never modifies requests.
+
+    Subclasses inherit this value; a subclass that adds request modifications
+    must re-evaluate it.
+    """
+
+    def allows_passthrough_fallback(self) -> bool:
+        """Return True if passthrough fallback may discard this policy's request edits.
+
+        Multi-policies override this to require every sub-policy to allow it.
+        """
+        return self.passthrough_fallback_safe
 
     def freeze_configured_state(self) -> None:
         """Validate configured instance shape.
