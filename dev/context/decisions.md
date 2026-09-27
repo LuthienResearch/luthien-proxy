@@ -379,4 +379,31 @@ covered by the except clause (asyncpg errors + `sqlite3.Error`).
 
 ---
 
+## Passthrough fallback is double opt-in: flag + per-policy declaration (2026-09-27)
+
+**Decision**: `PASSTHROUGH_FALLBACK_ENABLED` (retry with the pre-policy request
+when a policy-modified request gets a request-shaped upstream 4xx) only fires
+when the active policy declares `passthrough_fallback_safe = True`. Default is
+`False`; `MultiSerialPolicy` requires every sub-policy to opt in.
+
+**Why**: the fallback discards request-side edits. Without a per-policy gate, a
+client can make a redaction produce an invalid request (e.g. an empty text
+block after the secret is stripped) and get the unredacted original sent
+upstream; a model-restriction policy can be undone by a 404. Only the policy
+author knows whether its request edits are for safety, so the policy declares
+it, fail-closed. Rejected alternative: diffing the request to detect "removed
+content" at runtime; any edit can be safety-relevant (model swap, header-like
+fields), so a structural diff can't tell safety from cosmetics.
+
+**Audit consequence**: while fallback is armed, `transaction.request_recorded`
+is deferred until the first attempt's outcome, so `final_request` always names
+the request upstream actually accepted, with a `passthrough_fallback` block
+when the fallback fired.
+
+**Canonical reference**: `BasePolicy.passthrough_fallback_safe`,
+`_passthrough_fallback_allowed` and `_AnthropicPolicyIO` in
+`src/luthien_proxy/pipeline/anthropic_processor.py`.
+
+---
+
 (Add new decisions as they're made with timestamps: YYYY-MM-DD)

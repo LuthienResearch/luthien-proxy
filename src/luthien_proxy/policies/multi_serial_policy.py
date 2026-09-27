@@ -106,6 +106,15 @@ class MultiSerialPolicy(BasePolicy, AnthropicExecutionInterface):
             names.extend(p.active_policy_names())
         return names
 
+    def allows_passthrough_fallback(self) -> bool:
+        """Allow fallback only if EVERY sub-policy allows it.
+
+        Fallback resends the request as it entered the chain, discarding all
+        sub-policies' request edits at once, so a single fail-closed sub-policy
+        (e.g. a redactor) vetoes it for the whole chain.
+        """
+        return all(p.allows_passthrough_fallback() for p in self._sub_policies)
+
     def _validate_interface(self, interface: type, interface_name: str) -> None:
         """Raise TypeError if any sub-policy doesn't implement the required interface."""
         validate_sub_policies_interface(self._sub_policies, interface, interface_name, "MultiSerialPolicy")

@@ -6,9 +6,13 @@ rejected upstream with a request-shaped 4xx, the gateway retries once with the
 original unmodified request — observably (pipeline.passthrough_fallback event
 + WARNING log), and only when the policy actually changed the request.
 
-The feature is OFF by default: the retry bypasses request-side policy
-modifications (fail-open), which weakens policies that rewrite requests for
-safety. These tests enable it via the admin config API and restore afterwards.
+The feature is OFF by default, and even when ON it only fires for policies
+that opt in via ``passthrough_fallback_safe`` (default False), so it can never
+undo a redaction or other request-side safety edit. No shipped request-rewriting
+policy opts in, so these e2e tests pin the fail-closed behavior; the positive
+fallback path (opted-in policy) is covered by unit tests in
+tests/luthien_proxy/unit_tests/pipeline/test_anthropic_processor.py.
+These tests enable the flag via the admin config API and restore afterwards.
 
 400 errors are NOT retried by the Anthropic SDK, so a single enqueued error
 maps to exactly one gateway-visible failure (no retry-slot bookkeeping needed).
@@ -19,20 +23,19 @@ Run:
     uv run pytest -m mock_e2e tests/luthien_proxy/e2e_tests/test_mock_passthrough_fallback.py -v
 """
 
-import json
 from contextlib import asynccontextmanager
 
 import httpx
 import pytest
 from tests.luthien_proxy.e2e_tests.conftest import policy_context
-from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import error_response, text_response
+from tests.luthien_proxy.e2e_tests.mock_anthropic.responses import error_response
 from tests.luthien_proxy.e2e_tests.mock_anthropic.server import MockAnthropicServer
 
 pytestmark = pytest.mark.mock_e2e
 
 # StringReplacementPolicy with apply_to="request" rewrites "hello" in the
-# client request before it reaches the backend — a real request-modifying
-# policy, so the fallback path is exercised end to end.
+# client request before it reaches the backend: a real request-modifying
+# policy of the kind used for redaction, which does NOT opt in to fallback.
 _MODIFYING_POLICY_REF = "luthien_proxy.policies.string_replacement_policy:StringReplacementPolicy"
 _MODIFYING_POLICY_CONFIG = {
     "replacements": [["hello", "POLICY-REWRITTEN"]],
@@ -75,17 +78,18 @@ def _message_content(request_body: dict) -> str:
 
 
 @pytest.mark.asyncio
-async def test_fallback_forwards_original_request_when_modified_request_400s(
+async def test_fallback_never_undoes_request_side_rewrite(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
     gateway_url,
     auth_headers,
     admin_api_key,
 ):
-    """Policy modification causes a 400 -> the gateway retries with the
-    original unmodified request and the client gets the successful response."""
+    """Flag ON, but StringReplacementPolicy has not opted in to fallback
+    (passthrough_fallback_safe defaults to False, because request-side
+    replacement is how a redaction policy works). A 400 on the rewritten
+    request must propagate; the original text must never be sent upstream."""
     mock_anthropic.enqueue(error_response(400, "invalid_request_error", "modified request rejected"))
-    mock_anthropic.enqueue(text_response("fallback succeeded"))
 
     async with _passthrough_fallback_enabled(gateway_url, admin_api_key):
         async with policy_context(
@@ -101,21 +105,13 @@ async def test_fallback_forwards_original_request_when_modified_request_400s(
                     headers=auth_headers,
                 )
 
-    assert response.status_code == 200, f"Expected 200 after fallback, got {response.status_code}: {response.text}"
-    body = response.json()
-    assert body["content"][0]["text"] == "fallback succeeded"
-
-    # The backend saw exactly two requests: the policy-modified one, then the
-    # original unmodified one.
+    assert response.status_code == 400, f"Expected the 400 to propagate, got {response.status_code}: {response.text}"
     requests_seen = mock_anthropic.received_requests()
-    assert len(requests_seen) == 2, f"Expected 2 backend requests, got {len(requests_seen)}"
+    assert len(requests_seen) == 1, f"Fallback must not resend the original; saw {len(requests_seen)} requests"
     # endswith: the gateway may prefix the first user message with the
-    # <policy-context> injection (INJECT_POLICY_CONTEXT defaults to true);
-    # the fallback restores the request as it entered the POLICY, so the
-    # injection prefix is present on both attempts.
+    # <policy-context> injection (INJECT_POLICY_CONTEXT defaults to true).
     assert _message_content(requests_seen[0]).endswith("POLICY-REWRITTEN from the client")
     assert "hello" not in _message_content(requests_seen[0])
-    assert _message_content(requests_seen[1]).endswith("hello from the client")
 
 
 @pytest.mark.asyncio
@@ -151,17 +147,17 @@ async def test_fallback_disabled_by_default_propagates_error(
 
 
 @pytest.mark.asyncio
-async def test_streaming_fallback_streams_original_request(
+async def test_streaming_fallback_never_undoes_request_side_rewrite(
     mock_anthropic: MockAnthropicServer,
     gateway_healthy,
     gateway_url,
     auth_headers,
     admin_api_key,
 ):
-    """Streaming: a 400 at stream connect falls back to streaming the original
-    unmodified request; the client receives a normal SSE stream."""
+    """Streaming variant: flag ON, non-opted-in rewriting policy, 400 at
+    stream connect. The error reaches the client and the original request is
+    never sent upstream."""
     mock_anthropic.enqueue(error_response(400, "invalid_request_error", "modified request rejected"))
-    mock_anthropic.enqueue(text_response("streamed fallback"))
 
     async with _passthrough_fallback_enabled(gateway_url, admin_api_key):
         async with policy_context(
@@ -177,28 +173,15 @@ async def test_streaming_fallback_streams_original_request(
                     json={**_BASE_REQUEST, "stream": True},
                     headers=auth_headers,
                 ) as response:
-                    assert response.status_code == 200
-                    raw_sse = ""
+                    raw = ""
                     async for chunk in response.aiter_text():
-                        raw_sse += chunk
+                        raw += chunk
 
-    # The stream carries the fallback response text and no error event.
-    text_parts: list[str] = []
-    for line in raw_sse.splitlines():
-        if not line.startswith("data: "):
-            continue
-        data = json.loads(line[len("data: ") :])
-        assert data.get("type") != "error", f"Unexpected error event in fallback stream: {data}"
-        if data.get("type") == "content_block_delta" and data["delta"].get("type") == "text_delta":
-            text_parts.append(data["delta"]["text"])
-    assert "".join(text_parts) == "streamed fallback"
-
+    # The 400 surfaces either as a pre-stream JSON error or as an SSE error
+    # event, depending on whether headers were already committed.
+    assert response.status_code != 200 or '"error"' in raw, (
+        f"Expected the upstream 400 to reach the client, got {response.status_code}: {raw[:500]}"
+    )
     requests_seen = mock_anthropic.received_requests()
-    assert len(requests_seen) == 2, f"Expected 2 backend requests, got {len(requests_seen)}"
-    # endswith: the gateway may prefix the first user message with the
-    # <policy-context> injection (INJECT_POLICY_CONTEXT defaults to true);
-    # the fallback restores the request as it entered the POLICY, so the
-    # injection prefix is present on both attempts.
-    assert _message_content(requests_seen[0]).endswith("POLICY-REWRITTEN from the client")
+    assert len(requests_seen) == 1, f"Fallback must not resend the original; saw {len(requests_seen)} requests"
     assert "hello" not in _message_content(requests_seen[0])
-    assert _message_content(requests_seen[1]).endswith("hello from the client")
