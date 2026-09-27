@@ -261,7 +261,12 @@ def _reconstruct_response_from_stream_events(
             elif cb.type == "tool_use":
                 blocks_by_index[idx] = {"type": "tool_use", "id": cb.id, "name": cb.name, "input": {}}
                 json_bufs[idx] = ""
-            # thinking blocks are intentionally excluded from history
+            elif cb.type == "thinking":
+                blocks_by_index[idx] = {"type": "thinking", "thinking": "", "signature": ""}
+            elif cb.type == "redacted_thinking":
+                # Opaque server-encrypted payload; kept verbatim because dropping it
+                # loses the only record that a reasoning block was present at all.
+                blocks_by_index[idx] = {"type": "redacted_thinking", "data": cb.data}
 
         elif t == "content_block_delta":
             idx = event.index  # type: ignore[union-attr]
@@ -272,6 +277,10 @@ def _reconstruct_response_from_stream_events(
                     block["text"] += delta.text  # type: ignore[union-attr]
                 elif delta.type == "input_json_delta" and block["type"] == "tool_use":  # type: ignore[union-attr]
                     json_bufs[idx] = json_bufs.get(idx, "") + delta.partial_json  # type: ignore[union-attr]
+                elif delta.type == "thinking_delta" and block["type"] == "thinking":  # type: ignore[union-attr]
+                    block["thinking"] += delta.thinking  # type: ignore[union-attr]
+                elif delta.type == "signature_delta" and block["type"] == "thinking":  # type: ignore[union-attr]
+                    block["signature"] = delta.signature  # type: ignore[union-attr]
 
         elif t == "content_block_stop":
             idx = event.index  # type: ignore[union-attr]
