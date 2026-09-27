@@ -30,8 +30,10 @@ def _all_policy_classes() -> list[type]:
     stack = list(BasePolicy.__subclasses__())
     while stack:
         cls = stack.pop()
-        seen[f"{cls.__module__}.{cls.__qualname__}"] = cls
         stack.extend(cls.__subclasses__())
+        # Only shipped code: test helpers may opt in on purpose to exercise fallback.
+        if cls.__module__.startswith("luthien_proxy."):
+            seen[f"{cls.__module__}.{cls.__qualname__}"] = cls
     return list(seen.values())
 
 
