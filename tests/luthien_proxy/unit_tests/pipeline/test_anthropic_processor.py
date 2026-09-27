@@ -133,6 +133,35 @@ class TestFormatSSEEvent:
         assert data["new_api_field"] == 42
         assert data["type"] == "content_block_delta"
 
+    def test_serializes_container_expires_at_datetime(self):
+        """message_start events carry message.container.expires_at as a datetime
+        when the response used the code-execution tool. model_dump() in python
+        mode leaves it as a datetime object, which json.dumps rejects — killing
+        live streams mid-flight with TypeError('Object of type datetime is not
+        JSON serializable'). Every emitted value must be JSON-serializable."""
+        event = RawMessageStartEvent.model_validate(
+            {
+                "type": "message_start",
+                "message": {
+                    "id": "msg_123",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": DEFAULT_TEST_MODEL,
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 10, "output_tokens": 0},
+                    "container": {"id": "container_abc", "expires_at": "2026-08-12T11:14:56Z"},
+                },
+            }
+        )
+        result = _format_sse_event(event)
+
+        data = json.loads(result.split("data: ", 1)[1].strip())
+        expires_at = data["message"]["container"]["expires_at"]
+        assert isinstance(expires_at, str)
+        assert expires_at.startswith("2026-08-12T11:14:56")
+
 
 class TestProcessRequest:
     """Tests for _process_request helper function."""
