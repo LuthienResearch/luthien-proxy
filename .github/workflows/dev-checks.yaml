@@ -70,6 +70,16 @@ jobs:
           psql -c "SELECT 1 FROM debug_logs LIMIT 0;"
           echo "✅ Schema verification passed"
 
+      - name: Run migration runner error-handling tests
+        # Scoped to this one file (not `-m integration` repo-wide): the
+        # broader integration_tests/ suite has pre-existing, unrelated
+        # failures (e.g. test_migration_sync.py) that have never run in CI
+        # because no workflow selects the `integration` marker. Fixing that
+        # gap for the whole suite is a separate concern; this wires in only
+        # the new coverage for docker/run-migrations.sh's error handling so
+        # it isn't silently dead like the rest of the marker.
+        run: uv run pytest -m integration tests/luthien_proxy/integration_tests/test_migration_runner.py -v
+
       - name: Run formatting, lint, and tests
         run: ./scripts/dev_checks.sh
 
