@@ -396,8 +396,8 @@ content" at runtime; any edit can be safety-relevant (model swap, header-like
 fields), so a structural diff can't tell safety from cosmetics.
 
 **Audit consequence**: while fallback is armed, `transaction.request_recorded`
-is deferred until the first attempt's outcome, so `final_request` always names
-the request upstream actually accepted, with a `passthrough_fallback` block
+is deferred until the first attempt's outcome, so `final_request` names
+the request sent last (the one upstream accepted, unless the retry also failed), with a `passthrough_fallback` block
 when the fallback fired.
 
 **Canonical reference**: `BasePolicy.passthrough_fallback_safe`,
