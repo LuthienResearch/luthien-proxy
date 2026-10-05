@@ -266,42 +266,24 @@ function conversationViewer() {
             this.turns = this.presentTurns(rawTurns);
         },
 
-        // Presentation pipeline: classify preflight turns and compute
-        // display messages (dedup) entirely on the client side.
+        // Presentation pipeline: classify preflight turns (for badges/styling)
+        // and compute display messages.
         //
-        // The API sends the full conversation history on every request:
-        //   Turn 1: [user₀]
-        //   Turn 2: [user₀, assistant₁, user₂]
-        //   Turn 3: [user₀, assistant₁, user₂, tool_call₂, tool_result₂, user₃]
-        //
-        // user₀ (the initial message with all preamble) is re-sent identically
-        // every turn. New content appears at the end, after the previous turn's
-        // messages. So for turn N, display = request_messages.slice(prevCount).
-        // Preflight turns are excluded from the count so they don't disrupt the
-        // sequence.
-        //
-        // Invariant: the API sends a stable, strictly-growing cumulative
-        // message array. If a policy rewrites or reorders earlier messages,
-        // the slicing will produce incorrect results.
+        // Deduplication of the cumulative request history now happens on the
+        // SERVER (history/service.py _dedup_cumulative_request_messages), so
+        // the response payload is O(total messages) instead of O(turns²):
+        //   - Unmodified turns arrive with request_messages already reduced to
+        //     this turn's new messages (request_delta_start = 0).
+        //   - Policy-modified turns keep their full arrays so the
+        //     original-vs-final diff panels line up, and request_delta_start
+        //     marks where this turn's new messages begin.
+        // Either way, display = request_messages.slice(request_delta_start).
         presentTurns(rawTurns) {
-            let prevRealMsgCount = 0;
-
             return rawTurns.map(turn => {
                 const isPreflight = this.classifyPreflight(turn);
                 const messages = turn.request_messages || [];
-
-                let displayMessages;
-                if (isPreflight) {
-                    displayMessages = messages;
-                } else {
-                    displayMessages = messages.slice(prevRealMsgCount);
-                    if (displayMessages.length === 0 && messages.length > 0) {
-                        console.warn('Dedup produced empty messages for turn', turn.call_id,
-                            '— cumulative array invariant may be violated');
-                    }
-                    prevRealMsgCount = messages.length;
-                }
-
+                const deltaStart = turn.request_delta_start || 0;
+                const displayMessages = deltaStart > 0 ? messages.slice(deltaStart) : messages;
                 return { ...turn, _isPreflight: isPreflight, _displayMessages: displayMessages };
             });
         },

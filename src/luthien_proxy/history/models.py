@@ -65,6 +65,17 @@ class ConversationTurn(BaseModel):
     original_response_messages: list[ConversationMessage] | None = None
     # Request params (everything except messages/system, which are already parsed)
     request_params: dict[str, Any] | None = None
+    # Index into request_messages where THIS turn's new messages begin.
+    # Agent clients (e.g. Claude Code) re-send the full conversation history on
+    # every request, so raw per-turn request payloads are cumulative. To keep
+    # the response payload O(total messages) instead of O(turns^2), the service
+    # strips the re-sent prefix from request_messages for unmodified turns
+    # (request_delta_start stays 0 and request_messages holds only the new
+    # messages). For policy-modified turns the full arrays are kept so
+    # original-vs-final diffs still line up, and request_delta_start marks
+    # where the new messages start. Clients should render
+    # request_messages[request_delta_start:].
+    request_delta_start: int = 0
 
 
 class SessionSummary(BaseModel):
