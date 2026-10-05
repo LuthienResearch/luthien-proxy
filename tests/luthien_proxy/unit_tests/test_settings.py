@@ -37,6 +37,19 @@ class TestSettingsDefaults:
         settings = Settings(_env_file=None)
         assert settings.otel_enabled is False
 
+    def test_passthrough_materialization_defaults(self, monkeypatch):
+        monkeypatch.delenv("PASSTHROUGH_MATERIALIZE_ENABLED", raising=False)
+        monkeypatch.delenv("PASSTHROUGH_MATERIALIZE_BACKFILL_ENABLED", raising=False)
+        monkeypatch.delenv("PASSTHROUGH_MATERIALIZE_RECONCILE_INTERVAL_SECONDS", raising=False)
+        monkeypatch.delenv("PASSTHROUGH_MATERIALIZE_BATCH_SIZE", raising=False)
+
+        settings = Settings(_env_file=None)
+
+        assert settings.passthrough_materialize_enabled is False
+        assert settings.passthrough_materialize_backfill_enabled is False
+        assert settings.passthrough_materialize_reconcile_interval_seconds == 300
+        assert settings.passthrough_materialize_batch_size == 200
+
     def test_environment_defaults_to_development(self, monkeypatch):
         monkeypatch.delenv("ENVIRONMENT", raising=False)
         monkeypatch.delenv("RAILWAY_SERVICE_NAME", raising=False)
@@ -149,6 +162,19 @@ class TestSettingsFromEnv:
         monkeypatch.setenv("TEMPO_URL", "http://tempo.prod:3200")
         settings = Settings()
         assert settings.tempo_url == "http://tempo.prod:3200"
+
+    def test_loads_passthrough_materialization_from_env(self, monkeypatch):
+        monkeypatch.setenv("PASSTHROUGH_MATERIALIZE_ENABLED", "true")
+        monkeypatch.setenv("PASSTHROUGH_MATERIALIZE_BACKFILL_ENABLED", "true")
+        monkeypatch.setenv("PASSTHROUGH_MATERIALIZE_RECONCILE_INTERVAL_SECONDS", "45")
+        monkeypatch.setenv("PASSTHROUGH_MATERIALIZE_BATCH_SIZE", "17")
+
+        settings = Settings(_env_file=None)
+
+        assert settings.passthrough_materialize_enabled is True
+        assert settings.passthrough_materialize_backfill_enabled is True
+        assert settings.passthrough_materialize_reconcile_interval_seconds == 45
+        assert settings.passthrough_materialize_batch_size == 17
 
 
 class TestOtelExporterEndpoint:

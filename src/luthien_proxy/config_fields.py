@@ -247,6 +247,44 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         category="observability",
     ),
 
+    # ── passthrough ───────────────────────────────────────────────────────
+    ConfigFieldMeta(
+        "passthrough_routes_enabled", "PASSTHROUGH_ROUTES_ENABLED", bool, False,
+        "Enable the /openai/* and /gemini/* passthrough capture routes. Default off: these "
+        "routes forward client-supplied upstream credentials, so an always-on deployment would "
+        "relay traffic upstream and write request_logs for anyone with network reach.",
+        category="passthrough",
+    ),
+    ConfigFieldMeta(
+        "passthrough_stream_capture_max_bytes", "PASSTHROUGH_STREAM_CAPTURE_MAX_BYTES", int, 10485760,
+        "Max bytes of a streamed passthrough response buffered in memory for request_logs capture. "
+        "The stream forwarded to the client is unaffected; only the recorded body is truncated beyond this.",
+        category="passthrough",
+    ),
+    ConfigFieldMeta(
+        "passthrough_materialize_enabled", "PASSTHROUGH_MATERIALIZE_ENABLED", bool, False,
+        "Enable asynchronous materialization of eligible passthrough request_logs into conversation history.",
+        category="passthrough",
+    ),
+    ConfigFieldMeta(
+        "passthrough_materialize_backfill_enabled", "PASSTHROUGH_MATERIALIZE_BACKFILL_ENABLED", bool, False,
+        "Enable one-shot passthrough materialization backfill for historical request_logs.",
+        category="passthrough",
+    ),
+    ConfigFieldMeta(
+        "passthrough_materialize_reconcile_interval_seconds",
+        "PASSTHROUGH_MATERIALIZE_RECONCILE_INTERVAL_SECONDS",
+        int,
+        300,
+        "Seconds between dashboard reconciliation scans for unmaterialized passthrough request_logs.",
+        category="passthrough",
+    ),
+    ConfigFieldMeta(
+        "passthrough_materialize_batch_size", "PASSTHROUGH_MATERIALIZE_BATCH_SIZE", int, 200,
+        "Maximum passthrough request_logs processed per materialization batch.",
+        category="passthrough",
+    ),
+
     # ── telemetry ─────────────────────────────────────────────────────────
     ConfigFieldMeta(
         "usage_telemetry", "USAGE_TELEMETRY", bool, None,
@@ -379,6 +417,7 @@ CONFIG_CATEGORIES: tuple[str, ...] = (
     "llm",
     "security",
     "observability",
+    "passthrough",
     "telemetry",
     "retention",
     "webhook",
