@@ -96,14 +96,16 @@ class SessionSearchParams(BaseModel):
 
     Semantics:
       - model: session used this exact ``final_model`` in at least one turn.
-      - from_time / to_time: the session's *last activity* (the max event
-        timestamp) falls within ``[from_time, to_time]``, inclusive. Either
+      - from_time / to_time: the session's *last activity*
+        (``session_summaries.last_seen``, the max event timestamp across the
+        whole session) falls within ``[from_time, to_time]``, inclusive. Either
         bound may be omitted. (Last-activity, not overlap — consistent with the
-        list's ``ORDER BY last_ts``.) Bounds are interpreted as UTC: a
+        list's ``ORDER BY last_seen``.) Bounds are interpreted as UTC: a
         timezone-aware value is converted to UTC and a naive value is taken
-        as-is (see the validator below). When ``user_id`` is also set, "last
-        activity" is scoped to *that user's* events in the session, not the
-        session's last activity overall.
+        as-is (see the validator below). Candidacy and ordering are per
+        session even when ``user_id`` is set; the per-session stats the page
+        reports (timestamps, counts, models, preview) are then scoped to that
+        user's calls.
       - q: full-text content search over indexed conversation text. Postgres
         uses the ``search_vector`` tsvector column; SQLite uses the
         ``conversation_events_fts`` FTS5 table. Both are porter-stemmed and

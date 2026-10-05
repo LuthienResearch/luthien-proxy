@@ -10,10 +10,30 @@ import json
 from pathlib import Path
 
 import pytest
+from tests.luthien_proxy.unit_tests.helpers.session_summaries import rebuild_session_summaries
 
-from luthien_proxy.history.service import fetch_session_list
+from luthien_proxy.history import service
+from luthien_proxy.history.models import SessionListResponse, SessionSearchParams
 from luthien_proxy.utils.db import DatabasePool
 from luthien_proxy.utils.db_sqlite import SqliteConnection
+
+
+async def fetch_session_list(
+    limit: int,
+    db_pool: DatabasePool,
+    offset: int = 0,
+    *,
+    user_id: str | None = None,
+    search: SessionSearchParams | None = None,
+) -> SessionListResponse:
+    """List sessions after rebuilding ``session_summaries`` from the seeded events.
+
+    These tests insert ``conversation_events`` directly, bypassing the emitter
+    that maintains ``session_summaries`` — the table the list pages from.
+    """
+    async with db_pool.connection() as conn:
+        await rebuild_session_summaries(conn)
+    return await service.fetch_session_list(limit, db_pool, offset, user_id=user_id, search=search)
 
 
 @pytest.fixture
