@@ -53,6 +53,7 @@ class ConversationTurn(BaseModel):
     model: str | None = None
     # Messages in this turn (from final request/response)
     request_messages: list[ConversationMessage]
+    request_messages_full: list[ConversationMessage] | None = None
     response_messages: list[ConversationMessage]
     # Policy annotations for this turn
     annotations: list[PolicyAnnotation]
@@ -167,6 +168,10 @@ class SessionDetail(BaseModel):
     turns: list[ConversationTurn]
     total_policy_interventions: int
     models_used: list[str]
+    total_turns: int = 0
+    offset: int = 0
+    limit: int = 50
+    has_more: bool = False
 
 
 __all__ = [
