@@ -4,12 +4,26 @@ from collections.abc import AsyncIterator
 
 import anthropic
 import anthropic.types
+import httpx
 from anthropic.types import RawMessageStreamEvent
 from opentelemetry import trace
 
 from luthien_proxy.llm.types.anthropic import AnthropicRequest, AnthropicResponse, build_usage
 
 tracer = trace.get_tracer(__name__)
+
+
+class AnthropicUpstreamTransportError(Exception):
+    """A network-level transport failure talking to the Anthropic API itself.
+
+    Raised by `AnthropicClient.complete`/`stream` in place of the raw
+    `httpx.TransportError` when the failure happened during the actual call
+    to Anthropic — distinct from any other `httpx.TransportError` that might
+    be raised elsewhere (e.g. a policy's own outbound HTTP call), which is a
+    gateway/policy bug and must not be downgraded the same way (see
+    pipeline/anthropic_processor.py: `_build_error_event`,
+    `_handle_anthropic_error`).
+    """
 
 
 class AnthropicClient:
@@ -175,8 +189,11 @@ class AnthropicClient:
             kwargs = self._prepare_request_kwargs(request)
             if extra_headers:
                 kwargs["extra_headers"] = extra_headers
-            async with self._client.messages.stream(**kwargs) as stream:
-                message = await stream.get_final_message()
+            try:
+                async with self._client.messages.stream(**kwargs) as stream:
+                    message = await stream.get_final_message()
+            except httpx.TransportError as e:
+                raise AnthropicUpstreamTransportError(str(e)) from e
             return self._message_to_response(message)
 
     async def stream(
@@ -203,10 +220,13 @@ class AnthropicClient:
             kwargs = self._prepare_request_kwargs(request)
             if extra_headers:
                 kwargs["extra_headers"] = extra_headers
-            stream = await self._client.messages.create(**kwargs, stream=True)
-            async with stream:
-                async for event in stream:
-                    yield event
+            try:
+                stream = await self._client.messages.create(**kwargs, stream=True)
+                async with stream:
+                    async for event in stream:
+                        yield event
+            except httpx.TransportError as e:
+                raise AnthropicUpstreamTransportError(str(e)) from e
 
 
-__all__ = ["AnthropicClient"]
+__all__ = ["AnthropicClient", "AnthropicUpstreamTransportError"]
