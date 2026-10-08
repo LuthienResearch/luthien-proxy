@@ -205,6 +205,13 @@ CONFIG_FIELDS: tuple[ConfigFieldMeta, ...] = (
         category="observability",
     ),
     ConfigFieldMeta(
+        "observability_stdout_enabled", "OBSERVABILITY_STDOUT_ENABLED", bool, True,
+        "Print full observability event payloads (incl. request/response bodies) to stdout as "
+        "JSON. Handy for local dev; turn it off where stdout is shipped to central or paid log "
+        "storage (events are still persisted to the DB and the event publisher).",
+        category="observability",
+    ),
+    ConfigFieldMeta(
         "otel_exporter_otlp_endpoint", "OTEL_EXPORTER_OTLP_ENDPOINT", str, "http://tempo:4318/v1/traces",
         "OTLP exporter endpoint for traces (default targets the HTTP/protobuf receiver on tempo:4318)",
         category="observability",
