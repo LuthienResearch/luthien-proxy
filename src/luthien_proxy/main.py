@@ -147,15 +147,6 @@ async def request_validation_error_handler(request: Request, exc: Exception) -> 
     return JSONResponse(status_code=422, content={"detail": validation_exc.errors()})
 
 
-def _is_canonical_messages_variant(path: str) -> bool:
-    """True for ``/v1/messages`` spelling variants (case, trailing or duplicate slashes).
-
-    The ``/v1/{path:path}`` catch-all proxies these straight to Anthropic with
-    no policy, so they must be folded back onto the real endpoint.
-    """
-    return [segment.lower() for segment in path.split("/") if segment] == ["v1", "messages"]
-
-
 def create_app(
     api_key: str | None,
     admin_key: str | None,
@@ -478,18 +469,6 @@ def create_app(
             return response
 
     app.add_middleware(RateLimitHeaderMiddleware)
-
-    # Fold /v1/messages spelling variants (trailing slash, case, duplicate
-    # slashes) onto the canonical path before routing, so they run the policy
-    # pipeline instead of the unpoliced /v1/{path} passthrough.
-    class CanonicalMessagesPathMiddleware(BaseHTTPMiddleware):
-        async def dispatch(self, request: Request, call_next):
-            if _is_canonical_messages_variant(request.scope["path"]):
-                request.scope["path"] = "/v1/messages"
-                request.scope["raw_path"] = b"/v1/messages"
-            return await call_next(request)
-
-    app.add_middleware(CanonicalMessagesPathMiddleware)
 
     # Include routers
     app.include_router(gateway_router)  # /v1/messages
