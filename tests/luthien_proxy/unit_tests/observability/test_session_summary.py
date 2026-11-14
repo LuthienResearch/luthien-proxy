@@ -91,6 +91,12 @@ class TestExtractPreview:
         data = _request(text="real question <system-reminder>noise</system-reminder>")
         assert extract_preview(data) == "real question"
 
+    def test_many_unterminated_system_reminders_stay_fast(self) -> None:
+        data = _request(text="<system-reminder>" * 20_000)
+        preview = extract_preview(data)
+        assert preview is not None
+        assert preview.startswith("<system-reminder>")
+
     def test_truncates_long_text(self) -> None:
         data = _request(text="x" * 500)
         preview = extract_preview(data)
