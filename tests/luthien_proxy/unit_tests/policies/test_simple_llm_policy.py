@@ -707,8 +707,8 @@ class TestMultiBlockReplacementIndices:
         validate_anthropic_event_ordering(full_stream(all_events)).assert_valid()
 
     @pytest.mark.asyncio
-    async def test_redacted_thinking_passthrough_after_multi_replace_uses_shifted_index(self):
-        """Redacted-thinking block (passthrough, not judged) must apply index_shift.
+    async def test_redacted_thinking_after_multi_replace_uses_shifted_index(self):
+        """Redacted-thinking block (not judged) must apply index_shift.
 
         tool@0 → replace([A, B]) emits at [0, 1] and shifts; a subsequent
         redacted_thinking@1 (opaque, nothing to judge) must emit at shifted
@@ -789,7 +789,7 @@ class TestMultiBlockReplacementIndices:
 
     @pytest.mark.asyncio
     async def test_thinking_block_blocked_by_judge_is_suppressed(self):
-        """A thinking block the judge blocks is dropped from the wire."""
+        """A thinking block the judge blocks is dropped from the wire, leaving only the marker."""
         policy = _make_policy()
         ctx = _make_context()
 
@@ -811,7 +811,7 @@ class TestMultiBlockReplacementIndices:
             msg = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("end_turn")), ctx)
 
         all_events = out + msg
-        assert not [e for e in all_events if isinstance(e, RawContentBlockStartEvent)]
+        assert [e.content_block.type for e in all_events if isinstance(e, RawContentBlockStartEvent)] == ["text"]
         assert not any(
             isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, SignatureDelta) for e in all_events
         )

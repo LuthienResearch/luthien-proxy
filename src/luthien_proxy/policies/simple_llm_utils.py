@@ -56,6 +56,14 @@ class SimpleLLMJudgeConfig(BaseModel):
             "evaluate it."
         ),
     )
+    judge_thinking: bool = Field(
+        default=True,
+        description=(
+            "Judge 'thinking' blocks before they reach the client. Each thinking block is "
+            "held until it is complete and judged, so thinking no longer streams live and "
+            "the first byte waits for a judge call. Set false to stream thinking unjudged."
+        ),
+    )
     max_retries: int = Field(
         default=2,
         ge=0,
@@ -124,6 +132,14 @@ To replace the block with new content:
 
 Blocks can be of type "text" (with a "text" field) or "tool_use" (with "name" \
 and "input" fields).
+
+You may also be asked to evaluate a "thinking" block: the model's own \
+reasoning before it answers or calls a tool. A thinking block can't be \
+rewritten: "replace" removes it from the response and blocks the tool calls \
+of this turn. Only replace a thinking block when showing that reasoning to \
+the user would itself break the instructions. Rules about style, wording or \
+formatting, and rules about which tool calls may run, don't apply to \
+thinking; pass it.
 
 Respond ONLY with valid JSON. No additional text."""
 

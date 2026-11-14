@@ -157,7 +157,7 @@ policy:
 
 ### SimpleLLMPolicy
 
-The engine behind all presets. Evaluates each response content block (text or tool call) against plain-English instructions using a judge LLM. The judge can pass blocks through or replace them with different content.
+The engine behind all presets. Evaluates each response content block (text, tool call or thinking) against plain-English instructions using a judge LLM. The judge can pass blocks through or replace them with different content. A thinking block can't be rewritten, so replacing it removes it and blocks the tool calls of that turn.
 
 ```yaml
 policy:
@@ -183,6 +183,7 @@ policy:
 | `inference_provider` | `user_credentials` | How to obtain credentials for judge calls: `"user_credentials"`, `{provider: "<name>"}`, or `{user_then_provider: {name: "<name>", on_fallback: "warn|fail|fallback"}}`. See [Inference providers](#inference-providers). |
 | `max_retries` | `2` | Retry attempts on transient judge failures |
 | `retry_delay` | `0.5` | Seconds between retries |
+| `judge_thinking` | `true` | Judge `thinking` blocks too. Each one is held until it is complete and judged, so thinking doesn't stream live. Set `false` to stream it unjudged. The presets set it to `false`. |
 
 **When to use:** You want to apply arbitrary content policies described in plain English. This is the most flexible policy.
 

@@ -19,6 +19,8 @@ from anthropic.types import (
     RawMessageDeltaEvent,
     TextBlock,
     TextDelta,
+    ThinkingBlock,
+    ThinkingDelta,
     ToolUseBlock,
     Usage,
 )
@@ -27,11 +29,14 @@ from anthropic.types.raw_message_delta_event import Delta
 from luthien_proxy.llm.types.anthropic import AnthropicResponse
 from luthien_proxy.policy_core.anthropic_message_builder import (
     AnthropicMessageBuilder,
+    BufferedThinking,
     BufferedTool,
     blocked_tools_judge_failed_message,
     blocked_tools_message,
+    dropped_thinking_message,
     parse_tool_input,
 )
+from luthien_proxy.policy_core.block_descriptor import BlockDescriptor
 
 
 def _delta(stop_reason: str = "end_turn") -> RawMessageDeltaEvent:
@@ -396,3 +401,130 @@ def test_committed_descriptors_track_commits():
     types = [d.type for d in builder.committed_descriptors]
     assert "text" in types
     assert "tool_use" in types
+
+
+def _buffered_thinking(text: str) -> BufferedThinking:
+    start = RawContentBlockStartEvent(
+        type="content_block_start",
+        index=7,
+        content_block=ThinkingBlock(type="thinking", thinking="", signature=""),
+    )
+    delta = RawContentBlockDeltaEvent(
+        type="content_block_delta",
+        index=7,
+        delta=ThinkingDelta(type="thinking_delta", thinking=text),
+    )
+    return BufferedThinking(start_event=start, deltas=[delta], text=text)
+
+
+def _start_types(events) -> list[str]:
+    return [e.content_block.type for e in events if isinstance(e, RawContentBlockStartEvent)]
+
+
+class TestThinking:
+    def test_commit_thinking_records_reasoning_as_context(self):
+        builder = AnthropicMessageBuilder()
+        builder.commit_thinking(_buffered_thinking("plan"))
+        assert builder.committed_descriptors == (BlockDescriptor(type="thinking", content="plan"),)
+
+    def test_buffered_thinking_can_stay_out_of_judge_context(self):
+        builder = AnthropicMessageBuilder()
+        builder.buffer_thinking(_buffered_thinking("private plan"), as_context=False)
+        assert builder.committed_descriptors == (BlockDescriptor(type="thinking", content=""),)
+
+    def test_buffered_thinking_keeps_its_place_among_tools(self):
+        builder = AnthropicMessageBuilder()
+        builder.buffer_tool(id="t1", name="Bash", input_json="{}")
+        builder.buffer_thinking(_buffered_thinking("next"))
+        builder.buffer_tool(id="t2", name="Read", input_json="{}")
+        events = builder.finalize(_delta("tool_use"))
+        assert _start_types(events) == ["tool_use", "thinking", "tool_use"]
+        assert [e.index for e in events if isinstance(e, RawContentBlockStartEvent)] == [0, 1, 2]
+
+    def test_dropped_thinking_blocks_buffered_tools(self):
+        builder = AnthropicMessageBuilder()
+        builder.record_dropped_thinking()
+        builder.buffer_tool(id="t1", name="Bash", input_json="{}")
+        events = builder.finalize(_delta("tool_use"))
+        assert _start_types(events) == ["text", "text"]
+        assert _text_deltas(events) == [dropped_thinking_message(1), blocked_tools_message(["Bash"])]
+        assert events[-1].delta.stop_reason == "end_turn"
+
+    def test_dropped_thinking_without_tools_only_adds_marker(self):
+        builder = AnthropicMessageBuilder()
+        builder.record_dropped_thinking()
+        builder.commit_text("answer")
+        result = builder.to_anthropic_response(_response_template())
+        assert result["content"] == [
+            {"type": "text", "text": "answer"},
+            {"type": "text", "text": dropped_thinking_message(1)},
+        ]
+
+    def test_reasoning_block_after_tool_keeps_order_non_streaming(self):
+        builder = AnthropicMessageBuilder()
+        builder.commit_reasoning_block(cast(dict, {"type": "thinking", "thinking": "a", "signature": "s"}))  # type: ignore[arg-type]
+        builder.buffer_tool(id="t1", name="Bash", input_json="{}")
+        builder.commit_reasoning_block(cast(dict, {"type": "redacted_thinking", "data": "enc"}))  # type: ignore[arg-type]
+        builder.buffer_tool(id="t2", name="Read", input_json="{}")
+        result = builder.to_anthropic_response(_response_template())
+        assert [b["type"] for b in result["content"]] == ["thinking", "tool_use", "redacted_thinking", "tool_use"]
+
+    def test_queued_reasoning_goes_before_markers_when_no_tool_is_left(self):
+        builder = AnthropicMessageBuilder()
+        builder.record_blocked_tool("Bash")
+        builder.buffer_thinking(_buffered_thinking("after the tool"))
+        events = builder.finalize(_delta("tool_use"))
+        assert _start_types(events) == ["thinking", "text"]
+        assert events[-1].delta.stop_reason == "end_turn"
+
+    def test_dropped_thinking_also_removes_reasoning_queued_with_the_tools(self):
+        builder = AnthropicMessageBuilder()
+        builder.buffer_tool(id="t1", name="Read", input_json="{}")
+        builder.commit_reasoning_block(cast(dict, {"type": "redacted_thinking", "data": "enc"}))  # type: ignore[arg-type]
+        builder.record_dropped_thinking()
+        result = builder.to_anthropic_response(_response_template())
+        assert result["content"] == [
+            {"type": "text", "text": dropped_thinking_message(2)},
+            {"type": "text", "text": blocked_tools_message(["Read"])},
+        ]
+
+    def test_judge_failure_carries_into_blocked_tool_marker(self):
+        builder = AnthropicMessageBuilder()
+        builder.record_dropped_thinking(judge_failed=True)
+        builder.buffer_tool(id="t1", name="Bash", input_json="{}")
+        events = builder.finalize(_delta("tool_use"))
+        assert _text_deltas(events)[-1] == blocked_tools_judge_failed_message(["Bash"])
+
+    def test_reasoning_after_the_last_tool_goes_before_markers(self):
+        builder = AnthropicMessageBuilder()
+        builder.buffer_tool(id="t1", name="Bash", input_json="{}")
+        builder.buffer_thinking(_buffered_thinking("about Read"))
+        builder.record_blocked_tool("Read")
+        events = builder.finalize(_delta("tool_use"))
+        assert _start_types(events) == ["thinking", "text", "tool_use"]
+
+    def test_reasoning_after_the_last_tool_goes_before_markers_non_streaming(self):
+        builder = AnthropicMessageBuilder()
+        builder.buffer_tool(id="t1", name="Bash", input_json="{}")
+        builder.commit_reasoning_block(cast(dict, {"type": "redacted_thinking", "data": "enc"}))  # type: ignore[arg-type]
+        builder.record_blocked_tool("Read")
+        result = builder.to_anthropic_response(_response_template())
+        assert [b["type"] for b in result["content"]] == ["redacted_thinking", "text", "tool_use"]
+
+    def test_judge_failure_keeps_the_fallback_text(self):
+        builder = AnthropicMessageBuilder()
+        builder.set_fallback_text("judge down")
+        builder.record_dropped_thinking(judge_failed=True)
+        events = builder.finalize(_delta())
+        assert _text_deltas(events) == ["judge down", dropped_thinking_message(1, judge_failed=True)]
+
+    @pytest.mark.parametrize(
+        ("count", "judge_failed", "expected"),
+        [
+            (1, False, "A reasoning block was removed by policy"),
+            (3, False, "3 reasoning blocks were removed by policy"),
+            (1, True, "policy evaluation unavailable"),
+        ],
+    )
+    def test_dropped_thinking_message(self, count: int, judge_failed: bool, expected: str):
+        assert expected in dropped_thinking_message(count, judge_failed=judge_failed)

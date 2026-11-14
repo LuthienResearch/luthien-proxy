@@ -2,8 +2,13 @@
 
 import importlib
 import inspect
+from typing import cast
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from anthropic.lib.streaming import MessageStreamEvent
+from anthropic.types import RawContentBlockStartEvent, ThinkingBlock
+from tests.luthien_proxy.fixtures.policy_context import make_policy_context
 
 from luthien_proxy.policies.presets.block_dangerous_commands import BlockDangerousCommandsPolicy
 from luthien_proxy.policies.presets.block_sensitive_file_writes import BlockSensitiveFileWritesPolicy
@@ -32,6 +37,23 @@ def test_preset_instantiates(policy_class):
     policy = policy_class()
     assert policy._config is not None
     assert policy._config.instructions
+
+
+@pytest.mark.parametrize("policy_class", ALL_PRESETS, ids=lambda c: c.__name__)
+@pytest.mark.asyncio
+async def test_preset_streams_thinking_without_judging_it(policy_class):
+    """Preset rules are about visible text and tool calls, so thinking streams live and unjudged."""
+    policy = policy_class()
+    start = RawContentBlockStartEvent(
+        type="content_block_start",
+        index=0,
+        content_block=ThinkingBlock(type="thinking", thinking="", signature=""),
+    )
+    with patch.object(policy, "_judge_block", new_callable=AsyncMock) as judge:
+        out = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, start), make_policy_context())
+
+    assert [e.type for e in out] == ["content_block_start"]
+    judge.assert_not_awaited()
 
 
 @pytest.mark.parametrize("policy_class", ALL_PRESETS, ids=lambda c: c.__name__)
