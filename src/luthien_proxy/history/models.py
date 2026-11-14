@@ -129,8 +129,9 @@ class SessionSearchParams(BaseModel):
     def _to_naive_utc(cls, value: datetime | None) -> datetime | None:
         """Normalize time bounds to naive UTC.
 
-        ``created_at`` is compared as a UTC timestamp (Postgres ``timestamptz``)
-        / lexicographic ISO text (SQLite). A timezone-aware input is converted
+        ``created_at`` is compared as a UTC timestamp: natively on Postgres
+        (``timestamptz``) and through ``strftime`` on SQLite, which parses the
+        stored text and keeps milliseconds. A timezone-aware input is converted
         to UTC and stripped of tzinfo so comparison is consistent across
         backends; a naive input is left as-is (already assumed UTC).
         """

@@ -373,6 +373,20 @@ def _intervention_count_expr(is_postgres: bool) -> str:
     return f"SUM(CASE WHEN {_INTERVENTION_PREDICATE} THEN 1 ELSE 0 END)"
 
 
+_SQLITE_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%f"
+
+
+def _sqlite_timestamp(expr: str) -> str:
+    """Wrap a SQLite timestamp expression so it compares in time order.
+
+    ``created_at`` text comes in more than one shape (``T`` or space separator,
+    with or without a UTC offset), so raw text comparison and text ``MAX`` are
+    wrong. ``strftime`` parses all of them, applies the offset and keeps
+    milliseconds, unlike ``datetime()``, which drops fractional seconds.
+    """
+    return f"strftime('{_SQLITE_TIMESTAMP_FORMAT}', {expr})"
+
+
 def _build_session_filter_sql(
     search: SessionSearchParams,
     db_pool: DatabasePool,
@@ -430,13 +444,14 @@ def _build_session_filter_sql(
             f"ce.session_id IN (SELECT ce.session_id FROM conversation_events ce WHERE {fragment} {user_scope_sql})"
         )
 
-    if search.from_time is not None:
-        placeholder = add_param(search.from_time if db_pool.is_postgres else search.from_time.isoformat())
-        having.append(f"MAX(ce.created_at) >= {placeholder}")
-
-    if search.to_time is not None:
-        placeholder = add_param(search.to_time if db_pool.is_postgres else search.to_time.isoformat())
-        having.append(f"MAX(ce.created_at) <= {placeholder}")
+    for bound, op in ((search.from_time, ">="), (search.to_time, "<=")):
+        if bound is None:
+            continue
+        if db_pool.is_postgres:
+            having.append(f"MAX(ce.created_at) {op} {add_param(bound)}")
+        else:
+            last = _sqlite_timestamp("ce.created_at")
+            having.append(f"MAX({last}) {op} {_sqlite_timestamp(add_param(bound.isoformat()))}")
 
     if search.policy_intervention:
         having.append(f"{_intervention_count_expr(db_pool.is_postgres)} > 0")
