@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from tests.constants import DEFAULT_TEST_MODEL
 
 from luthien_proxy.credential_manager import AuthConfig, AuthMode, CredentialManager
+from luthien_proxy.gateway_routes import is_passthrough_allowed
 from luthien_proxy.llm.anthropic_client import AnthropicClient
 
 
@@ -579,6 +580,75 @@ class TestProxyPassthrough:
         client = TestClient(mock_app, raise_server_exceptions=False)
         response = client.get("/v1/models")
         assert response.status_code == 401
+
+    def test_count_tokens_is_forwarded(self, mock_app):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b'{"input_tokens": 3}'
+        mock_response.headers = {"content-type": "application/json"}
+
+        with patch("luthien_proxy.gateway_routes._passthrough_client") as mock_client:
+            mock_client.request = AsyncMock(return_value=mock_response)
+            client = TestClient(mock_app, raise_server_exceptions=False)
+            response = client.post(
+                "/v1/messages/count_tokens",
+                headers={"Authorization": "Bearer test-proxy-key"},
+                json={"model": "m", "messages": []},
+            )
+
+        assert response.status_code == 200
+        assert mock_client.request.call_args.kwargs["url"] == "https://api.anthropic.com/v1/messages/count_tokens"
+
+    @pytest.mark.parametrize(
+        ("method", "path"),
+        [
+            ("POST", "/v1/messages/"),
+            ("POST", "/v1/unknown"),
+            ("GET", "/v1/messages/count_tokens"),
+            ("POST", "/v1/models"),
+            ("DELETE", "/v1/models"),
+            ("GET", "/v1/models/a/b"),
+        ],
+    )
+    def test_unlisted_endpoints_are_refused(self, mock_app, method, path):
+        with patch("luthien_proxy.gateway_routes._passthrough_client") as mock_client:
+            mock_client.request = AsyncMock()
+            client = TestClient(mock_app, raise_server_exceptions=False)
+            response = client.request(method, path, headers={"Authorization": "Bearer test-proxy-key"})
+
+        assert response.status_code == 404
+        mock_client.request.assert_not_called()
+
+
+class TestIsPassthroughAllowed:
+    @pytest.mark.parametrize(
+        ("method", "path"),
+        [
+            ("POST", "messages/count_tokens"),
+            ("GET", "models"),
+            ("GET", "models/claude-sonnet-4-5-20250929"),
+        ],
+    )
+    def test_allowed(self, method, path):
+        assert is_passthrough_allowed(method, path) is True
+
+    @pytest.mark.parametrize(
+        ("method", "path"),
+        [
+            ("POST", "messages"),
+            ("POST", "messages/"),
+            ("POST", "Messages/count_tokens"),
+            ("POST", "messages/count_tokens/"),
+            ("POST", "unknown"),
+            ("GET", "models/"),
+            ("GET", "models/a/b"),
+            ("GET", "messages/count_tokens"),
+            ("PUT", "models"),
+            ("GET", ""),
+        ],
+    )
+    def test_refused(self, method, path):
+        assert is_passthrough_allowed(method, path) is False
 
 
 class TestRateLimitingRouteIntegration:

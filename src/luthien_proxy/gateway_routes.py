@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import secrets
 import time
 
@@ -47,6 +48,20 @@ ANTHROPIC_API_BASE = "https://api.anthropic.com"
 # Shared httpx client for the passthrough proxy.  Reusing a single client
 # avoids creating and tearing down a connection pool on every request.
 _passthrough_client = httpx.AsyncClient(timeout=30.0)
+
+# Endpoints the /v1/{path} passthrough forwards without the policy pipeline.
+# Only non-generation endpoints belong here. Everything else is refused, so
+# generation requests can only reach upstream through the policy pipeline.
+_PASSTHROUGH_ALLOWLIST: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("POST", re.compile(r"messages/count_tokens")),
+    ("GET", re.compile(r"models")),
+    ("GET", re.compile(r"models/[A-Za-z0-9][A-Za-z0-9._:-]*")),
+)
+
+
+def is_passthrough_allowed(method: str, path: str) -> bool:
+    """Return True if ``method /v1/{path}`` may skip the policy pipeline."""
+    return any(method == allowed and pattern.fullmatch(path) for allowed, pattern in _PASSTHROUGH_ALLOWLIST)
 
 
 # === AUTH ===
@@ -266,11 +281,16 @@ async def proxy_passthrough(
     path: str,
     _rate_limit: None = Depends(check_rate_limit),
 ):
-    """Transparent proxy for /v1/* endpoints not explicitly handled.
+    """Proxy the allowlisted non-generation /v1/* endpoints to Anthropic.
 
-    Forwards requests to the Anthropic API so Claude Code can use endpoints
-    like /v1/messages/count_tokens, /v1/models, etc. without getting 404.
+    Claude Code uses /v1/messages/count_tokens and /v1/models, which have no
+    policy-relevant content. Every other path gets 404, so generation can only
+    go through /v1/messages and the policy pipeline.
     """
+    if not is_passthrough_allowed(request.method, path):
+        logger.warning("Refused passthrough for %s %r", request.method, f"/v1/{path[:200]}")
+        raise HTTPException(status_code=404, detail="Not found")
+
     # Build upstream URL
     upstream_url = f"{ANTHROPIC_API_BASE}/v1/{path}"
 
