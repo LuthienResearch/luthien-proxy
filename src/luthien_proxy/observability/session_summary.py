@@ -22,34 +22,11 @@ from datetime import datetime
 from typing import Any
 
 from luthien_proxy.utils.db import ConnectionProtocol
+from luthien_proxy.utils.system_reminders import strip_system_reminders
 
 # Preview is the first user-message text from the request that opened the
 # session. Trimmed to keep the row small and the list page snappy.
 PREVIEW_MAX_LENGTH = 200
-
-# Claude Code injects <system-reminder>...</system-reminder> blocks into the
-# first user turn; strip them so the preview shows the actual user text.
-_SYSTEM_REMINDER_OPEN = "<system-reminder>"
-_SYSTEM_REMINDER_CLOSE = "</system-reminder>"
-
-
-def _strip_system_reminders(text: str) -> str:
-    """Remove ``<system-reminder>...</system-reminder>`` spans in linear time.
-
-    A regex (``<system-reminder>.*?</system-reminder>``) restarts at every
-    position when the closing tag is absent, which is quadratic in the number
-    of opening tags and runs on the event loop for client-controlled text.
-    """
-    out: list[str] = []
-    i = 0
-    while (start := text.find(_SYSTEM_REMINDER_OPEN, i)) != -1:
-        end = text.find(_SYSTEM_REMINDER_CLOSE, start + len(_SYSTEM_REMINDER_OPEN))
-        if end == -1:
-            break
-        out.append(text[i:start])
-        i = end + len(_SYSTEM_REMINDER_CLOSE)
-    out.append(text[i:])
-    return "".join(out)
 
 
 def _is_policy_event(event_type: str) -> bool:
@@ -106,7 +83,7 @@ def extract_preview(data: dict[str, Any]) -> str | None:
             content = " ".join(texts)
         if not isinstance(content, str):
             continue
-        text = _strip_system_reminders(content).strip()
+        text = strip_system_reminders(content).strip()
         if not text:
             continue
         text = " ".join(text.split())

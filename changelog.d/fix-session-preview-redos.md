@@ -1,5 +1,6 @@
 ---
 category: Fixes
+pr: 826
 ---
 
-**Session preview ReDoS**: a crafted first user message no longer stalls the gateway; system-reminder stripping is now linear
+**Session preview ReDoS**: `<system-reminder>` stripping is now linear
