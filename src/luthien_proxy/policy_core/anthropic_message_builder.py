@@ -15,6 +15,13 @@ to the wire immediately *if no tool has been buffered yet*; once any tool
 is buffered, subsequent text decisions are also queued for emission before
 the tool flush. Either way, the wire ends with `tool_use` blocks.
 
+Reasoning blocks are the exception. A `thinking` or `redacted_thinking`
+block that upstream sent after a `tool_use` is queued with the tools and
+keeps its upstream position (interleaved thinking), because the next turn
+replays the blocks as sent. When thinking is enabled, a `tool_use` must
+follow the thinking that led to it, so if any thinking block was dropped the
+builder blocks the tool calls of that turn as well.
+
 Other invariants the builder owns:
 
 - Indices are assigned monotonically by the builder; callers never compute
@@ -37,7 +44,7 @@ import json
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, TypeAlias, cast
 
 from anthropic.lib.streaming import MessageStreamEvent
 from anthropic.types import (
@@ -48,6 +55,7 @@ from anthropic.types import (
     RawMessageDeltaEvent,
     TextBlock,
     TextDelta,
+    ThinkingDelta,
     ToolUseBlock,
 )
 
@@ -135,6 +143,20 @@ class _BufferedTextBlock:
 
 
 @dataclass
+class BufferedThinking:
+    """Upstream thinking block held back from the wire until it is judged.
+
+    The original start and delta events are kept verbatim so a judged-pass
+    block is re-emitted with its ``signature`` intact; ``text`` is the
+    accumulated reasoning the judge sees.
+    """
+
+    start_event: RawContentBlockStartEvent
+    deltas: list[RawContentBlockDeltaEvent] = field(default_factory=list)
+    text: str = ""
+
+
+@dataclass
 class BufferedTool:
     """Upstream tool_use block accumulated from streaming deltas.
 
@@ -152,16 +174,22 @@ class BufferedTool:
         return parse_tool_input(self.input_json)
 
 
+_TailItem: TypeAlias = "_QueuedTool | BufferedThinking | AnthropicContentBlock"
+
+
 @dataclass
 class _BuilderState:
     # Upstream buffering: deltas accumulate here before being judged.
     text_buffer: dict[int, _BufferedTextBlock] = field(default_factory=dict)
+    thinking_buffer: dict[int, BufferedThinking] = field(default_factory=dict)
     tool_buffer: dict[int, BufferedTool] = field(default_factory=dict)
     # Downstream composition: where committed/queued content lives until flush.
     committed_descriptors: list[BlockDescriptor] = field(default_factory=list)
     pre_tool_blocks: list["AnthropicContentBlock"] = field(default_factory=list)
-    buffered_tools: list[_QueuedTool] = field(default_factory=list)
+    tail: list[_TailItem] = field(default_factory=list)
     blocked_tools: list[_BlockedToolRecord] = field(default_factory=list)
+    dropped_thinking: int = 0
+    dropped_thinking_judge_failed: bool = False
     pending_warning_text: str | None = None
     pending_fallback_text: str | None = None
     next_output_index: int = 0
@@ -178,6 +206,9 @@ class AnthropicMessageBuilder:
         - `commit_text(text)` — record a text block (emits now or buffers)
         - `buffer_tool(id, name, input_json)` — record a tool_use (always buffers)
         - `record_blocked_tool(name, judge_failed)` — record that a tool was blocked
+        - `commit_thinking(buffered)` / `buffer_thinking(buffered)` - a judged-pass reasoning
+          block, emitted now (before any tool) or queued in upstream order among the tools
+        - `record_dropped_thinking(judge_failed)` - a reasoning block was removed; blocks the turn's tools
         - `passthrough_start(event)` / `passthrough_delta(event)` / `passthrough_stop(event)` —
           re-emit a non-buffered block type (text, thinking) with a rewritten index
         - `note_judge_unavailable(text)` — request a warning text block at finalize
@@ -231,6 +262,75 @@ class AnthropicMessageBuilder:
         buffered = self._state.text_buffer.pop(index, None)
         return buffered.text if buffered is not None else None
 
+    def begin_thinking_buffer(self, index: int, start_event: RawContentBlockStartEvent) -> None:
+        """Hold a thinking block back from the wire until it is judged.
+
+        Caller suppresses the start event; the original start and deltas are
+        replayed at commit time so the signature survives.
+        """
+        self._state.thinking_buffer[index] = BufferedThinking(start_event=start_event)
+
+    def append_thinking_delta(self, index: int, event: RawContentBlockDeltaEvent) -> bool:
+        """Buffer a thinking/signature delta at this index.
+
+        Returns True if buffered, False if no thinking buffer exists there
+        (caller should treat as passthrough).
+        """
+        buffered = self._state.thinking_buffer.get(index)
+        if buffered is None:
+            return False
+        buffered.deltas.append(event)
+        if isinstance(event.delta, ThinkingDelta):
+            buffered.text += event.delta.thinking
+        return True
+
+    def take_thinking(self, index: int) -> "BufferedThinking | None":
+        """Pop the buffered thinking block at this index."""
+        return self._state.thinking_buffer.pop(index, None)
+
+    def commit_thinking(self, buffered: "BufferedThinking") -> list[MessageStreamEvent]:
+        """Re-emit a judged-pass thinking block now, verbatim, with a rewritten index."""
+        self._state.committed_descriptors.append(_descriptor_from_thinking(buffered))
+        return self._emit_thinking_now(buffered)
+
+    def buffer_thinking(self, buffered: "BufferedThinking", *, as_context: bool = True) -> None:
+        """Queue a reasoning block that upstream sent after a tool_use.
+
+        It is emitted at finalize in its upstream position among the buffered
+        tools, so interleaved thinking keeps the order the next turn expects.
+        With ``as_context=False`` later judges see the block but not its text.
+        """
+        self._state.tail.append(buffered)
+        descriptor = _descriptor_from_thinking(buffered)
+        if not as_context:
+            descriptor = BlockDescriptor(type=descriptor.type, content="")
+        self._state.committed_descriptors.append(descriptor)
+
+    def commit_reasoning_block(self, block: "AnthropicContentBlock", *, as_context: bool = True) -> None:
+        """Non-streaming sibling of `commit_thinking` / `buffer_thinking`.
+
+        A `thinking` or `redacted_thinking` block goes to the pre-tool slot,
+        or after the tools already buffered if upstream sent it after one.
+        With ``as_context=False`` later judges see the block but not its text.
+        """
+        if self.has_buffered_tool:
+            self._state.tail.append(block)
+        else:
+            self._state.pre_tool_blocks.append(block)
+        thinking = block.get("thinking") if as_context and isinstance(block, dict) else None
+        self._state.committed_descriptors.append(
+            BlockDescriptor(type=str(block.get("type", "thinking")), content=str(thinking or ""))
+        )
+
+    def record_dropped_thinking(self, *, judge_failed: bool = False) -> None:
+        """Record that a thinking block was removed by policy.
+
+        Surfaces as a marker at finalize. Because a tool_use must follow its
+        thinking when thinking is enabled, the turn's tool calls are blocked too.
+        """
+        self._state.dropped_thinking += 1
+        self._state.dropped_thinking_judge_failed |= judge_failed
+
     def begin_tool_buffer(self, index: int, *, id: str, name: str) -> None:
         """Record that an upstream tool_use block is starting at this index."""
         self._state.tool_buffer[index] = BufferedTool(id=id, name=name)
@@ -263,7 +363,7 @@ class AnthropicMessageBuilder:
     @property
     def has_buffered_tool(self) -> bool:
         """True once at least one tool_use has been buffered for the wire flush."""
-        return bool(self._state.buffered_tools)
+        return any(isinstance(item, _QueuedTool) for item in self._state.tail)
 
     @property
     def has_emitted_anything(self) -> bool:
@@ -272,7 +372,7 @@ class AnthropicMessageBuilder:
         Used by callers to decide whether to set a fallback message.
         """
         s = self._state
-        return bool(s.committed_descriptors or s.buffered_tools or s.blocked_tools or s.pending_warning_text)
+        return bool(s.committed_descriptors or s.tail or s.blocked_tools or s.pending_warning_text)
 
     # ------------------------------------------------------------------
     # Commit methods
@@ -291,7 +391,7 @@ class AnthropicMessageBuilder:
 
     def buffer_tool(self, *, id: str, name: str, input_json: str) -> None:
         """Buffer a tool_use block for emission at finalize."""
-        self._state.buffered_tools.append(_QueuedTool(id=id, name=name, input_json=input_json))
+        self._state.tail.append(_QueuedTool(id=id, name=name, input_json=input_json))
         self._state.committed_descriptors.append(_descriptor_from_tool(name, input_json))
 
     def record_blocked_tool(self, name: str, *, judge_failed: bool = False) -> None:
@@ -411,9 +511,11 @@ class AnthropicMessageBuilder:
     def finalize(self, message_delta: RawMessageDeltaEvent) -> list[MessageStreamEvent]:
         """Flush pending warning, blocked-tool marker, buffered tools, and corrected message_delta.
 
-        Order: judge-unavailable warning → blocked-tools marker → buffered
-        tools → message_delta. Warning + marker land before the first tool,
-        satisfying the trailing-tool_use invariant.
+        Order: judge-unavailable warning → dropped-thinking marker →
+        blocked-tools marker → buffered tools (with any reasoning queued among
+        them) → message_delta. Warning + markers land before the first tool,
+        satisfying the trailing-tool_use invariant. Queued reasoning with no
+        tool after it goes before the markers instead.
         """
         if self._state.finalized:
             raise RuntimeError("AnthropicMessageBuilder.finalize called twice")
@@ -421,27 +523,24 @@ class AnthropicMessageBuilder:
 
         events: list[MessageStreamEvent] = []
         s = self._state
+        self._block_tools_after_dropped_thinking()
 
         # Fallback: if nothing else will be emitted, surface the fallback text.
-        nothing_emitted = not (s.committed_descriptors or s.buffered_tools or s.blocked_tools or s.pending_warning_text)
+        nothing_emitted = not self.has_emitted_anything
         if nothing_emitted and s.pending_fallback_text is not None:
             events.extend(self._emit_text_now(s.pending_fallback_text))
 
-        if s.pending_warning_text is not None:
-            events.extend(self._emit_text_now(s.pending_warning_text))
-
-        if s.blocked_tools:
-            marker = _blocked_tools_marker(s.blocked_tools)
+        before_markers, after_markers = self._split_tail()
+        events.extend(self._emit_items(before_markers))
+        for marker in self._pending_markers():
             events.extend(self._emit_text_now(marker))
-
-        for tool in s.buffered_tools:
-            events.extend(self._emit_tool_now(tool))
+        events.extend(self._emit_items(after_markers))
 
         # Conservative stop_reason correction: only rewrite when upstream is
         # known wrong given what we actually emitted. Preserve max_tokens,
         # stop_sequence, refusal, pause_turn, and anything else — clients
         # depend on those signals.
-        if message_delta.delta.stop_reason == "tool_use" and not s.buffered_tools:
+        if message_delta.delta.stop_reason == "tool_use" and not self.has_buffered_tool:
             message_delta = RawMessageDeltaEvent.model_construct(
                 type="message_delta",
                 delta=message_delta.delta.model_copy(update={"stop_reason": "end_turn"}),
@@ -473,27 +572,17 @@ class AnthropicMessageBuilder:
         self._state.finalized = True
 
         s = self._state
+        self._block_tools_after_dropped_thinking()
         new_content: list["AnthropicContentBlock"] = list(s.pre_tool_blocks)
 
-        if s.pending_warning_text is not None:
-            new_content.append({"type": "text", "text": s.pending_warning_text})
-
-        if s.blocked_tools:
-            marker = _blocked_tools_marker(s.blocked_tools)
-            new_content.append({"type": "text", "text": marker})
-
-        for tool in s.buffered_tools:
-            new_content.append(
-                {
-                    "type": "tool_use",
-                    "id": tool.id,
-                    "name": tool.name,
-                    "input": parse_tool_input(tool.input_json),
-                }
-            )
-
-        if not new_content and s.pending_fallback_text is not None:
+        if not self.has_emitted_anything and s.pending_fallback_text is not None:
             new_content.append({"type": "text", "text": s.pending_fallback_text})
+
+        before_markers, after_markers = self._split_tail()
+        new_content.extend(_content_blocks(before_markers))
+        for marker in self._pending_markers():
+            new_content.append({"type": "text", "text": marker})
+        new_content.extend(_content_blocks(after_markers))
 
         # Conservative stop_reason correction (see finalize() for rationale):
         # only rewrite the one upstream value known to be wrong given what we
@@ -501,7 +590,7 @@ class AnthropicMessageBuilder:
         modified = cast("AnthropicResponse", dict(template))
         modified["content"] = new_content
         upstream_stop = modified.get("stop_reason")
-        if upstream_stop == "tool_use" and not s.buffered_tools:
+        if upstream_stop == "tool_use" and not self.has_buffered_tool:
             modified["stop_reason"] = "end_turn"
         return modified
 
@@ -519,6 +608,63 @@ class AnthropicMessageBuilder:
         self._state.committed_descriptors.append(BlockDescriptor(type="text", content=text))
         self._state.pre_tool_blocks.append({"type": "text", "text": text})
         return _events_for_text(index, text)
+
+    def _block_tools_after_dropped_thinking(self) -> None:
+        """Turn the queued tool calls into blocked records once any thinking was dropped.
+
+        With thinking enabled the API rejects a tool_use whose thinking is
+        missing on the next turn, and a fake ``redacted_thinking`` can't be
+        made, so the tool part of the turn fails instead. Reasoning queued
+        among those tools goes with them.
+        """
+        s = self._state
+        if not s.dropped_thinking or not self.has_buffered_tool:
+            return
+        for item in s.tail:
+            if isinstance(item, _QueuedTool):
+                s.blocked_tools.append(_BlockedToolRecord(name=item.name, judge_failed=s.dropped_thinking_judge_failed))
+            else:
+                s.dropped_thinking += 1
+        s.tail.clear()
+
+    def _split_tail(self) -> tuple[list["_TailItem"], list["_TailItem"]]:
+        """Split the queue at the last tool: reasoning after it goes before the markers.
+
+        Reasoning only keeps its queued position while a tool follows it, so
+        the message never ends in a reasoning block after a tool_use.
+        """
+        tail = self._state.tail
+        last_tool = max((i for i, item in enumerate(tail) if isinstance(item, _QueuedTool)), default=-1)
+        return tail[last_tool + 1 :], tail[: last_tool + 1]
+
+    def _emit_items(self, items: list["_TailItem"]) -> list[MessageStreamEvent]:
+        events: list[MessageStreamEvent] = []
+        for item in items:
+            if isinstance(item, _QueuedTool):
+                events.extend(self._emit_tool_now(item))
+            elif isinstance(item, BufferedThinking):
+                events.extend(self._emit_thinking_now(item))
+        return events
+
+    def _pending_markers(self) -> list[str]:
+        s = self._state
+        markers: list[str] = []
+        if s.pending_warning_text is not None:
+            markers.append(s.pending_warning_text)
+        if s.dropped_thinking:
+            markers.append(dropped_thinking_message(s.dropped_thinking, judge_failed=s.dropped_thinking_judge_failed))
+        if s.blocked_tools:
+            markers.append(_blocked_tools_marker(s.blocked_tools))
+        return markers
+
+    def _emit_thinking_now(self, buffered: "BufferedThinking") -> list[MessageStreamEvent]:
+        index = self._allocate_index()
+        events: list[MessageStreamEvent] = [
+            cast(MessageStreamEvent, buffered.start_event.model_copy(update={"index": index}))
+        ]
+        events.extend(cast(MessageStreamEvent, d.model_copy(update={"index": index})) for d in buffered.deltas)
+        events.append(cast(MessageStreamEvent, RawContentBlockStopEvent(type="content_block_stop", index=index)))
+        return events
 
     def _emit_tool_now(self, tool: _QueuedTool) -> list[MessageStreamEvent]:
         index = self._allocate_index()
@@ -538,6 +684,11 @@ class AnthropicMessageBuilder:
 def _descriptor_from_tool(name: str, input_json: str) -> BlockDescriptor:
     payload = input_json or "{}"
     return BlockDescriptor(type="tool_use", content=f"{name}({payload})")
+
+
+def _descriptor_from_thinking(buffered: "BufferedThinking") -> BlockDescriptor:
+    block_type = getattr(buffered.start_event.content_block, "type", "thinking") or "thinking"
+    return BlockDescriptor(type=block_type, content=buffered.text)
 
 
 def _events_for_text(index: int, text: str) -> list[MessageStreamEvent]:
@@ -579,6 +730,31 @@ def blocked_tools_message(names: list[str]) -> str:
     return f"[Tool calls {quoted} were blocked by policy]"
 
 
+def dropped_thinking_message(count: int, *, judge_failed: bool = False) -> str:
+    """Marker text for reasoning blocks removed by policy or because the judge couldn't evaluate them."""
+    blocks = "A reasoning block was" if count == 1 else f"{count} reasoning blocks were"
+    if judge_failed:
+        return f"[{blocks} removed: policy evaluation unavailable]"
+    return f"[{blocks} removed by policy]"
+
+
+def _content_blocks(items: list["_TailItem"]) -> list["AnthropicContentBlock"]:
+    blocks: list["AnthropicContentBlock"] = []
+    for item in items:
+        if isinstance(item, _QueuedTool):
+            blocks.append(
+                {
+                    "type": "tool_use",
+                    "id": item.id,
+                    "name": item.name,
+                    "input": parse_tool_input(item.input_json),
+                }
+            )
+        elif isinstance(item, dict):
+            blocks.append(item)
+    return blocks
+
+
 def blocked_tools_judge_failed_message(names: list[str]) -> str:
     """Marker text for tools blocked because the judge couldn't evaluate."""
     quoted = ", ".join(f"`{n}`" for n in names)
@@ -608,11 +784,13 @@ def parse_tool_input(input_json: str) -> "JSONObject":
 
 __all__ = [
     "AnthropicMessageBuilder",
+    "BufferedThinking",
     "BufferedTool",
     "ToolBlockHandler",
     "ToolStopHandler",
     "blocked_tools_message",
     "blocked_tools_judge_failed_message",
+    "dropped_thinking_message",
     "compose_tool_only_response",
     "parse_tool_input",
 ]

@@ -17,8 +17,11 @@ from anthropic.types import (
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
     RawMessageDeltaEvent,
+    RedactedThinkingBlock,
+    SignatureDelta,
     TextDelta,
     ThinkingBlock,
+    ThinkingDelta,
     ToolUseBlock,
 )
 from tests.luthien_proxy.fixtures.anthropic_stream_validator import validate_anthropic_event_ordering
@@ -704,11 +707,12 @@ class TestMultiBlockReplacementIndices:
         validate_anthropic_event_ordering(full_stream(all_events)).assert_valid()
 
     @pytest.mark.asyncio
-    async def test_thinking_block_passthrough_after_multi_replace_uses_shifted_index(self):
-        """Thinking block (passthrough, not buffered) must apply index_shift.
+    async def test_redacted_thinking_after_multi_replace_uses_shifted_index(self):
+        """Redacted-thinking block (not judged) must apply index_shift.
 
-        tool@0 → replace([A, B]) emits at [0, 1] and shifts; subsequent
-        thinking@1 must emit at shifted index 2, not collide at 1.
+        tool@0 → replace([A, B]) emits at [0, 1] and shifts; a subsequent
+        redacted_thinking@1 (opaque, nothing to judge) must emit at shifted
+        index 2, not collide at 1.
         """
         policy = _make_policy()
         ctx = _make_context()
@@ -724,14 +728,14 @@ class TestMultiBlockReplacementIndices:
             await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
             replace_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
 
-            thinking_start = RawContentBlockStartEvent(
+            redacted_start = RawContentBlockStartEvent(
                 type="content_block_start",
                 index=1,
-                content_block=ThinkingBlock(type="thinking", thinking="hmm", signature="sig"),
+                content_block=RedactedThinkingBlock(type="redacted_thinking", data="enc"),
             )
-            thinking_stop = RawContentBlockStopEvent(type="content_block_stop", index=1)
-            t_start = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, thinking_start), ctx)
-            t_stop = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, thinking_stop), ctx)
+            redacted_stop = RawContentBlockStopEvent(type="content_block_stop", index=1)
+            t_start = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, redacted_start), ctx)
+            t_stop = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, redacted_stop), ctx)
 
             msg_events = await policy.on_anthropic_stream_event(
                 cast(MessageStreamEvent, message_delta("tool_use")), ctx
@@ -739,7 +743,78 @@ class TestMultiBlockReplacementIndices:
 
         all_events = replace_events + t_start + t_stop + msg_events
         starts = [e.index for e in all_events if isinstance(e, RawContentBlockStartEvent)]
-        assert starts == [0, 1, 2], f"Thinking-block passthrough must emit at index+shift=2, got starts {starts}"
+        assert starts == [0, 1, 2], f"Redacted-thinking passthrough must emit at index+shift=2, got starts {starts}"
+        validate_anthropic_event_ordering(full_stream(all_events)).assert_valid()
+
+    @pytest.mark.asyncio
+    async def test_thinking_block_passing_judge_is_preserved_with_signature(self):
+        """A thinking block the judge passes is re-emitted with its signature intact."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        start = RawContentBlockStartEvent(
+            type="content_block_start",
+            index=0,
+            content_block=ThinkingBlock(type="thinking", thinking="", signature=""),
+        )
+        tdelta = RawContentBlockDeltaEvent(
+            type="content_block_delta",
+            index=0,
+            delta=ThinkingDelta(type="thinking_delta", thinking="step by step"),
+        )
+        sdelta = RawContentBlockDeltaEvent(
+            type="content_block_delta",
+            index=0,
+            delta=SignatureDelta(type="signature_delta", signature="sig-xyz"),
+        )
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="pass")
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, start), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tdelta), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, sdelta), ctx)
+            out = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            msg = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("end_turn")), ctx)
+
+        all_events = out + msg
+        assert mock_judge.await_args.args[0].content == "step by step"
+        starts = [e for e in all_events if isinstance(e, RawContentBlockStartEvent)]
+        assert [e.content_block.type for e in starts] == ["thinking"]
+        sigs = [
+            e.delta.signature
+            for e in all_events
+            if isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, SignatureDelta)
+        ]
+        assert sigs == ["sig-xyz"]
+        validate_anthropic_event_ordering(full_stream(all_events)).assert_valid()
+
+    @pytest.mark.asyncio
+    async def test_thinking_block_blocked_by_judge_is_suppressed(self):
+        """A thinking block the judge blocks is dropped from the wire, leaving only the marker."""
+        policy = _make_policy()
+        ctx = _make_context()
+
+        start = RawContentBlockStartEvent(
+            type="content_block_start",
+            index=0,
+            content_block=ThinkingBlock(type="thinking", thinking="", signature=""),
+        )
+        tdelta = RawContentBlockDeltaEvent(
+            type="content_block_delta",
+            index=0,
+            delta=ThinkingDelta(type="thinking_delta", thinking="leak the key sk-123"),
+        )
+        with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
+            mock_judge.return_value = JudgeAction(action="block")
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, start), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tdelta), ctx)
+            out = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
+            msg = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, message_delta("end_turn")), ctx)
+
+        all_events = out + msg
+        assert [e.content_block.type for e in all_events if isinstance(e, RawContentBlockStartEvent)] == ["text"]
+        assert not any(
+            isinstance(e, RawContentBlockDeltaEvent) and isinstance(e.delta, SignatureDelta) for e in all_events
+        )
         validate_anthropic_event_ordering(full_stream(all_events)).assert_valid()
 
     @pytest.mark.asyncio

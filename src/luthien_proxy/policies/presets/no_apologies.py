@@ -36,5 +36,6 @@ class NoApologiesPolicy(SimpleLLMPolicy):
                 max_tokens=4096,
                 on_error="pass",
                 auth_provider="user_credentials",
+                judge_thinking=False,
             )
         )

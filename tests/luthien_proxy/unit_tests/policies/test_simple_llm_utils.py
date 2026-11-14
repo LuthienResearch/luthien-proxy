@@ -250,6 +250,17 @@ class TestBuildJudgePrompt:
         assert "previous stuff" in user_msg
         assert "current" in user_msg
 
+    def test_system_explains_thinking_blocks(self):
+        prompt = build_judge_prompt(
+            instructions="Be safe",
+            current_block=BlockDescriptor(type="thinking", content="plan"),
+            previous_blocks=(),
+        )
+        assert '"thinking"' in prompt[0]["content"]
+
+    def test_judge_thinking_defaults_on(self):
+        assert SimpleLLMJudgeConfig(instructions="Be safe").judge_thinking is True
+
 
 class TestCallSimpleLLMJudge:
     """Test the judge-call wrapper against a mocked `InferenceProvider`."""
