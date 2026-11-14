@@ -257,22 +257,59 @@ class TestTimeRangeFilter:
         assert [s.session_id for s in result.sessions] == ["s-new"]
 
     @pytest.mark.asyncio
-    async def test_sqlite_filter_matches_production_timestamp_format(self, sqlite_pool: DatabasePool):
-        """created_at is stored by sqlite3's datetime adapter as a space-separated string
-        with a UTC offset; a same-day event must still match a date-level bound.
-
-        Regression for the off-by-a-day bug: the old bind used a 'T' separator,
-        which sorts after a space, so a same-day row fell outside the range.
-        """
+    async def test_sqlite_from_bound_matches_space_separated_timestamp(self, sqlite_pool: DatabasePool):
+        """created_at written by sqlite3's datetime adapter (space separator, UTC offset)
+        must match a from bound earlier on the same day."""
         await _seed_request(sqlite_pool, call_id="c1", session_id="s1", created_at="2026-04-01 10:00:00.123456+00:00")
-        from_same_day = await fetch_session_list(
+        result = await fetch_session_list(
             limit=10, db_pool=sqlite_pool, search=SessionSearchParams(from_time=datetime(2026, 4, 1, 0, 0, 0))
         )
-        to_same_day = await fetch_session_list(
-            limit=10, db_pool=sqlite_pool, search=SessionSearchParams(to_time=datetime(2026, 4, 1, 23, 59, 59))
+        assert [s.session_id for s in result.sessions] == ["s1"]
+
+    @pytest.mark.asyncio
+    async def test_sqlite_to_bound_excludes_later_space_separated_timestamp(self, sqlite_pool: DatabasePool):
+        """A space-separated row later on the same day sorts before a ``T``-form bound as text,
+        so it used to pass a to bound it is actually after."""
+        await _seed_request(sqlite_pool, call_id="c1", session_id="s1", created_at="2026-04-01 23:00:00+00:00")
+        result = await fetch_session_list(
+            limit=10, db_pool=sqlite_pool, search=SessionSearchParams(to_time=datetime(2026, 4, 1, 10, 0, 0))
         )
-        assert [s.session_id for s in from_same_day.sessions] == ["s1"]
-        assert [s.session_id for s in to_same_day.sessions] == ["s1"]
+        assert result.sessions == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("from_time", "expected"),
+        [
+            (datetime(2026, 4, 1, 10, 0, 0, 400000), ["s1"]),
+            (datetime(2026, 4, 1, 10, 0, 0, 600000), []),
+        ],
+    )
+    async def test_sqlite_from_bound_keeps_fractional_seconds(
+        self, sqlite_pool: DatabasePool, from_time: datetime, expected: list[str]
+    ):
+        """Inside the boundary second the result must match Postgres, so the fraction counts."""
+        await _seed_request(sqlite_pool, call_id="c1", session_id="s1", created_at="2026-04-01 10:00:00.500000+00:00")
+        result = await fetch_session_list(
+            limit=10, db_pool=sqlite_pool, search=SessionSearchParams(from_time=from_time)
+        )
+        assert [s.session_id for s in result.sessions] == expected
+
+    @pytest.mark.asyncio
+    async def test_sqlite_last_activity_uses_time_order_across_formats(self, sqlite_pool: DatabasePool):
+        """With mixed formats, text MAX picks the ``T`` row (09:00) over the later space row (11:00)."""
+        await _seed_request(sqlite_pool, call_id="c1", session_id="s1", created_at="2026-04-01T09:00:00+00:00")
+        await _add_event(
+            sqlite_pool,
+            event_id="e-late",
+            call_id="c1",
+            session_id="s1",
+            event_type="transaction.streaming_response_recorded",
+            created_at="2026-04-01 11:00:00+00:00",
+        )
+        result = await fetch_session_list(
+            limit=10, db_pool=sqlite_pool, search=SessionSearchParams(from_time=datetime(2026, 4, 1, 10, 0, 0))
+        )
+        assert [s.session_id for s in result.sessions] == ["s1"]
 
     @pytest.mark.asyncio
     async def test_bounds_are_inclusive_at_exact_timestamp(self, sqlite_pool: DatabasePool):
@@ -576,7 +613,7 @@ class TestBuildSessionFilterSql:
         _build_session_filter_sql(
             SessionSearchParams(from_time=dt, to_time=dt), _FakePool(is_postgres=False), sqlite_args
         )
-        assert sqlite_args == [dt.isoformat(" "), dt.isoformat(" ")]
+        assert sqlite_args == [dt.isoformat(), dt.isoformat()]
 
     def test_user_scope_sql_appended_to_gate_subqueries(self):
         args: list = []
