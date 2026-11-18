@@ -22,7 +22,7 @@ Client receives (possibly modified) response
 The gateway speaks the Anthropic Messages API natively:
 
 - **`POST /v1/messages`** — the native Anthropic path, handled by the policy pipeline. Preserves Anthropic-specific features (extended thinking, tool use, prompt caching).
-- **`/v1/{anything else}`** — transparent passthrough to `https://api.anthropic.com` so Claude Code endpoints like `/v1/messages/count_tokens` and `/v1/models` work without 404s. Passthrough requests authenticate the same way as `/v1/messages` but bypass the policy pipeline.
+- **`/v1/{path}`** - passthrough to `https://api.anthropic.com` for an allowlist of non-generation endpoints (`POST /v1/messages/count_tokens`, `GET /v1/models`, `GET /v1/models/{id}`), so Claude Code can count tokens and list models. Passthrough requests authenticate the same way as `/v1/messages` but bypass the policy pipeline, so every other path gets a 404.
 
 There is no OpenAI-format path. The gateway was simplified to Anthropic-only.
 
