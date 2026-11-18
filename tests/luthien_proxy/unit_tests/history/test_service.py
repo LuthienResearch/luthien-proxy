@@ -122,6 +122,11 @@ class TestExtractPreviewMessage:
         assert len(result) == 103  # 100 chars + "..."
         assert result.endswith("...")
 
+    def test_strips_system_reminder_blocks(self):
+        content = "<system-reminder>ctx</system-reminder>\n<system-reminder>more</system-reminder>\nReal question"
+        payload = {"final_request": {"messages": [{"role": "user", "content": content}]}}
+        assert _extract_preview_message(payload) == "Real question"
+
     def test_normalizes_whitespace(self):
         """Test that newlines and extra whitespace are collapsed."""
         payload = {"final_request": {"messages": [{"role": "user", "content": "Hello\n\nworld\n  test"}]}}

@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from datetime import datetime
 from typing import Any, TypedDict, cast
 
 from luthien_proxy.utils.db import DatabasePool, parse_db_ts
 from luthien_proxy.utils.search import session_fts_filter_sql
+from luthien_proxy.utils.system_reminders import strip_system_reminders
 
 from .models import (
     ConversationMessage,
@@ -294,9 +294,6 @@ def _parse_response_messages(response: dict[str, Any]) -> list[ConversationMessa
 # Maximum length for first user message preview
 _FIRST_MESSAGE_MAX_LENGTH = 100
 
-# Pattern to strip system-reminder tags from content
-_SYSTEM_REMINDER_PATTERN = re.compile(r"<system-reminder>.*?</system-reminder>\s*", re.DOTALL)
-
 
 def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None:
     """Extract the first meaningful user message from a request payload for preview.
@@ -342,7 +339,7 @@ def _extract_preview_message(payload: dict[str, Any] | str | None) -> str | None
                 content = content.strip()
                 # Skip system-reminder tags (Claude Code injects these)
                 if content.startswith("<system-reminder>"):
-                    content = _SYSTEM_REMINDER_PATTERN.sub("", content).strip()
+                    content = strip_system_reminders(content).strip()
                 if not content:
                     continue
                 # Replace newlines with spaces for single-line preview

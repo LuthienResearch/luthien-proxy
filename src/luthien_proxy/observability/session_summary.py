@@ -18,19 +18,15 @@ common to both backends.
 
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from typing import Any
 
 from luthien_proxy.utils.db import ConnectionProtocol
+from luthien_proxy.utils.system_reminders import strip_system_reminders
 
 # Preview is the first user-message text from the request that opened the
 # session. Trimmed to keep the row small and the list page snappy.
 PREVIEW_MAX_LENGTH = 200
-
-# Claude Code injects <system-reminder>...</system-reminder> blocks into the
-# first user turn; strip them so the preview shows the actual user text.
-_SYSTEM_REMINDER_RE = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
 
 
 def _is_policy_event(event_type: str) -> bool:
@@ -87,7 +83,7 @@ def extract_preview(data: dict[str, Any]) -> str | None:
             content = " ".join(texts)
         if not isinstance(content, str):
             continue
-        text = _SYSTEM_REMINDER_RE.sub("", content).strip()
+        text = strip_system_reminders(content).strip()
         if not text:
             continue
         text = " ".join(text.split())
