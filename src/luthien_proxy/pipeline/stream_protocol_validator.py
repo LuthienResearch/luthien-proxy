@@ -83,90 +83,86 @@ def _get_block_index(event: dict | object) -> int | None:
     return getattr(event, "index", None)
 
 
-def validate_anthropic_event_ordering(
-    events: list,
-) -> StreamValidationResult:
-    """Validate that a list of Anthropic streaming events follows protocol ordering.
+class StreamingProtocolValidator:
+    """Incremental Anthropic streaming protocol validator.
 
-    Args:
-        events: List of event dicts or Pydantic model objects. Each must have
-                a ``type`` field/attribute.
+    Feed events one at a time via ``observe()``; each call returns the
+    violations introduced by that event, BEFORE the caller forwards it.
+    This is what enables mid-stream enforcement: the pipeline can detect a
+    corrupted outbound stream and emit a clean client error event instead of
+    forwarding the corrupting event (the PR #356 session-bricking class).
 
-    Returns:
-        StreamValidationResult with any violations found.
+    Call ``finalize()`` after the last event for the end-of-stream rules
+    (stream non-empty, message_stop last, all blocks closed). Those rules are
+    only decidable once the stream has ended, so they cannot gate forwarding.
+
+    ``validate_anthropic_event_ordering()`` is the batch wrapper over this
+    class; both share the same rule definitions.
     """
-    result = StreamValidationResult()
 
-    if not events:
-        result.violations.append(
-            StreamViolation(
-                rule="non_empty",
-                message="Event stream is empty",
-                event_index=-1,
-                event_type="(none)",
-            )
-        )
-        return result
+    def __init__(self) -> None:
+        """Initialize validator state for a fresh stream."""
+        self._event_count = 0
+        self._message_delta_index: int | None = None
+        self._started_blocks: set[int] = set()
+        self._stopped_blocks: set[int] = set()
+        self._highest_start_index = -1
+        self._last_event_type: str | None = None
+        self._last_event_index = -1
 
-    event_types = [_get_event_type(e) for e in events]
+    def observe(self, event: dict | object) -> list[StreamViolation]:
+        """Record one event and return any violations it introduces.
 
-    # --- Rule 1: message_start must be first ---
-    if event_types[0] != "message_start":
-        result.violations.append(
-            StreamViolation(
-                rule="message_start_first",
-                message=f"First event must be message_start, got {event_types[0]!r}",
-                event_index=0,
-                event_type=event_types[0] or "(unknown)",
-            )
-        )
+        Args:
+            event: Event dict or Pydantic model with a ``type`` field/attribute.
 
-    # --- Rule 2: message_stop must be last ---
-    if event_types[-1] != "message_stop":
-        result.violations.append(
-            StreamViolation(
-                rule="message_stop_last",
-                message=f"Last event must be message_stop, got {event_types[-1]!r}",
-                event_index=len(events) - 1,
-                event_type=event_types[-1] or "(unknown)",
-            )
-        )
+        Returns:
+            Violations detectable at this event (empty list if the event is
+            protocol-conformant so far).
+        """
+        i = self._event_count
+        self._event_count += 1
+        t = _get_event_type(event)
+        self._last_event_type = t
+        self._last_event_index = i
 
-    # --- Rule 3: All content_block_* events must precede message_delta ---
-    message_delta_idx = None
-    for i, t in enumerate(event_types):
-        if t == "message_delta":
-            message_delta_idx = i
-            break
+        violations: list[StreamViolation] = []
 
-    if message_delta_idx is not None:
-        for i, t in enumerate(event_types):
-            if t in _CONTENT_BLOCK_EVENTS and i > message_delta_idx:
-                result.violations.append(
-                    StreamViolation(
-                        rule="content_before_message_delta",
-                        message=(
-                            f"Content block event at position {i} "
-                            f"appears after message_delta at position {message_delta_idx}"
-                        ),
-                        event_index=i,
-                        event_type=t,
-                    )
+        # --- Rule 1: message_start must be first ---
+        if i == 0 and t != "message_start":
+            violations.append(
+                StreamViolation(
+                    rule="message_start_first",
+                    message=f"First event must be message_start, got {t!r}",
+                    event_index=0,
+                    event_type=t or "(unknown)",
                 )
+            )
 
-    # --- Rule 4: Block lifecycle (start → delta(s) → stop) ---
-    # Track which blocks have been started and stopped
-    started_blocks: set[int] = set()
-    stopped_blocks: set[int] = set()
-    highest_start_index = -1
+        if t == "message_delta" and self._message_delta_index is None:
+            self._message_delta_index = i
 
-    for i, (event, t) in enumerate(zip(events, event_types)):
         if t not in _CONTENT_BLOCK_EVENTS:
-            continue
+            return violations
 
+        # --- Rule 3: All content_block_* events must precede message_delta ---
+        if self._message_delta_index is not None and i > self._message_delta_index:
+            violations.append(
+                StreamViolation(
+                    rule="content_before_message_delta",
+                    message=(
+                        f"Content block event at position {i} "
+                        f"appears after message_delta at position {self._message_delta_index}"
+                    ),
+                    event_index=i,
+                    event_type=t,
+                )
+            )
+
+        # --- Rule 4: Block lifecycle (start → delta(s) → stop) ---
         idx = _get_block_index(event)
         if idx is None:
-            result.violations.append(
+            violations.append(
                 StreamViolation(
                     rule="block_index_present",
                     message="Content block event missing index field",
@@ -174,12 +170,12 @@ def validate_anthropic_event_ordering(
                     event_type=t or "(unknown)",
                 )
             )
-            continue
+            return violations
 
         if t == "content_block_start":
             # Rule 5: Block indices must be non-negative and monotonically increasing for starts
             if idx < 0:
-                result.violations.append(
+                violations.append(
                     StreamViolation(
                         rule="block_index_non_negative",
                         message=f"Block index {idx} is negative",
@@ -187,25 +183,26 @@ def validate_anthropic_event_ordering(
                         event_type=t,
                     )
                 )
-            if idx <= highest_start_index:
-                result.violations.append(
+            if idx <= self._highest_start_index:
+                violations.append(
                     StreamViolation(
                         rule="block_start_monotonic",
                         message=(
-                            f"Block start index {idx} is not greater than previous start index {highest_start_index}"
+                            f"Block start index {idx} is not greater than "
+                            f"previous start index {self._highest_start_index}"
                         ),
                         event_index=i,
                         event_type=t,
                     )
                 )
             if idx >= 0:
-                highest_start_index = idx
-            started_blocks.add(idx)
+                self._highest_start_index = idx
+            self._started_blocks.add(idx)
 
         elif t == "content_block_delta":
             # Rule 6: No delta without a preceding start
-            if idx not in started_blocks:
-                result.violations.append(
+            if idx not in self._started_blocks:
+                violations.append(
                     StreamViolation(
                         rule="delta_after_start",
                         message=f"content_block_delta for index {idx} without preceding start",
@@ -214,8 +211,8 @@ def validate_anthropic_event_ordering(
                     )
                 )
             # No delta after stop
-            if idx in stopped_blocks:
-                result.violations.append(
+            if idx in self._stopped_blocks:
+                violations.append(
                     StreamViolation(
                         rule="delta_before_stop",
                         message=f"content_block_delta for index {idx} after it was already stopped",
@@ -225,8 +222,8 @@ def validate_anthropic_event_ordering(
                 )
 
         elif t == "content_block_stop":
-            if idx not in started_blocks:
-                result.violations.append(
+            if idx not in self._started_blocks:
+                violations.append(
                     StreamViolation(
                         rule="stop_after_start",
                         message=f"content_block_stop for index {idx} without preceding start",
@@ -234,8 +231,8 @@ def validate_anthropic_event_ordering(
                         event_type=t,
                     )
                 )
-            if idx in stopped_blocks:
-                result.violations.append(
+            if idx in self._stopped_blocks:
+                violations.append(
                     StreamViolation(
                         rule="block_stopped_once",
                         message=f"content_block_stop for index {idx} but block was already stopped",
@@ -243,18 +240,76 @@ def validate_anthropic_event_ordering(
                         event_type=t,
                     )
                 )
-            stopped_blocks.add(idx)
+            self._stopped_blocks.add(idx)
 
-    # All started blocks should be stopped (before message_delta)
-    unclosed = started_blocks - stopped_blocks
-    if unclosed:
-        result.violations.append(
-            StreamViolation(
-                rule="blocks_closed",
-                message=f"Content blocks started but never stopped: {sorted(unclosed)}",
-                event_index=len(events) - 1,
-                event_type="(end of stream)",
+        return violations
+
+    def finalize(self) -> list[StreamViolation]:
+        """Return violations only decidable at end of stream.
+
+        Rules: stream non-empty, message_stop last, all started blocks stopped.
+
+        Only well-defined for streams that were intended to complete. A stream
+        aborted mid-flight (e.g. after a protocol violation) will always fail
+        these completeness rules; callers should skip finalize() for aborted
+        streams to avoid double-reporting the same failure.
+        """
+        if self._event_count == 0:
+            return [
+                StreamViolation(
+                    rule="non_empty",
+                    message="Event stream is empty",
+                    event_index=-1,
+                    event_type="(none)",
+                )
+            ]
+
+        violations: list[StreamViolation] = []
+
+        # --- Rule 2: message_stop must be last ---
+        if self._last_event_type != "message_stop":
+            violations.append(
+                StreamViolation(
+                    rule="message_stop_last",
+                    message=f"Last event must be message_stop, got {self._last_event_type!r}",
+                    event_index=self._last_event_index,
+                    event_type=self._last_event_type or "(unknown)",
+                )
             )
-        )
 
+        # All started blocks should be stopped (before message_delta)
+        unclosed = self._started_blocks - self._stopped_blocks
+        if unclosed:
+            violations.append(
+                StreamViolation(
+                    rule="blocks_closed",
+                    message=f"Content blocks started but never stopped: {sorted(unclosed)}",
+                    event_index=self._last_event_index,
+                    event_type="(end of stream)",
+                )
+            )
+
+        return violations
+
+
+def validate_anthropic_event_ordering(
+    events: list,
+) -> StreamValidationResult:
+    """Validate that a list of Anthropic streaming events follows protocol ordering.
+
+    Batch wrapper over StreamingProtocolValidator: observes every event in
+    order, then applies the end-of-stream rules.
+
+    Args:
+        events: List of event dicts or Pydantic model objects. Each must have
+                a ``type`` field/attribute.
+
+    Returns:
+        StreamValidationResult with any violations found.
+    """
+    result = StreamValidationResult()
+    validator = StreamingProtocolValidator()
+    for event in events:
+        result.violations.extend(validator.observe(event))
+    result.violations.extend(validator.finalize())
     return result

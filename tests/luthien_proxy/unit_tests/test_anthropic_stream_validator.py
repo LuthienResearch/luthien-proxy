@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from tests.luthien_proxy.fixtures.anthropic_stream_validator import (
+    StreamingProtocolValidator,
     StreamValidationResult,
     validate_anthropic_event_ordering,
 )
@@ -251,6 +252,68 @@ class TestEdgeCases:
         result = StreamValidationResult()
         assert result.valid is True
         assert result.violations == []
+
+
+# -- Incremental validator (mid-stream enforcement) ----------------------------
+
+
+class TestStreamingProtocolValidatorIncremental:
+    """The incremental validator flags a violation ON the offending event.
+
+    This is the property the pipeline relies on to withhold a corrupting
+    event before it reaches the client (COE follow-up for PR #356).
+    """
+
+    def test_valid_stream_no_violations_per_event(self):
+        validator = StreamingProtocolValidator()
+        for event in _valid_parallel_tool_stream(3):
+            assert validator.observe(event) == []
+        assert validator.finalize() == []
+
+    def test_ping_events_are_tolerated(self):
+        validator = StreamingProtocolValidator()
+        events = [_msg_start(), {"type": "ping"}, *_text_block(0), _msg_delta(), _msg_stop()]
+        for event in events:
+            assert validator.observe(event) == []
+        assert validator.finalize() == []
+
+    def test_content_block_after_message_delta_flagged_on_offending_event(self):
+        """The PR #356 bug class: the violation surfaces exactly at the corrupting event."""
+        validator = StreamingProtocolValidator()
+        clean_prefix = [_msg_start(), *_text_block(0), _msg_delta()]
+        for event in clean_prefix:
+            assert validator.observe(event) == []
+
+        violations = validator.observe(_block_start(1))
+        assert [v.rule for v in violations] == ["content_before_message_delta"]
+
+    def test_delta_without_start_flagged_on_offending_event(self):
+        validator = StreamingProtocolValidator()
+        assert validator.observe(_msg_start()) == []
+        violations = validator.observe(_block_delta(0))
+        assert any(v.rule == "delta_after_start" for v in violations)
+
+    def test_non_message_start_first_event_flagged_immediately(self):
+        validator = StreamingProtocolValidator()
+        violations = validator.observe(_block_delta(0))
+        rules = {v.rule for v in violations}
+        assert "message_start_first" in rules
+
+    def test_finalize_flags_missing_message_stop(self):
+        validator = StreamingProtocolValidator()
+        for event in [_msg_start(), *_text_block(0), _msg_delta()]:
+            assert validator.observe(event) == []
+        assert any(v.rule == "message_stop_last" for v in validator.finalize())
+
+    def test_finalize_flags_unclosed_block(self):
+        validator = StreamingProtocolValidator()
+        for event in [_msg_start(), _block_start(0), _block_delta(0), _msg_delta(), _msg_stop()]:
+            assert validator.observe(event) == []
+        assert any(v.rule == "blocks_closed" for v in validator.finalize())
+
+    def test_finalize_flags_empty_stream(self):
+        validator = StreamingProtocolValidator()
+        assert [v.rule for v in validator.finalize()] == ["non_empty"]
 
 
 # -- Works with Pydantic model objects (unit test style) -----------------------
