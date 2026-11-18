@@ -198,7 +198,7 @@ class TestStreaming:
         validate_anthropic_event_ordering(full_stream(out)).assert_valid()
 
     @pytest.mark.asyncio
-    async def test_reasoning_never_trails_the_last_tool_call(self):
+    async def test_reasoning_with_no_tool_after_it_is_removed_not_moved(self):
         policy, ctx = _policy(), make_policy_context()
         replace_read = JudgeAction(action="replace", blocks=(ReplacementBlock(type="text", text="no Read"),))
 
@@ -209,8 +209,19 @@ class TestStreaming:
         with patch.object(policy, "_judge_block", AsyncMock(side_effect=decide)):
             out = await _stream(policy, ctx, events)
 
-        assert _start_types(out) == ["thinking", "text", "thinking", "tool_use"]
+        assert _start_types(out) == ["thinking", "text", "tool_use"]
         validate_anthropic_event_ordering(full_stream(out)).assert_valid()
+
+    @pytest.mark.asyncio
+    async def test_thinking_after_a_dropped_block_is_removed_too(self):
+        policy, ctx = _policy(), make_policy_context()
+        judge = AsyncMock(side_effect=[DROP, PASS, PASS])
+        events = [*_thinking(0, "bad"), *_thinking(1, "fine"), *_text(2, "answer"), message_delta()]
+        with patch.object(policy, "_judge_block", judge):
+            out = await _stream(policy, ctx, events)
+
+        assert "thinking" not in _start_types(out)
+        assert dropped_thinking_message(2) in _texts(out)
 
     @pytest.mark.asyncio
     async def test_judge_failure_on_thinking_keeps_the_error_message(self):

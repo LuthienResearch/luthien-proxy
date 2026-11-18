@@ -710,7 +710,7 @@ class TestMultiBlockReplacementIndices:
     async def test_redacted_thinking_after_multi_replace_uses_shifted_index(self):
         """Redacted-thinking block (not judged) must apply index_shift.
 
-        tool@0 → replace([A, B]) emits at [0, 1] and shifts; a subsequent
+        text@0 → replace([A, B]) emits at [0, 1] and shifts; a subsequent
         redacted_thinking@1 (opaque, nothing to judge) must emit at shifted
         index 2, not collide at 1.
         """
@@ -724,8 +724,8 @@ class TestMultiBlockReplacementIndices:
         with patch.object(policy, "_judge_block", new_callable=AsyncMock) as mock_judge:
             mock_judge.return_value = replace
 
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_start(0)), ctx)
-            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, tool_delta('{"x":1}', 0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_start(0)), ctx)
+            await policy.on_anthropic_stream_event(cast(MessageStreamEvent, text_delta("draft", 0)), ctx)
             replace_events = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, block_stop(0)), ctx)
 
             redacted_start = RawContentBlockStartEvent(
@@ -738,7 +738,7 @@ class TestMultiBlockReplacementIndices:
             t_stop = await policy.on_anthropic_stream_event(cast(MessageStreamEvent, redacted_stop), ctx)
 
             msg_events = await policy.on_anthropic_stream_event(
-                cast(MessageStreamEvent, message_delta("tool_use")), ctx
+                cast(MessageStreamEvent, message_delta("end_turn")), ctx
             )
 
         all_events = replace_events + t_start + t_stop + msg_events

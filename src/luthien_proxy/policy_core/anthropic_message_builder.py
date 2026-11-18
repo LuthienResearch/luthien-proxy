@@ -18,9 +18,16 @@ the tool flush. Either way, the wire ends with `tool_use` blocks.
 Reasoning blocks are the exception. A `thinking` or `redacted_thinking`
 block that upstream sent after a `tool_use` is queued with the tools and
 keeps its upstream position (interleaved thinking), because the next turn
-replays the blocks as sent. When thinking is enabled, a `tool_use` must
-follow the thinking that led to it, so if any thinking block was dropped the
-builder blocks the tool calls of that turn as well.
+replays the blocks as sent. A reasoning block is never moved: its signature
+is bound to the content before it, and the API rejects the next turn when a
+block shows up in a new place (see
+`tests/luthien_proxy/e2e_tests/real_anthropic/probe_thinking_position.py`).
+Where it can't keep its place it is removed instead, which the API accepts
+for the last reasoning blocks of a turn. That covers reasoning with no tool
+after it, reasoning queued behind text or a marker, and reasoning that
+follows a dropped block. If any thinking block was dropped, the builder blocks the
+tool calls of that turn as well, because the reasoning that led to them
+did not pass.
 
 Other invariants the builder owns:
 
@@ -190,6 +197,7 @@ class _BuilderState:
     blocked_tools: list[_BlockedToolRecord] = field(default_factory=list)
     dropped_thinking: int = 0
     dropped_thinking_judge_failed: bool = False
+    tail_displaced: bool = False
     pending_warning_text: str | None = None
     pending_fallback_text: str | None = None
     next_output_index: int = 0
@@ -207,7 +215,8 @@ class AnthropicMessageBuilder:
         - `buffer_tool(id, name, input_json)` — record a tool_use (always buffers)
         - `record_blocked_tool(name, judge_failed)` — record that a tool was blocked
         - `commit_thinking(buffered)` / `buffer_thinking(buffered)` - a judged-pass reasoning
-          block, emitted now (before any tool) or queued in upstream order among the tools
+          block, emitted now (before any tool) or queued in upstream order among the tools;
+          never moved, and removed if it can't keep its place
         - `record_dropped_thinking(judge_failed)` - a reasoning block was removed; blocks the turn's tools
         - `passthrough_start(event)` / `passthrough_delta(event)` / `passthrough_stop(event)` —
           re-emit a non-buffered block type (text, thinking) with a rewritten index
@@ -290,6 +299,8 @@ class AnthropicMessageBuilder:
 
     def commit_thinking(self, buffered: "BufferedThinking") -> list[MessageStreamEvent]:
         """Re-emit a judged-pass thinking block now, verbatim, with a rewritten index."""
+        if self._follows_dropped_thinking():
+            return []
         self._state.committed_descriptors.append(_descriptor_from_thinking(buffered))
         return self._emit_thinking_now(buffered)
 
@@ -300,6 +311,8 @@ class AnthropicMessageBuilder:
         tools, so interleaved thinking keeps the order the next turn expects.
         With ``as_context=False`` later judges see the block but not its text.
         """
+        if self._follows_dropped_thinking():
+            return
         self._state.tail.append(buffered)
         descriptor = _descriptor_from_thinking(buffered)
         if not as_context:
@@ -313,6 +326,8 @@ class AnthropicMessageBuilder:
         or after the tools already buffered if upstream sent it after one.
         With ``as_context=False`` later judges see the block but not its text.
         """
+        if self._follows_dropped_thinking():
+            return
         if self.has_buffered_tool:
             self._state.tail.append(block)
         else:
@@ -325,8 +340,8 @@ class AnthropicMessageBuilder:
     def record_dropped_thinking(self, *, judge_failed: bool = False) -> None:
         """Record that a thinking block was removed by policy.
 
-        Surfaces as a marker at finalize. Because a tool_use must follow its
-        thinking when thinking is enabled, the turn's tool calls are blocked too.
+        Surfaces as a marker at finalize. The turn's tool calls are blocked
+        too, since the reasoning that led to them did not pass.
         """
         self._state.dropped_thinking += 1
         self._state.dropped_thinking_judge_failed |= judge_failed
@@ -422,6 +437,7 @@ class AnthropicMessageBuilder:
         `commit_text`, this lands in the pre-tool region — blocks committed
         after a tool has been buffered are still placed before the tool flush.
         """
+        self._state.tail_displaced |= bool(self._state.tail)
         self._state.pre_tool_blocks.append(block)
         block_type = (
             block.get("type") if isinstance(block, dict) else getattr(block, "type", "passthrough")
@@ -514,8 +530,8 @@ class AnthropicMessageBuilder:
         Order: judge-unavailable warning → dropped-thinking marker →
         blocked-tools marker → buffered tools (with any reasoning queued among
         them) → message_delta. Warning + markers land before the first tool,
-        satisfying the trailing-tool_use invariant. Queued reasoning with no
-        tool after it goes before the markers instead.
+        satisfying the trailing-tool_use invariant. Queued reasoning that
+        can't keep its upstream place is removed, see `_replayable_tail`.
         """
         if self._state.finalized:
             raise RuntimeError("AnthropicMessageBuilder.finalize called twice")
@@ -530,11 +546,10 @@ class AnthropicMessageBuilder:
         if nothing_emitted and s.pending_fallback_text is not None:
             events.extend(self._emit_text_now(s.pending_fallback_text))
 
-        before_markers, after_markers = self._split_tail()
-        events.extend(self._emit_items(before_markers))
+        tail = self._replayable_tail()
         for marker in self._pending_markers():
             events.extend(self._emit_text_now(marker))
-        events.extend(self._emit_items(after_markers))
+        events.extend(self._emit_items(tail))
 
         # Conservative stop_reason correction: only rewrite when upstream is
         # known wrong given what we actually emitted. Preserve max_tokens,
@@ -578,11 +593,9 @@ class AnthropicMessageBuilder:
         if not self.has_emitted_anything and s.pending_fallback_text is not None:
             new_content.append({"type": "text", "text": s.pending_fallback_text})
 
-        before_markers, after_markers = self._split_tail()
-        new_content.extend(_content_blocks(before_markers))
         for marker in self._pending_markers():
             new_content.append({"type": "text", "text": marker})
-        new_content.extend(_content_blocks(after_markers))
+        new_content.extend(_content_blocks(self._replayable_tail()))
 
         # Conservative stop_reason correction (see finalize() for rationale):
         # only rewrite the one upstream value known to be wrong given what we
@@ -605,6 +618,7 @@ class AnthropicMessageBuilder:
 
     def _emit_text_now(self, text: str) -> list[MessageStreamEvent]:
         index = self._allocate_index()
+        self._state.tail_displaced |= bool(self._state.tail)
         self._state.committed_descriptors.append(BlockDescriptor(type="text", content=text))
         self._state.pre_tool_blocks.append({"type": "text", "text": text})
         return _events_for_text(index, text)
@@ -612,10 +626,9 @@ class AnthropicMessageBuilder:
     def _block_tools_after_dropped_thinking(self) -> None:
         """Turn the queued tool calls into blocked records once any thinking was dropped.
 
-        With thinking enabled the API rejects a tool_use whose thinking is
-        missing on the next turn, and a fake ``redacted_thinking`` can't be
-        made, so the tool part of the turn fails instead. Reasoning queued
-        among those tools goes with them.
+        The reasoning that led to them did not pass, and a replacement
+        ``redacted_thinking`` can't be made, so the tool part of the turn
+        fails instead. Reasoning queued among those tools goes with them.
         """
         s = self._state
         if not s.dropped_thinking or not self.has_buffered_tool:
@@ -627,15 +640,32 @@ class AnthropicMessageBuilder:
                 s.dropped_thinking += 1
         s.tail.clear()
 
-    def _split_tail(self) -> tuple[list["_TailItem"], list["_TailItem"]]:
-        """Split the queue at the last tool: reasoning after it goes before the markers.
+    def _follows_dropped_thinking(self) -> bool:
+        """Count a reasoning block as dropped when an earlier one in the turn already was.
 
-        Reasoning only keeps its queued position while a tool follows it, so
-        the message never ends in a reasoning block after a tool_use.
+        The API only accepts a turn's reasoning as an unbroken run from the
+        first block, so a block can't be kept once one before it is gone.
+        """
+        if not self._state.dropped_thinking:
+            return False
+        self._state.dropped_thinking += 1
+        return True
+
+    def _replayable_tail(self) -> list["_TailItem"]:
+        """Queued tools, with the reasoning among them that the next turn can replay.
+
+        Queued reasoning is removed when no tool follows it, so the message
+        still ends in a tool_use, and when text or a marker goes before the
+        tools, because that puts new content in front of it.
         """
         tail = self._state.tail
         last_tool = max((i for i, item in enumerate(tail) if isinstance(item, _QueuedTool)), default=-1)
-        return tail[last_tool + 1 :], tail[: last_tool + 1]
+        kept: list[_TailItem] = tail[: last_tool + 1]
+        if self._state.tail_displaced or self._pending_markers():
+            kept = [item for item in kept if isinstance(item, _QueuedTool)]
+        if len(kept) < len(tail):
+            logger.warning("Removed %d reasoning block(s) that could not keep their place", len(tail) - len(kept))
+        return kept
 
     def _emit_items(self, items: list["_TailItem"]) -> list[MessageStreamEvent]:
         events: list[MessageStreamEvent] = []
