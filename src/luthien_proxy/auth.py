@@ -41,18 +41,29 @@ security = HTTPBearer(auto_error=False)
 
 _LOCALHOST_IPS = ("127.0.0.1", "::1", "::ffff:127.0.0.1")
 
-# Headers a reverse proxy attaches when forwarding a request. Their presence
-# on a loopback connection means the true client is (or may be) remote, so
-# the localhost bypass must not apply. Standard proxies set at least one of
-# these by default: Caddy and Traefik set X-Forwarded-For automatically;
-# common nginx configs set X-Forwarded-For and/or X-Real-IP.
+# Headers that a reverse proxy, CDN or load balancer attaches when it forwards
+# a request. Their presence on a loopback connection means the true client is
+# (or may be) remote, so the localhost bypass must not apply. Matching any of
+# them turns the bypass off, so this is a denylist.
+#   - RFC 7239 Forwarded and the RFC 9110 Via header
+#   - X-Forwarded-* (Caddy and Traefik set X-Forwarded-For by default, nginx
+#     configs commonly do too) and X-Original-* (ingress-nginx)
+#   - X-Real-IP (nginx)
+#   - CDN client-IP headers: CF-Connecting-IP (Cloudflare), True-Client-IP
+#     (Akamai, Cloudflare Enterprise), Fastly-Client-IP (Fastly)
+#   - X-Client-IP and X-Cluster-Client-IP, set by load balancers and some
+#     frameworks
 _FORWARDING_HEADERS = (
-    "forwarded",  # RFC 7239
-    "x-forwarded-for",
-    "x-forwarded-host",
-    "x-forwarded-proto",
+    "forwarded",
+    "via",
     "x-real-ip",
+    "cf-connecting-ip",
+    "true-client-ip",
+    "fastly-client-ip",
+    "x-client-ip",
+    "x-cluster-client-ip",
 )
+_FORWARDING_HEADER_PREFIXES = ("x-forwarded-", "x-original-")
 
 
 def is_localhost_request(request: Request) -> bool:
@@ -65,7 +76,10 @@ def is_localhost_request(request: Request) -> bool:
 
 def has_forwarding_headers(request: Request) -> bool:
     """Check whether the request carries reverse-proxy forwarding headers."""
-    return any(header in request.headers for header in _FORWARDING_HEADERS)
+    return any(
+        name in _FORWARDING_HEADERS or name.startswith(_FORWARDING_HEADER_PREFIXES)
+        for name in (key.lower() for key in request.headers.keys())
+    )
 
 
 def _should_bypass_auth(request: Request) -> bool:

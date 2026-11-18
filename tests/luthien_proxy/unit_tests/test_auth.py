@@ -322,11 +322,34 @@ class TestHasForwardingHeaders:
 
     @pytest.mark.parametrize(
         "header",
-        ["forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip"],
+        [
+            "forwarded",
+            "via",
+            "x-forwarded-for",
+            "x-forwarded-host",
+            "x-forwarded-proto",
+            "x-forwarded-port",
+            "x-original-forwarded-for",
+            "x-real-ip",
+            "cf-connecting-ip",
+            "true-client-ip",
+            "fastly-client-ip",
+            "x-client-ip",
+            "x-cluster-client-ip",
+        ],
     )
     def test_each_forwarding_header_detected(self, header):
         request = _make_localhost_request(headers={header: "203.0.113.7"})
         assert has_forwarding_headers(request) is True
+
+    def test_header_names_are_case_insensitive(self):
+        request = _make_localhost_request(headers={"X-Forwarded-For": "203.0.113.7"})
+        assert has_forwarding_headers(request) is True
+
+    @pytest.mark.parametrize("header", ["user-agent", "x-forwarded", "x-request-id", "x-originating-app"])
+    def test_unrelated_headers_ignored(self, header):
+        request = _make_localhost_request(headers={header: "curl/8.0"})
+        assert has_forwarding_headers(request) is False
 
     def test_no_forwarding_headers(self):
         request = _make_localhost_request(headers={"user-agent": "curl/8.0"})
