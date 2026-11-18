@@ -70,6 +70,18 @@ class TestLocalBuildFallback:
                 stdout="",
                 stderr="",
             ),
+            subprocess.CompletedProcess(
+                args=["docker", "compose", "up", "-d", "--wait", "db"],
+                returncode=0,
+                stdout="",
+                stderr="",
+            ),
+            subprocess.CompletedProcess(
+                args=["docker", "compose", "exec", "-T", "db", "psql"],
+                returncode=0,
+                stdout="",
+                stderr="",
+            ),
             # docker compose up — succeeds
             subprocess.CompletedProcess(
                 args=["docker", "compose", "up"],

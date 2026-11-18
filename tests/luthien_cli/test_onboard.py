@@ -9,6 +9,7 @@ from click.testing import CliRunner
 
 from luthien_cli.commands.onboard import (
     _ensure_docker_env,
+    _set_database_password,
     _write_local_env,
     _write_policy,
 )
@@ -166,15 +167,18 @@ def test_onboard_docker_full_flow(tmp_path):
     assert "Gateway is running" in result.output
     assert "luthien claude" in result.output
 
-    # Verify all three docker compose steps ran (pull, down, up)
-    assert mock_run.call_count == 3
     commands = [c.args[0] for c in mock_run.call_args_list]
-    assert any("pull" in cmd for cmd in commands)
-    assert any("down" in cmd for cmd in commands)
-    assert any("up" in cmd for cmd in commands)
+    assert commands == [
+        ["docker", "compose", "pull"],
+        ["docker", "compose", "down", "--remove-orphans"],
+        ["docker", "compose", "up", "-d", "--wait", "db"],
+        _SET_PASSWORD_COMMAND,
+        ["docker", "compose", "up", "-d"],
+    ]
 
     # Verify port overrides were passed to docker compose up
-    up_call = [c for c in mock_run.call_args_list if "up" in c.args[0]][0]
+    db_up_call, up_call = mock_run.call_args_list[2], mock_run.call_args_list[4]
+    assert db_up_call.kwargs["env"]["GATEWAY_PORT"] == "9123"
     assert up_call.kwargs["env"]["GATEWAY_PORT"] == "9123"
 
     # Verify CLI config saves the actual gateway URL with the non-default port
@@ -216,6 +220,100 @@ def test_onboard_docker_failure(tmp_path):
     assert result.exit_code != 0
     assert "could not pull" in result.output.lower()
     assert "luthien onboard" in result.output
+
+
+_SET_PASSWORD_COMMAND = [
+    "docker",
+    "compose",
+    "exec",
+    "-T",
+    "db",
+    "psql",
+    "-q",
+    "-v",
+    "ON_ERROR_STOP=1",
+    "-U",
+    "luthien",
+    "-d",
+    "luthien_control",
+]
+
+
+def _run_docker_onboard(tmp_path, run_results):
+    config_path = tmp_path / "config.toml"
+    repo_path = tmp_path / "managed-repo"
+    repo_path.mkdir()
+    (repo_path / "docker-compose.yaml").touch()
+
+    with (
+        patch("luthien_cli.commands.onboard.DEFAULT_CONFIG_PATH", config_path),
+        patch("luthien_cli.commands.onboard.ensure_repo", return_value=str(repo_path)),
+        patch("luthien_cli.commands.onboard.subprocess.run", side_effect=run_results) as mock_run,
+        patch("luthien_cli.commands.onboard.wait_for_healthy", return_value=True),
+        patch("luthien_cli.commands.onboard.find_docker_ports", return_value={}),
+        patch("luthien_cli.commands.onboard.webbrowser.open"),
+    ):
+        result = CliRunner().invoke(cli, ["onboard", "--docker", "-y"], input="q")
+
+    return result, mock_run, repo_path
+
+
+def test_ensure_docker_env_replaces_local_mode_policy_path(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _write_local_env(str(repo), "admin-key")
+    _ensure_docker_env(str(repo), "admin-key")
+    env_content = (repo / ".env").read_text()
+    assert "\nPOLICY_CONFIG=/app/config/policy_config.yaml\n" in env_content
+    assert str(repo) not in env_content.split("POLICY_CONFIG=", 1)[1].splitlines()[0]
+
+
+def test_ensure_docker_env_returns_written_postgres_password(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    password = _ensure_docker_env(str(repo), "admin-key")
+    assert f"\nPOSTGRES_PASSWORD={password}\n" in (repo / ".env").read_text()
+
+
+def test_onboard_docker_sets_database_password_from_env(tmp_path):
+    ok = MagicMock(returncode=0, stderr="")
+    result, mock_run, repo_path = _run_docker_onboard(tmp_path, [ok] * 5)
+
+    assert result.exit_code == 0, result.output
+    env_lines = (repo_path / ".env").read_text().splitlines()
+    password = next(line.split("=", 1)[1] for line in env_lines if line.startswith("POSTGRES_PASSWORD="))
+    set_password_call = mock_run.call_args_list[3]
+    assert set_password_call.args[0] == _SET_PASSWORD_COMMAND
+    assert set_password_call.kwargs["input"] == f"ALTER ROLE luthien PASSWORD '{password}';\n"
+    assert all(password not in " ".join(c.args[0]) for c in mock_run.call_args_list)
+
+
+def test_set_database_password_escapes_single_quotes(tmp_path):
+    with patch("luthien_cli.commands.onboard.subprocess.run", return_value=MagicMock(returncode=0)) as mock_run:
+        _set_database_password(MagicMock(), str(tmp_path), "it's")
+    assert mock_run.call_args.kwargs["input"] == "ALTER ROLE luthien PASSWORD 'it''s';\n"
+
+
+def test_onboard_docker_stops_when_database_does_not_start(tmp_path):
+    ok = MagicMock(returncode=0, stderr="")
+    db_failed = MagicMock(returncode=1, stderr="container db is unhealthy")
+    result, mock_run, _ = _run_docker_onboard(tmp_path, [ok, ok, db_failed])
+
+    assert result.exit_code == 1
+    assert "docker compose up db failed" in result.output
+    assert "container db is unhealthy" in result.output
+    assert mock_run.call_count == 3
+
+
+def test_onboard_docker_stops_when_database_password_cannot_be_set(tmp_path):
+    ok = MagicMock(returncode=0, stderr="")
+    psql_failed = MagicMock(returncode=1, stderr='role "luthien" does not exist')
+    result, mock_run, _ = _run_docker_onboard(tmp_path, [ok, ok, ok, psql_failed])
+
+    assert result.exit_code == 1
+    assert "Setting the database password failed" in result.output
+    assert 'role "luthien" does not exist' in result.output
+    assert mock_run.call_count == 4
 
 
 def test_onboard_local_gateway_unhealthy(tmp_path):

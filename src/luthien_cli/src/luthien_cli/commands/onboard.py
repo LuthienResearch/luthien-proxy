@@ -67,6 +67,9 @@ ONBOARDING_PROMPT = (
 
 ONBOARDING_POLICY_CLASS = "luthien_proxy.policies.onboarding_policy:OnboardingPolicy"
 
+_POSTGRES_USER = "luthien"
+_POSTGRES_DB = "luthien_control"
+
 _LOCAL_MODE_HINT = "\n[bold]Alternative:[/bold] Try local mode instead (no Docker required):\n  [green]luthien onboard[/green] (without [cyan]--docker[/cyan])"
 
 
@@ -108,11 +111,14 @@ def _ensure_docker_env(
     admin_key: str,
     sentry_enabled: bool = False,
     sentry_dsn: str = "",
-) -> None:
+) -> str:
     """Create or update .env with Docker onboard settings.
 
     Sets the admin key and Postgres/Redis connection vars that
     Docker Compose requires at pull/start time.
+
+    Returns:
+        The Postgres password written to .env.
     """
     env_path = f"{repo_path}/.env"
     env_example = f"{repo_path}/.env.example"
@@ -132,11 +138,12 @@ def _ensure_docker_env(
         "ADMIN_API_KEY": admin_key,
         "AUTH_MODE": "both",
         "POLICY_SOURCE": "file",
-        "POSTGRES_USER": "luthien",
+        "POLICY_CONFIG": "/app/config/policy_config.yaml",
+        "POSTGRES_USER": _POSTGRES_USER,
         "POSTGRES_PASSWORD": pg_password,
-        "POSTGRES_DB": "luthien_control",
+        "POSTGRES_DB": _POSTGRES_DB,
         "POSTGRES_PORT": "5433",
-        "DATABASE_URL": f"postgresql://luthien:{pg_password}@db:5432/luthien_control",
+        "DATABASE_URL": f"postgresql://{_POSTGRES_USER}:{pg_password}@db:5432/{_POSTGRES_DB}",
         "REDIS_URL": "redis://redis:6379",
         "REDIS_PORT": "6379",
         "SENTRY_ENABLED": str(sentry_enabled).lower(),
@@ -163,6 +170,51 @@ def _ensure_docker_env(
     with open(env_path, "w") as f:
         f.write(env_content)
     os.chmod(env_path, 0o600)
+    return pg_password
+
+
+def _start_database(console: Console, repo_path: str, port_env: dict[str, str]) -> None:
+    """Start only the Postgres container and wait until it is healthy."""
+    with console.status("Starting database..."):
+        result = subprocess.run(
+            ["docker", "compose", "up", "-d", "--wait", "db"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            env={**os.environ, **port_env},
+        )
+    if result.returncode != 0:
+        console.print(f"[red]docker compose up db failed:[/red]\n{result.stderr}")
+        raise SystemExit(1)
+
+
+def _set_database_password(console: Console, repo_path: str, pg_password: str) -> None:
+    """Set the Postgres role's password to the one in .env, over the container's local socket."""
+    escaped_password = pg_password.replace("'", "''")
+    result = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "exec",
+            "-T",
+            "db",
+            "psql",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "-U",
+            _POSTGRES_USER,
+            "-d",
+            _POSTGRES_DB,
+        ],
+        cwd=repo_path,
+        input=f"ALTER ROLE {_POSTGRES_USER} PASSWORD '{escaped_password}';\n",
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        console.print(f"[red]Setting the database password failed:[/red]\n{result.stderr}")
+        raise SystemExit(1)
 
 
 def _write_policy(repo_path: str, gateway_url: str) -> None:
@@ -332,7 +384,7 @@ def _onboard_docker(
 
     # 2. Write env config
     console.print("\n[blue]Configuring gateway...[/blue]")
-    _ensure_docker_env(config.repo_path, admin_key, sentry_enabled, sentry_dsn)
+    pg_password = _ensure_docker_env(config.repo_path, admin_key, sentry_enabled, sentry_dsn)
 
     # 3. Start Docker stack
     console.print("\n[blue]Starting gateway...[/blue]")
@@ -404,6 +456,9 @@ def _onboard_docker(
     # Write policy config before starting containers so the gateway
     # reads the correct config at startup.
     _write_policy(config.repo_path, actual_gateway_url)
+
+    _start_database(console, config.repo_path, port_env)
+    _set_database_password(console, config.repo_path, pg_password)
 
     with console.status("Starting containers..."):
         result = subprocess.run(
