@@ -1,0 +1,7 @@
+# Rendered demo output is never committed.  Publish finished cuts outside
+# git (see README.md "Where rendered videos live") and regenerate raw clips
+# locally with regen.sh / the Playwright recorders.
+*.mp4
+*.gif
+*.webm
+*.mov
