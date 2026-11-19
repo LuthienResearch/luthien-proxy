@@ -46,7 +46,7 @@ from luthien_proxy.inference.base import (
     validate_schema,
 )
 from luthien_proxy.llm import anthropic_client_cache
-from luthien_proxy.llm.anthropic_client import AnthropicClient
+from luthien_proxy.llm.anthropic_client import AnthropicClient, AnthropicUpstreamTransportError
 from luthien_proxy.llm.types.anthropic import AnthropicRequest
 
 logger = logging.getLogger(__name__)
@@ -158,6 +158,11 @@ class DirectApiProvider(InferenceProvider):
         except anthropic.APITimeoutError as exc:
             raise InferenceTimeoutError(f"{self.name}: backend timed out: {exc}") from exc
         except anthropic.APIConnectionError as exc:
+            raise InferenceProviderError(f"{self.name}: backend connection error: {exc}") from exc
+        except AnthropicUpstreamTransportError as exc:
+            # AnthropicClient's own gateway-owned type for a raw httpx.TransportError
+            # from the actual upstream call (PR #814) — not an anthropic.APIConnectionError
+            # subclass, so it needs its own branch or it escapes unclassified.
             raise InferenceProviderError(f"{self.name}: backend connection error: {exc}") from exc
         except anthropic.APIStatusError as exc:
             # 401/403 already caught as AuthenticationError above; remaining
