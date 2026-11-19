@@ -326,7 +326,48 @@ class TestBeforeSend:
         ):
             init_sentry(settings)
 
-        mock_ignore.assert_called_once_with("opentelemetry.sdk.trace.export")
+        ignored = {call.args[0] for call in mock_ignore.call_args_list}
+        assert ignored == {"opentelemetry.*"}
+
+    def test_opentelemetry_wildcard_ignores_every_sub_logger(self, monkeypatch):
+        """Pins the fnmatch semantics `ignore_logger("opentelemetry.*")` depends on.
+
+        Covers loggers observed in production noise (LUTHIEN-C/F export 403s,
+        the context-detach ValueError) plus a hypothetical future one, so a
+        new OTel exporter/instrumentation logger is suppressed without a code
+        change here.
+        """
+        monkeypatch.setenv("SENTRY_ENABLED", "true")
+        monkeypatch.setenv("SENTRY_DSN", "https://fake@sentry.io/0")
+
+        from unittest.mock import patch
+
+        from sentry_sdk.integrations.logging import _IGNORED_LOGGERS as ignored_loggers
+        from sentry_sdk.integrations.logging import EventHandler
+
+        from luthien_proxy.observability.sentry import init_sentry
+        from luthien_proxy.settings import Settings, clear_settings_cache
+
+        clear_settings_cache()
+        settings = Settings(_env_file=None)
+
+        ignored_loggers.clear()
+        with patch("luthien_proxy.observability.sentry.sentry_sdk.init"):
+            init_sentry(settings)
+
+        handler = EventHandler()
+        for name in (
+            "opentelemetry.context",
+            "opentelemetry.sdk.trace.export",
+            "opentelemetry.exporter.otlp.proto.http.trace_exporter",
+            "opentelemetry.exporter.otlp.proto.http.metric_exporter",
+            "opentelemetry.instrumentation.some_future_thing",
+        ):
+            record = logging.LogRecord(name, logging.ERROR, __file__, 1, "boom", (), None)
+            assert not handler._can_record(record), f"expected {name} to be ignored"
+
+        record = logging.LogRecord("luthien_proxy.pipeline", logging.ERROR, __file__, 1, "boom", (), None)
+        assert handler._can_record(record)
 
 
 class TestSentryDisabledInTests:
