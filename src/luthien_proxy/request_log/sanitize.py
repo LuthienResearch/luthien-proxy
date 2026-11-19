@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 # Headers whose values should be fully redacted
 _SENSITIVE_HEADERS = frozenset(
@@ -10,6 +11,7 @@ _SENSITIVE_HEADERS = frozenset(
         "authorization",
         "x-api-key",
         "x-anthropic-api-key",
+        "x-goog-api-key",
         "proxy-authorization",
         "cookie",
         "set-cookie",
@@ -48,4 +50,16 @@ def sanitize_headers(headers: dict[str, str]) -> dict[str, str]:
     return sanitized
 
 
-__all__ = ["sanitize_headers"]
+def sanitize_url(url: str) -> str:
+    """Redact API keys embedded in query parameters before request log storage."""
+    parts = urlsplit(url)
+    query = urlencode(
+        [
+            (key, "[REDACTED]" if key.lower() == "key" else value)
+            for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        ]
+    )
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
+
+
+__all__ = ["sanitize_headers", "sanitize_url"]
