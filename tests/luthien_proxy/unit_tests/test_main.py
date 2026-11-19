@@ -21,6 +21,8 @@ from luthien_proxy.main import (
     load_config_from_env,
     propagate_cli_overrides_to_env,
 )
+from luthien_proxy.observability.emitter import EventEmitter
+from luthien_proxy.settings import clear_settings_cache
 
 
 class TestLoadConfigFromEnv:
@@ -388,6 +390,32 @@ class TestCreateApp:
         # create_app does NOT close db_pool/redis_client - caller owns them
         mock_db_pool.close.assert_not_called()
         mock_redis_client.close.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("env_value", "expected"), [(None, True), ("false", False)])
+    async def test_lifespan_wires_observability_stdout_setting(
+        self, monkeypatch, policy_config_file, mock_db_pool, mock_redis_client, env_value, expected
+    ):
+        """The emitter's stdout dump follows OBSERVABILITY_STDOUT_ENABLED, which defaults to on."""
+        if env_value is None:
+            monkeypatch.delenv("OBSERVABILITY_STDOUT_ENABLED", raising=False)
+        else:
+            monkeypatch.setenv("OBSERVABILITY_STDOUT_ENABLED", env_value)
+        clear_settings_cache()
+        try:
+            app = create_app(
+                api_key="test-api-key",
+                admin_key=None,
+                db_pool=mock_db_pool,
+                redis_client=mock_redis_client,
+                startup_policy_path=policy_config_file,
+            )
+            with TestClient(app):
+                emitter = app.state.dependencies.emitter
+                assert isinstance(emitter, EventEmitter)
+                assert emitter._stdout_enabled is expected
+        finally:
+            clear_settings_cache()
 
     @pytest.mark.asyncio
     async def test_create_app_routes_included(self, policy_config_file, mock_db_pool, mock_redis_client):
