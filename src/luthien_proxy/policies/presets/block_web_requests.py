@@ -46,5 +46,6 @@ class BlockWebRequestsPolicy(SimpleLLMPolicy):
                 max_tokens=4096,
                 on_error="block",
                 auth_provider="user_credentials",
+                judge_thinking=False,
             )
         )

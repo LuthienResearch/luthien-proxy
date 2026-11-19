@@ -82,5 +82,6 @@ class DeAIPolicy(SimpleLLMPolicy):
                 max_tokens=8192,
                 on_error="pass",
                 auth_provider="user_credentials",
+                judge_thinking=False,
             )
         )

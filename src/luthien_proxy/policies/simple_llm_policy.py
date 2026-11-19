@@ -56,6 +56,7 @@ from luthien_proxy.policy_core import (
 )
 from luthien_proxy.policy_core.anthropic_message_builder import (
     AnthropicMessageBuilder,
+    BufferedThinking,
     BufferedTool,
 )
 from luthien_proxy.policy_core.judge_orchestrator import Bailed, JudgeOrchestrator
@@ -80,6 +81,21 @@ class _PendingTool:
     """Tag attached to a concurrently-dispatched tool judge."""
 
     tool: BufferedTool
+
+
+@dataclass(frozen=True)
+class _PendingThinking:
+    """Tag for a reasoning block upstream sent after a tool_use.
+
+    It goes through the same ordered collect as the tools so it keeps its
+    upstream position among them.
+    """
+
+    thinking: BufferedThinking
+
+
+async def _pass() -> JudgeAction:
+    return JudgeAction(action="pass")
 
 
 def _bail_on_block(action: JudgeAction) -> bool:
@@ -109,10 +125,11 @@ class _SimpleLLMAnthropicState:
     """
 
     builder: AnthropicMessageBuilder = field(default_factory=AnthropicMessageBuilder)
-    tool_judge: JudgeOrchestrator[_PendingTool, JudgeAction] = field(
+    tool_judge: JudgeOrchestrator[_PendingTool | _PendingThinking, JudgeAction] = field(
         default_factory=lambda: JudgeOrchestrator(bail_predicate=_bail_on_block)
     )
     judge_error_occurred: bool = False
+    tool_seen: bool = False
 
 
 class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
@@ -129,6 +146,8 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             with an injected warning, "block" rejects content entirely
         temperature: Sampling temperature for judge (default: 0.0)
         max_tokens: Max output tokens for judge (default: 4096)
+        judge_thinking: Judge ``thinking`` blocks too (default: True). Thinking
+            is then held until each block is complete instead of streaming live
     """
 
     ui = UIMetadata(
@@ -290,6 +309,17 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
                 continue
 
             block_type = block.get("type")
+            if block_type in ("thinking", "redacted_thinking"):
+                if block_type == "thinking" and self._config.judge_thinking:
+                    descriptor = BlockDescriptor(type="thinking", content=str(block.get("thinking", "")))
+                    action = await self._judge_block(descriptor, builder.committed_descriptors, context)
+                    if action.judge_failed:
+                        judge_error_occurred = True
+                    if action.action != "pass":
+                        self._drop_thinking(builder, context, judge_failed=action.judge_failed, reason=action.action)
+                        continue
+                builder.commit_reasoning_block(block, as_context=self._config.judge_thinking)
+                continue
             if block_type == "text":
                 descriptor = BlockDescriptor(type="text", content=block.get("text", ""))
             elif block_type == "tool_use":
@@ -355,10 +385,12 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
     def _handle_block_start(
         self, event: RawContentBlockStartEvent, context: "PolicyContext"
     ) -> list[MessageStreamEvent]:
-        builder = self._anthropic_state(context).builder
+        state = self._anthropic_state(context)
+        builder = state.builder
         cb = event.content_block
 
         if isinstance(cb, ToolUseBlock):
+            state.tool_seen = True
             builder.begin_tool_buffer(event.index, id=cb.id, name=cb.name)
             return []
 
@@ -366,7 +398,14 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
             builder.begin_text_buffer(event.index)
             return []
 
-        # Passthrough (thinking, redacted_thinking, future block types).
+        block_type = getattr(cb, "type", None)
+        judged_thinking = block_type == "thinking" and self._config.judge_thinking
+        # Reasoning after a tool_use is held so it keeps its place among the tools.
+        if judged_thinking or (block_type in ("thinking", "redacted_thinking") and state.tool_seen):
+            builder.begin_thinking_buffer(event.index, event)
+            return []
+
+        # Passthrough (unjudged reasoning before any tool, future block types).
         return builder.passthrough_start(event)
 
     def _handle_block_delta(
@@ -378,6 +417,8 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         if isinstance(delta, TextDelta) and builder.append_text_delta(event.index, delta.text):
             return []
         if isinstance(delta, InputJSONDelta) and builder.append_tool_delta(event.index, delta.partial_json):
+            return []
+        if builder.append_thinking_delta(event.index, event):
             return []
 
         return builder.passthrough_delta(event)
@@ -395,6 +436,10 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         tool = builder.take_tool(event.index)
         if tool is not None:
             return await self._handle_tool_stop(state, tool, context)
+
+        thinking = builder.take_thinking(event.index)
+        if thinking is not None:
+            return await self._handle_thinking_stop(state, thinking, context)
 
         return builder.passthrough_stop(event)
 
@@ -418,6 +463,71 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
         if action.action == "replace":
             return self._apply_replacement_to_builder(state.builder, action)
         return []  # blocked text — suppress
+
+    async def _handle_thinking_stop(
+        self,
+        state: _SimpleLLMAnthropicState,
+        thinking: BufferedThinking,
+        context: "PolicyContext",
+    ) -> list[MessageStreamEvent]:
+        """Judge a reasoning block, inline before any tool, deferred after one.
+
+        Before the first tool_use the block commits as soon as it is judged.
+        After one it joins the ordered tool collect, so the wire keeps the
+        upstream order of reasoning and tools.
+        """
+        if getattr(thinking.start_event.content_block, "type", None) == "thinking" and self._config.judge_thinking:
+            descriptor = BlockDescriptor(type="thinking", content=thinking.text)
+            coro = self._judge_block(descriptor, state.builder.committed_descriptors, context)
+        else:
+            coro = _pass()
+
+        if state.tool_seen:
+            state.tool_judge.submit(_PendingThinking(thinking=thinking), coro)
+            return []
+        return self._apply_thinking_decision(state, thinking, await coro, context, deferred=False)
+
+    def _apply_thinking_decision(
+        self,
+        state: _SimpleLLMAnthropicState,
+        thinking: BufferedThinking,
+        result: JudgeAction | Bailed,
+        context: "PolicyContext",
+        *,
+        deferred: bool,
+    ) -> list[MessageStreamEvent]:
+        """Commit a passed reasoning block; drop anything else.
+
+        Rewriting reasoning would invalidate its signature, so `replace` drops
+        the block like `block` does. A judge cancelled by the early bail
+        (`Bailed`) drops it too. The bail only fires when a judge failed under
+        ``on_error="block"``, so that drop counts as a judge failure.
+        """
+        if isinstance(result, JudgeAction) and result.judge_failed:
+            state.judge_error_occurred = True
+        if isinstance(result, JudgeAction) and result.action == "pass":
+            if deferred:
+                state.builder.buffer_thinking(thinking, as_context=self._config.judge_thinking)
+                return []
+            return state.builder.commit_thinking(thinking)
+        if isinstance(result, Bailed):
+            self._drop_thinking(state.builder, context, judge_failed=True, reason="cancelled")
+        else:
+            self._drop_thinking(state.builder, context, judge_failed=result.judge_failed, reason=result.action)
+        return []
+
+    def _drop_thinking(
+        self, builder: AnthropicMessageBuilder, context: "PolicyContext", *, judge_failed: bool, reason: str
+    ) -> None:
+        builder.record_dropped_thinking(judge_failed=judge_failed)
+        context.record_event(
+            "policy.simple_llm.thinking_dropped",
+            {
+                "summary": f"Thinking block removed ({reason})",
+                "reason": reason,
+                "judge_failed": judge_failed,
+            },
+        )
 
     async def _handle_tool_stop(
         self,
@@ -457,7 +567,10 @@ class SimpleLLMPolicy(BasePolicy, AnthropicHookPolicy):
 
         events: list[MessageStreamEvent] = []
         for item, result in await state.tool_judge.collect():
-            events.extend(self._apply_tool_decision(state, item.tool, result))
+            if isinstance(item, _PendingThinking):
+                events.extend(self._apply_thinking_decision(state, item.thinking, result, context, deferred=True))
+            else:
+                events.extend(self._apply_tool_decision(state, item.tool, result))
 
         if state.judge_error_occurred:
             if self._config.on_error == "pass":
