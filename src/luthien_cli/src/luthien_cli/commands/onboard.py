@@ -8,6 +8,7 @@ import secrets
 import subprocess
 import sys
 import textwrap
+import time
 import webbrowser
 from pathlib import Path
 
@@ -69,6 +70,8 @@ ONBOARDING_POLICY_CLASS = "luthien_proxy.policies.onboarding_policy:OnboardingPo
 
 _POSTGRES_USER = "luthien"
 _POSTGRES_DB = "luthien_control"
+_SET_PASSWORD_ATTEMPTS = 5
+_SET_PASSWORD_RETRY_DELAY_SECONDS = 1
 
 _LOCAL_MODE_HINT = "\n[bold]Alternative:[/bold] Try local mode instead (no Docker required):\n  [green]luthien onboard[/green] (without [cyan]--docker[/cyan])"
 
@@ -189,9 +192,24 @@ def _start_database(console: Console, repo_path: str, port_env: dict[str, str]) 
 
 
 def _set_database_password(console: Console, repo_path: str, pg_password: str) -> None:
-    """Set the Postgres role's password to the one in .env, over the container's local socket."""
+    """Set the Postgres role's password to the one in .env, over the container's local socket.
+
+    Retries because on a fresh volume the healthcheck can pass against the temporary
+    server the Postgres image runs during init, which then restarts and drops the socket.
+    """
+    for attempt in range(1, _SET_PASSWORD_ATTEMPTS + 1):
+        result = _alter_role_password(repo_path, pg_password)
+        if result.returncode == 0:
+            return
+        if attempt < _SET_PASSWORD_ATTEMPTS:
+            time.sleep(_SET_PASSWORD_RETRY_DELAY_SECONDS)
+    console.print(f"[red]Setting the database password failed:[/red]\n{result.stderr}")
+    raise SystemExit(1)
+
+
+def _alter_role_password(repo_path: str, pg_password: str) -> subprocess.CompletedProcess[str]:
     escaped_password = pg_password.replace("'", "''")
-    result = subprocess.run(
+    return subprocess.run(
         [
             "docker",
             "compose",
@@ -212,9 +230,6 @@ def _set_database_password(console: Console, repo_path: str, pg_password: str) -
         capture_output=True,
         text=True,
     )
-    if result.returncode != 0:
-        console.print(f"[red]Setting the database password failed:[/red]\n{result.stderr}")
-        raise SystemExit(1)
 
 
 def _write_policy(repo_path: str, gateway_url: str) -> None:

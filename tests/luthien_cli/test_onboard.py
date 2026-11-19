@@ -308,12 +308,44 @@ def test_onboard_docker_stops_when_database_does_not_start(tmp_path):
 def test_onboard_docker_stops_when_database_password_cannot_be_set(tmp_path):
     ok = MagicMock(returncode=0, stderr="")
     psql_failed = MagicMock(returncode=1, stderr='role "luthien" does not exist')
-    result, mock_run, _ = _run_docker_onboard(tmp_path, [ok, ok, ok, psql_failed])
+    with patch("luthien_cli.commands.onboard.time.sleep") as mock_sleep:
+        result, mock_run, _ = _run_docker_onboard(tmp_path, [ok, ok, ok] + [psql_failed] * 5)
 
     assert result.exit_code == 1
     assert "Setting the database password failed" in result.output
     assert 'role "luthien" does not exist' in result.output
-    assert mock_run.call_count == 4
+    assert mock_run.call_count == 8
+    assert mock_sleep.call_count == 4
+
+
+def test_onboard_docker_retries_database_password_while_postgres_restarts_after_init(tmp_path):
+    ok = MagicMock(returncode=0, stderr="")
+    socket_missing = MagicMock(
+        returncode=2, stderr='connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed'
+    )
+    with patch("luthien_cli.commands.onboard.time.sleep") as mock_sleep:
+        result, mock_run, _ = _run_docker_onboard(tmp_path, [ok, ok, ok, socket_missing, socket_missing, ok, ok])
+
+    assert result.exit_code == 0, result.output
+    assert [c.args[0] for c in mock_run.call_args_list[3:6]] == [_SET_PASSWORD_COMMAND] * 3
+    assert mock_run.call_args_list[6].args[0] == ["docker", "compose", "up", "-d"]
+    assert [c.args for c in mock_sleep.call_args_list] == [(1,), (1,)]
+
+
+def test_set_database_password_reports_last_error_after_all_attempts_fail(tmp_path):
+    console = MagicMock()
+    attempts = [MagicMock(returncode=2, stderr=f"attempt {n} failed") for n in range(1, 6)]
+    with (
+        patch("luthien_cli.commands.onboard.subprocess.run", side_effect=attempts) as mock_run,
+        patch("luthien_cli.commands.onboard.time.sleep") as mock_sleep,
+        pytest.raises(SystemExit) as exit_info,
+    ):
+        _set_database_password(console, str(tmp_path), "password")
+
+    assert exit_info.value.code == 1
+    assert mock_run.call_count == 5
+    assert mock_sleep.call_count == 4
+    assert "attempt 5 failed" in console.print.call_args.args[0]
 
 
 def test_onboard_local_gateway_unhealthy(tmp_path):
