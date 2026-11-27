@@ -226,7 +226,12 @@ def _alter_role_password(repo_path: str, pg_password: str) -> subprocess.Complet
             _POSTGRES_DB,
         ],
         cwd=repo_path,
-        input=f"ALTER ROLE {_POSTGRES_USER} PASSWORD '{escaped_password}';\n",
+        input=(
+            "SET log_statement = 'none';\n"
+            "SET log_min_duration_statement = -1;\n"
+            "SET log_min_error_statement = panic;\n"
+            f"ALTER ROLE {_POSTGRES_USER} PASSWORD '{escaped_password}';\n"
+        ),
         capture_output=True,
         text=True,
     )

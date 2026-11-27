@@ -275,6 +275,11 @@ def test_ensure_docker_env_returns_written_postgres_password(tmp_path):
     assert f"\nPOSTGRES_PASSWORD={password}\n" in (repo / ".env").read_text()
 
 
+_NO_STATEMENT_LOGGING = (
+    "SET log_statement = 'none';\nSET log_min_duration_statement = -1;\nSET log_min_error_statement = panic;\n"
+)
+
+
 def test_onboard_docker_sets_database_password_from_env(tmp_path):
     ok = MagicMock(returncode=0, stderr="")
     result, mock_run, repo_path = _run_docker_onboard(tmp_path, [ok] * 5)
@@ -284,14 +289,14 @@ def test_onboard_docker_sets_database_password_from_env(tmp_path):
     password = next(line.split("=", 1)[1] for line in env_lines if line.startswith("POSTGRES_PASSWORD="))
     set_password_call = mock_run.call_args_list[3]
     assert set_password_call.args[0] == _SET_PASSWORD_COMMAND
-    assert set_password_call.kwargs["input"] == f"ALTER ROLE luthien PASSWORD '{password}';\n"
+    assert set_password_call.kwargs["input"] == f"{_NO_STATEMENT_LOGGING}ALTER ROLE luthien PASSWORD '{password}';\n"
     assert all(password not in " ".join(c.args[0]) for c in mock_run.call_args_list)
 
 
 def test_set_database_password_escapes_single_quotes(tmp_path):
     with patch("luthien_cli.commands.onboard.subprocess.run", return_value=MagicMock(returncode=0)) as mock_run:
         _set_database_password(MagicMock(), str(tmp_path), "it's")
-    assert mock_run.call_args.kwargs["input"] == "ALTER ROLE luthien PASSWORD 'it''s';\n"
+    assert mock_run.call_args.kwargs["input"] == f"{_NO_STATEMENT_LOGGING}ALTER ROLE luthien PASSWORD 'it''s';\n"
 
 
 def test_onboard_docker_stops_when_database_does_not_start(tmp_path):
